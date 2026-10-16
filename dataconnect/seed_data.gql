@@ -1,0 +1,56 @@
+# LOCAL ONLY: guarded demo-estateos seeder resets these six tables.
+# Synthetic fixtures. Outside connectorDirs; never deployed or generated.
+mutation ResetEstateOS @transaction {
+  activity_deleteMany(all: true)
+  lead_deleteMany(all: true)
+  branch_deleteMany(all: true)
+  membership_deleteMany(all: true)
+  organization_deleteMany(all: true)
+  userProfile_deleteMany(all: true)
+}
+
+mutation SeedEstateOS @transaction {
+  userProfile_insertMany(data: [
+    {uid: "owner-a", email: "owner-a@example.test", displayName: "Local owner-a"}
+    {uid: "admin-a", email: "admin-a@example.test", displayName: "Local admin-a"}
+    {uid: "manager-a", email: "manager-a@example.test", displayName: "Local manager-a"}
+    {uid: "agent-a", email: "agent-a@example.test", displayName: "Local agent-a"}
+    {uid: "owner-b", email: "owner-b@example.test", displayName: "Local owner-b"}
+    {uid: "shared-agent", email: "shared-agent@example.test", displayName: "Local shared-agent"}
+    {uid: "invited-user", email: "invited-user@example.test", displayName: "Local invited-user"}
+    {uid: "pending-user", email: "pending-user@example.test", displayName: "Local pending-user"}
+    {uid: "suspended-user", email: "suspended-user@example.test", displayName: "Local suspended-user"}
+    {uid: "revoked-user", email: "revoked-user@example.test", displayName: "Local revoked-user"}
+    {uid: "outsider", email: "outsider@example.test", displayName: "Local outsider"}
+  ])
+  organization_insertMany(data: [
+    {id: "10000000-0000-4000-8000-000000000001", name: "Local Agency A", slug: "local-agency-a", createdByUid: "owner-a"}
+    {id: "20000000-0000-4000-8000-000000000001", name: "Local Agency B", slug: "local-agency-b", createdByUid: "owner-b"}
+  ])
+  membership_insertMany(data: [
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000001", userProfileUid: "owner-a", email: "owner-a@example.test", role: OWNER, status: ACTIVE, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000002", userProfileUid: "admin-a", email: "admin-a@example.test", role: ADMIN, status: ACTIVE, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000003", userProfileUid: "manager-a", email: "manager-a@example.test", role: MANAGER, status: ACTIVE, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000004", userProfileUid: "agent-a", email: "agent-a@example.test", role: AGENT, status: ACTIVE, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000005", userProfileUid: "shared-agent", email: "shared-agent@example.test", role: AGENT, status: ACTIVE, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000006", userProfileUid: null, email: "invited-user@example.test", role: AGENT, status: INVITED, invitedByUid: "owner-a", invitationTokenHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", invitationExpiresAt: "2099-01-01T00:00:00Z"}
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000007", userProfileUid: "pending-user", email: "pending-user@example.test", role: AGENT, status: PENDING, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000008", userProfileUid: "suspended-user", email: "suspended-user@example.test", role: AGENT, status: SUSPENDED, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000009", userProfileUid: "revoked-user", email: "revoked-user@example.test", role: AGENT, status: REVOKED, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
+    {organizationId: "20000000-0000-4000-8000-000000000001", id: "21000000-0000-4000-8000-000000000001", userProfileUid: "owner-b", email: "owner-b@example.test", role: OWNER, status: ACTIVE, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
+    {organizationId: "20000000-0000-4000-8000-000000000001", id: "21000000-0000-4000-8000-000000000002", userProfileUid: "shared-agent", email: "shared-agent@example.test", role: AGENT, status: ACTIVE, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
+  ])
+  branch_insertMany(data: [
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "12000000-0000-4000-8000-000000000001", name: "Local Dubai Branch", createdByUid: "owner-a"}
+    {organizationId: "20000000-0000-4000-8000-000000000001", id: "22000000-0000-4000-8000-000000000001", name: "Local Abu Dhabi Branch", createdByUid: "owner-b"}
+  ])
+  lead_insertMany(data: [
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "13000000-0000-4000-8000-000000000001", fullName: "Local Test Lead A", email: "lead-a@example.test", status: NEW, branchId: "12000000-0000-4000-8000-000000000001", assignedMembershipId: "11000000-0000-4000-8000-000000000004", createdByUid: "owner-a", updatedByUid: "owner-a"}
+    {organizationId: "20000000-0000-4000-8000-000000000001", id: "23000000-0000-4000-8000-000000000001", fullName: "Local Test Lead B", email: "lead-b@example.test", status: NEW, branchId: "22000000-0000-4000-8000-000000000001", assignedMembershipId: "21000000-0000-4000-8000-000000000002", createdByUid: "owner-b", updatedByUid: "owner-b"}
+  ])
+  activity_insertMany(data: [
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "14000000-0000-4000-8000-000000000001", actorUid: "owner-a", kind: ORGANIZATION_CREATED, targetId: "10000000-0000-4000-8000-000000000001"}
+    {organizationId: "20000000-0000-4000-8000-000000000001", id: "24000000-0000-4000-8000-000000000001", actorUid: "owner-b", kind: ORGANIZATION_CREATED, targetId: "20000000-0000-4000-8000-000000000001"}
+  ]) 
+}
+

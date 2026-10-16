@@ -1,0 +1,40 @@
+import "server-only";
+
+import { cookies } from "next/headers";
+import { authCookies, getAppOrigin } from "@/modules/auth/server/config";
+import { authJson } from "@/modules/auth/server/http";
+import { getSession } from "@/modules/auth/server/session";
+import { SessionPolicyError } from "@/modules/auth/server/session-policy";
+import { AuthRequestError, validateCsrfRequest, validateMutationRequest } from "@/modules/auth/server/request-policy";
+import { WorkspaceError, mapWorkspaceDataError } from "@/modules/organizations/server/errors";
+import { parseLeadJsonRequest } from "./request-policy";
+
+export function leadErrorResponse(error: unknown) {
+  const safe = error instanceof WorkspaceError || error instanceof SessionPolicyError || error instanceof AuthRequestError
+    ? error : mapWorkspaceDataError(error);
+  return authJson({ error: { code: safe.code, message: safe.message } }, safe.status);
+}
+
+export async function authorizeLeadRead(request: Request) {
+  validateCsrfRequest(request, getAppOrigin());
+  if (!await getSession()) throw new WorkspaceError("UNAUTHENTICATED", 401, "Sign in to continue.");
+}
+
+type Mutation = (input: unknown, expectedOrganizationId: string | null) => Promise<unknown>;
+
+/** Every entry point enforces HTTP protections; services repeat data authorization. */
+export async function leadMutationResponse(request: Request, mutation: Mutation, leadId?: string, successStatus = 200) {
+  try {
+    const cookieStore = await cookies();
+    validateMutationRequest(request, {
+      origin: getAppOrigin(), csrfToken: cookieStore.get(authCookies().csrf.name)?.value,
+    });
+    if (!await getSession()) throw new WorkspaceError("UNAUTHENTICATED", 401, "Sign in to continue.");
+    const body = await parseLeadJsonRequest(request);
+    if ("leadId" in body) throw new WorkspaceError("INVALID_INPUT", 400, "Use the lead identifier in the request URL.");
+    const data = await mutation(leadId ? { ...body, leadId } : body, request.headers.get("x-estateos-organization"));
+    return authJson({ data }, successStatus);
+  } catch (error) {
+    return leadErrorResponse(error);
+  }
+}

@@ -1,0 +1,110 @@
+# Tenant-owned rows use (organizationId, id) primary keys. References between
+# tenant-owned rows reuse organizationId so PostgreSQL rejects cross-tenant links.
+enum MembershipRole { OWNER ADMIN MANAGER AGENT }
+enum MembershipStatus { INVITED PENDING ACTIVE SUSPENDED REVOKED }
+enum LeadStatus { NEW CONTACTED QUALIFIED LOST CONVERTED }
+enum ActivityKind {
+  ORGANIZATION_CREATED ORGANIZATION_SWITCHED BRANCH_CREATED
+  MEMBERSHIP_INVITED INVITATION_ACCEPTED MEMBERSHIP_APPROVED MEMBERSHIP_SUSPENDED MEMBERSHIP_REVOKED
+  LEAD_CREATED LEAD_UPDATED
+  LEAD_NOTE_ADDED LEAD_STATUS_CHANGED LEAD_ASSIGNED FOLLOW_UP_SCHEDULED FOLLOW_UP_COMPLETED
+}
+
+type UserProfile @table(key: ["uid"]) {
+  uid: String! @col(dataType: "varchar(128)") @default(expr: "auth.uid")
+  email: String! @col(dataType: "varchar(254)")
+  displayName: String! @col(dataType: "varchar(120)")
+  # A preference only: every operation still validates an ACTIVE membership.
+  activeOrganization: Organization
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type Organization @table @index(fields: ["createdByUid", "createdAt"]) {
+  id: UUID! @default(expr: "uuidV4()")
+  name: String! @col(dataType: "varchar(160)")
+  slug: String! @col(dataType: "varchar(63)") @unique
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type Membership @table(key: ["organization", "id"])
+  @unique(fields: ["organization", "email"])
+  @unique(fields: ["organization", "userProfile"])
+  @index(fields: ["userProfileUid", "status", "organizationId"])
+  @index(fields: ["organizationId", "status", "createdAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  userProfile: UserProfile
+  email: String! @col(dataType: "varchar(254)")
+  role: MembershipRole!
+  status: MembershipStatus! @default(value: INVITED)
+  invitedBy: UserProfile
+  invitationTokenHash: String @col(dataType: "varchar(64)")
+  invitationExpiresAt: Timestamp
+  acceptedAt: Timestamp
+  approvedAt: Timestamp
+  approvedBy: UserProfile
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type Branch @table(key: ["organization", "id"])
+  @unique(fields: ["organization", "name"])
+  @index(fields: ["organizationId", "createdAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  name: String! @col(dataType: "varchar(120)")
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type Lead @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "createdAt"], order: [ASC, DESC])
+  @index(fields: ["organizationId", "status", "updatedAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "assignedMembershipId", "status"])
+  @index(fields: ["organizationId", "branchId"])
+  @index(fields: ["organizationId", "followUpAt"], order: [ASC, ASC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  fullName: String! @col(dataType: "varchar(160)")
+  email: String @col(dataType: "varchar(254)")
+  phone: String @col(dataType: "varchar(32)")
+  source: String @col(dataType: "varchar(120)")
+  status: LeadStatus! @default(value: NEW)
+  branchId: UUID
+  branch: Branch @ref(fields: ["organizationId", "branchId"], references: ["organizationId", "id"])
+  assignedMembershipId: UUID
+  assignedMembership: Membership @ref(fields: ["organizationId", "assignedMembershipId"], references: ["organizationId", "id"])
+  followUpAt: Timestamp
+  followUpNote: String @col(dataType: "varchar(500)")
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Append-only audit events: no deployed operation updates or deletes these rows.
+# Metadata contains identifiers and state changes, never invitation secrets or lead PII.
+type Activity @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "createdAt"], order: [ASC, DESC])
+  @index(fields: ["organizationId", "leadId", "createdAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  actor: UserProfile!
+  kind: ActivityKind!
+  leadId: UUID
+  lead: Lead @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  targetId: UUID
+  metadata: Any
+  # Explicit lead notes are tenant-private content, separate from audit metadata.
+  note: String @col(dataType: "varchar(4000)")
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+

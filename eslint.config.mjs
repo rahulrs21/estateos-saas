@@ -11,6 +11,13 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    ".tmp/**",
+    ".agents/**",
+    ".claude/**",
+    ".dataconnect/**",
+    "dataconnect/.dataconnect/**",
+    "src/dataconnect-admin-generated/**",
+    "src/dataconnect-generated/**",
     "next-env.d.ts",
   ]),
 ]);

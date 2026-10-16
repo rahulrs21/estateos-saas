@@ -1,0 +1,13 @@
+specVersion: "v1"
+serviceId: "estateos"
+location: "us-east4"
+schemas:
+  - source: "./schema"
+    datasource:
+      postgresql:
+        database: "fdcdb"
+        # Hosted migrations must preserve unrelated/existing tables by default.
+        schemaValidation: "COMPATIBLE"
+        cloudSql:
+          instanceId: "estateos-fdc"
+connectorDirs: ["./connector"]

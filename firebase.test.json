@@ -1,0 +1,15 @@
+{
+  "dataconnect": { "source": "dataconnect" },
+  "emulators": {
+    "dataconnect": {
+      "host": "127.0.0.1",
+      "port": 19499,
+      "postgresPort": 19432,
+      "dataDir": ".tmp/sql-connect-integration/data"
+    },
+    "hub": { "host": "127.0.0.1", "port": 19400 },
+    "logging": { "host": "127.0.0.1", "port": 19500 },
+    "ui": { "enabled": false },
+    "singleProjectMode": true
+  }
+}

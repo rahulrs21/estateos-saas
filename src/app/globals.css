@@ -1,26 +1,146 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-estate-sans);
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --font-heading: var(--font-estate-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* EstateOS semantic palette. System fonts keep builds independent of font services. */
+:root {
+  --font-estate-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  --background: #f6f8fa;
+  --foreground: #182c34;
+  --card: #ffffff;
+  --card-foreground: #182c34;
+  --popover: #ffffff;
+  --popover-foreground: #182c34;
+  --primary: #087563;
+  --primary-foreground: #ffffff;
+  --secondary: #e9f3ef;
+  --secondary-foreground: #126453;
+  --muted: #eff3f5;
+  --muted-foreground: #60717c;
+  --accent: #e9f3ef;
+  --accent-foreground: #126453;
+  --destructive: #b42336;
+  --border: #e3e9ed;
+  --input: #d1dbe0;
+  --ring: #188775;
+  --chart-1: #087563;
+  --chart-2: #71b9ab;
+  --chart-3: #99a9d4;
+  --chart-4: #d4b56c;
+  --chart-5: #8096a3;
+  --radius: 0.75rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #526670;
+  --sidebar-primary: #087563;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e9f3ef;
+  --sidebar-accent-foreground: #075f50;
+  --sidebar-border: #e3e9ed;
+  --sidebar-ring: #188775;
+}
+
+.dark {
+  --background: #101b22;
+  --foreground: #e6edf0;
+  --card: #17262e;
+  --card-foreground: #e6edf0;
+  --popover: #1c2d36;
+  --popover-foreground: #e6edf0;
+  --primary: #6ed4ba;
+  --primary-foreground: #0d3029;
+  --secondary: #213c37;
+  --secondary-foreground: #a6e5d5;
+  --muted: #21323b;
+  --muted-foreground: #a0b2bd;
+  --accent: #213c37;
+  --accent-foreground: #a6e5d5;
+  --destructive: #ff9aa5;
+  --border: #2b3d47;
+  --input: #3b505a;
+  --ring: #6ed4ba;
+  --chart-1: #6ed4ba;
+  --chart-2: #71b9ab;
+  --chart-3: #99a9d4;
+  --chart-4: #d4b56c;
+  --chart-5: #8096a3;
+  --sidebar: #14232b;
+  --sidebar-foreground: #b2c2cc;
+  --sidebar-primary: #6ed4ba;
+  --sidebar-primary-foreground: #0d3029;
+  --sidebar-accent: #213c37;
+  --sidebar-accent-foreground: #a6e5d5;
+  --sidebar-border: #2b3d47;
+  --sidebar-ring: #6ed4ba;
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  body { @apply bg-background text-foreground; }
+  html { @apply font-sans; scroll-padding-top: 5rem; }
+  button:not(:disabled), [role="button"]:not([aria-disabled="true"]), summary { cursor: pointer; }
+  a, button, summary, input, select, textarea { @apply focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring; }
+  ::selection { background: var(--secondary); color: var(--secondary-foreground); }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@utility chart-grid {
+  background-image: linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 100% 25%;
+}
+
+@utility dot-grid {
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 18px 18px;
 }
