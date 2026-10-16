@@ -5,9 +5,9 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { getFirebaseAdminAuth } from "@/lib/firebase/admin";
-import { authCookies } from "./config";
-import { classifyAuthConfigurationError } from "./configuration-error";
-import { authServiceUnavailable, verifyAuthenticationSession } from "./session-core";
+import { authCookies } from "@/modules/auth/server/config";
+import { classifyAuthConfigurationError } from "@/modules/auth/server/configuration-error";
+import { authServiceUnavailable, verifyAuthenticationSession } from "@/modules/auth/server/session-core";
 
 /** React cache only deduplicates within one server render, never across users. */
 export const getSession = cache(async () => {

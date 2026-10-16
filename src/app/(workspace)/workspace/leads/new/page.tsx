@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { PageSkeleton } from "@/components/shared/page-skeleton";
-import { requireSession } from "@/modules/auth/server/session";
+import { requireSession } from "@/lib/auth/session";
 import { LeadForm } from "@/modules/leads/components/lead-form";
 import { LeadsAccessState } from "@/modules/leads/components/leads-access-state";
 import { getLeadFormData } from "@/modules/leads/server/views";

@@ -1,7 +1,7 @@
 "use client";
 
 import { getApps, initializeApp } from "firebase/app";
-import { getAuth, initializeAuth, inMemoryPersistence, type Auth } from "firebase/auth";
+import { getAuth, initializeAuth, inMemoryPersistence, signOut, type Auth } from "firebase/auth";
 
 let clientAuth: Auth | undefined;
 
@@ -27,4 +27,9 @@ export function getFirebaseClientAuth(): Auth {
     : initializeAuth(initializeApp(config, "estateos-web"), { persistence: inMemoryPersistence });
   clientAuth.languageCode = "en";
   return clientAuth;
+}
+
+/** Logout must not need public configuration when no browser auth was initialized. */
+export async function clearFirebaseClientAuth(): Promise<void> {
+  if (clientAuth) await signOut(clientAuth);
 }

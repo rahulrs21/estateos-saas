@@ -5,12 +5,14 @@ export const RECENT_SIGN_IN_SECONDS = 60 * 5;
 export interface AuthUser {
   uid: string;
   email: string;
+  name?: string;
   emailVerified: true;
 }
 
 export interface VerifiedTokenClaims {
   uid: string;
   email?: string;
+  name?: string;
   email_verified?: boolean;
   firebase?: { sign_in_provider?: string };
   auth_time?: number;
@@ -35,7 +37,8 @@ export function authenticatedUserFromClaims(claims: VerifiedTokenClaims): AuthUs
   if (claims.email_verified !== true) {
     throw new SessionPolicyError("EMAIL_NOT_VERIFIED", 403, "Verify your email before entering the workspace.");
   }
-  return { uid: claims.uid, email: claims.email, emailVerified: true };
+  const name = typeof claims.name === "string" ? claims.name.trim() : "";
+  return { uid: claims.uid, email: claims.email, emailVerified: true, ...(name ? { name } : {}) };
 }
 
 /** Five-minute recency is for issuing a cookie, not for reading an existing session. */

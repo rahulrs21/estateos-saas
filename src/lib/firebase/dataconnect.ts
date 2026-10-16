@@ -2,7 +2,7 @@ import "server-only";
 
 import { connectorConfig } from "@dataconnect/admin-generated";
 import { getDataConnect, type OperationOptions } from "firebase-admin/data-connect";
-import { getSession } from "@/modules/auth/server/session";
+import { getSession } from "@/lib/auth/session";
 import { assertSafeDataConnectEnvironment } from "@/modules/organizations/server/dataconnect-policy";
 import { mapWorkspaceDataError, WorkspaceError } from "@/modules/organizations/server/errors";
 import { getFirebaseAdminApp } from "./admin";

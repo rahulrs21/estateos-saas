@@ -4,7 +4,7 @@ import { MapPinOff } from "lucide-react";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageSkeleton } from "@/components/shared/page-skeleton";
 import { buttonVariants } from "@/components/ui/button";
-import { requireSession } from "@/modules/auth/server/session";
+import { requireSession } from "@/lib/auth/session";
 
 async function AuthenticatedWorkspaceNotFound() {
   await requireSession();

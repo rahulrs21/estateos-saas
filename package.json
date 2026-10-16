@@ -15,6 +15,7 @@
     "lint": "eslint",
     "test": "npm run test:auth && npm run test:tenancy && npm run test:leads",
     "test:auth": "node scripts/test-auth.mjs",
+    "test:auth:emulator": "node scripts/test-auth-emulator.mjs",
     "test:tenancy": "node scripts/test-tenancy.mjs",
     "test:leads": "node scripts/test-leads.mjs",
     "sql:validate": "node scripts/sql-connect-toolkit.mjs build",

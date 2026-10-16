@@ -1,4 +1,8 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import { connection } from "next/server";
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/auth/session";
 import {
   ArrowLeft,
   Building2,
@@ -18,7 +22,17 @@ const copy = {
   verify: { title: "Verify your email.", description: "Follow the verification link in your inbox, then log in. To request another email, confirm your account credentials below." },
 };
 
+async function GuestScreen({ mode }: { mode: AuthFormMode }) {
+  await connection();
+  if (await getSession()) redirect("/workspace/dashboard");
+  return <AuthScreenContent mode={mode} />;
+}
+
 export function AuthScreen({ mode }: { mode: AuthFormMode }) {
+  return <Suspense fallback={<main id="main-content" className="flex min-h-svh items-center justify-center p-6"><p role="status" className="text-sm text-muted-foreground">Loading sign-in…</p></main>}><GuestScreen mode={mode} /></Suspense>;
+}
+
+function AuthScreenContent({ mode }: { mode: AuthFormMode }) {
   const isSignup = mode === "signup";
 
   return (

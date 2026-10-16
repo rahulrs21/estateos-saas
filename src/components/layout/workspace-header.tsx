@@ -9,10 +9,15 @@ import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
 import { LogoutButton } from "@/modules/auth/components/logout-button";
 
-export function WorkspaceHeader() {
+export interface WorkspaceHeaderProps {
+  user?: { name?: string | null; email: string } | null;
+}
+
+export function WorkspaceHeader({ user }: WorkspaceHeaderProps) {
   const pathname = usePathname();
   const { toggleSidebar, open, isMobile, openMobile } = useSidebar();
   const current = navigationGroups.flatMap((group) => group.items).find((item) => item.href === pathname);
+  const identity = user?.name?.trim() || user?.email;
 
   return (
     <header className="flex h-[76px] shrink-0 items-center justify-between gap-2 border-b bg-card px-4 sm:px-7">
@@ -30,7 +35,7 @@ export function WorkspaceHeader() {
         </nav>
       </div>
       <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-secondary px-2.5 py-1 text-[11px] font-medium text-primary"><ShieldCheck className="size-3" aria-hidden="true" />Signed in</span>
+        {identity && <span title={`Signed in as ${identity}`} className="inline-flex max-w-28 items-center gap-1.5 rounded-full border border-primary/20 bg-secondary px-2.5 py-1 text-[11px] font-medium text-primary sm:max-w-64"><ShieldCheck className="size-3 shrink-0" aria-hidden="true" /><span className="truncate"><span className="sr-only sm:not-sr-only">Signed in as </span>{identity}</span></span>}
         <ThemeToggle />
         <LogoutButton />
       </div>

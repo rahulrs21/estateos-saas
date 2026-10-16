@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Dashboard } from "@/modules/dashboard/components/dashboard";
-import { requireSession } from "@/modules/auth/server/session";
+import { requireSession } from "@/lib/auth/session";
 import { PageSkeleton } from "@/components/shared/page-skeleton";
 
 export const metadata: Metadata = { title: "Dashboard" };

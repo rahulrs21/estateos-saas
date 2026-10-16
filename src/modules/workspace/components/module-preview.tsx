@@ -9,7 +9,7 @@ import { PageSkeleton } from "@/components/shared/page-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { workspaceModules } from "@/config/navigation";
-import { requireSession } from "@/modules/auth/server/session";
+import { requireSession } from "@/lib/auth/session";
 
 type Capability = { title: string; description: string };
 

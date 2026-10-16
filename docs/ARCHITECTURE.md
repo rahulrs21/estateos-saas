@@ -48,6 +48,7 @@ src/
     leads/                   Shared Zod schemas, UI and server-only services
     ...                      Feature-specific components
   lib/
+    auth/session.ts          Shared verified-session access and route protection
     firebase/                Separate browser and server-only Admin SDK setup
     ...                      Shared utilities
   dataconnect-admin-generated/ Generated server SDK, not handwritten domain code
@@ -69,7 +70,7 @@ Route groups organize source files without changing URLs. Keep the top-level roo
 
 The navigation catalog is the single source for sidebar links and module descriptions. Dashboard has its own route. Leads has explicit list/new routes and UUID detail/edit routes. Remaining planned modules render `modules/workspace/components/module-preview.tsx` using the catalog. Unknown module paths return a 404. Route-level loading/error states handle rendering transitions and failures; they do not imply a connected backend. Request-dependent Leads rendering sits inside destination-local Suspense boundaries, preserving uncached identity and instant-navigation behavior.
 
-Modules own their UI, types, validation and server services. Shared Firebase infrastructure stays in `lib/firebase`; existing authentication and organization permission policies stay with their owning modules. Add shared `lib/auth`, `lib/permissions`, `lib/validation` or `types` files when there is code to share. Agent/property domain modules will be introduced when their functionality is implemented; their current navigation destinations remain explicit placeholders. Do not create parallel implementations or empty module scaffolding just to match a proposed tree.
+Modules own their UI, types, validation and server services. Shared Firebase infrastructure stays in `lib/firebase`, and verified session access in `lib/auth/session.ts`; authentication policy and organization permission rules stay with their owning modules. Add shared `lib/permissions`, `lib/validation` or `types` files when there is code to share. Agent/property domain modules will be introduced when their functionality is implemented; their current navigation destinations remain explicit placeholders. Do not create parallel implementations or empty module scaffolding just to match a proposed tree.
 
 The SQL Connect directory is named `connector`, while its configured connector ID remains `example` to preserve existing SDK and service identity. This organization refactor changes no database schema, operation authorization or hosted resources. See [Database](DATABASE.md) for the data model and [Permissions](PERMISSIONS.md) for access rules.
 

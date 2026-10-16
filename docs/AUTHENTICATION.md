@@ -60,7 +60,9 @@ Known configuration failures return a fixed `AUTH_CONFIGURATION_ERROR` message. 
 
 ## Identity and sessions
 
-Signup creates a real Firebase password account and sends verification email. The Firebase client uses in-memory persistence; see [Firebase authentication persistence](https://firebase.google.com/docs/auth/web/auth-state-persistence). It signs out after each account operation. The verification page therefore asks for email and password whenever resending verification.
+Signup validates full name, email, password and matching confirmation with Zod and checks Firebase's configured password policy. Password fields have accessible show/hide controls. The full name is stored as Firebase Auth `displayName`; registration creates no database profile, company, membership or privileged role. If account creation succeeds but name/verification setup fails, the UI reports incomplete setup and directs the user to resend verification.
+
+The Firebase client uses in-memory persistence; see [Firebase authentication persistence](https://firebase.google.com/docs/auth/web/auth-state-persistence). It signs out after credential operations. The verification page asks for email/password to resend verification. Password-reset confirmation does not disclose account existence. Raw Firebase error details and tokens are not displayed or logged.
 
 The browser obtains a CSRF token and submits its ID token to the server. EstateOS requires the configured origin, matching CSRF cookie/header, verified email, the password sign-in provider, and authentication within the last five minutes. It issues a five-day session cookie, then clears the browser Firebase sign-in. Subsequent requests verify the server cookie with revocation checking enabled. Logout clears cookies and revokes the user's Firebase refresh tokens, invalidating sessions across devices. Invalid, expired, revoked, disabled-user and deleted-user sessions are rejected. These choices follow [Firebase's session-cookie model](https://firebase.google.com/docs/auth/admin/manage-cookies).
 
@@ -76,11 +78,16 @@ CSRF tokens expire after ten minutes. The server sends the token in a non-cachea
 | `GET /api/auth/csrf` | Issue a short-lived CSRF token without authenticated data |
 | `GET /api/auth/session` | Verify the session and return authenticated identity; unauthorized requests receive `401` |
 | `POST /api/auth/session` | Validate origin, CSRF and ID token before issuing a session |
-| `DELETE /api/auth/session` | Validate origin/CSRF, clear the session, and revoke the authenticated user's sessions |
+| `POST /api/auth/logout` | Validate origin/CSRF, clear cookies, and revoke the authenticated user's sessions |
+| `DELETE /api/auth/session` | Compatible logout endpoint sharing the same server implementation |
 
 A cookie's presence alone grants no access. The shared server helper verifies Firebase identity. Future operations must invoke it and independently verify membership/capabilities at the operation boundary; a layout guard cannot secure an API or server action. See [Next.js authentication guidance](https://nextjs.org/docs/app/guides/authentication) and [the server cookie API](https://nextjs.org/docs/app/api-reference/functions/cookies).
 
-The current identity grants access only to the empty workspace shell. There is no hardcoded admin, and client-supplied roles or organization IDs grant no authority. Organization selection, memberships, role/record permissions, audit persistence, and tenant data remain future work.
+Shared server session helpers live in `src/lib/auth/session.ts`; Firebase initialization stays in `src/lib/firebase`, and auth UI/provider flows/policy in `src/modules/auth`. This project's Cache Components configuration uses Node.js and disallows per-route `runtime` exports; Firebase Admin remains server-only and no Edge runtime is configured. Request-dependent rendering sits behind local Suspense boundaries without cross-user session caching. Authenticated visitors to auth pages redirect to the dashboard.
+
+Identity grants access to the workspace shell. Existing organization and Leads services separately enforce membership and record permissions; this authentication task does not modify their database schemas or add company setup. Auth display names and client-submitted roles or organization identifiers grant no authority.
+
+An absent, expired, revoked or malformed session can log out without identifying another user. If Firebase verification/revocation is unavailable, the endpoint reports a safe error and retains the cookie for retry rather than claiming all-device logout succeeded. In-memory browser auth is cleared even when that server request fails.
 
 ## Manual testing
 
@@ -89,7 +96,7 @@ Start `npm run dev` with `APP_ORIGIN=http://localhost:3000`. Use that exact URL,
 ### Signup and verification
 
 1. In a private window, visit `/workspace/dashboard` and `/workspace/leads`. Both must redirect to login.
-2. Visit `/signup`, enter a test email/password meeting your Firebase policy, and submit. Expect verification instructions and a new user in Firebase Console, with no EstateOS session cookie.
+2. Visit `/signup`, enter full name, test email, password and matching confirmation meeting your Firebase policy. Test both show/hide controls and invalid/mismatched fields. Expect verification instructions and a Firebase user with the submitted display name, no EstateOS session cookie and no privileged role. Repeating registration should show a friendly sign-in/reset suggestion.
 3. Before verification, try login. Expect verification instructions rather than workspace access. Visit `/verify-email`, enter the account email/password, resend email, and inspect loading/success/error messages.
 4. Follow the email through Firebase's hosted handler, return to login, and sign in again. Only a verified account should receive a workspace session.
 5. Inspect the cookie: HttpOnly, `SameSite=Strict`, `Path=/`, expiry about five days. It is named `estateos_session` over development HTTP. `document.cookie` must not reveal its value.
@@ -97,7 +104,7 @@ Start `npm run dev` with `APP_ORIGIN=http://localhost:3000`. Use that exact URL,
 ### Login and logout
 
 1. Log out, submit an incorrect password, and expect a safe error with no new session. Check malformed email and empty-field validation too.
-2. Log in with the verified account. Expect the dashboard, empty module states, and a signed-in indicator. Reload: the server session should retain access even though browser Firebase persistence is disabled.
+2. Log in with the verified account. Expect the existing dashboard and a signed-in indicator. Reload: the server session should retain access despite disabled browser persistence. Visiting `/login` or `/signup` while authenticated should return to the dashboard.
 3. Open a second workspace tab. Log out in the first, then refresh the second and navigate directly to a workspace route. Both must require login. Logout intentionally revokes this user's other Firebase sessions too.
 4. Clear cookies and request `GET /api/auth/session`; expect `401`. Direct workspace navigation must redirect to login.
 
@@ -111,7 +118,7 @@ Start `npm run dev` with `APP_ORIGIN=http://localhost:3000`. Use that exact URL,
 
 1. Replace the session cookie with arbitrary text and reload a workspace route. Expect denial/redirect.
 2. Disable the test user or revoke sessions in Firebase Console. Reload the workspace and query the session API; expect denial. Restore the development account before subsequent tests.
-3. Try session `POST`/`DELETE` with a missing CSRF header, incorrect token, missing `Origin`, or an origin differing from `APP_ORIGIN`. Expect rejection and no new valid session. Cross-origin browser JavaScript cannot read the CSRF response without same-origin access.
+3. Try session `POST`/`DELETE` and logout `POST` with a missing CSRF header, incorrect token, missing `Origin`, or an origin differing from `APP_ORIGIN`. Expect rejection and no new valid session. Cross-origin browser JavaScript cannot read the CSRF response without same-origin access.
 4. Automated boundary tests cover expiry, stale sign-in, unverified tokens, unsupported providers and revoked sessions. Real expiry can be checked with a disposable development session after its configured lifetime; do not weaken production settings for a shortcut.
 5. On an approved HTTPS deployment, inspect `__Host-` names and `Secure`. Plain HTTP production mode cannot establish the secure production session; use `npm run dev` for the local HTTP walkthrough.
 
@@ -119,13 +126,18 @@ Start `npm run dev` with `APP_ORIGIN=http://localhost:3000`. Use that exact URL,
 
 ```bash
 npm test
+npm run test:auth:emulator
 npm run lint
 npx tsc --noEmit
 npm run build
 ```
 
-Boundary tests substitute provider dependencies only in tests; production always uses Firebase verification. They exercise request/session policy without real emails or cloud credentials. Live email delivery, project configuration, HTTPS cookies and provider revocation still need development-project manual checks.
+Boundary tests substitute provider dependencies only in tests; production always uses Firebase verification. They cover session/request policy, expired/revoked sessions, form validation and safe errors without cloud credentials. `test:auth:emulator` separately runs the actual Firebase Client/Admin SDKs and shared provider operations against a loopback `demo-estateos` Auth Emulator. Random disposable credentials exercise full-name registration, duplicate emails, verification/resending, invalid credentials, verified login, session verification, stale sign-in, logout/revocation and password reset. An isolated Next.js source copy on a free loopback port additionally tests actual session/CSRF/logout endpoints, cookie attributes, unauthorized APIs, protected workspace redirects, authenticated dashboard rendering and auth-page redirects. Its stylesheet is intentionally omitted: it tests HTTP behavior, not visual appearance. The user's dev server is left running, and ignored test copies contain no environment files.
 
-Before handling agency data, implement and test trusted memberships, organization scoping, role/record permissions and security audit storage. Production preparation also includes provider quotas/rate limits, password policy, account lifecycle, monitoring, recovery and deployment secrets. Company onboarding and lead CRUD are intentionally outside this change.
+The emulator runner never loads `.env.local`, uses separate ignored CLI settings, and requires the Firebase CLI plus free local ports `19099`, `19000` and `19001`. It does not deploy or access hosted resources. Emulator email action codes test the local flow; actual email delivery, real-project IAM and HTTPS cookie behavior still require manual development-project checks. The official emulator does not implement password-policy lookup: explicitly emulated auth skips that unsupported lookup while retaining Zod rules. Hosted Firebase always checks its configured policy.
 
-The dependency audit currently reports nine high-severity entries across two existing transitive chains: Firebase's unused Firestore gRPC dependency, and the Next.js ESLint globbing dependency. The authentication implementation imports only Firebase App/Auth and Admin App/Auth. Audit-proposed major downgrades and out-of-range overrides were not applied. Review patched supported upstream releases before deployment; passing application checks does not clear these dependency advisories.
+Existing membership and record boundaries remain in place. Production preparation includes provider quotas/rate limits, password policy, account lifecycle, durable security audit storage, monitoring, recovery and deployment secrets. Company onboarding and changes to lead CRUD are outside this authentication task.
+
+Next.js 16.4.1 development Instant validation may report that it cannot validate a segment when an expected authentication redirect prevents that segment from rendering. The HTTP suite verifies the redirect and protected access independently. Session checks remain behind Suspense; they are not cached or bypassed to suppress framework diagnostics. Review these development diagnostics separately from application build/test results.
+
+Review current dependency advisories and supported upstream releases before deployment. Passing application checks is not a complete security audit and does not make the application production-ready.

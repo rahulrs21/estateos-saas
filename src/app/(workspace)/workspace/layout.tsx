@@ -2,15 +2,15 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { WorkspaceShell } from "@/components/layout/workspace-shell";
 import { PageSkeleton } from "@/components/shared/page-skeleton";
-import { requireSession } from "@/modules/auth/server/session";
+import { requireSession } from "@/lib/auth/session";
 
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 async function AuthenticatedWorkspace({ children }: { children: React.ReactNode }) {
-  await requireSession();
+  const user = await requireSession();
   // This authorizes identity only. Agency data must wait for verified membership
   // and organization/record authorization at every data and operation boundary.
-  return <WorkspaceShell>{children}</WorkspaceShell>;
+  return <WorkspaceShell user={{ name: user.name, email: user.email }}>{children}</WorkspaceShell>;
 }
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {

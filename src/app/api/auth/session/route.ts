@@ -5,9 +5,10 @@ import { recordAuthEvent } from "@/modules/auth/server/audit";
 import { authCookies, getAppOrigin } from "@/modules/auth/server/config";
 import { authErrorResponse, authJson } from "@/modules/auth/server/http";
 import { parseSessionRequest, validateMutationRequest } from "@/modules/auth/server/request-policy";
-import { exchangeSessionToken, revokeAuthenticationSession } from "@/modules/auth/server/session-core";
-import { getSession } from "@/modules/auth/server/session";
+import { exchangeSessionToken } from "@/modules/auth/server/session-core";
+import { getSession } from "@/lib/auth/session";
 import { SessionPolicyError } from "@/modules/auth/server/session-policy";
+import { logoutResponse } from "@/modules/auth/server/logout";
 
 export async function GET() {
   // Keep Next.js prerender control flow outside application error handling.
@@ -40,23 +41,4 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
-  try {
-    const config = authCookies();
-    const cookieStore = await cookies();
-    validateMutationRequest(request, {
-      origin: getAppOrigin(), csrfToken: cookieStore.get(config.csrf.name)?.value,
-    });
-    const cookie = cookieStore.get(config.session.name)?.value;
-    // An absent cookie needs neither credentials nor a Firebase request.
-    const user = cookie ? await revokeAuthenticationSession(cookie, getFirebaseAdminAuth()) : null;
-    const response = authJson({ success: true });
-    response.cookies.set(config.session.name, "", { ...config.session.options, maxAge: 0 });
-    response.cookies.set(config.csrf.name, "", { ...config.csrf.options, maxAge: 0 });
-    recordAuthEvent("auth.session.logout", { outcome: "success", ...(user ? { uid: user.uid } : {}) });
-    return response;
-  } catch (error) {
-    // Preserve the cookie on a service failure so the user can retry revocation.
-    return authErrorResponse(error);
-  }
-}
+export const DELETE = logoutResponse;

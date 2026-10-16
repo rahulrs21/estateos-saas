@@ -4,14 +4,18 @@ import type { CSSProperties, ReactNode } from "react";
 import { Info } from "lucide-react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { WorkspaceSidebar } from "@/components/layout/workspace-sidebar";
-import { WorkspaceHeader } from "@/components/layout/workspace-header";
+import { WorkspaceHeader, type WorkspaceHeaderProps } from "@/components/layout/workspace-header";
 
-export function WorkspaceShell({ children }: { children: ReactNode }) {
+interface WorkspaceShellProps extends WorkspaceHeaderProps {
+  children: ReactNode;
+}
+
+export function WorkspaceShell({ children, user }: WorkspaceShellProps) {
   return (
     <SidebarProvider style={{ "--sidebar-width": "15.5rem", "--sidebar-width-icon": "3.5rem" } as CSSProperties}>
       <WorkspaceSidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <WorkspaceHeader />
+        <WorkspaceHeader user={user} />
         <div className="flex items-start gap-2 border-b bg-card/60 px-5 py-3 text-xs leading-5 text-muted-foreground sm:px-8" role="note">
           <Info className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
           <p>Your identity is verified. Agency membership, permissions and CRM data are not connected yet. Business features remain unavailable.</p>

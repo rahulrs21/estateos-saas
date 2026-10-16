@@ -165,9 +165,10 @@ test("logout propagates provider revocation failures so the endpoint cannot clai
 });
 
 test("verified custom roles and organization IDs are never turned into authorization", async () => {
-  const claims = { ...verifiedClaims(), role: "admin", organizationId: "other-tenant" };
+  const claims = { ...verifiedClaims(), name: "  Test Agent  ", role: "admin", organizationId: "other-tenant" };
   const { auth } = gateway({ claims });
   const user = await verifyAuthenticationSession("signed-cookie", auth);
-  assert.deepEqual(Object.keys(user ?? {}).sort(), ["email", "emailVerified", "uid"]);
+  assert.deepEqual(Object.keys(user ?? {}).sort(), ["email", "emailVerified", "name", "uid"]);
+  assert.equal(user?.name, "Test Agent");
   assert.deepEqual((await exchangeSessionToken("id-token", auth, now)).user, user);
 });

@@ -37,6 +37,7 @@ Invitations begin as `INVITED`. Acceptance requires the matching verified email 
 ## Code and verification
 
 - `src/modules/auth/server/`: session, origin, cookie and CSRF policies.
+- `src/lib/auth/session.ts`: reusable verified-session lookup and protected-page guard.
 - `src/modules/organizations/server/context.ts`: trusted organization/membership resolution.
 - `src/modules/organizations/server/permission-policy.ts`: role and assignment business rules.
 - `dataconnect/connector/`: explicit operation authorization and tenant predicates.

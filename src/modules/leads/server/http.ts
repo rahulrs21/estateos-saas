@@ -3,7 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { authCookies, getAppOrigin } from "@/modules/auth/server/config";
 import { authJson } from "@/modules/auth/server/http";
-import { getSession } from "@/modules/auth/server/session";
+import { getSession } from "@/lib/auth/session";
 import { SessionPolicyError } from "@/modules/auth/server/session-policy";
 import { AuthRequestError, validateCsrfRequest, validateMutationRequest } from "@/modules/auth/server/request-policy";
 import { WorkspaceError, mapWorkspaceDataError } from "@/modules/organizations/server/errors";
