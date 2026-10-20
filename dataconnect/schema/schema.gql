@@ -1,11 +1,20 @@
 # Tenant-owned rows use (organizationId, id) primary keys. References between
 # tenant-owned rows reuse organizationId so PostgreSQL rejects cross-tenant links.
 enum MembershipRole { OWNER ADMIN MANAGER AGENT }
-enum MembershipStatus { INVITED PENDING ACTIVE SUSPENDED REVOKED }
+
+enum Emirate { ABU_DHABI DUBAI SHARJAH AJMAN UMM_AL_QUWAIN RAS_AL_KHAIMAH FUJAIRAH }
+enum CompanySize { SOLO TWO_TO_TEN ELEVEN_TO_FIFTY FIFTY_ONE_TO_TWO_HUNDRED TWO_HUNDRED_PLUS }
+enum MembershipStatus { INVITED PENDING ACTIVE SUSPENDED REVOKED REMOVED }
+enum InvitationStatus { PENDING ACCEPTED REVOKED }
+enum InvitationDeliveryStatus { NOT_SENT PREVIEW ACCEPTED FAILED }
+enum AuditTargetType { ORGANIZATION MEMBERSHIP BRANCH LEAD INVITATION }
 enum LeadStatus { NEW CONTACTED QUALIFIED LOST CONVERTED }
 enum ActivityKind {
-  ORGANIZATION_CREATED ORGANIZATION_SWITCHED BRANCH_CREATED
+  ORGANIZATION_CREATED ORGANIZATION_SWITCHED ORGANIZATION_UPDATED BRANCH_CREATED
   MEMBERSHIP_INVITED INVITATION_ACCEPTED MEMBERSHIP_APPROVED MEMBERSHIP_SUSPENDED MEMBERSHIP_REVOKED
+  MEMBERSHIP_REMOVED MEMBERSHIP_ROLE_CHANGED
+  INVITATION_REVOKED INVITATION_REISSUED
+  INVITATION_DELIVERY_PREVIEW INVITATION_DELIVERY_ACCEPTED INVITATION_DELIVERY_FAILED
   LEAD_CREATED LEAD_UPDATED
   LEAD_NOTE_ADDED LEAD_STATUS_CHANGED LEAD_ASSIGNED FOLLOW_UP_SCHEDULED FOLLOW_UP_COMPLETED
 }
@@ -24,6 +33,11 @@ type Organization @table @index(fields: ["createdByUid", "createdAt"]) {
   id: UUID! @default(expr: "uuidV4()")
   name: String! @col(dataType: "varchar(160)")
   slug: String! @col(dataType: "varchar(63)") @unique
+  # Nullable for compatible migration of existing companies. Onboarding requires these.
+  emirate: Emirate
+  contactPhone: String @col(dataType: "varchar(32)")
+  companyEmail: String @col(dataType: "varchar(254)")
+  companySize: CompanySize
   createdBy: UserProfile!
   createdAt: Timestamp! @default(expr: "request.time")
   updatedAt: Timestamp! @default(expr: "request.time")
@@ -42,11 +56,37 @@ type Membership @table(key: ["organization", "id"])
   role: MembershipRole!
   status: MembershipStatus! @default(value: INVITED)
   invitedBy: UserProfile
+  # Legacy columns are retained for additive migration only. New acceptance
+  # requires an Invitation row; this digest is no longer an authority source.
   invitationTokenHash: String @col(dataType: "varchar(64)")
   invitationExpiresAt: Timestamp
   acceptedAt: Timestamp
   approvedAt: Timestamp
   approvedBy: UserProfile
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type Invitation @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "membershipId"])
+  @index(fields: ["organizationId", "status", "createdAt"])
+  @index(fields: ["email", "status", "expiresAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  membershipId: UUID!
+  membership: Membership! @ref(fields: ["organizationId", "membershipId"], references: ["organizationId", "id"])
+  email: String! @col(dataType: "varchar(254)")
+  role: MembershipRole!
+  tokenHash: String! @col(dataType: "varchar(64)") @unique
+  status: InvitationStatus! @default(value: PENDING)
+  deliveryStatus: InvitationDeliveryStatus! @default(value: NOT_SENT)
+  deliveryUpdatedAt: Timestamp
+  invitedBy: UserProfile!
+  expiresAt: Timestamp!
+  acceptedAt: Timestamp
+  acceptedBy: UserProfile
+  revokedAt: Timestamp
   createdAt: Timestamp! @default(expr: "request.time")
   updatedAt: Timestamp! @default(expr: "request.time")
 }
@@ -105,6 +145,23 @@ type Activity @table(key: ["organization", "id"])
   metadata: Any
   # Explicit lead notes are tenant-private content, separate from audit metadata.
   note: String @col(dataType: "varchar(4000)")
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# Security audit is independent of the CRM timeline. No deployed operation
+# accepts client-authored audit rows or updates/deletes existing audit records.
+type AuditLog @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "createdAt"], order: [ASC, DESC])
+  @index(fields: ["organizationId", "actorUid", "createdAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "targetType", "targetId", "createdAt"], order: [ASC, ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  actor: UserProfile!
+  action: ActivityKind!
+  targetType: AuditTargetType!
+  targetId: UUID!
+  metadata: Any
   createdAt: Timestamp! @default(expr: "request.time")
 }
 

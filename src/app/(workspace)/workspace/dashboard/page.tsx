@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Dashboard } from "@/modules/dashboard/components/dashboard";
-import { requireSession } from "@/lib/auth/session";
+import { requireCompanyWorkspace } from "@/modules/organizations/server/workspace";
 import { PageSkeleton } from "@/components/shared/page-skeleton";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
 async function AuthenticatedDashboard() {
-  await requireSession();
-  return <Dashboard />;
+  const { activeCompany } = await requireCompanyWorkspace();
+  return <Dashboard companyName={activeCompany.name} />;
 }
 
 export default function DashboardPage() {

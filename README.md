@@ -2,7 +2,7 @@
 
 A real estate CRM foundation for UAE agencies, built with Next.js App Router, TypeScript, Tailwind CSS, and shadcn/ui. It includes a responsive workspace shell and real Firebase Email/Password authentication.
 
-**This application is not production-ready.** Workspace access requires a verified Firebase identity. The SQL Connect foundation provides organization membership, role checks and tenant-scoped server services. Leads now has connected list, create, edit and detail interfaces, with assignment, pipeline, notes and follow-up. Organization onboarding and administration interfaces, finer record-sharing rules and operational release checks remain future work. Dashboard and other module screens retain explicit empty or unconnected states.
+**This application is not production-ready.** Workspace access requires verified identity and active company membership. Company onboarding, team management, secure email invitations and Leads are connected through scoped services. Finer sharing and operational release checks remain future work. Dashboard analytics retain empty states.
 
 ## Local development
 
@@ -18,6 +18,12 @@ Configure a Firebase development project and the variables in [.env.example](.en
 npm run dev
 ```
 
+To use company onboarding and CRM data locally without a hosted SQL Connect
+deployment, stop that server and run `npm run dev:local` instead. It starts the
+SQL Connect emulator and Next.js together, keeps the existing Firebase login,
+and stores company records in a separate local database without seed fixtures.
+Keep its terminal open. See [SQL Connect](docs/SQL_CONNECT.md).
+
 Open [http://localhost:3000](http://localhost:3000). Authentication requires valid Firebase browser configuration and server credentials; missing configuration does not bypass the server guard. The shell and authentication do not require a database. For local relational services, seed data, authorization integration tests and migration steps, follow [SQL Connect setup](docs/SQL_CONNECT.md). No OpenAI or billing setup is required for local development.
 
 ## Routes
@@ -29,6 +35,11 @@ Open [http://localhost:3000](http://localhost:3000). Authentication requires val
 | `/signup` | Account creation and verification email |
 | `/forgot-password` | Password reset email |
 | `/verify-email` | Verification instructions and authenticated resend form |
+| `/onboarding/company` | Verified-user registration or authorized workspace selection |
+| `/settings/company` | Company profile, OWNER/ADMIN updates and workspace switching |
+| `/settings/team` | Team search, role changes and suspension |
+| `/settings/team/invitations` | Email invitations, development preview, reissue and revocation |
+| `/invite/accept` | Verified-recipient single-use invitation acceptance |
 | `/workspace` | Authenticated workspace entry |
 | `/workspace/dashboard` | Protected dashboard with explicit empty states |
 | `/workspace/leads` | Authorized lead search, filtering and pagination |
@@ -59,12 +70,12 @@ To serve a production build locally, run `npm start`; production cookie settings
 - Firebase browser authentication uses in-memory state; verified ID tokens are exchanged for expiring HttpOnly server sessions.
 - Server checks protect workspace access and the session API. Client-supplied roles or organization IDs grant no authority.
 - Sign-up, login, logout, email verification, and password reset use Firebase Authentication. Logout revokes the user's Firebase sessions across devices.
-- SQL Connect models `Organization`, `UserProfile`, `Membership`, `Branch`, `Lead` and `Activity` with tenant relationships, transactional role checks, invitations, safe organization selection and audit events.
-- Generated Admin SDK calls run as the verified session identity; server-only services validate inputs and derive organization scope. No Prisma or second database layer is used.
+- SQL Connect models `Organization`, `UserProfile`, `Membership`, `Branch`, `Invitation`, `AuditLog`, `Lead` and `Activity` with tenant relationships, transactional role checks, single-use invitations, safe organization selection and audit events. See [Phase 3A multi-tenancy](docs/MULTI_TENANCY.md) for backend entry points and migration steps.
+- Normal SDK calls impersonate the verified session identity. The narrow server-only NO_ACCESS delivery receipt operation independently checks the trusted actor and invitation binding. No Prisma or second database layer is used.
 - Leads uses actual authorized SQL Connect queries/mutations for search, filters, pagination, contact details, status, assignment, notes and one upcoming follow-up per lead. Owners, administrators and managers have organization-wide lead access; agents are restricted to their assigned leads. Branch restrictions and more granular sharing remain future work.
-- Organization onboarding, invitation delivery and branch/member administration interfaces remain separate work. A profile selection is rechecked against active membership on each operation; signing in alone grants no CRM data access.
+- Company onboarding collects name, slug, emirate, phone, email and size. Logo uploads remain deferred. [Team](docs/TEAM.md) adds authorized member settings and configurable secure invitation delivery; branch administration and complete member lifecycle controls remain future work.
 - KPI cards and charts show empty states, not fabricated agency statistics.
-- Lead HTTP mutations require a verified session, exact origin, CSRF protection, bounded strict JSON and selected-organization consistency checks. No billing, AI calls, communication providers, reminders, or publishing integrations.
+- Lead and team HTTP mutations require verified sessions, exact origin, CSRF protection and bounded strict input. Company headers detect stale selections. Invitation email delivery is configurable; billing, AI, CRM communication channels, reminders and publishing integrations remain future work.
 - No cloud resources are provisioned and no deployment is performed.
 
 Routes are grouped under `src/app/(public)`, `(auth)` and `(workspace)`, with existing URLs preserved. Domain code lives in `src/modules`; SQL Connect operations live in `dataconnect/connector`.

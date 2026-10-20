@@ -12,7 +12,7 @@ import { PasswordInput } from "./password-input";
 
 const labels = { login: "Log in", signup: "Create account", reset: "Send reset email", verify: "Resend verification email" };
 
-export function AuthForm({ mode }: { mode: AuthFormMode }) {
+export function AuthForm({ mode, invitationFlow = false, onModeChange }: { mode: AuthFormMode; invitationFlow?: boolean; onModeChange?: (mode: AuthFormMode) => void }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
       if (mode === "login") {
         await loginWithEmail(values.email, values.password);
         // Full navigation discards any previously cached signed-in route tree.
-        window.location.replace("/workspace/dashboard");
+        window.location.replace(invitationFlow ? "/invite/accept" + window.location.hash : "/workspace/dashboard");
         return;
       }
       if (mode === "signup") {
@@ -81,7 +81,7 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
             {fieldErrors.email && <p id="email-error" className="text-xs text-destructive">{fieldErrors.email[0]}</p>}
           </div>
           {mode !== "reset" && <div className="space-y-2">
-            <div className="flex items-center justify-between gap-3"><Label htmlFor="password">Password</Label>{mode === "login" && <Link href="/forgot-password" className="rounded text-xs font-medium text-primary underline-offset-4 hover:underline">Forgot password?</Link>}</div>
+            <div className="flex items-center justify-between gap-3"><Label htmlFor="password">Password</Label>{mode === "login" && (invitationFlow ? <button type="button" onClick={() => onModeChange?.("reset")} className="rounded text-xs font-medium text-primary">Forgot password?</button> : <Link href="/forgot-password" className="rounded text-xs font-medium text-primary underline-offset-4 hover:underline">Forgot password?</Link>)}</div>
             <PasswordInput id="password" name="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} required maxLength={4096} placeholder={mode === "signup" ? "Choose a strong password" : "Enter your password"} aria-invalid={!!fieldErrors.password} aria-describedby={fieldErrors.password ? "password-error" : mode === "signup" ? "password-help" : undefined} />
             {mode === "signup" && <p id="password-help" className="text-xs leading-5 text-muted-foreground">Use at least 8 characters. You may also need uppercase and lowercase letters, numbers, or symbols.</p>}
             {fieldErrors.password && <p id="password-error" className="text-xs text-destructive">{fieldErrors.password[0]}</p>}
@@ -94,11 +94,11 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
           <Button type="submit" className="h-11 w-full" disabled={pending}>{pending ? <><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Please wait…</> : <>{labels[mode]}<ArrowRight className="size-4" aria-hidden="true" /></>}</Button>
         </fieldset>
       </form>}
-      <div className="mt-6 flex flex-wrap justify-center gap-x-5 gap-y-3 text-xs">
+      {!invitationFlow && <div className="mt-6 flex flex-wrap justify-center gap-x-5 gap-y-3 text-xs">
         {mode !== "login" && <Link href="/login" className="rounded font-medium text-primary underline-offset-4 hover:underline">Back to login</Link>}
         {mode !== "verify" && <Link href="/verify-email" className="rounded font-medium text-primary underline-offset-4 hover:underline">Email verification</Link>}
         {mode === "verify" && <Link href="/forgot-password" className="rounded font-medium text-primary underline-offset-4 hover:underline">Reset password</Link>}
-      </div>
+      </div>}
     </div>
   );
 }

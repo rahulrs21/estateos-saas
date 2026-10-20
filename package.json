@@ -8,6 +8,7 @@
   "scripts": {
     "predev": "node scripts/check-node-version.mjs",
     "dev": "next dev",
+    "dev:local": "node scripts/dev-local.mjs",
     "prebuild": "node scripts/check-node-version.mjs",
     "build": "next build",
     "prestart": "node scripts/check-node-version.mjs",
@@ -18,6 +19,7 @@
     "test:auth:emulator": "node scripts/test-auth-emulator.mjs",
     "test:tenancy": "node scripts/test-tenancy.mjs",
     "test:leads": "node scripts/test-leads.mjs",
+    "test:sidebar": "node scripts/test-sidebar.mjs",
     "sql:validate": "node scripts/sql-connect-toolkit.mjs build",
     "sql:generate": "node scripts/sql-connect-toolkit.mjs generate",
     "sql:emulators": "firebase emulators:start --project demo-estateos --only dataconnect",

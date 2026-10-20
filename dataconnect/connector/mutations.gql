@@ -17,6 +17,7 @@ mutation CreateLead($organizationId: UUID!, $fullName: String!, $email: String, 
 }
  lead: lead_insert(data: { organizationId: $organizationId, fullName: $fullName, email: $email, phone: $phone, source: $source, branchId: $branchId, assignedMembershipId: $assignedMembershipId, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time", createdByUid_expr: "auth.uid", status: NEW })
  activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: LEAD_CREATED, leadId_expr: "response.lead.id", targetId_expr: "response.lead.id" })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: LEAD_CREATED, targetId_expr: "response.lead.id", targetType: LEAD })
 }
 
 mutation UpdateLead($leadId: UUID!, $status: LeadStatus!, $organizationId: UUID!, $fullName: String!, $email: String, $phone: String, $source: String, $branchId: UUID, $assignedMembershipId: UUID)
@@ -39,6 +40,7 @@ mutation UpdateLead($leadId: UUID!, $status: LeadStatus!, $organizationId: UUID!
 ] }
  ] } }, data: { fullName: $fullName, email: $email, phone: $phone, source: $source, branchId: $branchId, assignedMembershipId: $assignedMembershipId, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time", status: $status }) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN")
  activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: LEAD_UPDATED, leadId: $leadId, targetId: $leadId, metadata_expr: "{'status': vars.status}" })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: LEAD_UPDATED, targetId: $leadId, metadata_expr: "{'status': vars.status}", targetType: LEAD })
 }
 
 # Lead sub-operations lock and authorize the current actor and selected lead,
@@ -52,6 +54,7 @@ mutation AddLeadNote($organizationId: UUID!, $leadId: UUID!, $note: String!)
   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }
  ] }] } }, data: { updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN")
  activity: activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: LEAD_NOTE_ADDED, leadId: $leadId, targetId: $leadId, note: $note })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: LEAD_NOTE_ADDED, targetId: $leadId, targetType: LEAD })
 }
 
 mutation ChangeLeadStatus($organizationId: UUID!, $leadId: UUID!, $status: LeadStatus!)
@@ -62,6 +65,7 @@ mutation ChangeLeadStatus($organizationId: UUID!, $leadId: UUID!, $status: LeadS
   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }
  ] }] } }, data: { updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time", status: $status }) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN")
  activity: activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: LEAD_STATUS_CHANGED, leadId: $leadId, targetId: $leadId, metadata_expr: "{'status': vars.status}" })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: LEAD_STATUS_CHANGED, targetId: $leadId, metadata_expr: "{'status': vars.status}", targetType: LEAD })
 }
 
 mutation AssignLead($organizationId: UUID!, $leadId: UUID!, $assignedMembershipId: UUID)
@@ -73,6 +77,7 @@ mutation AssignLead($organizationId: UUID!, $leadId: UUID!, $assignedMembershipI
   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }
  ] }] } }, data: { updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time", assignedMembershipId_expr: "has(vars.assignedMembershipId) ? vars.assignedMembershipId : null" }) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN")
  activity: activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: LEAD_ASSIGNED, leadId: $leadId, targetId: $leadId, metadata_expr: "{'assignedMembershipId': has(vars.assignedMembershipId) ? vars.assignedMembershipId : null}" })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: LEAD_ASSIGNED, targetId: $leadId, metadata_expr: "{'assignedMembershipId': has(vars.assignedMembershipId) ? vars.assignedMembershipId : null}", targetType: LEAD })
 }
 
 mutation ScheduleLeadFollowUp($organizationId: UUID!, $leadId: UUID!, $followUpAt: Timestamp!, $followUpNote: String)
@@ -83,6 +88,7 @@ mutation ScheduleLeadFollowUp($organizationId: UUID!, $leadId: UUID!, $followUpA
   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }
  ] }] } }, data: { updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time", followUpAt: $followUpAt, followUpNote_expr: "has(vars.followUpNote) ? vars.followUpNote : null" }) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN")
  activity: activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: FOLLOW_UP_SCHEDULED, leadId: $leadId, targetId: $leadId, note: $followUpNote, metadata_expr: "{'followUpAt': string(vars.followUpAt)}" })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: FOLLOW_UP_SCHEDULED, targetId: $leadId, metadata_expr: "{'followUpAt': string(vars.followUpAt)}", targetType: LEAD })
 }
 
 mutation CompleteLeadFollowUp($organizationId: UUID!, $leadId: UUID!)
@@ -93,6 +99,7 @@ mutation CompleteLeadFollowUp($organizationId: UUID!, $leadId: UUID!)
   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }
  ] }, { followUpAt: { isNull: false } }] } }, data: { updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time", followUpAt: null, followUpNote: null }) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN")
  activity: activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: FOLLOW_UP_COMPLETED, leadId: $leadId, targetId: $leadId })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: FOLLOW_UP_COMPLETED, targetId: $leadId, targetType: LEAD })
 }
 
 # UID, owner privilege, actor and timestamps are derived inside the connector.
@@ -102,14 +109,29 @@ mutation UpsertMyProfile($displayName: String!)
  userProfile_upsert(data: { uid_expr: "auth.uid", email_expr: "auth.token.email.lowerAscii()", displayName: $displayName, updatedAt_expr: "request.time" })
 }
 
-mutation CreateOrganization($name: String!, $slug: String!)
- @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.name.size() >= 1 && vars.name.size() <= 160 && vars.slug.matches('^[a-z0-9]+(-[a-z0-9]+)*$') && vars.slug.size() <= 63")
+mutation CreateOrganization($name: String!, $slug: String!, $emirate: Emirate, $contactPhone: String, $companyEmail: String, $companySize: CompanySize)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.name.size() >= 2 && vars.name.size() <= 120 && vars.slug.matches('^[a-z0-9]+(-[a-z0-9]+)*$') && vars.slug.size() >= 3 && vars.slug.size() <= 63 && (!has(vars.contactPhone) || vars.contactPhone == null || (vars.contactPhone.size() <= 32 && vars.contactPhone.matches('^[+]?[0-9][0-9 ()-]{6,30}$'))) && (!has(vars.companyEmail) || vars.companyEmail == null || (vars.companyEmail.size() <= 254 && vars.companyEmail.matches('^[^ @]+@[^ @]+[.][^ @]+$')))")
  @transaction {
- query @redact { userProfile(key: { uid_expr: "auth.uid" }) @check(expr: "this != null", message: "PROFILE_REQUIRED") { uid } }
- organization: organization_insert(data: { name: $name, slug: $slug, createdByUid_expr: "auth.uid" })
+ query @redact {
+  userProfile(key: { uid_expr: "auth.uid" }) @check(expr: "this != null", message: "PROFILE_REQUIRED") { uid }
+  slugOwner: organization(first: { where: { slug: { eq: $slug } } }) @check(expr: "this == null", message: "ORGANIZATION_SLUG_TAKEN") { id }
+ }
+ organization: organization_insert(data: { name: $name, slug: $slug, emirate: $emirate, contactPhone: $contactPhone, companyEmail: $companyEmail, companySize: $companySize, createdByUid_expr: "auth.uid" })
  ownerMembership: membership_insert(data: { organizationId_expr: "response.organization.id", userProfileUid_expr: "auth.uid", email_expr: "auth.token.email.lowerAscii()", role: OWNER, status: ACTIVE, approvedAt_expr: "request.time", approvedByUid_expr: "auth.uid" })
  userProfile_update(key: { uid_expr: "auth.uid" }, data: { activeOrganizationId_expr: "response.organization.id", updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "PROFILE_REQUIRED")
- activity_insert(data: { organizationId_expr: "response.organization.id", actorUid_expr: "auth.uid", kind: ORGANIZATION_CREATED })
+ activity_insert(data: { organizationId_expr: "response.organization.id", actorUid_expr: "auth.uid", kind: ORGANIZATION_CREATED, targetId_expr: "response.organization.id" })
+ auditLog_insert(data: { organizationId_expr: "response.organization.id", actorUid_expr: "auth.uid", action: ORGANIZATION_CREATED, targetId_expr: "response.organization.id", targetType: ORGANIZATION })
+}
+
+mutation UpdateOrganization($organizationId: UUID!, $name: String!, $slug: String!, $emirate: Emirate!, $contactPhone: String!, $companyEmail: String!, $companySize: CompanySize!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.name.size() >= 2 && vars.name.size() <= 120 && vars.slug.matches('^[a-z0-9]+(-[a-z0-9]+)*$') && vars.slug.size() >= 3 && vars.slug.size() <= 63 && vars.contactPhone.size() <= 32 && vars.contactPhone.matches('^[+]?[0-9][0-9 ()-]{6,30}$') && vars.companyEmail.size() <= 254 && vars.companyEmail.matches('^[^ @]+@[^ @]+[.][^ @]+$')") @transaction {
+ authorization: membership_update(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }, data: { status: ACTIVE }) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED")
+ query @redact {
+  slugOwner: organization(first: { where: { slug: { eq: $slug }, id: { ne: $organizationId } } }) @check(expr: "this == null", message: "ORGANIZATION_SLUG_TAKEN") { id }
+ }
+ organization: organization_update(id: $organizationId, data: { name: $name, slug: $slug, emirate: $emirate, contactPhone: $contactPhone, companyEmail: $companyEmail, companySize: $companySize, updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "ORGANIZATION_NOT_FOUND")
+ activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: ORGANIZATION_UPDATED, targetId: $organizationId })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: ORGANIZATION_UPDATED, targetId: $organizationId, targetType: ORGANIZATION })
 }
 
 mutation SwitchOrganization($organizationId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
@@ -118,7 +140,8 @@ mutation SwitchOrganization($organizationId: UUID!) @auth(expr: "auth != null &&
  actor: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") { id role }
 }
  userProfile_update(key: { uid_expr: "auth.uid" }, data: { activeOrganizationId: $organizationId, updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "PROFILE_REQUIRED")
- activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: ORGANIZATION_SWITCHED,  })
+ activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: ORGANIZATION_SWITCHED, targetId: $organizationId })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: ORGANIZATION_SWITCHED, targetId: $organizationId, targetType: ORGANIZATION })
 }
 
 mutation CreateBranch($organizationId: UUID!, $name: String!)
@@ -129,34 +152,58 @@ mutation CreateBranch($organizationId: UUID!, $name: String!)
 }
  branch: branch_insert(data: { organizationId: $organizationId, name: $name, createdByUid_expr: "auth.uid" })
  activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: BRANCH_CREATED, targetId_expr: "response.branch.id" })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: BRANCH_CREATED, targetId_expr: "response.branch.id", targetType: BRANCH })
 }
 
 mutation InviteMembership($organizationId: UUID!, $email: String!, $role: MembershipRole!, $tokenHash: String!, $expiresAt: Timestamp!)
  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.email == vars.email.lowerAscii() && vars.email != auth.token.email.lowerAscii() && vars.email.size() >= 3 && vars.email.size() <= 254 && vars.role in ['ADMIN', 'MANAGER', 'AGENT'] && vars.tokenHash.matches('^[a-f0-9]{64}$') && timestamp(vars.expiresAt) > request.time && timestamp(vars.expiresAt) <= request.time + duration('604800s')") @transaction {
  authorization: membership_update(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER, AGENT] } } }, data: { status: ACTIVE }) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
  query @redact {
+  existing: membership(first: { where: { organizationId: { eq: $organizationId }, email: { eq: $email } } }) @check(expr: "this == null", message: "MEMBERSHIP_ALREADY_EXISTS") { id }
   actor: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } })
    @check(expr: "this != null && (this.role == 'OWNER' || vars.role in ['MANAGER', 'AGENT'])", message: "ROLE_GRANT_FORBIDDEN") { id role }
  }
- membership: membership_insert(data: { organizationId: $organizationId, email: $email, role: $role, status: INVITED, invitedByUid_expr: "auth.uid", invitationTokenHash: $tokenHash, invitationExpiresAt: $expiresAt })
+ membership: membership_insert(data: { organizationId: $organizationId, email: $email, role: $role, status: INVITED, invitedByUid_expr: "auth.uid", invitationExpiresAt: $expiresAt })
+ invitation: invitation_insert(data: { organizationId: $organizationId, membershipId_expr: "response.membership.id", email: $email, role: $role, tokenHash: $tokenHash, expiresAt: $expiresAt, invitedByUid_expr: "auth.uid" })
  activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: MEMBERSHIP_INVITED, targetId_expr: "response.membership.id", metadata_expr: "{'role': vars.role, 'status': 'INVITED'}" })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: MEMBERSHIP_INVITED, targetId_expr: "response.membership.id", metadata_expr: "{'role': vars.role, 'status': 'INVITED'}", targetType: MEMBERSHIP })
 }
 
-# Acceptance proves possession and verified address, but requires a separate
-# administrator approval before the new member can read any organization data.
-mutation AcceptInvitation($organizationId: UUID!, $membershipId: UUID!, $tokenHash: String!)
- @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.tokenHash.matches('^[a-f0-9]{64}$')") @transaction {
- query @redact { userProfile(key: { uid_expr: "auth.uid" }) @check(expr: "this != null", message: "PROFILE_REQUIRED") { uid } }
+# Acceptance also initializes a new recipient's SQL profile. Firebase signup
+# does not create one, and invited users must not need company onboarding.
+mutation AcceptInvitation($organizationId: UUID!, $membershipId: UUID!, $tokenHash: String!, $displayName: String! = "EstateOS member")
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.tokenHash.matches('^[a-f0-9]{64}$') && vars.displayName.size() >= 1 && vars.displayName.size() <= 120") @transaction {
+ query @redact {
+  userProfile(key: { uid_expr: "auth.uid" }) { displayName }
+  offered: invitation(first: { where: {
+   organizationId: { eq: $organizationId }, membershipId: { eq: $membershipId }, tokenHash: { eq: $tokenHash },
+   status: { eq: PENDING }, expiresAt: { gt_expr: "request.time" }, email: { eq_expr: "auth.token.email.lowerAscii()" },
+   role: { in: [ADMIN, MANAGER, AGENT] },
+   membership: { status: { eq: INVITED }, userProfileUid: { isNull: true }, email: { eq_expr: "auth.token.email.lowerAscii()" } }
+  } }) @check(expr: "this != null && this.role == this.membership.role && this.invitedBy.memberships_on_userProfile.size() > 0 && (this.role != 'ADMIN' || this.invitedBy.memberships_on_userProfile.exists(m, m.role == 'OWNER'))", message: "INVITATION_INVALID_OR_EXPIRED") {
+   id role invitedByUid membership { role }
+   invitedBy { memberships_on_userProfile(where: { organizationId: { eq: $organizationId }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } }) { role } }
+  }
+ }
+ issuerAuthorization: membership_update(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "response.query.offered.invitedByUid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }, data: { status: ACTIVE }) @redact @check(expr: "this != null", message: "INVITATION_INVALID_OR_EXPIRED")
+ # Write the profile once, before recipient foreign keys. All writes roll back
+ # on invalid consumption or duplicate membership; preserve an existing name.
+ profile: userProfile_upsert(data: { uid_expr: "auth.uid", email_expr: "auth.token.email.lowerAscii()", displayName_expr: "response.query.userProfile != null ? response.query.userProfile.displayName : vars.displayName", activeOrganizationId: $organizationId, updatedAt_expr: "request.time" }) @redact
+ invitation: invitation_update(first: { where: {
+  organizationId: { eq: $organizationId }, membershipId: { eq: $membershipId },
+  tokenHash: { eq: $tokenHash }, status: { eq: PENDING }, expiresAt: { gt_expr: "request.time" },
+  email: { eq_expr: "auth.token.email.lowerAscii()" }, role: { in: [ADMIN, MANAGER, AGENT] },
+  membership: { status: { eq: INVITED }, userProfileUid: { isNull: true }, email: { eq_expr: "auth.token.email.lowerAscii()" } }
+ } }, data: { status: ACCEPTED, acceptedAt_expr: "request.time", acceptedByUid_expr: "auth.uid", updatedAt_expr: "request.time" })
+ @redact @check(expr: "this != null", message: "INVITATION_INVALID_OR_EXPIRED")
  membership: membership_update(first: { where: {
   organizationId: { eq: $organizationId }, id: { eq: $membershipId },
-  status: { eq: INVITED }, userProfileUid: { isNull: true },
-  email: { eq_expr: "auth.token.email.lowerAscii()" },
-  invitationTokenHash: { eq: $tokenHash },
-  invitationExpiresAt: { gt_expr: "request.time" },
+  status: { eq: INVITED }, userProfileUid: { isNull: true }, email: { eq_expr: "auth.token.email.lowerAscii()" },
   role: { in: [ADMIN, MANAGER, AGENT] }
- } }, data: { userProfileUid_expr: "auth.uid", status: PENDING, invitationTokenHash: null, acceptedAt_expr: "request.time", updatedAt_expr: "request.time" })
+ } }, data: { userProfileUid_expr: "auth.uid", status: ACTIVE, invitationTokenHash: null, acceptedAt_expr: "request.time", approvedAt_expr: "request.time", approvedByUid_expr: "response.query.offered.invitedByUid", updatedAt_expr: "request.time" })
  @check(expr: "this != null", message: "INVITATION_INVALID_OR_EXPIRED")
- activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: INVITATION_ACCEPTED, targetId: $membershipId, metadata: { status: "PENDING" } })
+ activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: INVITATION_ACCEPTED, targetId: $membershipId, metadata: { status: "ACTIVE" } })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: INVITATION_ACCEPTED, targetId: $membershipId, metadata: { status: "ACTIVE" }, targetType: MEMBERSHIP })
 }
 
 mutation ApproveMembership($organizationId: UUID!, $membershipId: UUID!)
@@ -170,19 +217,102 @@ mutation ApproveMembership($organizationId: UUID!, $membershipId: UUID!)
  membership: membership_update(first: { where: { organizationId: { eq: $organizationId }, id: { eq: $membershipId }, status: { eq: PENDING }, userProfileUid: { ne_expr: "auth.uid" }, role: { ne: OWNER } } },
   data: { status: ACTIVE, approvedAt_expr: "request.time", approvedByUid_expr: "auth.uid", updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "MEMBERSHIP_APPROVAL_FORBIDDEN")
  activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: MEMBERSHIP_APPROVED, targetId: $membershipId, metadata: { status: "ACTIVE" } })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: MEMBERSHIP_APPROVED, targetId: $membershipId, metadata: { status: "ACTIVE" }, targetType: MEMBERSHIP })
 }
 
 mutation SetMembershipStatus($organizationId: UUID!, $membershipId: UUID!, $status: MembershipStatus!)
- @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.status in ['SUSPENDED', 'REVOKED']") @transaction {
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.status in ['SUSPENDED', 'REVOKED', 'REMOVED']") @transaction {
  authorization: membership_update(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER, AGENT] } } }, data: { status: ACTIVE }) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
- query @redact @check(expr: "this.actor != null && this.target != null && this.target.userProfileUid != auth.uid && this.target.role != 'OWNER' && this.target.status != 'REVOKED' && (this.actor.role == 'OWNER' || this.target.role in ['MANAGER', 'AGENT'])", message: "MEMBERSHIP_CHANGE_FORBIDDEN") {
+ query @redact @check(expr: "this.actor != null && this.target != null && this.target.userProfileUid != auth.uid && this.target.role != 'OWNER' && !(this.target.status in ['REVOKED', 'REMOVED']) && (this.actor.role == 'OWNER' || this.target.role in ['MANAGER', 'AGENT'])", message: "MEMBERSHIP_CHANGE_FORBIDDEN") {
  actor: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") { id role }
   target: membership(key: { organizationId: $organizationId, id: $membershipId })
    { id userProfileUid role status }
  }
- membership: membership_update(first: { where: { organizationId: { eq: $organizationId }, id: { eq: $membershipId }, role: { ne: OWNER }, status: { ne: REVOKED } } },
+ membership: membership_update(first: { where: { _and: [
+ { organizationId: { eq: $organizationId }, id: { eq: $membershipId }, status: { nin: [REVOKED, REMOVED] } },
+ { _or: [{ userProfileUid: { ne_expr: "auth.uid" } }, { userProfileUid: { isNull: true } }] },
+ { _or: [
+  { role: { in: [MANAGER, AGENT] } },
+  { role: { eq: ADMIN }, organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { eq: OWNER } } } } }
+ ] }
+ ] } },
   data: { status: $status, invitationTokenHash: null, updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "MEMBERSHIP_CHANGE_FORBIDDEN")
- activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind_expr: "vars.status == 'SUSPENDED' ? 'MEMBERSHIP_SUSPENDED' : 'MEMBERSHIP_REVOKED'", targetId: $membershipId, metadata_expr: "{'status': vars.status}" })
+ invitation_updateMany(where: { organizationId: { eq: $organizationId }, membershipId: { eq: $membershipId }, status: { eq: PENDING } }, data: { status: REVOKED, revokedAt_expr: "request.time", updatedAt_expr: "request.time" }) @redact
+ activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind_expr: "vars.status == 'SUSPENDED' ? 'MEMBERSHIP_SUSPENDED' : vars.status == 'REMOVED' ? 'MEMBERSHIP_REMOVED' : 'MEMBERSHIP_REVOKED'", targetId: $membershipId, metadata_expr: "{'status': vars.status}" })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action_expr: "vars.status == 'SUSPENDED' ? 'MEMBERSHIP_SUSPENDED' : vars.status == 'REMOVED' ? 'MEMBERSHIP_REMOVED' : 'MEMBERSHIP_REVOKED'", targetId: $membershipId, metadata_expr: "{'status': vars.status}", targetType: MEMBERSHIP })
+}
+
+# Pending invitation changes preserve target hierarchy and append audit events.
+mutation RevokeInvitation($organizationId: UUID!, $membershipId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ authorization: membership_update(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }, data: { status: ACTIVE }) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED")
+ invitation: invitation_update(first: { where: { organizationId: { eq: $organizationId }, membershipId: { eq: $membershipId }, status: { eq: PENDING }, membership: { _and: [{ organizationId: { eq: $organizationId }, id: { eq: $membershipId }, status: { eq: INVITED }, userProfileUid: { isNull: true } }, { _or: [{ role: { in: [MANAGER, AGENT] } }, { role: { eq: ADMIN }, organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { eq: OWNER } } } } }] }] } } }, data: { status: REVOKED, revokedAt_expr: "request.time", updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "INVITATION_CHANGE_FORBIDDEN")
+ membership_update(first: { where: { _and: [{ organizationId: { eq: $organizationId }, id: { eq: $membershipId }, status: { eq: INVITED }, userProfileUid: { isNull: true } }, { _or: [{ role: { in: [MANAGER, AGENT] } }, { role: { eq: ADMIN }, organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { eq: OWNER } } } } }] }] } }, data: { status: REMOVED, invitationTokenHash: null, updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "INVITATION_CHANGE_FORBIDDEN")
+ activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: INVITATION_REVOKED, targetId: $membershipId })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: INVITATION_REVOKED, targetId_expr: "response.invitation.id", targetType: INVITATION })
+}
+
+mutation ReissueInvitation($organizationId: UUID!, $membershipId: UUID!, $tokenHash: String!, $expiresAt: Timestamp!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.tokenHash.matches('^[a-f0-9]{64}$') && timestamp(vars.expiresAt) > request.time && timestamp(vars.expiresAt) <= request.time + duration('604800s')") @transaction {
+ authorization: membership_update(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }, data: { status: ACTIVE }) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED")
+ invitation: invitation_update(first: { where: { organizationId: { eq: $organizationId }, membershipId: { eq: $membershipId }, status: { eq: PENDING }, updatedAt: { lt_expr: "request.time - duration('60s')" }, membership: { _and: [{ organizationId: { eq: $organizationId }, id: { eq: $membershipId }, status: { eq: INVITED }, userProfileUid: { isNull: true } }, { _or: [{ role: { in: [MANAGER, AGENT] } }, { role: { eq: ADMIN }, organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { eq: OWNER } } } } }] }] } } }, data: { tokenHash: $tokenHash, expiresAt: $expiresAt, invitedByUid_expr: "auth.uid", deliveryStatus: NOT_SENT, deliveryUpdatedAt: null, updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "INVITATION_CHANGE_FORBIDDEN_OR_TOO_SOON")
+ membership_update(first: { where: { _and: [{ organizationId: { eq: $organizationId }, id: { eq: $membershipId }, status: { eq: INVITED }, userProfileUid: { isNull: true } }, { _or: [{ role: { in: [MANAGER, AGENT] } }, { role: { eq: ADMIN }, organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { eq: OWNER } } } } }] }] } }, data: { invitedByUid_expr: "auth.uid", invitationExpiresAt: $expiresAt, invitationTokenHash: null, updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "INVITATION_CHANGE_FORBIDDEN")
+ activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: INVITATION_REISSUED, targetId: $membershipId })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: INVITATION_REISSUED, targetId_expr: "response.invitation.id", targetType: INVITATION })
+}
+
+# Re-invite a revoked, never-accepted reservation; this cannot reactivate a
+# previously registered member. Keep the original rows and revocation audit.
+mutation ReinviteRevokedInvitation($organizationId: UUID!, $membershipId: UUID!, $tokenHash: String!, $expiresAt: Timestamp!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.tokenHash.matches('^[a-f0-9]{64}$') && timestamp(vars.expiresAt) > request.time && timestamp(vars.expiresAt) <= request.time + duration('604800s')") @transaction {
+ authorization: membership_update(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }, data: { status: ACTIVE }) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED")
+ query @redact @check(expr: "this.actor != null && this.offered != null && this.offered.role == this.offered.membership.role && (this.actor.role == 'OWNER' || this.offered.role in ['MANAGER', 'AGENT'])", message: "INVITATION_CHANGE_FORBIDDEN") {
+  actor: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }) { role }
+  offered: invitation(first: { where: {
+   organizationId: { eq: $organizationId }, membershipId: { eq: $membershipId }, status: { eq: REVOKED },
+   acceptedAt: { isNull: true }, acceptedByUid: { isNull: true }, role: { in: [ADMIN, MANAGER, AGENT] },
+   membership: { status: { eq: REMOVED }, userProfileUid: { isNull: true }, acceptedAt: { isNull: true }, approvedAt: { isNull: true } }
+  } }) { role membership { role } }
+ }
+ invitation: invitation_update(first: { where: {
+  organizationId: { eq: $organizationId }, membershipId: { eq: $membershipId }, status: { eq: REVOKED },
+  acceptedAt: { isNull: true }, acceptedByUid: { isNull: true }, role: { in: [ADMIN, MANAGER, AGENT] },
+  tokenHash: { ne: $tokenHash }, updatedAt: { lt_expr: "request.time - duration('60s')" },
+  membership: { status: { eq: REMOVED }, userProfileUid: { isNull: true }, acceptedAt: { isNull: true }, approvedAt: { isNull: true } }
+ } }, data: { status: PENDING, tokenHash: $tokenHash, expiresAt: $expiresAt, invitedByUid_expr: "auth.uid", revokedAt: null, deliveryStatus: NOT_SENT, deliveryUpdatedAt: null, updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "INVITATION_CHANGE_FORBIDDEN_OR_TOO_SOON")
+ membership: membership_update(first: { where: {
+  organizationId: { eq: $organizationId }, id: { eq: $membershipId }, status: { eq: REMOVED }, userProfileUid: { isNull: true },
+  acceptedAt: { isNull: true }, approvedAt: { isNull: true }, role: { eq_expr: "response.query.offered.role" }
+ } }, data: { status: INVITED, invitedByUid_expr: "auth.uid", invitationExpiresAt: $expiresAt, invitationTokenHash: null, updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "INVITATION_CHANGE_FORBIDDEN")
+ activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: INVITATION_REISSUED, targetId: $membershipId, metadata: { previousStatus: "REVOKED", status: "PENDING" } })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: INVITATION_REISSUED, targetId_expr: "response.invitation.id", targetType: INVITATION, metadata: { previousStatus: "REVOKED", status: "PENDING" } })
+}
+
+# Only trusted server delivery code may write provider receipts. Browser identity
+# impersonation is deliberately rejected. The transaction still checks the actor.
+mutation RecordInvitationDelivery($organizationId: UUID!, $membershipId: UUID!, $actorUid: String!, $tokenHash: String!, $outcome: InvitationDeliveryStatus!) @auth(level: NO_ACCESS) @transaction {
+ authorization: membership_update(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq: $actorUid }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }, data: { status: ACTIVE }) @redact @check(expr: "this != null && vars.outcome in ['PREVIEW', 'ACCEPTED', 'FAILED']", message: "DELIVERY_RECEIPT_FORBIDDEN")
+ invitation: invitation_update(first: { where: { organizationId: { eq: $organizationId }, membershipId: { eq: $membershipId }, invitedByUid: { eq: $actorUid }, tokenHash: { eq: $tokenHash } } }, data: { deliveryStatus: $outcome, deliveryUpdatedAt_expr: "request.time" }) @check(expr: "this != null", message: "DELIVERY_RECEIPT_FORBIDDEN")
+ auditLog_insert(data: { organizationId: $organizationId, actorUid: $actorUid, action_expr: "vars.outcome == 'ACCEPTED' ? 'INVITATION_DELIVERY_ACCEPTED' : vars.outcome == 'PREVIEW' ? 'INVITATION_DELIVERY_PREVIEW' : 'INVITATION_DELIVERY_FAILED'", targetId_expr: "response.invitation.id", targetType: INVITATION })
+}
+
+# No operation grants OWNER, changes an OWNER, or changes the actor themselves.
+# This stricter first-phase rule preserves the last active owner without races.
+mutation SetMembershipRole($organizationId: UUID!, $membershipId: UUID!, $role: MembershipRole!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.role in ['ADMIN', 'MANAGER', 'AGENT']") @transaction {
+ authorization: membership_update(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }, data: { status: ACTIVE }) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED")
+ query @redact {
+  actor: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } })
+   @check(expr: "this != null && (this.role == 'OWNER' || vars.role in ['MANAGER', 'AGENT'])", message: "ROLE_GRANT_FORBIDDEN") { id role }
+ }
+ membership: membership_update(first: { where: { _and: [
+  { organizationId: { eq: $organizationId }, id: { eq: $membershipId }, userProfileUid: { ne_expr: "auth.uid", isNull: false }, status: { eq: ACTIVE } },
+  { _or: [
+   { role: { in: [MANAGER, AGENT] } },
+   { role: { eq: ADMIN }, organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { eq: OWNER } } } } }
+  ] }
+ ] } }, data: { role: $role, updatedAt_expr: "request.time" }) @check(expr: "this != null", message: "MEMBERSHIP_ROLE_CHANGE_FORBIDDEN")
+ activity_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", kind: MEMBERSHIP_ROLE_CHANGED, targetId: $membershipId, metadata_expr: "{'role': vars.role}" })
+ auditLog_insert(data: { organizationId: $organizationId, actorUid_expr: "auth.uid", action: MEMBERSHIP_ROLE_CHANGED, targetId: $membershipId, metadata_expr: "{'role': vars.role}", targetType: MEMBERSHIP })
 }
 
 

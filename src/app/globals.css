@@ -1,4 +1,5 @@
-@import "tailwindcss";
+/* Resolve source detection from this stylesheet, independently of the launcher. */
+@import "tailwindcss" source("../");
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));

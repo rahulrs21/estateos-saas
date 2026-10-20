@@ -1,6 +1,6 @@
 # EstateOS roadmap
 
-EstateOS will serve UAE real estate agencies through a modular, multi-tenant CRM. This roadmap distinguishes completed shell, identity, relational tenant services and the first connected Leads module from intended functionality. The application is not production-ready; connected onboarding, more granular sharing and operational release validation remain required before handling customer data.
+EstateOS will serve UAE real estate agencies through a modular, multi-tenant CRM. The shell, identity, relational tenant services, company onboarding/settings/selection and first Leads module are connected. More granular sharing and operational release validation remain required before handling customer data. The application is not production-ready.
 
 ## Phase 1A — Application shell and frontend foundation
 
@@ -28,7 +28,8 @@ Implemented identity portion:
 
 Implemented relational tenant foundation:
 
-- SQL Connect/PostgreSQL `Organization`, `UserProfile`, `Membership`, `Branch`, `Lead` and `Activity` models with UUID/composite keys, tenant foreign keys, indexes and timestamps.
+- SQL Connect/PostgreSQL `Organization`, `UserProfile`, `Membership`, `Branch`, `Invitation`, `AuditLog`, `Lead` and `Activity` models with UUID/composite keys, tenant constraints, indexes and timestamps.
+- Connected [company onboarding](ONBOARDING.md), OWNER/ADMIN company settings, authorized workspace selection and company-aware shell/header. Logo uploads remain deferred.
 - Explicit connector authorization, fresh active-membership checks and role hierarchy for OWNER, ADMIN, MANAGER and AGENT.
 - Transactional organization/owner creation, verified company selection, invitation acceptance into pending approval, suspension/revocation and audit events.
 - Server-only validated services using the generated Admin SDK with verified identity impersonation; no Prisma or second database layer.
@@ -37,13 +38,13 @@ Implemented relational tenant foundation:
 Remaining tenant foundation before introducing customer data:
 
 - Live development-project validation, HTTPS deployment validation, and operational session/account lifecycle review.
-- Organization onboarding, company switching and branch/membership administration interfaces connected to the authorized services.
+- Company onboarding/settings/switching, team search/role changes/suspension and secure invitations are implemented; branch administration and complete member lifecycle interfaces remain.
 - Invitation delivery, re-invitation, account merging, owner transfer, retention/deletion and complete account lifecycle workflows.
 - Role and record rules covering branches, ownership, assignments, and approved sharing.
 - Protected workspace pages, independently protected server operations, and secure storage rules.
 - Independent audit retention/export, monitoring, restore drills, staging migration and region/data residency review.
 
-Gate: the identity implementation alone does not establish tenant authorization. Current tenant services provide organization isolation and assignment-based agent lead access; owners, administrators and managers have organization-wide lead access. Branch restrictions and approved sharing must be designed and tested before further record restrictions are promised. The connected Leads module uses this existing policy; company/member administration interfaces remain separate work. Cloud resources and deployments require approval; privileged credentials remain server-side.
+Gate: identity alone does not establish tenant authorization. Services and connector operations check active membership and role, including company settings and switching. Leads restricts agents to assigned records; owners, administrators and managers have company-wide lead access. Branch restrictions, approved sharing and member administration UI remain future work. Cloud changes require approval; credentials remain server-side.
 
 ## Phase 1C — Leads and core daily CRM
 

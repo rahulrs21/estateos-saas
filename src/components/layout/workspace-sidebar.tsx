@@ -2,32 +2,33 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUpRight, Building2, PanelLeftClose, X } from "lucide-react";
+import { ArrowUpRight, Building2, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { navigationGroups } from "@/config/navigation";
 import { Brand } from "@/components/shared/brand";
 import { Button } from "@/components/ui/button";
+import type { CompanyWorkspace } from "@/modules/organizations/types";
+import { WorkspaceSwitcher } from "@/modules/organizations/components/workspace-switcher";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 
-export function WorkspaceSidebar() {
+export function WorkspaceSidebar({ workspace }: { workspace: CompanyWorkspace }) {
   const pathname = usePathname();
-  const { state, isMobile, setOpenMobile, toggleSidebar } = useSidebar();
+  const { sidebarId, state, isMobile, setOpenMobile, toggleSidebar } = useSidebar();
   const collapsed = state === "collapsed" && !isMobile;
 
   return (
     <Sidebar collapsible="icon" className="border-r">
       <SidebarHeader className="h-[76px] justify-center px-4 group-data-[collapsible=icon]:px-2">
         <div className="flex items-center justify-between gap-1">
-          <Link href="/" aria-label="EstateOS homepage" className="rounded-lg"><Brand compact={collapsed} /></Link>
-          {!collapsed && <Button variant="ghost" size="icon-sm" onClick={isMobile ? () => setOpenMobile(false) : toggleSidebar} aria-label={isMobile ? "Close navigation" : "Collapse sidebar"} className="text-muted-foreground">
+          {collapsed ? <Button variant="ghost" size="icon-lg" onClick={toggleSidebar} aria-label="Expand sidebar" title="Expand sidebar" aria-controls={`${sidebarId}-desktop`} aria-expanded={false} className="mx-auto text-muted-foreground"><PanelLeftOpen aria-hidden="true" /></Button> : <Link href="/" aria-label="EstateOS homepage" className="rounded-lg"><Brand /></Link>}
+          {!collapsed && <Button variant="ghost" size="icon-sm" onClick={isMobile ? () => setOpenMobile(false) : toggleSidebar} aria-label={isMobile ? "Close navigation" : "Collapse sidebar"} aria-controls={`${sidebarId}-${isMobile ? "mobile" : "desktop"}`} aria-expanded={true} className="text-muted-foreground">
             {isMobile ? <X aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
           </Button>}
         </div>
       </SidebarHeader>
       <div className="mx-4 mb-3 flex items-center gap-2.5 rounded-xl border bg-background p-2.5 group-data-[collapsible=icon]:mx-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-1.5">
-        <Building2 className="size-4 shrink-0 text-primary" aria-hidden="true" />
+        {collapsed && <Link href="/settings/company" aria-label="Company settings" title={workspace.activeCompany?.name}><Building2 className="size-4 shrink-0 text-primary" aria-hidden="true" /></Link>}
         <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-          <p className="truncate text-xs font-semibold text-foreground">Workspace preview</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">No agency connected</p>
+          <WorkspaceSwitcher companies={workspace.companies} activeId={workspace.activeCompany?.id} compact />
         </div>
       </div>
       <SidebarContent className="px-2 pb-3 group-data-[collapsible=icon]:overflow-y-auto">

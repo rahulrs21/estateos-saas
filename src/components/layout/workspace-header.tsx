@@ -8,29 +8,34 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
 import { LogoutButton } from "@/modules/auth/components/logout-button";
+import type { CompanyChoice } from "@/modules/organizations/types";
 
 export interface WorkspaceHeaderProps {
   user?: { name?: string | null; email: string } | null;
+  company?: CompanyChoice | null;
 }
 
-export function WorkspaceHeader({ user }: WorkspaceHeaderProps) {
+export function WorkspaceHeader({ user, company }: WorkspaceHeaderProps) {
   const pathname = usePathname();
-  const { toggleSidebar, open, isMobile, openMobile } = useSidebar();
+  const { toggleSidebar, sidebarId, open, isMobile, openMobile } = useSidebar();
   const current = navigationGroups.flatMap((group) => group.items).find((item) => item.href === pathname);
   const identity = user?.name?.trim() || user?.email;
+  const toggleLabel = isMobile
+    ? (openMobile ? "Close navigation" : "Open navigation")
+    : (open ? "Collapse sidebar" : "Expand sidebar");
 
   return (
     <header className="flex h-[76px] shrink-0 items-center justify-between gap-2 border-b bg-card px-4 sm:px-7">
       <div className="flex min-w-0 items-center gap-3">
-        <Button variant="ghost" size="icon-lg" onClick={toggleSidebar} aria-label={isMobile ? "Open navigation" : open ? "Collapse sidebar" : "Expand sidebar"} aria-expanded={isMobile ? openMobile : open}>
+        <Button variant="ghost" size="icon-lg" data-sidebar-toggle onClick={toggleSidebar} aria-label={toggleLabel} title={toggleLabel} aria-controls={`${sidebarId}-${isMobile ? "mobile" : "desktop"}`} aria-expanded={isMobile ? openMobile : open}>
           <PanelLeft className="size-[18px]" aria-hidden="true" />
         </Button>
         <div className="h-5 border-l" aria-hidden="true" />
         <nav aria-label="Breadcrumb" className="min-w-0 text-sm">
           <ol className="flex items-center gap-2">
-            <li className="hidden text-muted-foreground sm:block"><Link href="/workspace/dashboard" className="rounded hover:text-primary">Workspace</Link></li>
+            <li className="max-w-32 truncate text-muted-foreground sm:max-w-60"><Link href="/workspace/dashboard" title={company?.name} className="rounded hover:text-primary">{company?.name ?? "Workspace"}</Link></li>
             <li className="hidden sm:block"><ChevronRight className="size-3 text-muted-foreground" aria-hidden="true" /></li>
-            <li className="truncate font-medium" aria-current="page">{current?.title ?? "Workspace"}</li>
+            <li className="hidden truncate font-medium sm:block" aria-current="page">{pathname === "/settings/company" ? "Company settings" : pathname === "/settings/team/invitations" ? "Invitations" : pathname === "/settings/team" ? "Team members" : current?.title ?? "Workspace"}</li>
           </ol>
         </nav>
       </div>

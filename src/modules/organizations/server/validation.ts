@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { WorkspaceError } from "./errors";
 import { canonicalUuid } from "./identifiers";
+import { companyDetailsSchema, organizationNameSchema, organizationSlugSchema } from "../validation";
 
 export const uuidSchema = z.string().transform(canonicalUuid).pipe(z.uuid());
 const nameSchema = z.string().trim().min(2).max(120);
@@ -8,8 +9,12 @@ const emailSchema = z.email().trim().toLowerCase().max(254);
 
 export const profileInputSchema = z.strictObject({ displayName: nameSchema });
 export const createOrganizationInputSchema = z.strictObject({
-  name: nameSchema,
-  slug: z.string().trim().toLowerCase().min(3).max(63).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  name: organizationNameSchema,
+  slug: organizationSlugSchema,
+  emirate: companyDetailsSchema.shape.emirate.optional(),
+  contactPhone: companyDetailsSchema.shape.contactPhone.optional(),
+  companyEmail: companyDetailsSchema.shape.companyEmail.optional(),
+  companySize: companyDetailsSchema.shape.companySize.optional(),
 });
 export const switchOrganizationInputSchema = z.strictObject({ organizationId: uuidSchema });
 export const createBranchInputSchema = z.strictObject({ name: nameSchema });
@@ -25,7 +30,11 @@ export const acceptInvitationInputSchema = z.strictObject({
 export const membershipIdInputSchema = z.strictObject({ membershipId: uuidSchema });
 export const membershipStatusInputSchema = z.strictObject({
   membershipId: uuidSchema,
-  status: z.enum(["SUSPENDED", "REVOKED"]),
+  status: z.enum(["SUSPENDED", "REMOVED", "REVOKED"]),
+});
+export const membershipRoleInputSchema = z.strictObject({
+  membershipId: uuidSchema,
+  role: z.enum(["ADMIN", "MANAGER", "AGENT"]),
 });
 export const paginationInputSchema = z.strictObject({
   limit: z.number().int().min(1).max(100).default(50),

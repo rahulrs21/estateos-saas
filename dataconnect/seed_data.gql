@@ -1,6 +1,8 @@
-# LOCAL ONLY: guarded demo-estateos seeder resets these six tables.
+# LOCAL ONLY: guarded demo-estateos seeder resets these eight tables.
 # Synthetic fixtures. Outside connectorDirs; never deployed or generated.
 mutation ResetEstateOS @transaction {
+  auditLog_deleteMany(all: true)
+  invitation_deleteMany(all: true)
   activity_deleteMany(all: true)
   lead_deleteMany(all: true)
   branch_deleteMany(all: true)
@@ -21,6 +23,7 @@ mutation SeedEstateOS @transaction {
     {uid: "pending-user", email: "pending-user@example.test", displayName: "Local pending-user"}
     {uid: "suspended-user", email: "suspended-user@example.test", displayName: "Local suspended-user"}
     {uid: "revoked-user", email: "revoked-user@example.test", displayName: "Local revoked-user"}
+    {uid: "removed-user", email: "removed-user@example.test", displayName: "Local removed-user"}
     {uid: "outsider", email: "outsider@example.test", displayName: "Local outsider"}
   ])
   organization_insertMany(data: [
@@ -28,6 +31,7 @@ mutation SeedEstateOS @transaction {
     {id: "20000000-0000-4000-8000-000000000001", name: "Local Agency B", slug: "local-agency-b", createdByUid: "owner-b"}
   ])
   membership_insertMany(data: [
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000010", userProfileUid: "removed-user", email: "removed-user@example.test", role: AGENT, status: REMOVED, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
     {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000001", userProfileUid: "owner-a", email: "owner-a@example.test", role: OWNER, status: ACTIVE, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
     {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000002", userProfileUid: "admin-a", email: "admin-a@example.test", role: ADMIN, status: ACTIVE, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
     {organizationId: "10000000-0000-4000-8000-000000000001", id: "11000000-0000-4000-8000-000000000003", userProfileUid: "manager-a", email: "manager-a@example.test", role: MANAGER, status: ACTIVE, invitedByUid: null, invitationTokenHash: null, invitationExpiresAt: null}
@@ -52,5 +56,12 @@ mutation SeedEstateOS @transaction {
     {organizationId: "10000000-0000-4000-8000-000000000001", id: "14000000-0000-4000-8000-000000000001", actorUid: "owner-a", kind: ORGANIZATION_CREATED, targetId: "10000000-0000-4000-8000-000000000001"}
     {organizationId: "20000000-0000-4000-8000-000000000001", id: "24000000-0000-4000-8000-000000000001", actorUid: "owner-b", kind: ORGANIZATION_CREATED, targetId: "20000000-0000-4000-8000-000000000001"}
   ]) 
+  invitation_insertMany(data: [
+    {organizationId: "10000000-0000-4000-8000-000000000001", id: "15000000-0000-4000-8000-000000000001", membershipId: "11000000-0000-4000-8000-000000000006", email: "invited-user@example.test", role: AGENT, tokenHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", invitedByUid: "owner-a", expiresAt_expr: "request.time + duration('3600s')"}
+  ])
+  auditLog_insertMany(data: [
+    {organizationId: "10000000-0000-4000-8000-000000000001", actorUid: "owner-a", action: ORGANIZATION_CREATED, targetType: ORGANIZATION, targetId: "10000000-0000-4000-8000-000000000001"}
+    {organizationId: "20000000-0000-4000-8000-000000000001", actorUid: "owner-b", action: ORGANIZATION_CREATED, targetType: ORGANIZATION, targetId: "20000000-0000-4000-8000-000000000001"}
+  ])
 }
 

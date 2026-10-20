@@ -33,11 +33,12 @@ const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 
 type SidebarContextProps = {
+  sidebarId: string
   state: "expanded" | "collapsed"
   open: boolean
-  setOpen: (open: boolean) => void
+  setOpen: React.Dispatch<React.SetStateAction<boolean>>
   openMobile: boolean
-  setOpenMobile: (open: boolean) => void
+  setOpenMobile: React.Dispatch<React.SetStateAction<boolean>>
   isMobile: boolean
   toggleSidebar: () => void
 }
@@ -66,6 +67,7 @@ function SidebarProvider({
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
+  const sidebarId = React.useId()
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
 
@@ -75,18 +77,23 @@ function SidebarProvider({
   const open = openProp ?? _open
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === "function" ? value(open) : value
       if (setOpenProp) {
-        setOpenProp(openState)
+        setOpenProp(typeof value === "function" ? value(open) : value)
       } else {
-        _setOpen(openState)
+        // Keep updater functions intact so queued toggle events use fresh state.
+        _setOpen(value)
       }
-
-      // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
     },
     [setOpenProp, open]
   )
+
+  React.useEffect(() => {
+    // This is an optional UI preference. Browser cookie restrictions must not
+    // break navigation, and state updater functions must stay free of effects.
+    try {
+      document.cookie = `${SIDEBAR_COOKIE_NAME}=${open}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+    } catch { /* Navigation still works when preference cookies are blocked. */ }
+  }, [open])
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
@@ -115,6 +122,7 @@ function SidebarProvider({
 
   const contextValue = React.useMemo<SidebarContextProps>(
     () => ({
+      sidebarId,
       state,
       open,
       setOpen,
@@ -123,7 +131,7 @@ function SidebarProvider({
       setOpenMobile,
       toggleSidebar,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [sidebarId, state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
   )
 
   return (
@@ -162,7 +170,7 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { sidebarId, isMobile, state, openMobile, setOpenMobile } = useSidebar()
 
   if (collapsible === "none") {
     return (
@@ -179,10 +187,13 @@ function Sidebar({
     )
   }
 
-  if (isMobile) {
-    return (
-      <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
+  return (
+    <>
+      {/* Keep desktop navigation mounted across hydration and viewport changes.
+          CSS and useIsMobile both use 768 CSS pixels for the mode boundary. */}
+      <Sheet open={isMobile && openMobile} onOpenChange={setOpenMobile} {...props}>
         <SheetContent
+          id={`${sidebarId}-mobile`}
           dir={dir}
           data-sidebar="sidebar"
           data-slot="sidebar"
@@ -202,12 +213,9 @@ function Sidebar({
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
       </Sheet>
-    )
-  }
-
-  return (
     <div
-      className="group peer hidden text-sidebar-foreground md:block"
+      id={`${sidebarId}-desktop`}
+      className="group peer hidden text-sidebar-foreground min-[768px]:block"
       data-state={state}
       data-collapsible={state === "collapsed" ? collapsible : ""}
       data-variant={variant}
@@ -230,7 +238,7 @@ function Sidebar({
         data-slot="sidebar-container"
         data-side={side}
         className={cn(
-          "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear data-[side=left]:left-0 data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] data-[side=right]:right-0 data-[side=right]:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] md:flex",
+          "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear data-[side=left]:left-0 data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] data-[side=right]:right-0 data-[side=right]:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] min-[768px]:flex",
           // Adjust the padding for floating and inset variants.
           variant === "floating" || variant === "inset"
             ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
@@ -248,6 +256,7 @@ function Sidebar({
         </div>
       </div>
     </div>
+    </>
   )
 }
 
@@ -256,7 +265,7 @@ function SidebarTrigger({
   onClick,
   ...props
 }: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar } = useSidebar()
+  const { toggleSidebar, sidebarId, isMobile, open, openMobile } = useSidebar()
 
   return (
     <Button
@@ -264,6 +273,8 @@ function SidebarTrigger({
       data-slot="sidebar-trigger"
       variant="ghost"
       size="icon-sm"
+      aria-controls={`${sidebarId}-${isMobile ? "mobile" : "desktop"}`}
+      aria-expanded={isMobile ? openMobile : open}
       className={cn(className)}
       onClick={(event) => {
         onClick?.(event)

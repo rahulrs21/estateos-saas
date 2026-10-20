@@ -3,7 +3,7 @@ import { canonicalUuid } from "./identifiers";
 
 export const membershipRoles = ["OWNER", "ADMIN", "MANAGER", "AGENT"] as const;
 export type MembershipRole = (typeof membershipRoles)[number];
-export type MembershipStatus = "INVITED" | "PENDING" | "ACTIVE" | "SUSPENDED" | "REVOKED";
+export type MembershipStatus = "INVITED" | "PENDING" | "ACTIVE" | "SUSPENDED" | "REVOKED" | "REMOVED";
 
 /** These values must come from a fresh database result, never request JSON. */
 export interface StoredMembership {
@@ -58,6 +58,12 @@ export function assertCanManageMembership(
       target.userUid === actor.userUid || target.email.toLowerCase() === actor.email.toLowerCase() ||
       (requiredStatus && target.status !== requiredStatus)) denied();
   assertCanGrantMembershipRole(actor, target.role);
+}
+
+/** Owners are deliberately immutable in this phase, including the last owner. */
+export function assertCanChangeMembershipRole(actor: ActiveMembership, target: StoredMembership | null | undefined, role: string): void {
+  assertCanManageMembership(actor, target, "ACTIVE");
+  assertCanGrantMembershipRole(actor, role);
 }
 
 export function assertCanWriteLead(

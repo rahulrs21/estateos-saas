@@ -6,8 +6,9 @@ schemas:
     datasource:
       postgresql:
         database: "fdcdb"
-        # Hosted migrations must preserve unrelated/existing tables by default.
         schemaValidation: "COMPATIBLE"
         cloudSql:
           instanceId: "estateos-fdc"
+          # schemaValidation: "STRICT"     # STRICT mode makes Postgres schema match Data Connect exactly.
+          # schemaValidation: "COMPATIBLE" # COMPATIBLE mode makes Postgres schema compatible with Data Connect.
 connectorDirs: ["./connector"]

@@ -1,6 +1,6 @@
 # EstateOS architecture
 
-EstateOS is planned as a multi-tenant real estate CRM for UAE agencies. Phase 1A supplies the application shell; Phase 1B adds real Firebase authentication and the SQL Connect tenant foundation. The first connected CRM module is Leads, with organization and assignment checks in both server services and stored operations. Organization onboarding interfaces, more granular sharing and operational release checks remain future work. It is not a production-ready CRM.
+EstateOS is planned as a multi-tenant real estate CRM for UAE agencies. The shell, Firebase authentication, SQL Connect tenant services and Leads are connected. Phase 3 adds company onboarding, settings and workspace selection, preserving dashboard design and tenant authorization. Team management and secure email invitations are connected. More granular sharing and operational release checks remain future work. It is not a production-ready CRM.
 
 ## Current implementation: shell, identity and tenant services
 
@@ -12,12 +12,12 @@ EstateOS is planned as a multi-tenant real estate CRM for UAE agencies. Phase 1A
 - Every navigation destination has an implemented interface or an explicit unconnected module page.
 - Light/dark theme preference is presentation-only and uses `next-themes`.
 - Shared headers, empty states, loading views, error boundaries, and a not-found view.
-- SQL Connect/PostgreSQL models for organizations, user profiles, memberships, branches, leads and activities.
+- SQL Connect/PostgreSQL models for organizations, user profiles, memberships, branches, invitations, security audit logs, leads and activities.
 - Tenant-scoped, explicitly authorized queries/mutations and generated Admin SDK calls impersonating a verified Firebase session identity.
 - Server-only organization creation/selection, invitation and membership administration, branch, lead and activity services with validated inputs and transactional audit events.
 - Connected Leads search/filter/pagination, create/edit/detail forms, status pipeline, active-member assignment, append-only notes, follow-up and an authorized activity timeline.
 
-`/workspace` requires a server-verified Firebase identity with a verified email. Invalid, expired and revoked sessions are rejected. Authentication alone does not establish organization membership: connected data services additionally resolve active membership and its role. Leads pages call the authorized lead, branch and active assignee services and show explicit missing-profile/company, empty and unavailable states. Other CRM modules remain unconnected. Company onboarding, membership administration interfaces, billing, AI requests and marketing/communication integrations remain unimplemented.
+`/workspace` requires a verified Firebase session and active selected company membership. New users go to onboarding; existing members without a valid selection choose an authorized company. Invalid, expired and revoked sessions fail closed. Services independently recheck membership and record authorization. Branch administration UI, billing, AI and marketing/communication integrations remain unimplemented. See [Onboarding](ONBOARDING.md) for the connected setup/settings flow.
 
 ## Source organization
 
@@ -32,6 +32,10 @@ src/
       verify-email/          Verification guidance and controls
     api/auth/                CSRF and verified session route handlers
     api/leads/               Session/origin/CSRF-protected lead HTTP boundary
+    api/organizations/       Protected company creation/settings/switch boundary
+    api/team/, api/invitations/ Protected team writes and invitation acceptance
+    (onboarding)/onboarding/company/ Verified-user setup and company chooser
+    (company)/settings/company/ Company settings using the existing workspace shell
     (workspace)/workspace/   Protected shell; retains /workspace URL prefix
       dashboard/             Dashboard composed from empty-state panels
       leads/                 Connected list/new/detail/edit lead routes
@@ -44,7 +48,7 @@ src/
     navigation.ts            Typed navigation and module route catalog
   modules/
     auth/                    Auth UI, client flows and server session policy
-    organizations/server/    Validated tenant services, scope and permission rules
+    organizations/           Company UI/validation, tenant services, scope and permissions
     leads/                   Shared Zod schemas, UI and server-only services
     ...                      Feature-specific components
   lib/
@@ -56,12 +60,15 @@ docs/
   ARCHITECTURE.md
   AUTHENTICATION.md
   SQL_CONNECT.md
+  MULTI_TENANCY.md
+  ONBOARDING.md
+  TEAM.md
   DATABASE.md
   PERMISSIONS.md
   LEADS.md
   ROADMAP.md
 dataconnect/
-  schema/schema.gql          Six relational tenant models and constraints
+  schema/schema.gql          Eight relational models and tenant constraints
   connector/                Authorized operations and Admin SDK generation
   seed_data.gql             Emulator fixtures, excluded from deployed connector
 ```
@@ -72,7 +79,7 @@ The navigation catalog is the single source for sidebar links and module descrip
 
 Modules own their UI, types, validation and server services. Shared Firebase infrastructure stays in `lib/firebase`, and verified session access in `lib/auth/session.ts`; authentication policy and organization permission rules stay with their owning modules. Add shared `lib/permissions`, `lib/validation` or `types` files when there is code to share. Agent/property domain modules will be introduced when their functionality is implemented; their current navigation destinations remain explicit placeholders. Do not create parallel implementations or empty module scaffolding just to match a proposed tree.
 
-The SQL Connect directory is named `connector`, while its configured connector ID remains `example` to preserve existing SDK and service identity. This organization refactor changes no database schema, operation authorization or hosted resources. See [Database](DATABASE.md) for the data model and [Permissions](PERMISSIONS.md) for access rules.
+The SQL Connect directory is named `connector`, while connector ID `example` preserves existing SDK/service identity. Company onboarding adds nullable company fields and an authorized update operation; no hosted resources are changed. See [Database](DATABASE.md), [Permissions](PERMISSIONS.md) and [Onboarding](ONBOARDING.md).
 
 ## Target architecture
 
@@ -108,11 +115,11 @@ Verified Firebase identity is the first boundary. The organization service bound
 
 Use one common authorization mechanism across protected pages, server actions, route handlers, background jobs, and data access. Check capabilities at the operation boundary and enforce record visibility in queries, including reads, updates, deletes, search, counts, reports, storage access, and exports. A layout guard alone is insufficient to secure a directly invoked mutation or API endpoint. Authorization should default to deny.
 
-Roles are `OWNER`, `ADMIN`, `MANAGER` and `AGENT`. A dedicated transaction creates a new organization and fixed active owner together. Existing-organization ownership cannot be self-assigned. Owners may administer non-owner memberships; administrators may manage only managers and agents. Self role/status edits and owner changes are unavailable. Invitation acceptance requires the matching verified email, unexpired single-use token, and a later authorized approval before access begins. See [SQL Connect](SQL_CONNECT.md) for the permission matrix, lifecycle and test runbook.
+Roles are `OWNER`, `ADMIN`, `MANAGER` and `AGENT`. A dedicated transaction creates a new organization and fixed active owner together. Existing-organization ownership cannot be self-assigned. Owners may administer non-owner memberships; administrators may manage only managers and agents. Self role/status edits and owner changes are unavailable. Invitation acceptance requires the matching verified email, unexpired single-use token, and current issuer authority. New acceptance activates and selects the company atomically; legacy PENDING records retain their approval workflow. See [SQL Connect](SQL_CONNECT.md) for the permission matrix, lifecycle and test runbook.
 
 Current lead permissions grant organization-wide access to active owners, administrators and managers. Active agents can create/read/update only leads assigned to themselves. The connector repeats this restriction for direct operation calls. Branch visibility and approved sharing remain future work; assigning a branch does not establish a branch ACL. Platform administration requires a separately verified privileged context, not a client flag.
 
-Tenant-owned primary keys include organization plus UUID. Composite branch, assignee and lead foreign keys reuse that organization identifier to reject cross-tenant relationships in PostgreSQL. Queries and mutations require explicit authorization; sensitive checks are redacted. Transactional writes use server timestamps and write their `Activity` audit event atomically. The generated SDK is called with verified identity impersonation for normal service operations; unrestricted Admin execution is reserved for loopback-only fixture setup.
+Tenant-owned primary keys include organization plus UUID. Composite branch, assignee, invitation and lead foreign keys reuse that organization identifier to reject cross-tenant relationships in PostgreSQL. Queries and mutations require explicit authorization; sensitive checks are redacted. Transactional writes use server timestamps and append their `Activity` timeline and separate `AuditLog` events atomically. The generated SDK is called with verified identity impersonation for normal service operations; raw unrestricted GraphQL remains confined to loopback fixtures/constraint tests. RecordInvitationDelivery is a separate NO_ACCESS stored operation called only by server delivery code with independently checked actor/tenant/issuer/digest binding; clients cannot write delivery receipts. See [Team](TEAM.md).
 
 ## Connected Leads boundary
 

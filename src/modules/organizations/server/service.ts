@@ -1,6 +1,11 @@
 import "server-only";
 
 import {
+  CompanySize as SqlCompanySize,
+  Emirate as SqlEmirate,
+  getMyProfile,
+  getTeamMembershipByEmail,
+  type ListMyOrganizationsData,
   MembershipRole as SqlMembershipRole,
   MembershipStatus as SqlMembershipStatus,
   acceptInvitation as acceptInvitationOperation,
@@ -12,20 +17,29 @@ import {
   listBranches as listBranchesOperation,
   listMemberships as listMembershipsOperation,
   listMyOrganizations as listMyOrganizationsOperation,
+  listAuditLogs as listAuditLogsOperation,
+  listInvitations as listInvitationsOperation,
+  setMembershipRole as setMembershipRoleOperation,
   setMembershipStatus as setMembershipStatusOperation,
   switchOrganization as switchOrganizationOperation,
   upsertMyProfile as upsertMyProfileOperation,
+  updateOrganization as updateOrganizationOperation,
 } from "@dataconnect/admin-generated";
 import { executeWorkspaceOperation, requireSqlConnectRequest } from "@/lib/firebase/dataconnect";
 import { requireActiveOrganizationRequest, requireProfileRequest } from "./context";
-import { createInvitationSecret, hashInvitationToken } from "./invitation-token";
+import { createInvitationSecret, hashInvitationToken, invitationLifetimeMs } from "./invitation-token";
+import { mapOrganizationCreationError, mapWorkspaceDataError, WorkspaceError } from "./errors";
+import { canonicalUuid } from "./identifiers";
+import { assertInvitationCanBeCreated } from "./invitation-policy";
+import { assertExpectedOrganization } from "@/lib/http/request-policy";
+import { companyDetailsSchema } from "../validation";
 import {
   assertCanGrantMembershipRole, assertInvitationRecipient, assertOrganizationAdministrator,
 } from "./permission-policy";
 import {
   acceptInvitationInputSchema, createBranchInputSchema, createOrganizationInputSchema,
   inviteMembershipInputSchema, membershipIdInputSchema, membershipStatusInputSchema,
-  paginationInputSchema, profileInputSchema, switchOrganizationInputSchema, validateInput,
+  paginationInputSchema, profileInputSchema, switchOrganizationInputSchema, validateInput, membershipRoleInputSchema,
 } from "./validation";
 
 /** Server-only internal services. Future actions must also enforce CSRF/origin. */
@@ -37,7 +51,13 @@ export async function upsertMyProfile(input: unknown) {
 
 export async function listMyOrganizations() {
   const request = await requireSqlConnectRequest();
-  return executeWorkspaceOperation(() => listMyOrganizationsOperation(request.dc, request.options));
+  const memberships: ListMyOrganizationsData["memberships"] = [];
+  for (let offset = 0; offset <= 10_000; offset += 100) {
+    const page = await executeWorkspaceOperation(() => listMyOrganizationsOperation(request.dc, { limit: 100, offset }, request.options));
+    memberships.push(...page.memberships);
+    if (page.memberships.length < 100) return { memberships };
+  }
+  throw new WorkspaceError("WORKSPACE_LIMIT", 503, "Your workspace list could not be loaded. Contact support.");
 }
 
 export async function createOrganization(input: unknown) {
@@ -45,7 +65,46 @@ export async function createOrganization(input: unknown) {
   const variables = validateInput(createOrganizationInputSchema, input);
   // The transaction derives creator/OWNER identity from auth.uid and switches the
   // profile only after creating the organization and its active OWNER membership.
-  return executeWorkspaceOperation(() => createOrganizationOperation(request.dc, variables, request.options));
+  try {
+    return (await createOrganizationOperation(request.dc, {
+      ...variables,
+      emirate: variables.emirate ? SqlEmirate[variables.emirate] : undefined,
+      companySize: variables.companySize ? SqlCompanySize[variables.companySize] : undefined,
+    }, request.options)).data;
+  } catch (error) {
+    throw mapOrganizationCreationError(error);
+  }
+}
+
+/** Onboarding creates missing identity metadata from the verified session only. */
+async function ensureMyProfile() {
+  const request = await requireSqlConnectRequest();
+  const { userProfile } = await executeWorkspaceOperation(() => getMyProfile(request.dc, request.options));
+  if (!userProfile) {
+    const name = request.user.name?.trim();
+    const displayName = name && name.length >= 2 ? name.slice(0, 120) : request.user.email.slice(0, 120);
+    await executeWorkspaceOperation(() => upsertMyProfileOperation(request.dc, { displayName }, request.options));
+  }
+  return request;
+}
+
+export async function registerCompany(input: unknown) {
+  const variables = validateInput(companyDetailsSchema, input);
+  await ensureMyProfile();
+  return createOrganization(variables);
+}
+
+export async function updateCompany(input: unknown, expectedOrganizationId: string | null) {
+  const { request, organizationId, membership } = await requireActiveOrganizationRequest();
+  assertExpectedOrganization(expectedOrganizationId, organizationId);
+  assertOrganizationAdministrator(membership);
+  const variables = validateInput(companyDetailsSchema, input);
+  try {
+    return (await updateOrganizationOperation(request.dc, {
+      ...variables, organizationId, emirate: SqlEmirate[variables.emirate],
+      companySize: SqlCompanySize[variables.companySize],
+    }, request.options)).data;
+  } catch (error) { throw mapOrganizationCreationError(error); }
 }
 
 export async function switchOrganization(input: unknown) {
@@ -79,29 +138,50 @@ export async function listMemberships() {
   return executeWorkspaceOperation(() => listMembershipsOperation(request.dc, { organizationId }, request.options));
 }
 
-export async function inviteMembership(input: unknown) {
+export async function inviteMembership(input: unknown, expectedOrganizationId?: string | null) {
   const { request, organizationId, membership } = await requireActiveOrganizationRequest();
+  if (expectedOrganizationId !== undefined) assertExpectedOrganization(expectedOrganizationId, organizationId);
   const variables = validateInput(inviteMembershipInputSchema, input);
   assertCanGrantMembershipRole(membership, variables.role);
   assertInvitationRecipient(membership, variables.email);
-  const secret = createInvitationSecret();
+  const lookup = await executeWorkspaceOperation(() => getTeamMembershipByEmail(request.dc, { organizationId, email: variables.email }, request.options));
+  assertInvitationCanBeCreated(lookup.membership);
+  const secret = createInvitationSecret(new Date(), invitationLifetimeMs(process.env.INVITATION_TTL_HOURS));
   const role = { ADMIN: SqlMembershipRole.ADMIN, MANAGER: SqlMembershipRole.MANAGER, AGENT: SqlMembershipRole.AGENT }[variables.role];
-  const data = await executeWorkspaceOperation(() => inviteMembershipOperation(request.dc, {
+  let data;
+  try {
+    data = (await inviteMembershipOperation(request.dc, {
     ...variables, role, organizationId, tokenHash: secret.tokenHash, expiresAt: secret.expiresAt,
-  }, request.options));
-  // Do not log or persist the raw token, including in audit metadata. There is
-  // deliberately no email provider in this phase; the caller delivers it safely.
+    }, request.options)).data;
+  } catch (error) {
+    const provider = error as { code?: string; message?: string };
+    if (["data-connect/query-error", "data-connect/permission-denied"].includes(provider?.code ?? "") &&
+        /MEMBERSHIP_ALREADY_EXISTS|membership[^\n]*(?:organization|email)[^\n]*(?:unique|key)|unique[^\n]*membership/i.test(provider?.message ?? "")) {
+      throw new WorkspaceError("MEMBERSHIP_EXISTS", 409, "This email already has a membership or invitation in this company. Refresh the list and use Reissue for a pending invitation.");
+    }
+    throw mapWorkspaceDataError(error);
+  }
+  // Server-only delivery consumes the raw token. Never log or persist it.
   return { ...data, invitationToken: secret.token, invitationExpiresAt: secret.expiresAt };
 }
 
 export async function acceptInvitation(input: unknown) {
-  const { request } = await requireProfileRequest();
   const { token, ...variables } = validateInput(acceptInvitationInputSchema, input);
-  // The transaction verifies the stored invite email, expiry and digest; binds
-  // only auth.uid; consumes the secret; and enters PENDING, never ACTIVE.
-  return executeWorkspaceOperation(() => acceptInvitationOperation(request.dc, {
-    ...variables, tokenHash: hashInvitationToken(token),
-  }, request.options));
+  const request = await requireSqlConnectRequest();
+  const name = request.user.name?.trim();
+  const displayName = (name || request.user.email).slice(0, 120);
+  // Profile initialization, token consumption, ACTIVE membership, company
+  // selection and audit commit together. Identity comes only from the session.
+  try {
+    return await executeWorkspaceOperation(() => acceptInvitationOperation(request.dc, {
+      ...variables, tokenHash: hashInvitationToken(token), displayName,
+    }, request.options));
+  } catch (error) {
+    if (error instanceof WorkspaceError && error.status === 403) {
+      throw new WorkspaceError("INVITATION_UNAVAILABLE", 403, "This invitation cannot be accepted. It may be expired, revoked, already used, or intended for a different verified email.");
+    }
+    throw error;
+  }
 }
 
 export async function approveMembership(input: unknown) {
@@ -113,12 +193,42 @@ export async function approveMembership(input: unknown) {
   return executeWorkspaceOperation(() => approveMembershipOperation(request.dc, { ...variables, organizationId }, request.options));
 }
 
-export async function setMembershipStatus(input: unknown) {
+export async function setMembershipStatus(input: unknown, expectedOrganizationId?: string | null) {
   const { request, organizationId, membership } = await requireActiveOrganizationRequest();
+  if (expectedOrganizationId !== undefined) assertExpectedOrganization(expectedOrganizationId, organizationId);
   const variables = validateInput(membershipStatusInputSchema, input);
   assertOrganizationAdministrator(membership);
-  const status = { SUSPENDED: SqlMembershipStatus.SUSPENDED, REVOKED: SqlMembershipStatus.REVOKED }[variables.status];
+  if (canonicalUuid(variables.membershipId) === canonicalUuid(membership.id)) {
+    throw new WorkspaceError("FORBIDDEN", 403, "You cannot change your own membership status.");
+  }
+  const status = { SUSPENDED: SqlMembershipStatus.SUSPENDED, REMOVED: SqlMembershipStatus.REMOVED, REVOKED: SqlMembershipStatus.REVOKED }[variables.status];
   return executeWorkspaceOperation(() => setMembershipStatusOperation(request.dc, { ...variables, status, organizationId }, request.options));
+}
+
+export async function setMembershipRole(input: unknown, expectedOrganizationId?: string | null) {
+  const { request, organizationId, membership } = await requireActiveOrganizationRequest();
+  if (expectedOrganizationId !== undefined) assertExpectedOrganization(expectedOrganizationId, organizationId);
+  const variables = validateInput(membershipRoleInputSchema, input);
+  assertCanGrantMembershipRole(membership, variables.role);
+  if (canonicalUuid(variables.membershipId) === canonicalUuid(membership.id)) {
+    throw new WorkspaceError("FORBIDDEN", 403, "You cannot change your own membership role.");
+  }
+  const role = { ADMIN: SqlMembershipRole.ADMIN, MANAGER: SqlMembershipRole.MANAGER, AGENT: SqlMembershipRole.AGENT }[variables.role];
+  return executeWorkspaceOperation(() => setMembershipRoleOperation(request.dc, { ...variables, role, organizationId }, request.options));
+}
+
+export async function listInvitations(input: unknown = {}) {
+  const { request, organizationId, membership } = await requireActiveOrganizationRequest();
+  assertOrganizationAdministrator(membership);
+  const variables = validateInput(paginationInputSchema, input);
+  return executeWorkspaceOperation(() => listInvitationsOperation(request.dc, { ...variables, organizationId }, request.options));
+}
+
+export async function listAuditLogs(input: unknown = {}) {
+  const { request, organizationId, membership } = await requireActiveOrganizationRequest();
+  assertOrganizationAdministrator(membership);
+  const variables = validateInput(paginationInputSchema, input);
+  return executeWorkspaceOperation(() => listAuditLogsOperation(request.dc, { ...variables, organizationId }, request.options));
 }
 
 export async function listActivities(input: unknown = {}) {

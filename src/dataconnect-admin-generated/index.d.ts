@@ -10,12 +10,20 @@ export type DateString = string;
 export enum ActivityKind {
   ORGANIZATION_CREATED = "ORGANIZATION_CREATED",
   ORGANIZATION_SWITCHED = "ORGANIZATION_SWITCHED",
+  ORGANIZATION_UPDATED = "ORGANIZATION_UPDATED",
   BRANCH_CREATED = "BRANCH_CREATED",
   MEMBERSHIP_INVITED = "MEMBERSHIP_INVITED",
   INVITATION_ACCEPTED = "INVITATION_ACCEPTED",
   MEMBERSHIP_APPROVED = "MEMBERSHIP_APPROVED",
   MEMBERSHIP_SUSPENDED = "MEMBERSHIP_SUSPENDED",
   MEMBERSHIP_REVOKED = "MEMBERSHIP_REVOKED",
+  MEMBERSHIP_REMOVED = "MEMBERSHIP_REMOVED",
+  MEMBERSHIP_ROLE_CHANGED = "MEMBERSHIP_ROLE_CHANGED",
+  INVITATION_REVOKED = "INVITATION_REVOKED",
+  INVITATION_REISSUED = "INVITATION_REISSUED",
+  INVITATION_DELIVERY_PREVIEW = "INVITATION_DELIVERY_PREVIEW",
+  INVITATION_DELIVERY_ACCEPTED = "INVITATION_DELIVERY_ACCEPTED",
+  INVITATION_DELIVERY_FAILED = "INVITATION_DELIVERY_FAILED",
   LEAD_CREATED = "LEAD_CREATED",
   LEAD_UPDATED = "LEAD_UPDATED",
   LEAD_NOTE_ADDED = "LEAD_NOTE_ADDED",
@@ -23,6 +31,40 @@ export enum ActivityKind {
   LEAD_ASSIGNED = "LEAD_ASSIGNED",
   FOLLOW_UP_SCHEDULED = "FOLLOW_UP_SCHEDULED",
   FOLLOW_UP_COMPLETED = "FOLLOW_UP_COMPLETED",
+}
+export enum AuditTargetType {
+  ORGANIZATION = "ORGANIZATION",
+  MEMBERSHIP = "MEMBERSHIP",
+  BRANCH = "BRANCH",
+  LEAD = "LEAD",
+  INVITATION = "INVITATION",
+}
+export enum CompanySize {
+  SOLO = "SOLO",
+  TWO_TO_TEN = "TWO_TO_TEN",
+  ELEVEN_TO_FIFTY = "ELEVEN_TO_FIFTY",
+  FIFTY_ONE_TO_TWO_HUNDRED = "FIFTY_ONE_TO_TWO_HUNDRED",
+  TWO_HUNDRED_PLUS = "TWO_HUNDRED_PLUS",
+}
+export enum Emirate {
+  ABU_DHABI = "ABU_DHABI",
+  DUBAI = "DUBAI",
+  SHARJAH = "SHARJAH",
+  AJMAN = "AJMAN",
+  UMM_AL_QUWAIN = "UMM_AL_QUWAIN",
+  RAS_AL_KHAIMAH = "RAS_AL_KHAIMAH",
+  FUJAIRAH = "FUJAIRAH",
+}
+export enum InvitationDeliveryStatus {
+  NOT_SENT = "NOT_SENT",
+  PREVIEW = "PREVIEW",
+  ACCEPTED = "ACCEPTED",
+  FAILED = "FAILED",
+}
+export enum InvitationStatus {
+  PENDING = "PENDING",
+  ACCEPTED = "ACCEPTED",
+  REVOKED = "REVOKED",
 }
 export enum LeadStatus {
   NEW = "NEW",
@@ -43,17 +85,20 @@ export enum MembershipStatus {
   ACTIVE = "ACTIVE",
   SUSPENDED = "SUSPENDED",
   REVOKED = "REVOKED",
+  REMOVED = "REMOVED",
 }
 
 export interface AcceptInvitationData {
   membership?: Membership_Key | null;
   activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface AcceptInvitationVariables {
   organizationId: UUIDString;
   membershipId: UUIDString;
   tokenHash: string;
+  displayName?: string;
 }
 
 export interface Activity_Key {
@@ -65,6 +110,7 @@ export interface Activity_Key {
 export interface AddLeadNoteData {
   lead?: Lead_Key | null;
   activity: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface AddLeadNoteVariables {
@@ -76,6 +122,7 @@ export interface AddLeadNoteVariables {
 export interface ApproveMembershipData {
   membership?: Membership_Key | null;
   activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface ApproveMembershipVariables {
@@ -86,12 +133,19 @@ export interface ApproveMembershipVariables {
 export interface AssignLeadData {
   lead?: Lead_Key | null;
   activity: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface AssignLeadVariables {
   organizationId: UUIDString;
   leadId: UUIDString;
   assignedMembershipId?: UUIDString | null;
+}
+
+export interface AuditLog_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'AuditLog_Key';
 }
 
 export interface Branch_Key {
@@ -103,6 +157,7 @@ export interface Branch_Key {
 export interface ChangeLeadStatusData {
   lead?: Lead_Key | null;
   activity: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface ChangeLeadStatusVariables {
@@ -114,6 +169,7 @@ export interface ChangeLeadStatusVariables {
 export interface CompleteLeadFollowUpData {
   lead?: Lead_Key | null;
   activity: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface CompleteLeadFollowUpVariables {
@@ -124,6 +180,7 @@ export interface CompleteLeadFollowUpVariables {
 export interface CreateBranchData {
   branch: Branch_Key;
   activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface CreateBranchVariables {
@@ -134,6 +191,7 @@ export interface CreateBranchVariables {
 export interface CreateLeadData {
   lead: Lead_Key;
   activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface CreateLeadVariables {
@@ -151,11 +209,16 @@ export interface CreateOrganizationData {
   ownerMembership: Membership_Key;
   userProfile_update?: UserProfile_Key | null;
   activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface CreateOrganizationVariables {
   name: string;
   slug: string;
+  emirate?: Emirate | null;
+  contactPhone?: string | null;
+  companyEmail?: string | null;
+  companySize?: CompanySize | null;
 }
 
 export interface GetLeadData {
@@ -196,6 +259,17 @@ export interface GetLeadVariables {
   leadId: UUIDString;
 }
 
+export interface GetMyPendingInvitationsData {
+  invitations: ({
+    id: UUIDString;
+    role: MembershipRole;
+    expiresAt: TimestampString;
+    organization: {
+      name: string;
+    };
+  })[];
+}
+
 export interface GetMyProfileData {
   userProfile?: {
     uid: string;
@@ -220,6 +294,10 @@ export interface GetOrganizationContextData {
     id: UUIDString;
     name: string;
     slug: string;
+    emirate?: Emirate | null;
+    contactPhone?: string | null;
+    companyEmail?: string | null;
+    companySize?: CompanySize | null;
     createdByUid: string;
     createdAt: TimestampString;
     updatedAt: TimestampString;
@@ -230,9 +308,31 @@ export interface GetOrganizationContextVariables {
   organizationId: UUIDString;
 }
 
+export interface GetTeamMembershipByEmailData {
+  membership?: {
+    status: MembershipStatus;
+    invitation_on_membership?: {
+      status: InvitationStatus;
+    };
+  };
+}
+
+export interface GetTeamMembershipByEmailVariables {
+  organizationId: UUIDString;
+  email: string;
+}
+
+export interface Invitation_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'Invitation_Key';
+}
+
 export interface InviteMembershipData {
   membership: Membership_Key;
+  invitation: Invitation_Key;
   activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface InviteMembershipVariables {
@@ -268,6 +368,25 @@ export interface ListActivitiesVariables {
   offset?: number;
 }
 
+export interface ListAuditLogsData {
+  auditLogs: ({
+    id: UUIDString;
+    organizationId: UUIDString;
+    actorUid: string;
+    action: ActivityKind;
+    targetType: AuditTargetType;
+    targetId: UUIDString;
+    metadata?: unknown | null;
+    createdAt: TimestampString;
+  } & AuditLog_Key)[];
+}
+
+export interface ListAuditLogsVariables {
+  organizationId: UUIDString;
+  limit?: number;
+  offset?: number;
+}
+
 export interface ListBranchesData {
   branches: ({
     id: UUIDString;
@@ -281,6 +400,44 @@ export interface ListBranchesData {
 
 export interface ListBranchesVariables {
   organizationId: UUIDString;
+}
+
+export interface ListInvitationsData {
+  invitations: ({
+    id: UUIDString;
+    organizationId: UUIDString;
+    membershipId: UUIDString;
+    email: string;
+    role: MembershipRole;
+    status: InvitationStatus;
+    invitedByUid: string;
+    expiresAt: TimestampString;
+    acceptedAt?: TimestampString | null;
+    acceptedByUid?: string | null;
+    revokedAt?: TimestampString | null;
+    createdAt: TimestampString;
+    updatedAt: TimestampString;
+    deliveryStatus: InvitationDeliveryStatus;
+    deliveryUpdatedAt?: TimestampString | null;
+    membership: {
+      status: MembershipStatus;
+      userProfileUid?: string | null;
+      acceptedAt?: TimestampString | null;
+      approvedAt?: TimestampString | null;
+      role: MembershipRole;
+    };
+  } & Invitation_Key)[];
+  total: ({
+    count: number;
+  })[];
+}
+
+export interface ListInvitationsVariables {
+  organizationId: UUIDString;
+  limit?: number;
+  offset?: number;
+  search?: string | null;
+  status?: InvitationStatus | null;
 }
 
 export interface ListLeadActivitiesData {
@@ -415,6 +572,37 @@ export interface ListMyOrganizationsData {
   } & Membership_Key)[];
 }
 
+export interface ListMyOrganizationsVariables {
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListTeamMembersData {
+  memberships: ({
+    id: UUIDString;
+    organizationId: UUIDString;
+    userProfileUid?: string | null;
+    email: string;
+    role: MembershipRole;
+    status: MembershipStatus;
+    createdAt: TimestampString;
+    userProfile?: {
+      displayName: string;
+    };
+  } & Membership_Key)[];
+  total: ({
+    count: number;
+  })[];
+}
+
+export interface ListTeamMembersVariables {
+  organizationId: UUIDString;
+  limit?: number;
+  offset?: number;
+  search?: string | null;
+  status?: MembershipStatus | null;
+}
+
 export interface Membership_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -426,9 +614,63 @@ export interface Organization_Key {
   __typename?: 'Organization_Key';
 }
 
+export interface RecordInvitationDeliveryData {
+  invitation?: Invitation_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface RecordInvitationDeliveryVariables {
+  organizationId: UUIDString;
+  membershipId: UUIDString;
+  actorUid: string;
+  tokenHash: string;
+  outcome: InvitationDeliveryStatus;
+}
+
+export interface ReinviteRevokedInvitationData {
+  invitation?: Invitation_Key | null;
+  membership?: Membership_Key | null;
+  activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface ReinviteRevokedInvitationVariables {
+  organizationId: UUIDString;
+  membershipId: UUIDString;
+  tokenHash: string;
+  expiresAt: TimestampString;
+}
+
+export interface ReissueInvitationData {
+  invitation?: Invitation_Key | null;
+  membership_update?: Membership_Key | null;
+  activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface ReissueInvitationVariables {
+  organizationId: UUIDString;
+  membershipId: UUIDString;
+  tokenHash: string;
+  expiresAt: TimestampString;
+}
+
+export interface RevokeInvitationData {
+  invitation?: Invitation_Key | null;
+  membership_update?: Membership_Key | null;
+  activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface RevokeInvitationVariables {
+  organizationId: UUIDString;
+  membershipId: UUIDString;
+}
+
 export interface ScheduleLeadFollowUpData {
   lead?: Lead_Key | null;
   activity: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface ScheduleLeadFollowUpVariables {
@@ -438,9 +680,22 @@ export interface ScheduleLeadFollowUpVariables {
   followUpNote?: string | null;
 }
 
+export interface SetMembershipRoleData {
+  membership?: Membership_Key | null;
+  activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SetMembershipRoleVariables {
+  organizationId: UUIDString;
+  membershipId: UUIDString;
+  role: MembershipRole;
+}
+
 export interface SetMembershipStatusData {
   membership?: Membership_Key | null;
   activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface SetMembershipStatusVariables {
@@ -452,6 +707,7 @@ export interface SetMembershipStatusVariables {
 export interface SwitchOrganizationData {
   userProfile_update?: UserProfile_Key | null;
   activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface SwitchOrganizationVariables {
@@ -461,6 +717,7 @@ export interface SwitchOrganizationVariables {
 export interface UpdateLeadData {
   lead?: Lead_Key | null;
   activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
 }
 
 export interface UpdateLeadVariables {
@@ -473,6 +730,22 @@ export interface UpdateLeadVariables {
   source?: string | null;
   branchId?: UUIDString | null;
   assignedMembershipId?: UUIDString | null;
+}
+
+export interface UpdateOrganizationData {
+  organization?: Organization_Key | null;
+  activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface UpdateOrganizationVariables {
+  organizationId: UUIDString;
+  name: string;
+  slug: string;
+  emirate: Emirate;
+  contactPhone: string;
+  companyEmail: string;
+  companySize: CompanySize;
 }
 
 export interface UpsertMyProfileData {
@@ -533,6 +806,11 @@ export function createOrganization(dc: DataConnect, vars: CreateOrganizationVari
 /** Generated Node Admin SDK operation action function for the 'CreateOrganization' Mutation. Allow users to pass in custom DataConnect instances. */
 export function createOrganization(vars: CreateOrganizationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateOrganizationData>>;
 
+/** Generated Node Admin SDK operation action function for the 'UpdateOrganization' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateOrganization(dc: DataConnect, vars: UpdateOrganizationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateOrganizationData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateOrganization' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateOrganization(vars: UpdateOrganizationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateOrganizationData>>;
+
 /** Generated Node Admin SDK operation action function for the 'SwitchOrganization' Mutation. Allow users to execute without passing in DataConnect. */
 export function switchOrganization(dc: DataConnect, vars: SwitchOrganizationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SwitchOrganizationData>>;
 /** Generated Node Admin SDK operation action function for the 'SwitchOrganization' Mutation. Allow users to pass in custom DataConnect instances. */
@@ -563,15 +841,45 @@ export function setMembershipStatus(dc: DataConnect, vars: SetMembershipStatusVa
 /** Generated Node Admin SDK operation action function for the 'SetMembershipStatus' Mutation. Allow users to pass in custom DataConnect instances. */
 export function setMembershipStatus(vars: SetMembershipStatusVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetMembershipStatusData>>;
 
+/** Generated Node Admin SDK operation action function for the 'RevokeInvitation' Mutation. Allow users to execute without passing in DataConnect. */
+export function revokeInvitation(dc: DataConnect, vars: RevokeInvitationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RevokeInvitationData>>;
+/** Generated Node Admin SDK operation action function for the 'RevokeInvitation' Mutation. Allow users to pass in custom DataConnect instances. */
+export function revokeInvitation(vars: RevokeInvitationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RevokeInvitationData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ReissueInvitation' Mutation. Allow users to execute without passing in DataConnect. */
+export function reissueInvitation(dc: DataConnect, vars: ReissueInvitationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReissueInvitationData>>;
+/** Generated Node Admin SDK operation action function for the 'ReissueInvitation' Mutation. Allow users to pass in custom DataConnect instances. */
+export function reissueInvitation(vars: ReissueInvitationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReissueInvitationData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ReinviteRevokedInvitation' Mutation. Allow users to execute without passing in DataConnect. */
+export function reinviteRevokedInvitation(dc: DataConnect, vars: ReinviteRevokedInvitationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReinviteRevokedInvitationData>>;
+/** Generated Node Admin SDK operation action function for the 'ReinviteRevokedInvitation' Mutation. Allow users to pass in custom DataConnect instances. */
+export function reinviteRevokedInvitation(vars: ReinviteRevokedInvitationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReinviteRevokedInvitationData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RecordInvitationDelivery' Mutation. Allow users to execute without passing in DataConnect. */
+export function recordInvitationDelivery(dc: DataConnect, vars: RecordInvitationDeliveryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordInvitationDeliveryData>>;
+/** Generated Node Admin SDK operation action function for the 'RecordInvitationDelivery' Mutation. Allow users to pass in custom DataConnect instances. */
+export function recordInvitationDelivery(vars: RecordInvitationDeliveryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordInvitationDeliveryData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SetMembershipRole' Mutation. Allow users to execute without passing in DataConnect. */
+export function setMembershipRole(dc: DataConnect, vars: SetMembershipRoleVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetMembershipRoleData>>;
+/** Generated Node Admin SDK operation action function for the 'SetMembershipRole' Mutation. Allow users to pass in custom DataConnect instances. */
+export function setMembershipRole(vars: SetMembershipRoleVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetMembershipRoleData>>;
+
 /** Generated Node Admin SDK operation action function for the 'GetMyProfile' Query. Allow users to execute without passing in DataConnect. */
 export function getMyProfile(dc: DataConnect, options?: OperationOptions): Promise<ExecuteOperationResponse<GetMyProfileData>>;
 /** Generated Node Admin SDK operation action function for the 'GetMyProfile' Query. Allow users to pass in custom DataConnect instances. */
 export function getMyProfile(options?: OperationOptions): Promise<ExecuteOperationResponse<GetMyProfileData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListMyOrganizations' Query. Allow users to execute without passing in DataConnect. */
-export function listMyOrganizations(dc: DataConnect, options?: OperationOptions): Promise<ExecuteOperationResponse<ListMyOrganizationsData>>;
+export function listMyOrganizations(dc: DataConnect, vars?: ListMyOrganizationsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListMyOrganizationsData>>;
 /** Generated Node Admin SDK operation action function for the 'ListMyOrganizations' Query. Allow users to pass in custom DataConnect instances. */
-export function listMyOrganizations(options?: OperationOptions): Promise<ExecuteOperationResponse<ListMyOrganizationsData>>;
+export function listMyOrganizations(vars?: ListMyOrganizationsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListMyOrganizationsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetMyPendingInvitations' Query. Allow users to execute without passing in DataConnect. */
+export function getMyPendingInvitations(dc: DataConnect, options?: OperationOptions): Promise<ExecuteOperationResponse<GetMyPendingInvitationsData>>;
+/** Generated Node Admin SDK operation action function for the 'GetMyPendingInvitations' Query. Allow users to pass in custom DataConnect instances. */
+export function getMyPendingInvitations(options?: OperationOptions): Promise<ExecuteOperationResponse<GetMyPendingInvitationsData>>;
 
 /** Generated Node Admin SDK operation action function for the 'GetOrganizationContext' Query. Allow users to execute without passing in DataConnect. */
 export function getOrganizationContext(dc: DataConnect, vars: GetOrganizationContextVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetOrganizationContextData>>;
@@ -612,4 +920,24 @@ export function listLeadActivities(vars: ListLeadActivitiesVariables, options?: 
 export function listActivities(dc: DataConnect, vars: ListActivitiesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListActivitiesData>>;
 /** Generated Node Admin SDK operation action function for the 'ListActivities' Query. Allow users to pass in custom DataConnect instances. */
 export function listActivities(vars: ListActivitiesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListActivitiesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetTeamMembershipByEmail' Query. Allow users to execute without passing in DataConnect. */
+export function getTeamMembershipByEmail(dc: DataConnect, vars: GetTeamMembershipByEmailVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetTeamMembershipByEmailData>>;
+/** Generated Node Admin SDK operation action function for the 'GetTeamMembershipByEmail' Query. Allow users to pass in custom DataConnect instances. */
+export function getTeamMembershipByEmail(vars: GetTeamMembershipByEmailVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetTeamMembershipByEmailData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListInvitations' Query. Allow users to execute without passing in DataConnect. */
+export function listInvitations(dc: DataConnect, vars: ListInvitationsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListInvitationsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListInvitations' Query. Allow users to pass in custom DataConnect instances. */
+export function listInvitations(vars: ListInvitationsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListInvitationsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListTeamMembers' Query. Allow users to execute without passing in DataConnect. */
+export function listTeamMembers(dc: DataConnect, vars: ListTeamMembersVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListTeamMembersData>>;
+/** Generated Node Admin SDK operation action function for the 'ListTeamMembers' Query. Allow users to pass in custom DataConnect instances. */
+export function listTeamMembers(vars: ListTeamMembersVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListTeamMembersData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListAuditLogs' Query. Allow users to execute without passing in DataConnect. */
+export function listAuditLogs(dc: DataConnect, vars: ListAuditLogsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAuditLogsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListAuditLogs' Query. Allow users to pass in custom DataConnect instances. */
+export function listAuditLogs(vars: ListAuditLogsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAuditLogsData>>;
 

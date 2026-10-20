@@ -8,10 +8,10 @@ import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-export function Dashboard() {
+export function Dashboard({ companyName }: { companyName: string }) {
   return (
     <div className="space-y-6">
-      <PageHeader title="Dashboard" description="A clear view of your agency. Everything starts here." eyebrow="Your workspace">
+      <PageHeader title="Dashboard" description="A clear view of your agency. Everything starts here." eyebrow={companyName}>
         <Link href="/workspace/leads" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "bg-card px-4")}>Explore leads<ArrowRight aria-hidden="true" /></Link>
       </PageHeader>
 
@@ -19,15 +19,15 @@ export function Dashboard() {
         <div className="flex items-start gap-4">
           <span className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-card text-primary"><Plug className="size-5" aria-hidden="true" /></span>
           <div>
-            <div className="flex flex-wrap items-center gap-2"><h2 id="workspace-start-title" className="text-base font-semibold">Your agency’s next chapter</h2><Badge variant="outline" className="border-primary/20 text-[10px] text-primary">Foundation preview</Badge></div>
-            <p className="mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">Your account is ready. Live insights will appear after agency membership and organization setup are implemented.</p>
+            <div className="flex flex-wrap items-center gap-2"><h2 id="workspace-start-title" className="text-base font-semibold">{companyName}</h2><Badge variant="outline" className="border-primary/20 text-[10px] text-primary">Company workspace</Badge></div>
+            <p className="mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">Your company workspace is ready. Manage leads with your team; dashboard analytics will arrive in a future update.</p>
           </div>
         </div>
-        <Link href="/workspace/settings" className="inline-flex shrink-0 items-center gap-2 self-start rounded text-sm font-semibold text-primary sm:self-center">View setup roadmap<ArrowRight className="size-4" aria-hidden="true" /></Link>
+        <Link href="/settings/company" className="inline-flex shrink-0 items-center gap-2 self-start rounded text-sm font-semibold text-primary sm:self-center">Company settings<ArrowRight className="size-4" aria-hidden="true" /></Link>
       </section>
 
       <section aria-label="Agency key performance indicators" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard title="Total leads" icon={UsersRound} description="Lead data not connected" />
+        <KpiCard title="Total leads" icon={UsersRound} description="Lead metrics not connected" />
         <KpiCard title="Active deals" icon={Handshake} description="Deal data not connected" />
         <KpiCard title="Pipeline value" icon={CircleDollarSign} unit="AED" description="Pipeline data not connected" />
         <KpiCard title="Upcoming tasks" icon={CalendarCheck2} description="Task data not connected" />
@@ -38,7 +38,7 @@ export function Dashboard() {
           <CardHeader className="px-5 sm:px-6"><CardTitle role="heading" aria-level={2}>Lead overview</CardTitle><CardDescription className="mt-1 text-xs">Understand how your pipeline grows over time.</CardDescription><CardAction><Badge variant="outline" className="text-[10px] text-muted-foreground">Not connected</Badge></CardAction></CardHeader>
           <CardContent className="px-5 sm:px-6">
             <div className="chart-grid relative flex min-h-60 items-center justify-center rounded-lg border-x border-b">
-              <EmptyState icon={ChartNoAxesCombined} title="Your next opportunity starts here" description="Lead trends will appear when your agency is connected. No data is available yet." className="relative mx-4 rounded-xl bg-card/95 py-6" />
+              <EmptyState icon={ChartNoAxesCombined} title="Your next opportunity starts here" description="Lead trends will appear when dashboard analytics are connected." className="relative mx-4 rounded-xl bg-card/95 py-6" />
             </div>
             <div className="mt-4 flex items-center justify-between gap-3 text-[11px] text-muted-foreground"><span className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />Lead volume</span><span>Awaiting connected data</span></div>
           </CardContent>
@@ -66,7 +66,7 @@ export function Dashboard() {
         </Card>
       </div>
 
-      <div className="flex items-start gap-2 rounded-lg px-1 text-xs leading-5 text-muted-foreground"><LockKeyhole className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /><p>This workspace contains no agency records. Organization membership and record permissions remain to be implemented before CRM data is connected.</p></div>
+      <div className="flex items-start gap-2 rounded-lg px-1 text-xs leading-5 text-muted-foreground"><LockKeyhole className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /><p>Company records are protected by your active membership and role. Dashboard metrics remain empty until analytics are connected.</p></div>
     </div>
   );
 }

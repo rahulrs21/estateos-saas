@@ -4,15 +4,27 @@ query GetMyProfile @auth(expr: "auth != null && auth.token.email_verified == tru
  userProfile(key: { uid_expr: "auth.uid" }) { uid email displayName activeOrganizationId createdAt updatedAt }
 }
 
-query ListMyOrganizations @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
- memberships(where: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } }, limit: 100, orderBy: [{ createdAt: ASC }, { id: ASC }]) {
+query ListMyOrganizations($limit: Int! = 100, $offset: Int! = 0) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
+ memberships(where: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } }, limit: $limit, offset: $offset, orderBy: [{ createdAt: ASC }, { id: ASC }]) {
   id organizationId userProfileUid email role status organization { id name slug createdAt }
+ }
+}
+
+# Recipient discovery does not grant membership or reveal a token/digest. A new
+# Firebase identity can find its invitations without having a SQL profile yet.
+# Expired pending links remain visible so the recipient can request a reissue.
+query GetMyPendingInvitations @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ invitations(where: {
+  email: { eq_expr: "auth.token.email.lowerAscii()" }, status: { eq: PENDING }, role: { in: [ADMIN, MANAGER, AGENT] },
+  membership: { status: { eq: INVITED }, userProfileUid: { isNull: true }, email: { eq_expr: "auth.token.email.lowerAscii()" } }
+ }, limit: 25, orderBy: [{ createdAt: DESC }, { id: DESC }]) {
+  id role expiresAt organization { name }
  }
 }
 
 query GetOrganizationContext($organizationId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
  ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")  { id organizationId userProfileUid email role status }
- organization(id: $organizationId) @check(expr: "this != null", message: "ORGANIZATION_NOT_FOUND") { id name slug createdByUid createdAt updatedAt }
+ organization(id: $organizationId) @check(expr: "this != null", message: "ORGANIZATION_NOT_FOUND") { id name slug emirate contactPhone companyEmail companySize createdByUid createdAt updatedAt }
 }
 
 query ListBranches($organizationId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
@@ -98,6 +110,42 @@ query ListActivities($organizationId: UUID!, $limit: Int! = 50, $offset: Int! = 
  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
  ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") { id role }
  activities(where: { organizationId: { eq: $organizationId } }, limit: $limit, offset: $offset, orderBy: [{ createdAt: DESC }, { id: DESC }]) { id organizationId actorUid kind leadId targetId metadata createdAt }
+}
+
+# Exact, tenant-scoped duplicate check. Pending reservations have no user UID,
+# so ListTeamMembers intentionally cannot be used for this lookup.
+query GetTeamMembershipByEmail($organizationId: UUID!, $email: String!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.email.size() >= 3 && vars.email.size() <= 254 && vars.email == vars.email.lowerAscii()") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") { id }
+ membership(first: { where: { organizationId: { eq: $organizationId }, email: { eq: $email }, organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } } }) {
+  status invitation_on_membership { status }
+ }
+}
+
+# Invitation digests are never returned, even to organization administrators.
+query ListInvitations($organizationId: UUID!, $limit: Int! = 50, $offset: Int! = 0, $search: String, $status: InvitationStatus)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000 && (!has(vars.search) || vars.search == null || vars.search.size() <= 242)") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") { id role }
+ invitations(where: { organizationId: { eq: $organizationId }, email: { pattern: { like: $search, ignoreCase: true } }, status: { eq: $status } }, limit: $limit, offset: $offset, orderBy: [{ createdAt: DESC }, { id: DESC }]) {
+  id organizationId membershipId email role status invitedByUid expiresAt acceptedAt acceptedByUid revokedAt createdAt updatedAt deliveryStatus deliveryUpdatedAt
+  membership { status userProfileUid acceptedAt approvedAt role }
+ }
+ total: invitations(where: { organizationId: { eq: $organizationId }, email: { pattern: { like: $search, ignoreCase: true } }, status: { eq: $status } }) { count: _count }
+}
+
+query ListTeamMembers($organizationId: UUID!, $limit: Int! = 25, $offset: Int! = 0, $search: String, $status: MembershipStatus)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000 && (!has(vars.search) || vars.search == null || vars.search.size() <= 242)") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") { id role }
+ memberships(where: { _and: [{ organizationId: { eq: $organizationId }, userProfileUid: { isNull: false }, status: { eq: $status } }, { _or: [{ email: { pattern: { like: $search, ignoreCase: true } } }, { userProfile: { displayName: { pattern: { like: $search, ignoreCase: true } } } }] }] }, limit: $limit, offset: $offset, orderBy: [{ email: ASC }, { id: ASC }]) { id organizationId userProfileUid email role status createdAt userProfile { displayName } }
+ total: memberships(where: { _and: [{ organizationId: { eq: $organizationId }, userProfileUid: { isNull: false }, status: { eq: $status } }, { _or: [{ email: { pattern: { like: $search, ignoreCase: true } } }, { userProfile: { displayName: { pattern: { like: $search, ignoreCase: true } } } }] }] }) { count: _count }
+}
+
+query ListAuditLogs($organizationId: UUID!, $limit: Int! = 50, $offset: Int! = 0)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") { id }
+ auditLogs(where: { organizationId: { eq: $organizationId } }, limit: $limit, offset: $offset, orderBy: [{ createdAt: DESC }, { id: DESC }]) {
+  id organizationId actorUid action targetType targetId metadata createdAt
+ }
 }
 
 

@@ -32,7 +32,7 @@ test("membership requires the verified UID and requested organization together",
   denies(() => assertActiveMembership(null, "org-a", "owner-uid"));
 });
 
-for (const status of ["INVITED", "PENDING", "SUSPENDED", "REVOKED", "UNKNOWN"]) {
+for (const status of ["INVITED", "PENDING", "SUSPENDED", "REVOKED", "REMOVED", "UNKNOWN"]) {
   test(`${status} membership never grants organization access`, () => {
     denies(() => assertActiveMembership({ ...actor, status }, "org-a", "owner-uid"));
   });

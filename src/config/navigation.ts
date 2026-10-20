@@ -55,7 +55,7 @@ export const navigationGroups: NavigationGroup[] = [
     items: [
       { title: "Finance", href: "/workspace/finance", icon: WalletCards, description: "Track deal finances, commission rules, and payment records." },
       { title: "Reports", href: "/workspace/reports", icon: BarChart3, description: "Understand agency performance with authorized, reliable reporting." },
-      { title: "Settings", href: "/workspace/settings", icon: Settings2, description: "Manage your organization, memberships, permissions, and preferences." },
+      { title: "Settings", href: "/settings/company", icon: Settings2, description: "Manage your company profile and active workspace." },
     ],
   },
 ];

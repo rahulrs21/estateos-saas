@@ -25,10 +25,24 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     return new WorkspaceError("INVALID_INPUT", 400, "Check the supplied details and try again.");
   }
   if (code === "data-connect/not-found") {
-    return new WorkspaceError("NOT_FOUND", 404, "The requested record is unavailable.");
+    // Stored queries return null/[] for absent rows. This provider-level 404
+    // means the configured service, connector or operation was not found.
+    return new WorkspaceError("SQL_CONNECT_NOT_CONFIGURED", 503, "The company database connection is not configured. Contact your workspace administrator.");
   }
   if (code === "data-connect/aborted") {
     return new WorkspaceError("CONFLICT", 409, "The record changed. Reload it and try again.");
   }
   return new WorkspaceError("DATA_UNAVAILABLE", 503, "Workspace data is temporarily unavailable. Please try again.");
+}
+
+/** Match only allowlisted conflict signals; never return provider/SQL text. */
+export function mapOrganizationCreationError(error: unknown): WorkspaceError {
+  const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+  const message = typeof error === "object" && error !== null && "message" in error && typeof error.message === "string" ? error.message : "";
+  if (code === "data-connect/already-exists" ||
+      (["data-connect/query-error", "data-connect/permission-denied"].includes(String(code)) &&
+       (/\bORGANIZATION_SLUG_TAKEN\b/.test(message) || /organization[^\n]*slug[^\n]*(?:key|unique)|unique[^\n]*organization[^\n]*slug/i.test(message)))) {
+    return new WorkspaceError("ORGANIZATION_SLUG_TAKEN", 409, "A company with this slug already exists. Choose another slug.");
+  }
+  return mapWorkspaceDataError(error);
 }
