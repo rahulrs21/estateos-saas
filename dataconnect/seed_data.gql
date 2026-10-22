@@ -1,10 +1,20 @@
-# LOCAL ONLY: guarded demo-estateos seeder resets these eight tables.
+# LOCAL ONLY: guarded demo-estateos seeder resets the CRM tables.
 # Synthetic fixtures. Outside connectorDirs; never deployed or generated.
 mutation ResetEstateOS @transaction {
+  leadAssignmentHistory_deleteMany(all: true)
+  inAppNotification_deleteMany(all: true)
+  distributionCursor_deleteMany(all: true)
+  agentAvailability_deleteMany(all: true)
+  leadDistributionRule_deleteMany(all: true)
+  leadFollowUp_deleteMany(all: true)
   auditLog_deleteMany(all: true)
   invitation_deleteMany(all: true)
   activity_deleteMany(all: true)
   lead_deleteMany(all: true)
+  contact_deleteMany(all: true)
+  pipelineStage_deleteMany(all: true)
+  pipeline_deleteMany(all: true)
+  leadSource_deleteMany(all: true)
   branch_deleteMany(all: true)
   membership_deleteMany(all: true)
   organization_deleteMany(all: true)
@@ -48,6 +58,26 @@ mutation SeedEstateOS @transaction {
     {organizationId: "10000000-0000-4000-8000-000000000001", id: "12000000-0000-4000-8000-000000000001", name: "Local Dubai Branch", createdByUid: "owner-a"}
     {organizationId: "20000000-0000-4000-8000-000000000001", id: "22000000-0000-4000-8000-000000000001", name: "Local Abu Dhabi Branch", createdByUid: "owner-b"}
   ])
+  pipeline_insert_1: pipeline_insert(data: {organizationId:"10000000-0000-4000-8000-000000000001", id:"00000000-0000-4000-8000-000000000100", name:"Sales pipeline", isDefault:true, defaultKey:"default", isActive:true})
+  pipelineStage_insertMany_1: pipelineStage_insertMany(data: [{organizationId:"10000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001001",name:"New",position:0,stageType:OPEN,status:NEW}
+{organizationId:"10000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001002",name:"Contacted",position:1,stageType:OPEN,status:CONTACTED}
+{organizationId:"10000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001003",name:"Qualified",position:2,stageType:OPEN,status:QUALIFIED}
+{organizationId:"10000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001004",name:"Viewing Scheduled",position:3,stageType:OPEN,status:VIEWING_SCHEDULED}
+{organizationId:"10000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001005",name:"Viewing Completed",position:4,stageType:OPEN,status:VIEWING_COMPLETED}
+{organizationId:"10000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001006",name:"Negotiation",position:5,stageType:OPEN,status:NEGOTIATION}
+{organizationId:"10000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001007",name:"Won",position:6,stageType:WON,status:WON}
+{organizationId:"10000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001008",name:"Lost",position:7,stageType:LOST,status:LOST}])
+  leadSource_insert_1: leadSource_insert(data: {organizationId:"10000000-0000-4000-8000-000000000001",id:"00000000-0000-4000-8000-000000000200", name:"Manual", sourceType:MANUAL})
+  pipeline_insert_2: pipeline_insert(data: {organizationId:"20000000-0000-4000-8000-000000000001", id:"00000000-0000-4000-8000-000000000100", name:"Sales pipeline", isDefault:true, defaultKey:"default", isActive:true})
+  pipelineStage_insertMany_2: pipelineStage_insertMany(data: [{organizationId:"20000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001001",name:"New",position:0,stageType:OPEN,status:NEW}
+{organizationId:"20000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001002",name:"Contacted",position:1,stageType:OPEN,status:CONTACTED}
+{organizationId:"20000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001003",name:"Qualified",position:2,stageType:OPEN,status:QUALIFIED}
+{organizationId:"20000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001004",name:"Viewing Scheduled",position:3,stageType:OPEN,status:VIEWING_SCHEDULED}
+{organizationId:"20000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001005",name:"Viewing Completed",position:4,stageType:OPEN,status:VIEWING_COMPLETED}
+{organizationId:"20000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001006",name:"Negotiation",position:5,stageType:OPEN,status:NEGOTIATION}
+{organizationId:"20000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001007",name:"Won",position:6,stageType:WON,status:WON}
+{organizationId:"20000000-0000-4000-8000-000000000001",pipelineId:"00000000-0000-4000-8000-000000000100",id:"00000000-0000-4000-8000-000000001008",name:"Lost",position:7,stageType:LOST,status:LOST}])
+  leadSource_insert_2: leadSource_insert(data: {organizationId:"20000000-0000-4000-8000-000000000001",id:"00000000-0000-4000-8000-000000000200", name:"Manual", sourceType:MANUAL})
   lead_insertMany(data: [
     {organizationId: "10000000-0000-4000-8000-000000000001", id: "13000000-0000-4000-8000-000000000001", fullName: "Local Test Lead A", email: "lead-a@example.test", status: NEW, branchId: "12000000-0000-4000-8000-000000000001", assignedMembershipId: "11000000-0000-4000-8000-000000000004", createdByUid: "owner-a", updatedByUid: "owner-a"}
     {organizationId: "20000000-0000-4000-8000-000000000001", id: "23000000-0000-4000-8000-000000000001", fullName: "Local Test Lead B", email: "lead-b@example.test", status: NEW, branchId: "22000000-0000-4000-8000-000000000001", assignedMembershipId: "21000000-0000-4000-8000-000000000002", createdByUid: "owner-b", updatedByUid: "owner-b"}

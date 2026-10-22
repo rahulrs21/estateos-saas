@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowUpRight, Building2, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
-import { navigationGroups } from "@/config/navigation";
+import { isNavigationItemActive, navigationGroups } from "@/config/navigation";
 import { Brand } from "@/components/shared/brand";
 import { Button } from "@/components/ui/button";
 import type { CompanyWorkspace } from "@/modules/organizations/types";
@@ -40,7 +40,7 @@ export function WorkspaceSidebar({ workspace }: { workspace: CompanyWorkspace })
                 <SidebarMenu className="gap-0.5">
                   {group.items.map((item) => (
                     <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton render={<Link href={item.href} />} isActive={pathname === item.href} aria-current={pathname === item.href ? "page" : undefined} aria-label={item.title} tooltip={item.title} onClick={() => setOpenMobile(false)} className="h-9 gap-3 rounded-lg text-[13px]">
+                      <SidebarMenuButton render={<Link href={item.href} />} isActive={isNavigationItemActive(pathname, item.href)} aria-current={isNavigationItemActive(pathname, item.href) ? "page" : undefined} aria-label={item.title} tooltip={item.title} onClick={() => setOpenMobile(false)} className="h-9 gap-3 rounded-lg text-[13px]">
                         <item.icon aria-hidden="true" /><span>{item.title}</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

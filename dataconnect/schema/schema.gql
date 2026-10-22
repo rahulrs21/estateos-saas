@@ -7,16 +7,30 @@ enum CompanySize { SOLO TWO_TO_TEN ELEVEN_TO_FIFTY FIFTY_ONE_TO_TWO_HUNDRED TWO_
 enum MembershipStatus { INVITED PENDING ACTIVE SUSPENDED REVOKED REMOVED }
 enum InvitationStatus { PENDING ACCEPTED REVOKED }
 enum InvitationDeliveryStatus { NOT_SENT PREVIEW ACCEPTED FAILED }
-enum AuditTargetType { ORGANIZATION MEMBERSHIP BRANCH LEAD INVITATION }
-enum LeadStatus { NEW CONTACTED QUALIFIED LOST CONVERTED }
+enum AuditTargetType { ORGANIZATION MEMBERSHIP BRANCH LEAD INVITATION CONTACT PIPELINE LEAD_DISTRIBUTION_RULE AGENT_AVAILABILITY LEAD_CAPTURE_FORM WEBSITE_SUBMISSION }
+enum LeadStatus { NEW CONTACTED QUALIFIED LOST CONVERTED VIEWING_SCHEDULED VIEWING_COMPLETED NEGOTIATION WON }
+enum TransactionType { BUY RENT INVEST }
+enum LeadPriority { LOW NORMAL HIGH URGENT }
+enum PipelineStageType { OPEN WON LOST }
+enum LeadSourceType { MANUAL REFERRAL WEBSITE PORTAL OTHER }
+enum LeadAssignmentType { INITIAL MANUAL ROUND_ROBIN REASSIGNMENT }
+enum LeadDistributionMode { MANUAL ROUND_ROBIN }
+enum AgentAvailabilityStatus { AVAILABLE UNAVAILABLE }
+enum NotificationAudience { MEMBER ADMIN }
+enum InAppNotificationType { LEAD_ASSIGNED LEAD_UNASSIGNED }
+enum LeadFollowUpStatus { PENDING COMPLETED CANCELLED }
+enum LeadCaptureFormStatus { DRAFT ACTIVE DISABLED }
+enum LeadCaptureFieldKey { FULL_NAME EMAIL PHONE MESSAGE PROPERTY_INTEREST PREFERRED_LOCATION PROPERTY_TYPE TRANSACTION_TYPE BUDGET_MIN BUDGET_MAX BEDROOM_PREFERENCE }
 enum ActivityKind {
   ORGANIZATION_CREATED ORGANIZATION_SWITCHED ORGANIZATION_UPDATED BRANCH_CREATED
   MEMBERSHIP_INVITED INVITATION_ACCEPTED MEMBERSHIP_APPROVED MEMBERSHIP_SUSPENDED MEMBERSHIP_REVOKED
   MEMBERSHIP_REMOVED MEMBERSHIP_ROLE_CHANGED
   INVITATION_REVOKED INVITATION_REISSUED
   INVITATION_DELIVERY_PREVIEW INVITATION_DELIVERY_ACCEPTED INVITATION_DELIVERY_FAILED
-  LEAD_CREATED LEAD_UPDATED
+  LEAD_CREATED LEAD_UPDATED LEAD_DISTRIBUTION_RULE_UPDATED AGENT_AVAILABILITY_UPDATED
   LEAD_NOTE_ADDED LEAD_STATUS_CHANGED LEAD_ASSIGNED FOLLOW_UP_SCHEDULED FOLLOW_UP_COMPLETED
+  CONTACT_CREATED CONTACT_UPDATED PIPELINE_INITIALIZED LEAD_ARCHIVED
+  LEAD_FORM_CREATED LEAD_FORM_UPDATED WEBSITE_LEAD_CAPTURED
 }
 
 type UserProfile @table(key: ["uid"]) {
@@ -47,7 +61,8 @@ type Membership @table(key: ["organization", "id"])
   @unique(fields: ["organization", "email"])
   @unique(fields: ["organization", "userProfile"])
   @index(fields: ["userProfileUid", "status", "organizationId"])
-  @index(fields: ["organizationId", "status", "createdAt"]) {
+  @index(fields: ["organizationId", "status", "createdAt"])
+  @index(fields: ["organizationId", "role", "status", "distributionEligible"]) {
   organizationId: UUID!
   organization: Organization!
   id: UUID! @default(expr: "uuidV4()")
@@ -55,6 +70,8 @@ type Membership @table(key: ["organization", "id"])
   email: String! @col(dataType: "varchar(254)")
   role: MembershipRole!
   status: MembershipStatus! @default(value: INVITED)
+  # One default organization-wide distribution rule is supported in this phase.
+  distributionEligible: Boolean! @default(value: false)
   invitedBy: UserProfile
   # Legacy columns are retained for additive migration only. New acceptance
   # requires an Invitation row; this digest is no longer an authority source.
@@ -104,6 +121,11 @@ type Branch @table(key: ["organization", "id"])
 }
 
 type Lead @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "leadNumber"])
+  @index(fields: ["organizationId", "contactId"])
+  @index(fields: ["organizationId", "pipelineId", "pipelineStageId", "createdAt"])
+  @index(fields: ["organizationId", "archivedAt", "createdAt"])
+  @index(fields: ["organizationId", "sourceId", "createdAt"])
   @index(fields: ["organizationId", "createdAt"], order: [ASC, DESC])
   @index(fields: ["organizationId", "status", "updatedAt"], order: [ASC, ASC, DESC])
   @index(fields: ["organizationId", "assignedMembershipId", "status"])
@@ -112,6 +134,30 @@ type Lead @table(key: ["organization", "id"])
   organizationId: UUID!
   organization: Organization!
   id: UUID! @default(expr: "uuidV4()")
+  # Nullable additive relationships allow an explicitly reviewed legacy backfill.
+  contactId: UUID
+  contact: Contact @ref(fields: ["organizationId", "contactId"], references: ["organizationId", "id"])
+  leadNumber: UUID @default(expr: "uuidV4()")
+  sourceId: UUID
+  leadSource: LeadSource @ref(fields: ["organizationId", "sourceId"], references: ["organizationId", "id"])
+  pipelineId: UUID
+  pipeline: Pipeline @ref(fields: ["organizationId", "pipelineId"], references: ["organizationId", "id"])
+  pipelineStageId: UUID
+  pipelineStage: PipelineStage @ref(fields: ["organizationId", "pipelineId", "pipelineStageId"], references: ["organizationId", "pipelineId", "id"])
+  # Reserved identifiers only; no invented Project/Property tables or FKs.
+  projectId: UUID
+  propertyId: UUID
+  propertyInterest: String @col(dataType: "varchar(500)")
+  preferredLocation: String @col(dataType: "varchar(160)")
+  propertyType: String @col(dataType: "varchar(80)")
+  transactionType: TransactionType! @default(value: BUY)
+  budgetMin: Float @col(dataType: "numeric(16,2)")
+  budgetMax: Float @col(dataType: "numeric(16,2)")
+  currency: String! @col(dataType: "varchar(3)") @default(value: "AED")
+  bedroomPreference: String @col(dataType: "varchar(40)")
+  priority: LeadPriority! @default(value: NORMAL)
+  archivedAt: Timestamp
+  archivedBy: UserProfile
   fullName: String! @col(dataType: "varchar(160)")
   email: String @col(dataType: "varchar(254)")
   phone: String @col(dataType: "varchar(32)")
@@ -145,7 +191,265 @@ type Activity @table(key: ["organization", "id"])
   metadata: Any
   # Explicit lead notes are tenant-private content, separate from audit metadata.
   note: String @col(dataType: "varchar(4000)")
+  # Activity is the existing LeadActivity timeline. Structured old/new stage
+  # references preserve history without creating a parallel timeline model.
+  pipelineId: UUID
+  previousStageId: UUID
+  previousStage: PipelineStage @ref(fields: ["organizationId", "pipelineId", "previousStageId"], references: ["organizationId", "pipelineId", "id"])
+  newStageId: UUID
+  newStage: PipelineStage @ref(fields: ["organizationId", "pipelineId", "newStageId"], references: ["organizationId", "pipelineId", "id"])
   createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type Contact @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "normalizedEmail"])
+  @index(fields: ["organizationId", "normalizedPhone"])
+  @index(fields: ["organizationId", "normalizedAlternatePhone"])
+  @index(fields: ["organizationId", "createdAt"])
+  @index(fields: ["organizationId", "createdByUid"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  fullName: String! @col(dataType: "varchar(160)")
+  email: String @col(dataType: "varchar(254)")
+  normalizedEmail: String @col(dataType: "varchar(254)")
+  phone: String @col(dataType: "varchar(32)")
+  normalizedPhone: String @col(dataType: "varchar(16)")
+  alternatePhone: String @col(dataType: "varchar(32)")
+  normalizedAlternatePhone: String @col(dataType: "varchar(16)")
+  nationality: String @col(dataType: "varchar(80)")
+  preferredLanguage: String! @col(dataType: "varchar(35)") @default(value: "en")
+  notes: String @col(dataType: "varchar(4000)")
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type Pipeline @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "name"])
+  @unique(fields: ["organizationId", "defaultKey"])
+  @index(fields: ["organizationId", "isActive"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  name: String! @col(dataType: "varchar(120)")
+  isDefault: Boolean! @default(value: false)
+  # Default rows have the fixed reservation; customized non-default rows use null.
+  defaultKey: String @col(dataType: "varchar(16)")
+  isActive: Boolean! @default(value: true)
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type PipelineStage @table(key: ["organization", "pipelineId", "id"])
+  @unique(fields: ["organizationId", "pipelineId", "name"])
+  @unique(fields: ["organizationId", "pipelineId", "position"]) {
+  organizationId: UUID!
+  organization: Organization!
+  pipelineId: UUID!
+  pipeline: Pipeline! @ref(fields: ["organizationId", "pipelineId"], references: ["organizationId", "id"])
+  id: UUID! @default(expr: "uuidV4()")
+  name: String! @col(dataType: "varchar(120)")
+  position: Int!
+  stageType: PipelineStageType!
+  status: LeadStatus!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type LeadSource @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "name"])
+  @unique(fields: ["organizationId", "sourceType", "externalSourceId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  name: String! @col(dataType: "varchar(120)")
+  sourceType: LeadSourceType! @default(value: MANUAL)
+  externalSourceId: String @col(dataType: "varchar(160)")
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Public identifiers are high-entropy bearer IDs. All other form management
+# is private and every reference is tenant-scoped.
+type LeadCaptureForm @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "name"])
+  @unique(fields: ["publicId"])
+  @index(fields: ["organizationId", "status", "updatedAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  publicId: String! @col(dataType: "varchar(64)")
+  name: String! @col(dataType: "varchar(120)")
+  status: LeadCaptureFormStatus! @default(value: DRAFT)
+  sourceId: UUID!
+  source: LeadSource! @ref(fields: ["organizationId", "sourceId"], references: ["organizationId", "id"])
+  branchId: UUID
+  branch: Branch @ref(fields: ["organizationId", "branchId"], references: ["organizationId", "id"])
+  # Reserved scalar until the Projects module exists.
+  projectId: UUID
+  fields: Any!
+  consentText: String! @col(dataType: "varchar(1000)")
+  privacyPolicyUrl: String! @col(dataType: "varchar(2048)")
+  successMessage: String! @col(dataType: "varchar(240)") @default(value: "Thank you. Your inquiry has been received.")
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type LeadCaptureSubmission @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "formId", "idempotencyKeyHash"])
+  @index(fields: ["organizationId", "submittedAt"], order: [ASC, DESC])
+  @index(fields: ["organizationId", "formId", "submittedAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  formId: UUID!
+  form: LeadCaptureForm! @ref(fields: ["organizationId", "formId"], references: ["organizationId", "id"])
+  leadId: UUID!
+  lead: Lead! @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  sourceId: UUID!
+  source: LeadSource! @ref(fields: ["organizationId", "sourceId"], references: ["organizationId", "id"])
+  idempotencyKeyHash: String! @col(dataType: "varchar(64)")
+  landingPageUrl: String @col(dataType: "varchar(2048)")
+  utmSource: String @col(dataType: "varchar(200)")
+  utmMedium: String @col(dataType: "varchar(200)")
+  utmCampaign: String @col(dataType: "varchar(200)")
+  utmContent: String @col(dataType: "varchar(200)")
+  utmTerm: String @col(dataType: "varchar(200)")
+  consentGiven: Boolean! @default(value: true)
+  consentTextSnapshot: String! @col(dataType: "varchar(1000)")
+  privacyPolicyUrlSnapshot: String! @col(dataType: "varchar(2048)")
+  consentAt: Timestamp! @default(expr: "request.time")
+  submittedAt: Timestamp! @default(expr: "request.time")
+}
+
+# One row per form/minute. requestCount updates compare against the observed
+# value in a transaction, so concurrent submissions cannot skip the limit.
+type LeadCaptureRateWindow @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "formId", "windowStart"])
+  @index(fields: ["organizationId", "formId", "windowStart"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  formId: UUID!
+  form: LeadCaptureForm! @ref(fields: ["organizationId", "formId"], references: ["organizationId", "id"])
+  windowStart: Timestamp!
+  requestCount: Int! @default(value: 0)
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type LeadAssignmentHistory @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "leadId", "assignedAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  leadId: UUID!
+  lead: Lead! @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  previousAgentId: UUID
+  previousAgent: Membership @ref(fields: ["organizationId", "previousAgentId"], references: ["organizationId", "id"])
+  newAgentId: UUID
+  newAgent: Membership @ref(fields: ["organizationId", "newAgentId"], references: ["organizationId", "id"])
+  distributionRuleId: UUID
+  distributionRule: LeadDistributionRule @ref(fields: ["organizationId", "distributionRuleId"], references: ["organizationId", "id"], constraintName: "lah_distribution_rule_fk")
+  assignedBy: UserProfile!
+  assignmentType: LeadAssignmentType!
+  reason: String @col(dataType: "varchar(500)")
+  assignedAt: Timestamp! @default(expr: "request.time")
+}
+
+# One tenant-owned rule is currently configurable per company. The rule key
+# reserves a stable identity for a future multi-rule priority engine.
+type LeadDistributionRule @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "ruleKey"])
+  @index(fields: ["organizationId", "enabled", "mode"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  ruleKey: String! @col(dataType: "varchar(32)") @default(value: "DEFAULT")
+  enabled: Boolean! @default(value: false)
+  mode: LeadDistributionMode! @default(value: MANUAL)
+  branchId: UUID
+  branch: Branch @ref(fields: ["organizationId", "branchId"], references: ["organizationId", "id"])
+  # Project remains a scalar until the Projects module owns its table.
+  projectId: UUID
+  skipUnavailable: Boolean! @default(value: true)
+  businessHoursEnabled: Boolean! @default(value: false)
+  timeZone: String! @col(dataType: "varchar(64)") @default(value: "Asia/Dubai")
+  businessDaysMask: Int! @default(value: 62)
+  businessStart: String! @col(dataType: "varchar(5)") @default(value: "09:00")
+  businessEnd: String! @col(dataType: "varchar(5)") @default(value: "18:00")
+  reassignmentTimeoutMinutes: Int! @default(value: 1440)
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type AgentAvailability @table(key: ["organization", "membershipId"])
+  @index(fields: ["organizationId", "status", "unavailableUntil"]) {
+  organizationId: UUID!
+  organization: Organization!
+  membershipId: UUID!
+  membership: Membership! @ref(fields: ["organizationId", "membershipId"], references: ["organizationId", "id"], constraintName: "availability_member_fk")
+  status: AgentAvailabilityStatus! @default(value: AVAILABLE)
+  unavailableUntil: Timestamp
+  reason: String @col(dataType: "varchar(240)")
+  updatedBy: UserProfile!
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# A single cursor row serializes each rule's rotation. Mutations conditionally
+# increment version; a stale writer fails its @check and retries from fresh data.
+type DistributionCursor @table(key: ["organization", "ruleId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  ruleId: UUID!
+  rule: LeadDistributionRule! @ref(fields: ["organizationId", "ruleId"], references: ["organizationId", "id"])
+  version: Int! @default(value: 0)
+  lastMembershipId: UUID
+  lastMembership: Membership @ref(fields: ["organizationId", "lastMembershipId"], references: ["organizationId", "id"], constraintName: "cursor_last_member_fk")
+  lastAssignedAt: Timestamp
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type InAppNotification @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "audience", "recipientMembershipId", "readAt", "createdAt"], order: [ASC, ASC, ASC, ASC, DESC])
+  @index(fields: ["organizationId", "leadId", "createdAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  audience: NotificationAudience!
+  recipientMembershipId: UUID
+  recipientMembership: Membership @ref(fields: ["organizationId", "recipientMembershipId"], references: ["organizationId", "id"], constraintName: "notification_recipient_fk")
+  leadId: UUID
+  lead: Lead @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  type: InAppNotificationType!
+  title: String! @col(dataType: "varchar(160)")
+  body: String! @col(dataType: "varchar(500)")
+  actor: UserProfile!
+  readAt: Timestamp
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type LeadFollowUp @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "leadId", "status", "dueAt"])
+  @index(fields: ["organizationId", "assignedUserId", "status", "dueAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  leadId: UUID!
+  lead: Lead! @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  assignedUserId: UUID!
+  assignedUser: Membership! @ref(fields: ["organizationId", "assignedUserId"], references: ["organizationId", "id"])
+  title: String! @col(dataType: "varchar(500)")
+  dueAt: Timestamp!
+  status: LeadFollowUpStatus! @default(value: PENDING)
+  completedAt: Timestamp
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
 }
 
 # Security audit is independent of the CRM timeline. No deployed operation

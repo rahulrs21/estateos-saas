@@ -21,8 +21,8 @@ export const navigationGroups: NavigationGroup[] = [
     label: "Workspace",
     items: [
       { title: "Dashboard", href: "/workspace/dashboard", icon: LayoutDashboard, description: "A clear view of your agency's work and priorities." },
-      { title: "Leads", href: "/workspace/leads", icon: UsersRound, description: "Capture inquiries, assign ownership, and manage your pipeline." },
-      { title: "Contacts", href: "/workspace/contacts", icon: ContactRound, description: "Keep your client and partner relationships in one place." },
+      { title: "Leads", href: "/leads", icon: UsersRound, description: "Capture inquiries, assign ownership, and manage your pipeline." },
+      { title: "Contacts", href: "/contacts", icon: ContactRound, description: "Keep your client and partner relationships in one place." },
       { title: "Agents", href: "/workspace/agents", icon: BriefcaseBusiness, description: "Organize your agency's agents, branches, and responsibilities." },
     ],
   },
@@ -63,3 +63,9 @@ export const navigationGroups: NavigationGroup[] = [
 export const workspaceModules = navigationGroups
   .flatMap((group) => group.items)
   .filter((item) => item.href !== "/workspace/dashboard");
+
+/** Keep the existing workspace lead URLs active alongside the canonical route. */
+export function isNavigationItemActive(pathname: string, href: string) {
+  const path = pathname.replace(/^\/workspace\/leads(?=\/|$)/, "/leads");
+  return path === href || path.startsWith(`${href}/`);
+}

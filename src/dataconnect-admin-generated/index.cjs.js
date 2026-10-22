@@ -19,13 +19,28 @@ const ActivityKind = {
   INVITATION_DELIVERY_FAILED: "INVITATION_DELIVERY_FAILED",
   LEAD_CREATED: "LEAD_CREATED",
   LEAD_UPDATED: "LEAD_UPDATED",
+  LEAD_DISTRIBUTION_RULE_UPDATED: "LEAD_DISTRIBUTION_RULE_UPDATED",
+  AGENT_AVAILABILITY_UPDATED: "AGENT_AVAILABILITY_UPDATED",
   LEAD_NOTE_ADDED: "LEAD_NOTE_ADDED",
   LEAD_STATUS_CHANGED: "LEAD_STATUS_CHANGED",
   LEAD_ASSIGNED: "LEAD_ASSIGNED",
   FOLLOW_UP_SCHEDULED: "FOLLOW_UP_SCHEDULED",
   FOLLOW_UP_COMPLETED: "FOLLOW_UP_COMPLETED",
+  CONTACT_CREATED: "CONTACT_CREATED",
+  CONTACT_UPDATED: "CONTACT_UPDATED",
+  PIPELINE_INITIALIZED: "PIPELINE_INITIALIZED",
+  LEAD_ARCHIVED: "LEAD_ARCHIVED",
+  LEAD_FORM_CREATED: "LEAD_FORM_CREATED",
+  LEAD_FORM_UPDATED: "LEAD_FORM_UPDATED",
+  WEBSITE_LEAD_CAPTURED: "WEBSITE_LEAD_CAPTURED",
 }
 exports.ActivityKind = ActivityKind;
+
+const AgentAvailabilityStatus = {
+  AVAILABLE: "AVAILABLE",
+  UNAVAILABLE: "UNAVAILABLE",
+}
+exports.AgentAvailabilityStatus = AgentAvailabilityStatus;
 
 const AuditTargetType = {
   ORGANIZATION: "ORGANIZATION",
@@ -33,6 +48,12 @@ const AuditTargetType = {
   BRANCH: "BRANCH",
   LEAD: "LEAD",
   INVITATION: "INVITATION",
+  CONTACT: "CONTACT",
+  PIPELINE: "PIPELINE",
+  LEAD_DISTRIBUTION_RULE: "LEAD_DISTRIBUTION_RULE",
+  AGENT_AVAILABILITY: "AGENT_AVAILABILITY",
+  LEAD_CAPTURE_FORM: "LEAD_CAPTURE_FORM",
+  WEBSITE_SUBMISSION: "WEBSITE_SUBMISSION",
 }
 exports.AuditTargetType = AuditTargetType;
 
@@ -56,6 +77,12 @@ const Emirate = {
 }
 exports.Emirate = Emirate;
 
+const InAppNotificationType = {
+  LEAD_ASSIGNED: "LEAD_ASSIGNED",
+  LEAD_UNASSIGNED: "LEAD_UNASSIGNED",
+}
+exports.InAppNotificationType = InAppNotificationType;
+
 const InvitationDeliveryStatus = {
   NOT_SENT: "NOT_SENT",
   PREVIEW: "PREVIEW",
@@ -71,12 +98,61 @@ const InvitationStatus = {
 }
 exports.InvitationStatus = InvitationStatus;
 
+const LeadAssignmentType = {
+  INITIAL: "INITIAL",
+  MANUAL: "MANUAL",
+  ROUND_ROBIN: "ROUND_ROBIN",
+  REASSIGNMENT: "REASSIGNMENT",
+}
+exports.LeadAssignmentType = LeadAssignmentType;
+
+const LeadCaptureFormStatus = {
+  DRAFT: "DRAFT",
+  ACTIVE: "ACTIVE",
+  DISABLED: "DISABLED",
+}
+exports.LeadCaptureFormStatus = LeadCaptureFormStatus;
+
+const LeadDistributionMode = {
+  MANUAL: "MANUAL",
+  ROUND_ROBIN: "ROUND_ROBIN",
+}
+exports.LeadDistributionMode = LeadDistributionMode;
+
+const LeadFollowUpStatus = {
+  PENDING: "PENDING",
+  COMPLETED: "COMPLETED",
+  CANCELLED: "CANCELLED",
+}
+exports.LeadFollowUpStatus = LeadFollowUpStatus;
+
+const LeadPriority = {
+  LOW: "LOW",
+  NORMAL: "NORMAL",
+  HIGH: "HIGH",
+  URGENT: "URGENT",
+}
+exports.LeadPriority = LeadPriority;
+
+const LeadSourceType = {
+  MANUAL: "MANUAL",
+  REFERRAL: "REFERRAL",
+  WEBSITE: "WEBSITE",
+  PORTAL: "PORTAL",
+  OTHER: "OTHER",
+}
+exports.LeadSourceType = LeadSourceType;
+
 const LeadStatus = {
   NEW: "NEW",
   CONTACTED: "CONTACTED",
   QUALIFIED: "QUALIFIED",
   LOST: "LOST",
   CONVERTED: "CONVERTED",
+  VIEWING_SCHEDULED: "VIEWING_SCHEDULED",
+  VIEWING_COMPLETED: "VIEWING_COMPLETED",
+  NEGOTIATION: "NEGOTIATION",
+  WON: "WON",
 }
 exports.LeadStatus = LeadStatus;
 
@@ -98,12 +174,46 @@ const MembershipStatus = {
 }
 exports.MembershipStatus = MembershipStatus;
 
+const NotificationAudience = {
+  MEMBER: "MEMBER",
+  ADMIN: "ADMIN",
+}
+exports.NotificationAudience = NotificationAudience;
+
+const TransactionType = {
+  BUY: "BUY",
+  RENT: "RENT",
+  INVEST: "INVEST",
+}
+exports.TransactionType = TransactionType;
+
 const connectorConfig = {
   connector: 'example',
   serviceId: 'estateos',
   location: 'us-east4'
 };
 exports.connectorConfig = connectorConfig;
+
+function initializeLeadPipeline(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('InitializeLeadPipeline', inputVars, inputOpts);
+}
+exports.initializeLeadPipeline = initializeLeadPipeline;
+
+function createContact(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateContact', inputVars, inputOpts);
+}
+exports.createContact = createContact;
+
+function updateContact(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateContact', inputVars, inputOpts);
+}
+exports.updateContact = updateContact;
 
 function createLead(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
@@ -112,19 +222,19 @@ function createLead(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.createLead = createLead;
 
+function createLeadForContact(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateLeadForContact', inputVars, inputOpts);
+}
+exports.createLeadForContact = createLeadForContact;
+
 function updateLead(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeMutation('UpdateLead', inputVars, inputOpts);
 }
 exports.updateLead = updateLead;
-
-function addLeadNote(dcOrVarsOrOptions, varsOrOptions, options) {
-  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
-  dcInstance.useGen(true);
-  return dcInstance.executeMutation('AddLeadNote', inputVars, inputOpts);
-}
-exports.addLeadNote = addLeadNote;
 
 function changeLeadStatus(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
@@ -133,12 +243,61 @@ function changeLeadStatus(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.changeLeadStatus = changeLeadStatus;
 
+function moveLeadStage(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('MoveLeadStage', inputVars, inputOpts);
+}
+exports.moveLeadStage = moveLeadStage;
+
 function assignLead(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeMutation('AssignLead', inputVars, inputOpts);
 }
 exports.assignLead = assignLead;
+
+function unassignLead(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UnassignLead', inputVars, inputOpts);
+}
+exports.unassignLead = unassignLead;
+
+function saveLeadDistributionSettings(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SaveLeadDistributionSettings', inputVars, inputOpts);
+}
+exports.saveLeadDistributionSettings = saveLeadDistributionSettings;
+
+function setAgentAvailability(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetAgentAvailability', inputVars, inputOpts);
+}
+exports.setAgentAvailability = setAgentAvailability;
+
+function markInAppNotificationRead(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('MarkInAppNotificationRead', inputVars, inputOpts);
+}
+exports.markInAppNotificationRead = markInAppNotificationRead;
+
+function addLeadNote(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AddLeadNote', inputVars, inputOpts);
+}
+exports.addLeadNote = addLeadNote;
+
+function archiveLead(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ArchiveLead', inputVars, inputOpts);
+}
+exports.archiveLead = archiveLead;
 
 function scheduleLeadFollowUp(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
@@ -252,6 +411,34 @@ function setMembershipRole(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.setMembershipRole = setMembershipRole;
 
+function createLeadCaptureForm(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateLeadCaptureForm', inputVars, inputOpts);
+}
+exports.createLeadCaptureForm = createLeadCaptureForm;
+
+function updateLeadCaptureForm(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateLeadCaptureForm', inputVars, inputOpts);
+}
+exports.updateLeadCaptureForm = updateLeadCaptureForm;
+
+function consumeWebsiteLeadCaptureRateWindow(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ConsumeWebsiteLeadCaptureRateWindow', inputVars, inputOpts);
+}
+exports.consumeWebsiteLeadCaptureRateWindow = consumeWebsiteLeadCaptureRateWindow;
+
+function submitWebsiteLeadCapture(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SubmitWebsiteLeadCapture', inputVars, inputOpts);
+}
+exports.submitWebsiteLeadCapture = submitWebsiteLeadCapture;
+
 function getMyProfile(dcOrOptions, options) {
   const { dc: dcInstance, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrOptions, options, undefined);
   dcInstance.useGen(true);
@@ -301,6 +488,41 @@ function listLeads(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.listLeads = listLeads;
 
+function listLeadsCreatedAsc(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListLeadsCreatedAsc', inputVars, inputOpts);
+}
+exports.listLeadsCreatedAsc = listLeadsCreatedAsc;
+
+function listLeadsUpdatedDesc(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListLeadsUpdatedDesc', inputVars, inputOpts);
+}
+exports.listLeadsUpdatedDesc = listLeadsUpdatedDesc;
+
+function listLeadsNameAsc(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListLeadsNameAsc', inputVars, inputOpts);
+}
+exports.listLeadsNameAsc = listLeadsNameAsc;
+
+function listLeadsNameDesc(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListLeadsNameDesc', inputVars, inputOpts);
+}
+exports.listLeadsNameDesc = listLeadsNameDesc;
+
+function listLeadsFollowUpAsc(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListLeadsFollowUpAsc', inputVars, inputOpts);
+}
+exports.listLeadsFollowUpAsc = listLeadsFollowUpAsc;
+
 function getLead(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
@@ -314,6 +536,27 @@ function listLeadAssignees(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeQuery('ListLeadAssignees', inputVars, inputOpts);
 }
 exports.listLeadAssignees = listLeadAssignees;
+
+function getLeadDistributionPlan(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetLeadDistributionPlan', inputVars, inputOpts);
+}
+exports.getLeadDistributionPlan = getLeadDistributionPlan;
+
+function getMyAgentAvailability(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetMyAgentAvailability', inputVars, inputOpts);
+}
+exports.getMyAgentAvailability = getMyAgentAvailability;
+
+function listInAppNotifications(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListInAppNotifications', inputVars, inputOpts);
+}
+exports.listInAppNotifications = listInAppNotifications;
 
 function listLeadActivities(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
@@ -356,4 +599,109 @@ function listAuditLogs(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeQuery('ListAuditLogs', inputVars, inputOpts);
 }
 exports.listAuditLogs = listAuditLogs;
+
+function getLeadConfiguration(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetLeadConfiguration', inputVars, inputOpts);
+}
+exports.getLeadConfiguration = getLeadConfiguration;
+
+function searchContacts(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('SearchContacts', inputVars, inputOpts);
+}
+exports.searchContacts = searchContacts;
+
+function getContact(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetContact', inputVars, inputOpts);
+}
+exports.getContact = getContact;
+
+function findDuplicateContacts(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('FindDuplicateContacts', inputVars, inputOpts);
+}
+exports.findDuplicateContacts = findDuplicateContacts;
+
+function getLeadCrmHistory(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetLeadCrmHistory', inputVars, inputOpts);
+}
+exports.getLeadCrmHistory = getLeadCrmHistory;
+
+function getLeadMetrics(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetLeadMetrics', inputVars, inputOpts);
+}
+exports.getLeadMetrics = getLeadMetrics;
+
+function listLeadFollowUps(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListLeadFollowUps', inputVars, inputOpts);
+}
+exports.listLeadFollowUps = listLeadFollowUps;
+
+function listLeadCaptureForms(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListLeadCaptureForms', inputVars, inputOpts);
+}
+exports.listLeadCaptureForms = listLeadCaptureForms;
+
+function getLeadCaptureForm(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetLeadCaptureForm', inputVars, inputOpts);
+}
+exports.getLeadCaptureForm = getLeadCaptureForm;
+
+function resolveWebsiteLeadCaptureForm(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ResolveWebsiteLeadCaptureForm', inputVars, inputOpts);
+}
+exports.resolveWebsiteLeadCaptureForm = resolveWebsiteLeadCaptureForm;
+
+function findWebsiteLeadCaptureContact(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('FindWebsiteLeadCaptureContact', inputVars, inputOpts);
+}
+exports.findWebsiteLeadCaptureContact = findWebsiteLeadCaptureContact;
+
+function getWebsiteLeadCaptureRateWindow(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetWebsiteLeadCaptureRateWindow', inputVars, inputOpts);
+}
+exports.getWebsiteLeadCaptureRateWindow = getWebsiteLeadCaptureRateWindow;
+
+function findWebsiteLeadCaptureSubmission(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('FindWebsiteLeadCaptureSubmission', inputVars, inputOpts);
+}
+exports.findWebsiteLeadCaptureSubmission = findWebsiteLeadCaptureSubmission;
+
+function getWebsiteLeadDistributionPlan(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetWebsiteLeadDistributionPlan', inputVars, inputOpts);
+}
+exports.getWebsiteLeadDistributionPlan = getWebsiteLeadDistributionPlan;
+
+function getLeadAnalytics(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetLeadAnalytics', inputVars, inputOpts);
+}
+exports.getLeadAnalytics = getLeadAnalytics;
 

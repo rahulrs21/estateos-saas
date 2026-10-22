@@ -45,7 +45,7 @@ export const paginationInputSchema = z.strictObject({
 export function validateInput<T>(schema: z.ZodType<T>, input: unknown): T {
   const result = schema.safeParse(input);
   if (!result.success) {
-    throw new WorkspaceError("INVALID_INPUT", 400, "Check the supplied details and try again.");
+    throw new WorkspaceError("VALIDATION_ERROR", 400, "Check the supplied details and try again.");
   }
   return result.data;
 }

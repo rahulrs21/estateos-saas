@@ -39,26 +39,176 @@ query ListMemberships($organizationId: UUID!) @auth(expr: "auth != null && auth.
 
 # search is a bounded LIKE pattern; server UI escapes %, _ and backslash in the
 # literal search term. Pagination counts use the identical tenant/access filter.
-query ListLeads($organizationId: UUID!, $limit: Int! = 50, $offset: Int! = 0, $search: String, $status: LeadStatus, $assignedMembershipId: UUID, $branchId: UUID, $followUpBefore: Timestamp, $followUpAfter: Timestamp)
+query ListLeads($organizationId: UUID!, $pipelineId: UUID, $pipelineStageId: UUID, $sourceId: UUID, $contactId: UUID, $priority: LeadPriority, $transactionType: TransactionType, $activeOnly: Boolean = true, $limit: Int! = 50, $offset: Int! = 0, $search: String, $status: LeadStatus, $assignedMembershipId: UUID, $branchId: UUID, $followUpBefore: Timestamp, $followUpAfter: Timestamp, $createdFrom: Timestamp, $createdBefore: Timestamp)
  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000 && (!has(vars.search) || vars.search == null || vars.search.size() <= 242)") {
  ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") @redact { id organizationId userProfileUid email role status }
  leads(where: { _and: [
-  { organizationId: { eq: $organizationId }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter } },
-  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }] },
+  { organizationId: { eq: $organizationId }, archivedAt: { isNull: $activeOnly }, pipelineId: { eq: $pipelineId }, pipelineStageId: { eq: $pipelineStageId }, sourceId: { eq: $sourceId }, contactId: { eq: $contactId }, priority: { eq: $priority }, transactionType: { eq: $transactionType }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter }, createdAt: {ge: $createdFrom, lt: $createdBefore} },
+  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }, { contact: { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }] } }] },
   { _or: [
   { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
-  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }
-] }] }, limit: $limit, offset: $offset, orderBy: [{ createdAt: DESC }, { id: DESC }]) {
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }] }, limit: $limit, offset: $offset, orderBy: [{createdAt: DESC}, {id: ASC}]) {
   id organizationId fullName email phone source status branchId assignedMembershipId followUpAt followUpNote createdByUid updatedByUid createdAt updatedAt
+ contactId leadNumber sourceId pipelineId pipelineStageId propertyInterest preferredLocation propertyType transactionType budgetMin budgetMax currency bedroomPreference priority archivedAt
+ contact { id organizationId fullName email normalizedEmail phone normalizedPhone alternatePhone normalizedAlternatePhone nationality preferredLanguage notes createdByUid createdAt updatedAt }
+ pipelineStage { id name position stageType status }
+ leadSource { id name sourceType }
+
   branch { id name }
   assignedMembership { id email role userProfile { uid displayName } }
  }
  total: leads(where: { _and: [
-  { organizationId: { eq: $organizationId }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter } },
-  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }] },
+  { organizationId: { eq: $organizationId }, archivedAt: { isNull: $activeOnly }, pipelineId: { eq: $pipelineId }, pipelineStageId: { eq: $pipelineStageId }, sourceId: { eq: $sourceId }, contactId: { eq: $contactId }, priority: { eq: $priority }, transactionType: { eq: $transactionType }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter }, createdAt: {ge: $createdFrom, lt: $createdBefore} },
+  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }, { contact: { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }] } }] },
   { _or: [
    { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
-   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }
+   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+  ] }
+ ] }) { count: _count }
+}
+
+query ListLeadsCreatedAsc($organizationId: UUID!, $pipelineId: UUID, $pipelineStageId: UUID, $sourceId: UUID, $contactId: UUID, $priority: LeadPriority, $transactionType: TransactionType, $activeOnly: Boolean = true, $limit: Int! = 50, $offset: Int! = 0, $search: String, $status: LeadStatus, $assignedMembershipId: UUID, $branchId: UUID, $followUpBefore: Timestamp, $followUpAfter: Timestamp, $createdFrom: Timestamp, $createdBefore: Timestamp)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000 && (!has(vars.search) || vars.search == null || vars.search.size() <= 242)") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") @redact { id organizationId userProfileUid email role status }
+ leads(where: { _and: [
+  { organizationId: { eq: $organizationId }, archivedAt: { isNull: $activeOnly }, pipelineId: { eq: $pipelineId }, pipelineStageId: { eq: $pipelineStageId }, sourceId: { eq: $sourceId }, contactId: { eq: $contactId }, priority: { eq: $priority }, transactionType: { eq: $transactionType }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter }, createdAt: {ge: $createdFrom, lt: $createdBefore} },
+  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }, { contact: { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }] } }] },
+  { _or: [
+  { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }] }, limit: $limit, offset: $offset, orderBy: [{createdAt: ASC}, {id: ASC}]) {
+  id organizationId fullName email phone source status branchId assignedMembershipId followUpAt followUpNote createdByUid updatedByUid createdAt updatedAt
+ contactId leadNumber sourceId pipelineId pipelineStageId propertyInterest preferredLocation propertyType transactionType budgetMin budgetMax currency bedroomPreference priority archivedAt
+ contact { id organizationId fullName email normalizedEmail phone normalizedPhone alternatePhone normalizedAlternatePhone nationality preferredLanguage notes createdByUid createdAt updatedAt }
+ pipelineStage { id name position stageType status }
+ leadSource { id name sourceType }
+
+  branch { id name }
+  assignedMembership { id email role userProfile { uid displayName } }
+ }
+ total: leads(where: { _and: [
+  { organizationId: { eq: $organizationId }, archivedAt: { isNull: $activeOnly }, pipelineId: { eq: $pipelineId }, pipelineStageId: { eq: $pipelineStageId }, sourceId: { eq: $sourceId }, contactId: { eq: $contactId }, priority: { eq: $priority }, transactionType: { eq: $transactionType }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter }, createdAt: {ge: $createdFrom, lt: $createdBefore} },
+  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }, { contact: { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }] } }] },
+  { _or: [
+   { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+  ] }
+ ] }) { count: _count }
+}
+
+query ListLeadsUpdatedDesc($organizationId: UUID!, $pipelineId: UUID, $pipelineStageId: UUID, $sourceId: UUID, $contactId: UUID, $priority: LeadPriority, $transactionType: TransactionType, $activeOnly: Boolean = true, $limit: Int! = 50, $offset: Int! = 0, $search: String, $status: LeadStatus, $assignedMembershipId: UUID, $branchId: UUID, $followUpBefore: Timestamp, $followUpAfter: Timestamp, $createdFrom: Timestamp, $createdBefore: Timestamp)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000 && (!has(vars.search) || vars.search == null || vars.search.size() <= 242)") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") @redact { id organizationId userProfileUid email role status }
+ leads(where: { _and: [
+  { organizationId: { eq: $organizationId }, archivedAt: { isNull: $activeOnly }, pipelineId: { eq: $pipelineId }, pipelineStageId: { eq: $pipelineStageId }, sourceId: { eq: $sourceId }, contactId: { eq: $contactId }, priority: { eq: $priority }, transactionType: { eq: $transactionType }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter }, createdAt: {ge: $createdFrom, lt: $createdBefore} },
+  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }, { contact: { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }] } }] },
+  { _or: [
+  { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }] }, limit: $limit, offset: $offset, orderBy: [{updatedAt: DESC}, {id: ASC}]) {
+  id organizationId fullName email phone source status branchId assignedMembershipId followUpAt followUpNote createdByUid updatedByUid createdAt updatedAt
+ contactId leadNumber sourceId pipelineId pipelineStageId propertyInterest preferredLocation propertyType transactionType budgetMin budgetMax currency bedroomPreference priority archivedAt
+ contact { id organizationId fullName email normalizedEmail phone normalizedPhone alternatePhone normalizedAlternatePhone nationality preferredLanguage notes createdByUid createdAt updatedAt }
+ pipelineStage { id name position stageType status }
+ leadSource { id name sourceType }
+
+  branch { id name }
+  assignedMembership { id email role userProfile { uid displayName } }
+ }
+ total: leads(where: { _and: [
+  { organizationId: { eq: $organizationId }, archivedAt: { isNull: $activeOnly }, pipelineId: { eq: $pipelineId }, pipelineStageId: { eq: $pipelineStageId }, sourceId: { eq: $sourceId }, contactId: { eq: $contactId }, priority: { eq: $priority }, transactionType: { eq: $transactionType }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter }, createdAt: {ge: $createdFrom, lt: $createdBefore} },
+  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }, { contact: { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }] } }] },
+  { _or: [
+   { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+  ] }
+ ] }) { count: _count }
+}
+
+query ListLeadsNameAsc($organizationId: UUID!, $pipelineId: UUID, $pipelineStageId: UUID, $sourceId: UUID, $contactId: UUID, $priority: LeadPriority, $transactionType: TransactionType, $activeOnly: Boolean = true, $limit: Int! = 50, $offset: Int! = 0, $search: String, $status: LeadStatus, $assignedMembershipId: UUID, $branchId: UUID, $followUpBefore: Timestamp, $followUpAfter: Timestamp, $createdFrom: Timestamp, $createdBefore: Timestamp)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000 && (!has(vars.search) || vars.search == null || vars.search.size() <= 242)") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") @redact { id organizationId userProfileUid email role status }
+ leads(where: { _and: [
+  { organizationId: { eq: $organizationId }, archivedAt: { isNull: $activeOnly }, pipelineId: { eq: $pipelineId }, pipelineStageId: { eq: $pipelineStageId }, sourceId: { eq: $sourceId }, contactId: { eq: $contactId }, priority: { eq: $priority }, transactionType: { eq: $transactionType }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter }, createdAt: {ge: $createdFrom, lt: $createdBefore} },
+  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }, { contact: { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }] } }] },
+  { _or: [
+  { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }] }, limit: $limit, offset: $offset, orderBy: [{contact: {fullName: ASC}}, {fullName: ASC}, {id: ASC}]) {
+  id organizationId fullName email phone source status branchId assignedMembershipId followUpAt followUpNote createdByUid updatedByUid createdAt updatedAt
+ contactId leadNumber sourceId pipelineId pipelineStageId propertyInterest preferredLocation propertyType transactionType budgetMin budgetMax currency bedroomPreference priority archivedAt
+ contact { id organizationId fullName email normalizedEmail phone normalizedPhone alternatePhone normalizedAlternatePhone nationality preferredLanguage notes createdByUid createdAt updatedAt }
+ pipelineStage { id name position stageType status }
+ leadSource { id name sourceType }
+
+  branch { id name }
+  assignedMembership { id email role userProfile { uid displayName } }
+ }
+ total: leads(where: { _and: [
+  { organizationId: { eq: $organizationId }, archivedAt: { isNull: $activeOnly }, pipelineId: { eq: $pipelineId }, pipelineStageId: { eq: $pipelineStageId }, sourceId: { eq: $sourceId }, contactId: { eq: $contactId }, priority: { eq: $priority }, transactionType: { eq: $transactionType }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter }, createdAt: {ge: $createdFrom, lt: $createdBefore} },
+  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }, { contact: { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }] } }] },
+  { _or: [
+   { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+  ] }
+ ] }) { count: _count }
+}
+
+query ListLeadsNameDesc($organizationId: UUID!, $pipelineId: UUID, $pipelineStageId: UUID, $sourceId: UUID, $contactId: UUID, $priority: LeadPriority, $transactionType: TransactionType, $activeOnly: Boolean = true, $limit: Int! = 50, $offset: Int! = 0, $search: String, $status: LeadStatus, $assignedMembershipId: UUID, $branchId: UUID, $followUpBefore: Timestamp, $followUpAfter: Timestamp, $createdFrom: Timestamp, $createdBefore: Timestamp)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000 && (!has(vars.search) || vars.search == null || vars.search.size() <= 242)") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") @redact { id organizationId userProfileUid email role status }
+ leads(where: { _and: [
+  { organizationId: { eq: $organizationId }, archivedAt: { isNull: $activeOnly }, pipelineId: { eq: $pipelineId }, pipelineStageId: { eq: $pipelineStageId }, sourceId: { eq: $sourceId }, contactId: { eq: $contactId }, priority: { eq: $priority }, transactionType: { eq: $transactionType }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter }, createdAt: {ge: $createdFrom, lt: $createdBefore} },
+  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }, { contact: { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }] } }] },
+  { _or: [
+  { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }] }, limit: $limit, offset: $offset, orderBy: [{contact: {fullName: DESC}}, {fullName: DESC}, {id: ASC}]) {
+  id organizationId fullName email phone source status branchId assignedMembershipId followUpAt followUpNote createdByUid updatedByUid createdAt updatedAt
+ contactId leadNumber sourceId pipelineId pipelineStageId propertyInterest preferredLocation propertyType transactionType budgetMin budgetMax currency bedroomPreference priority archivedAt
+ contact { id organizationId fullName email normalizedEmail phone normalizedPhone alternatePhone normalizedAlternatePhone nationality preferredLanguage notes createdByUid createdAt updatedAt }
+ pipelineStage { id name position stageType status }
+ leadSource { id name sourceType }
+
+  branch { id name }
+  assignedMembership { id email role userProfile { uid displayName } }
+ }
+ total: leads(where: { _and: [
+  { organizationId: { eq: $organizationId }, archivedAt: { isNull: $activeOnly }, pipelineId: { eq: $pipelineId }, pipelineStageId: { eq: $pipelineStageId }, sourceId: { eq: $sourceId }, contactId: { eq: $contactId }, priority: { eq: $priority }, transactionType: { eq: $transactionType }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter }, createdAt: {ge: $createdFrom, lt: $createdBefore} },
+  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }, { contact: { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }] } }] },
+  { _or: [
+   { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+  ] }
+ ] }) { count: _count }
+}
+
+query ListLeadsFollowUpAsc($organizationId: UUID!, $pipelineId: UUID, $pipelineStageId: UUID, $sourceId: UUID, $contactId: UUID, $priority: LeadPriority, $transactionType: TransactionType, $activeOnly: Boolean = true, $limit: Int! = 50, $offset: Int! = 0, $search: String, $status: LeadStatus, $assignedMembershipId: UUID, $branchId: UUID, $followUpBefore: Timestamp, $followUpAfter: Timestamp, $createdFrom: Timestamp, $createdBefore: Timestamp)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000 && (!has(vars.search) || vars.search == null || vars.search.size() <= 242)") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") @redact { id organizationId userProfileUid email role status }
+ leads(where: { _and: [
+  { organizationId: { eq: $organizationId }, archivedAt: { isNull: $activeOnly }, pipelineId: { eq: $pipelineId }, pipelineStageId: { eq: $pipelineStageId }, sourceId: { eq: $sourceId }, contactId: { eq: $contactId }, priority: { eq: $priority }, transactionType: { eq: $transactionType }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter }, createdAt: {ge: $createdFrom, lt: $createdBefore} },
+  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }, { contact: { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }] } }] },
+  { _or: [
+  { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }] }, limit: $limit, offset: $offset, orderBy: [{followUpAt: ASC}, {id: ASC}]) {
+  id organizationId fullName email phone source status branchId assignedMembershipId followUpAt followUpNote createdByUid updatedByUid createdAt updatedAt
+ contactId leadNumber sourceId pipelineId pipelineStageId propertyInterest preferredLocation propertyType transactionType budgetMin budgetMax currency bedroomPreference priority archivedAt
+ contact { id organizationId fullName email normalizedEmail phone normalizedPhone alternatePhone normalizedAlternatePhone nationality preferredLanguage notes createdByUid createdAt updatedAt }
+ pipelineStage { id name position stageType status }
+ leadSource { id name sourceType }
+
+  branch { id name }
+  assignedMembership { id email role userProfile { uid displayName } }
+ }
+ total: leads(where: { _and: [
+  { organizationId: { eq: $organizationId }, archivedAt: { isNull: $activeOnly }, pipelineId: { eq: $pipelineId }, pipelineStageId: { eq: $pipelineStageId }, sourceId: { eq: $sourceId }, contactId: { eq: $contactId }, priority: { eq: $priority }, transactionType: { eq: $transactionType }, status: { eq: $status }, assignedMembershipId: { eq: $assignedMembershipId }, branchId: { eq: $branchId }, followUpAt: { lt: $followUpBefore, ge: $followUpAfter }, createdAt: {ge: $createdFrom, lt: $createdBefore} },
+  { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }, { source: { pattern: { like: $search, ignoreCase: true } } }, { contact: { _or: [{ fullName: { pattern: { like: $search, ignoreCase: true } } }, { email: { pattern: { like: $search, ignoreCase: true } } }, { phone: { pattern: { like: $search, ignoreCase: true } } }] } }] },
+  { _or: [
+   { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
   ] }
  ] }) { count: _count }
 }
@@ -67,26 +217,67 @@ query GetLead($organizationId: UUID!, $leadId: UUID!) @auth(expr: "auth != null 
  ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") @redact { id organizationId userProfileUid email role status }
  lead(first: { where: { _and: [{ organizationId: { eq: $organizationId }, id: { eq: $leadId } }, { _or: [
   { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
-  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
 ] }] } }) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN") {
   id organizationId fullName email phone source status branchId assignedMembershipId followUpAt followUpNote createdByUid updatedByUid createdAt updatedAt
+ contactId leadNumber sourceId pipelineId pipelineStageId propertyInterest preferredLocation propertyType transactionType budgetMin budgetMax currency bedroomPreference priority archivedAt
+ contact { id organizationId fullName email normalizedEmail phone normalizedPhone alternatePhone normalizedAlternatePhone nationality preferredLanguage notes createdByUid createdAt updatedAt }
+ pipelineStage { id name position stageType status }
+ leadSource { id name sourceType }
+
   branch { id name }
   assignedMembership { id email role userProfile { uid displayName } }
  }
 }
 
 # Assignment choices never expose invitations, pending members or token fields.
-# Agents may only choose their own ACTIVE membership; managers see active teams.
+# Agents and managers may only choose their own ACTIVE membership; administrators see active company members.
 query ListLeadAssignees($organizationId: UUID!, $limit: Int! = 100, $offset: Int! = 0)
  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
  ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") @redact { id role }
  memberships(where: { _and: [
   { organizationId: { eq: $organizationId }, status: { eq: ACTIVE }, userProfileUid: { isNull: false } },
   { _or: [
-   { userProfileUid: { eq_expr: "auth.uid" } },
-   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }
+   { _and: [{role: {eq: AGENT}}, { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }] },
+   { _and: [{userProfileUid: {eq_expr: "auth.uid"}}, {role: {eq: AGENT}}] }
   ] }
  ] }, limit: $limit, offset: $offset, orderBy: [{ email: ASC }, { id: ASC }]) { id email role userProfile { uid displayName } }
+}
+
+# Distribution configuration and rotation plans are visible only to company
+# owners and administrators. Member/manager lead APIs never disclose routing rules.
+query GetLeadDistributionPlan($organizationId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @redact @check(expr: "this != null", message: "DISTRIBUTION_ADMIN_REQUIRED") {id role}
+ rule: leadDistributionRule(first: {where: {organizationId: {eq: $organizationId}, ruleKey: {eq: "DEFAULT"}}}) {
+  id enabled mode branchId projectId skipUnavailable businessHoursEnabled timeZone businessDaysMask businessStart businessEnd reassignmentTimeoutMinutes updatedAt
+  cursor: distributionCursor_on_rule {version lastMembershipId lastAssignedAt}
+ }
+  eligibleAgents: memberships(where: {organizationId: {eq: $organizationId}, role: {eq: AGENT}, status: {eq: ACTIVE}, distributionEligible: {eq: true}, userProfileUid: {isNull: false}}, limit: 100, orderBy: [{id: ASC}]) {
+   id email role status userProfileUid userProfile {displayName} agentAvailability_on_membership {status unavailableUntil}
+  }
+  agents: memberships(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}, role: {eq: AGENT}, userProfileUid: {isNull: false}}, limit: 100, orderBy: [{email: ASC}, {id: ASC}]) {id email role distributionEligible userProfile {displayName} agentAvailability_on_membership {status unavailableUntil}}
+ history: leadAssignmentHistories(where: {organizationId: {eq: $organizationId}}, limit: 30, orderBy: [{assignedAt: DESC}, {id: DESC}]) {
+  id leadId previousAgentId newAgentId assignedByUid assignmentType reason assignedAt
+  lead {fullName leadNumber status}
+  previousAgent {email userProfile {displayName}}
+  newAgent {email userProfile {displayName}}
+ }
+}
+
+query GetMyAgentAvailability($organizationId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role agentAvailability_on_membership {membershipId status unavailableUntil reason updatedAt}}
+}
+
+query ListInAppNotifications($organizationId: UUID!, $limit: Int! = 20, $offset: Int! = 0) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 50 && vars.offset >= 0 && vars.offset <= 10000") {
+ actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+ notifications: inAppNotifications(where: {_and: [{organizationId: {eq: $organizationId}}, {_or: [
+  {audience: {eq: MEMBER}, recipientMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+  {audience: {eq: ADMIN}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+ ]}]}, limit: $limit, offset: $offset, orderBy: [{createdAt: DESC}, {id: DESC}]) {id audience recipientMembershipId type title body readAt createdAt lead {id fullName leadNumber}}
+ total: inAppNotifications(where: {_and: [{organizationId: {eq: $organizationId}}, {_or: [
+  {audience: {eq: MEMBER}, recipientMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+  {audience: {eq: ADMIN}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+ ]}]}) {count: _count}
 }
 
 query ListLeadActivities($organizationId: UUID!, $leadId: UUID!, $limit: Int! = 50, $offset: Int! = 0)
@@ -94,15 +285,15 @@ query ListLeadActivities($organizationId: UUID!, $leadId: UUID!, $limit: Int! = 
  ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") @redact { id }
  lead(first: { where: { _and: [{ organizationId: { eq: $organizationId }, id: { eq: $leadId } }, { _or: [
   { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
-  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
  ] }] } }) @redact @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN") { id }
  activities(where: { organizationId: { eq: $organizationId }, leadId: { eq: $leadId }, lead: { _or: [
   { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
-  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
  ] } }, limit: $limit, offset: $offset, orderBy: [{ createdAt: DESC }, { id: DESC }]) { id actorUid actor { uid displayName } kind leadId targetId metadata note createdAt }
  total: activities(where: { organizationId: { eq: $organizationId }, leadId: { eq: $leadId }, lead: { _or: [
   { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
-  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN, MANAGER] } } } } }
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
  ] } }) { count: _count }
 }
 
@@ -149,3 +340,203 @@ query ListAuditLogs($organizationId: UUID!, $limit: Int! = 50, $offset: Int! = 0
 }
 
 
+
+query GetLeadConfiguration($organizationId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") { id role }
+ pipelines(where: { organizationId: { eq: $organizationId }, isActive: { eq: true } }, limit: 100, orderBy: [{name: ASC}, {id: ASC}]) { id name isDefault isActive pipelineStages_on_pipeline(orderBy: [{position: ASC}], limit: 100) {id name position stageType status} }
+ leadSources(where: {organizationId: {eq: $organizationId}}, limit: 100, orderBy: [{name: ASC}, {id: ASC}]) {id name sourceType}
+}
+query SearchContacts($organizationId: UUID!, $search: String, $limit: Int! = 25, $offset: Int! = 0) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000 && (!has(vars.search) || vars.search == null || vars.search.size() <= 242)") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") { id role }
+ contacts(where: {_and: [{organizationId: {eq: $organizationId}}, { _or: [
+ { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } },
+ { leads_on_contact: { exist: { _or: [ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }, { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } } ] } } },
+ { createdByUid: { eq_expr: "auth.uid" }, leads_on_contact: { count: {eq: 0} } }
+] }, {_or: [{fullName: {pattern: {like: $search, ignoreCase: true}}}, {email: {pattern: {like: $search, ignoreCase: true}}}, {phone: {pattern: {like: $search, ignoreCase: true}}}, {alternatePhone: {pattern: {like: $search, ignoreCase: true}}}]}]}, limit: $limit, offset: $offset, orderBy: [{createdAt: DESC}, {id: DESC}]) { id organizationId fullName email normalizedEmail phone normalizedPhone alternatePhone normalizedAlternatePhone nationality preferredLanguage notes createdByUid createdAt updatedAt }
+ total: contacts(where: {_and: [{organizationId: {eq: $organizationId}}, { _or: [
+ { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } },
+ { leads_on_contact: { exist: { _or: [ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }, { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } } ] } } },
+ { createdByUid: { eq_expr: "auth.uid" }, leads_on_contact: { count: {eq: 0} } }
+] }, {_or: [{fullName: {pattern: {like: $search, ignoreCase: true}}}, {email: {pattern: {like: $search, ignoreCase: true}}}, {phone: {pattern: {like: $search, ignoreCase: true}}}, {alternatePhone: {pattern: {like: $search, ignoreCase: true}}}]}]}) {count: _count}
+}
+query GetContact($organizationId: UUID!, $contactId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") { id role }
+ contact(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $contactId}}, { _or: [
+ { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } },
+ { leads_on_contact: { exist: { _or: [ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }, { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } } ] } } },
+ { createdByUid: { eq_expr: "auth.uid" }, leads_on_contact: { count: {eq: 0} } }
+] }]}}) @check(expr: "this != null", message: "CONTACT_NOT_FOUND_OR_FORBIDDEN") {id organizationId fullName email normalizedEmail phone normalizedPhone alternatePhone normalizedAlternatePhone nationality preferredLanguage notes createdByUid createdAt updatedAt}
+}
+query FindDuplicateContacts($organizationId: UUID!, $email: String, $phone: String, $alternatePhone: String) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && (!has(vars.email) || vars.email == null || vars.email.size() <= 254) && (!has(vars.phone) || vars.phone == null || vars.phone.size() <= 32) && (!has(vars.alternatePhone) || vars.alternatePhone == null || vars.alternatePhone.size() <= 32)") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") { id role }
+ contacts(where: {_and: [{organizationId: {eq: $organizationId}}, { _or: [
+ { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } },
+ { leads_on_contact: { exist: { _or: [ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }, { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } } ] } } },
+ { createdByUid: { eq_expr: "auth.uid" }, leads_on_contact: { count: {eq: 0} } }
+] }, {_or: [
+ {normalizedEmail: {eq_expr: "has(vars.email) && vars.email != null ? vars.email.lowerAscii() : ''"}},
+ {phone: {eq_expr: "has(vars.phone) && vars.phone != null ? vars.phone : ''"}}, {alternatePhone: {eq_expr: "has(vars.phone) && vars.phone != null ? vars.phone : ''"}}, {phone: {eq_expr: "has(vars.alternatePhone) && vars.alternatePhone != null ? vars.alternatePhone : ''"}}, {alternatePhone: {eq_expr: "has(vars.alternatePhone) && vars.alternatePhone != null ? vars.alternatePhone : ''"}},
+ {normalizedPhone: {eq_expr: "has(vars.phone) && vars.phone != null ? vars.phone : ''"}}, {normalizedPhone: {eq_expr: "has(vars.alternatePhone) && vars.alternatePhone != null ? vars.alternatePhone : ''"}},
+ {normalizedAlternatePhone: {eq_expr: "has(vars.phone) && vars.phone != null ? vars.phone : ''"}}, {normalizedAlternatePhone: {eq_expr: "has(vars.alternatePhone) && vars.alternatePhone != null ? vars.alternatePhone : ''"}}
+ ]}]}, limit: 25, orderBy: [{createdAt: DESC}, {id: DESC}]) {id fullName email phone alternatePhone}
+}
+query GetLeadCrmHistory($organizationId: UUID!, $leadId: UUID!, $limit: Int! = 25, $offset: Int! = 0) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") { id role }
+ lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}}, { _or: [ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }, { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } } ] }]}}) @redact @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN") {id}
+ activities(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, lead: { _or: [ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }, { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } } ] }}, limit: $limit, offset: $offset, orderBy: [{createdAt: DESC}, {id: DESC}]) {id actorUid kind note metadata createdAt pipelineId previousStageId newStageId}
+ activityTotal: activities(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, lead: { _or: [ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }, { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } } ] }}) {count: _count}
+ assignments: leadAssignmentHistories(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, lead: { _or: [ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }, { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } } ] }}, limit: $limit, offset: $offset, orderBy: [{assignedAt: DESC}, {id: DESC}]) {id previousAgentId newAgentId assignedByUid assignmentType reason assignedAt}
+ stages: activities(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, newStageId: {isNull: false}, lead: { _or: [ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }, { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } } ] }}, limit: $limit, offset: $offset, orderBy: [{createdAt: DESC}, {id: DESC}]) {id actorUid kind pipelineId previousStageId newStageId createdAt}
+ followUps: leadFollowUps(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, lead: { _or: [ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }, { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } } ] }}, limit: $limit, offset: $offset, orderBy: [{dueAt: ASC}, {id: ASC}]) {id assignedUserId title dueAt status completedAt createdAt}
+}
+
+# KPI counts include active accessible leads across the company, independent of list filters.
+query GetLeadMetrics($organizationId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") { id }
+ total: leads(where: {_and: [{organizationId: {eq: $organizationId}, archivedAt: {isNull: true}}, { _or: [
+ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+ { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }]}) { count: _count }
+ newLeads: leads(where: {_and: [{organizationId: {eq: $organizationId}, archivedAt: {isNull: true}, status: {eq: NEW}}, { _or: [
+ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+ { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }]}) { count: _count }
+ qualified: leads(where: {_and: [{organizationId: {eq: $organizationId}, archivedAt: {isNull: true}, status: {eq: QUALIFIED}}, { _or: [
+ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+ { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }]}) { count: _count }
+ won: leads(where: {_and: [{organizationId: {eq: $organizationId}, archivedAt: {isNull: true}, status: {in: [WON, CONVERTED]}}, { _or: [
+ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+ { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }]}) { count: _count }
+}
+
+query ListLeadFollowUps($organizationId: UUID!, $leadId: UUID!, $limit: Int! = 10, $offset: Int! = 0)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}},{ _or: [
+ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+ { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }]}}) @redact @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN") {id}
+ followUps: leadFollowUps(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, lead: { _or: [
+ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+ { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }}, limit: $limit, offset: $offset, orderBy: [{dueAt: DESC}, {id: DESC}]) {id title dueAt status completedAt assignedUserId assignedUser {id email userProfile {displayName}} createdAt}
+ total: leadFollowUps(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, lead: { _or: [
+ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+ { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }}) {count: _count}
+}
+
+query ListLeadCaptureForms($organizationId: UUID!, $limit: Int! = 50, $offset: Int! = 0)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id role}
+ forms: leadCaptureForms(where: {organizationId: {eq: $organizationId}}, limit: $limit, offset: $offset, orderBy: [{updatedAt: DESC}, {id: DESC}]) {
+  id organizationId publicId name status sourceId source {name sourceType} branchId branch {name} projectId fields consentText privacyPolicyUrl successMessage createdAt updatedAt
+ }
+ total: leadCaptureForms(where: {organizationId: {eq: $organizationId}}) {count: _count}
+ leadSources: leadSources(where: {organizationId: {eq: $organizationId}}, limit: 100, orderBy: [{name: ASC}, {id: ASC}]) {id name sourceType}
+ branches: branches(where: {organizationId: {eq: $organizationId}}, limit: 100, orderBy: [{name: ASC}, {id: ASC}]) {id name}
+}
+
+query GetLeadCaptureForm($organizationId: UUID!, $formId: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
+ form: leadCaptureForm(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $formId}}}) {id organizationId publicId name status sourceId source {name sourceType} branchId branch {name} projectId fields consentText privacyPolicyUrl successMessage createdByUid updatedAt}
+}
+
+# These lookup operations are server-only. The public HTTP endpoint calls them
+# with the Admin SDK; no unauthenticated client may invoke them directly.
+query ResolveWebsiteLeadCaptureForm($publicId: String!) @auth(level: NO_ACCESS) {
+ form: leadCaptureForm(first: {where: {publicId: {eq: $publicId}}})
+  @check(expr: "this != null && this.status == 'ACTIVE'", message: "FORM_UNAVAILABLE") {
+   id organizationId publicId name status sourceId source {name sourceType} branchId projectId fields consentText privacyPolicyUrl successMessage createdByUid
+   organization {id}
+  }
+}
+
+query FindWebsiteLeadCaptureContact($organizationId: UUID!, $normalizedEmail: String, $normalizedPhone: String)
+ @auth(level: NO_ACCESS) {
+ contacts(where: {_and: [{organizationId: {eq: $organizationId}}, {_or: [
+  {normalizedEmail: {eq_expr: "has(vars.normalizedEmail) && vars.normalizedEmail != null ? vars.normalizedEmail : '__no_email_match__'"}},
+  {normalizedPhone: {eq_expr: "has(vars.normalizedPhone) && vars.normalizedPhone != null ? vars.normalizedPhone : '__no_phone_match__'"}}
+ ]}]}, limit: 2, orderBy: [{createdAt: ASC}, {id: ASC}]) {id normalizedEmail normalizedPhone}
+}
+
+query GetWebsiteLeadCaptureRateWindow($organizationId: UUID!, $formId: UUID!, $windowStart: Timestamp!) @auth(level: NO_ACCESS) {
+ window: leadCaptureRateWindow(first: {where: {organizationId: {eq: $organizationId}, formId: {eq: $formId}, windowStart: {eq: $windowStart}}}) {id requestCount}
+}
+
+query FindWebsiteLeadCaptureSubmission($organizationId: UUID!, $formId: UUID!, $idempotencyKeyHash: String!) @auth(level: NO_ACCESS) {
+ submission: leadCaptureSubmission(first: {where: {organizationId: {eq: $organizationId}, formId: {eq: $formId}, idempotencyKeyHash: {eq: $idempotencyKeyHash}}}) {id leadId sourceId landingPageUrl utmSource utmMedium utmCampaign utmContent utmTerm consentGiven consentTextSnapshot privacyPolicyUrlSnapshot consentAt submittedAt}
+}
+
+query GetWebsiteLeadDistributionPlan($organizationId: UUID!) @auth(level: NO_ACCESS) {
+ rule: leadDistributionRule(first: {where: {organizationId: {eq: $organizationId}, ruleKey: {eq: "DEFAULT"}, enabled: {eq: true}, mode: {eq: ROUND_ROBIN}}}) {
+  id organizationId enabled mode branchId projectId skipUnavailable businessHoursEnabled timeZone businessDaysMask businessStart businessEnd
+  cursor: distributionCursor_on_rule {version lastMembershipId lastAssignedAt}
+ }
+ eligibleAgents: memberships(where: {organizationId: {eq: $organizationId}, role: {eq: AGENT}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}, distributionEligible: {eq: true}}, limit: 200, orderBy: [{id: ASC}]) {
+  id role status userProfileUid agentAvailability_on_membership {status unavailableUntil}
+ }
+}
+
+query GetLeadAnalytics($organizationId: UUID!, $from: Timestamp!, $to: Timestamp!, $timeZone: String!, $bucket: String!, $sourceId: UUID, $pipelineStageId: UUID, $assignedMembershipId: UUID)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.from < vars.to && vars.bucket in ['day', 'week', 'month'] && vars.timeZone.size() <= 64") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+ summary: _selectFirst(sql: """
+  SELECT
+   COUNT(*) FILTER (WHERE l.created_at >= $3 AND l.created_at < $4) AS total_leads,
+   COUNT(*) FILTER (WHERE l.created_at >= $3 AND l.created_at < $4 AND l.assigned_membership_id IS NULL) AS unassigned_leads,
+   COUNT(*) FILTER (WHERE l.created_at >= $3 AND l.created_at < $4 AND l.status IN ('WON', 'CONVERTED')) AS won_leads,
+   CASE WHEN COUNT(*) FILTER (WHERE l.created_at >= $3 AND l.created_at < $4) = 0 THEN 0
+    ELSE ROUND(100.0 * COUNT(*) FILTER (WHERE l.created_at >= $3 AND l.created_at < $4 AND l.status IN ('WON', 'CONVERTED')) / COUNT(*) FILTER (WHERE l.created_at >= $3 AND l.created_at < $4), 2) END AS lead_to_won_percent,
+   (SELECT COUNT(*) FROM lead_follow_up f JOIN lead fl ON fl.organization_id = f.organization_id AND fl.id = f.lead_id
+    WHERE f.organization_id = $1 AND f.status = 'PENDING' AND f.due_at < now() AND fl.archived_at IS NULL
+     AND ($5::uuid IS NULL OR fl.source_id = $5) AND ($6::uuid IS NULL OR fl.pipeline_stage_id = $6) AND ($7::uuid IS NULL OR fl.assigned_membership_id = $7)
+     AND ((SELECT m.role FROM membership m WHERE m.organization_id = $1 AND m.user_profile_uid = $2 AND m.status = 'ACTIVE' LIMIT 1) IN ('OWNER', 'ADMIN')
+      OR fl.assigned_membership_id = (SELECT m.id FROM membership m WHERE m.organization_id = $1 AND m.user_profile_uid = $2 AND m.status = 'ACTIVE' LIMIT 1))) AS overdue_follow_ups
+  FROM lead l
+  WHERE l.organization_id = $1 AND l.archived_at IS NULL
+   AND ($5::uuid IS NULL OR l.source_id = $5) AND ($6::uuid IS NULL OR l.pipeline_stage_id = $6) AND ($7::uuid IS NULL OR l.assigned_membership_id = $7)
+   AND ((SELECT m.role FROM membership m WHERE m.organization_id = $1 AND m.user_profile_uid = $2 AND m.status = 'ACTIVE' LIMIT 1) IN ('OWNER', 'ADMIN')
+    OR l.assigned_membership_id = (SELECT m.id FROM membership m WHERE m.organization_id = $1 AND m.user_profile_uid = $2 AND m.status = 'ACTIVE' LIMIT 1))
+ """, params: [$organizationId, {_expr: "auth.uid"}, $from, $to, $sourceId, $pipelineStageId, $assignedMembershipId])
+ sources: _select(sql: """
+  SELECT COALESCE(NULLIF(s.name, ''), NULLIF(l.source, ''), 'Unspecified') AS label, COUNT(*) AS count
+  FROM lead l LEFT JOIN lead_source s ON s.organization_id = l.organization_id AND s.id = l.source_id
+  WHERE l.organization_id = $1 AND l.archived_at IS NULL AND l.created_at >= $3 AND l.created_at < $4
+   AND ($5::uuid IS NULL OR l.source_id = $5) AND ($6::uuid IS NULL OR l.pipeline_stage_id = $6) AND ($7::uuid IS NULL OR l.assigned_membership_id = $7)
+   AND ((SELECT m.role FROM membership m WHERE m.organization_id = $1 AND m.user_profile_uid = $2 AND m.status = 'ACTIVE' LIMIT 1) IN ('OWNER', 'ADMIN')
+    OR l.assigned_membership_id = (SELECT m.id FROM membership m WHERE m.organization_id = $1 AND m.user_profile_uid = $2 AND m.status = 'ACTIVE' LIMIT 1))
+  GROUP BY 1 ORDER BY count DESC, label ASC LIMIT 50
+ """, params: [$organizationId, {_expr: "auth.uid"}, $from, $to, $sourceId, $pipelineStageId, $assignedMembershipId])
+ stages: _select(sql: """
+  SELECT COALESCE(ps.name, l.status::text) AS label, COUNT(*) AS count
+  FROM lead l LEFT JOIN pipeline_stage ps ON ps.organization_id = l.organization_id AND ps.pipeline_id = l.pipeline_id AND ps.id = l.pipeline_stage_id
+  WHERE l.organization_id = $1 AND l.archived_at IS NULL AND l.created_at >= $3 AND l.created_at < $4
+   AND ($5::uuid IS NULL OR l.source_id = $5) AND ($6::uuid IS NULL OR l.pipeline_stage_id = $6) AND ($7::uuid IS NULL OR l.assigned_membership_id = $7)
+   AND ((SELECT m.role FROM membership m WHERE m.organization_id = $1 AND m.user_profile_uid = $2 AND m.status = 'ACTIVE' LIMIT 1) IN ('OWNER', 'ADMIN')
+    OR l.assigned_membership_id = (SELECT m.id FROM membership m WHERE m.organization_id = $1 AND m.user_profile_uid = $2 AND m.status = 'ACTIVE' LIMIT 1))
+  GROUP BY 1 ORDER BY count DESC, label ASC
+ """, params: [$organizationId, {_expr: "auth.uid"}, $from, $to, $sourceId, $pipelineStageId, $assignedMembershipId])
+ agents: _select(sql: """
+  SELECT CASE WHEN l.assigned_membership_id IS NULL THEN 'Unassigned' ELSE COALESCE(NULLIF(u.display_name, ''), m.email, 'Agent') END AS label, COUNT(*) AS count
+  FROM lead l LEFT JOIN membership m ON m.organization_id = l.organization_id AND m.id = l.assigned_membership_id
+   LEFT JOIN user_profile u ON u.uid = m.user_profile_uid
+  WHERE l.organization_id = $1 AND l.archived_at IS NULL AND l.created_at >= $3 AND l.created_at < $4
+   AND ($5::uuid IS NULL OR l.source_id = $5) AND ($6::uuid IS NULL OR l.pipeline_stage_id = $6) AND ($7::uuid IS NULL OR l.assigned_membership_id = $7)
+   AND ((SELECT actor.role FROM membership actor WHERE actor.organization_id = $1 AND actor.user_profile_uid = $2 AND actor.status = 'ACTIVE' LIMIT 1) IN ('OWNER', 'ADMIN')
+    OR l.assigned_membership_id = (SELECT actor.id FROM membership actor WHERE actor.organization_id = $1 AND actor.user_profile_uid = $2 AND actor.status = 'ACTIVE' LIMIT 1))
+  GROUP BY 1 ORDER BY count DESC, label ASC LIMIT 100
+ """, params: [$organizationId, {_expr: "auth.uid"}, $from, $to, $sourceId, $pipelineStageId, $assignedMembershipId])
+ volume: _select(sql: """
+  SELECT date_trunc($5, l.created_at AT TIME ZONE $6)::date::text AS bucket, COUNT(*) AS count
+  FROM lead l
+  WHERE l.organization_id = $1 AND l.archived_at IS NULL AND l.created_at >= $3 AND l.created_at < $4
+   AND ($7::uuid IS NULL OR l.source_id = $7) AND ($8::uuid IS NULL OR l.pipeline_stage_id = $8) AND ($9::uuid IS NULL OR l.assigned_membership_id = $9)
+   AND ((SELECT actor.role FROM membership actor WHERE actor.organization_id = $1 AND actor.user_profile_uid = $2 AND actor.status = 'ACTIVE' LIMIT 1) IN ('OWNER', 'ADMIN')
+    OR l.assigned_membership_id = (SELECT actor.id FROM membership actor WHERE actor.organization_id = $1 AND actor.user_profile_uid = $2 AND actor.status = 'ACTIVE' LIMIT 1))
+  GROUP BY 1 ORDER BY 1
+ """, params: [$organizationId, {_expr: "auth.uid"}, $from, $to, $bucket, $timeZone, $sourceId, $pipelineStageId, $assignedMembershipId])
+}

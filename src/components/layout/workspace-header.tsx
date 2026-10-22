@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight, PanelLeft, ShieldCheck } from "lucide-react";
-import { navigationGroups } from "@/config/navigation";
+import { isNavigationItemActive, navigationGroups } from "@/config/navigation";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
 import { LogoutButton } from "@/modules/auth/components/logout-button";
+import { NotificationBell } from "@/modules/leads/distribution/components/notification-bell";
 import type { CompanyChoice } from "@/modules/organizations/types";
 
 export interface WorkspaceHeaderProps {
@@ -18,7 +19,7 @@ export interface WorkspaceHeaderProps {
 export function WorkspaceHeader({ user, company }: WorkspaceHeaderProps) {
   const pathname = usePathname();
   const { toggleSidebar, sidebarId, open, isMobile, openMobile } = useSidebar();
-  const current = navigationGroups.flatMap((group) => group.items).find((item) => item.href === pathname);
+  const current = navigationGroups.flatMap((group) => group.items).find((item) => isNavigationItemActive(pathname, item.href));
   const identity = user?.name?.trim() || user?.email;
   const toggleLabel = isMobile
     ? (openMobile ? "Close navigation" : "Open navigation")
@@ -35,11 +36,12 @@ export function WorkspaceHeader({ user, company }: WorkspaceHeaderProps) {
           <ol className="flex items-center gap-2">
             <li className="max-w-32 truncate text-muted-foreground sm:max-w-60"><Link href="/workspace/dashboard" title={company?.name} className="rounded hover:text-primary">{company?.name ?? "Workspace"}</Link></li>
             <li className="hidden sm:block"><ChevronRight className="size-3 text-muted-foreground" aria-hidden="true" /></li>
-            <li className="hidden truncate font-medium sm:block" aria-current="page">{pathname === "/settings/company" ? "Company settings" : pathname === "/settings/team/invitations" ? "Invitations" : pathname === "/settings/team" ? "Team members" : current?.title ?? "Workspace"}</li>
+            <li className="hidden truncate font-medium sm:block" aria-current="page">{pathname === "/settings/company" ? "Company settings" : pathname === "/settings/team/invitations" ? "Invitations" : pathname === "/settings/team" ? "Team members" : pathname === "/settings/lead-distribution" ? "Lead distribution" : current?.title ?? "Workspace"}</li>
           </ol>
         </nav>
       </div>
       <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+        {company?.id && <NotificationBell organizationId={company.id} />}
         {identity && <span title={`Signed in as ${identity}`} className="inline-flex max-w-28 items-center gap-1.5 rounded-full border border-primary/20 bg-secondary px-2.5 py-1 text-[11px] font-medium text-primary sm:max-w-64"><ShieldCheck className="size-3 shrink-0" aria-hidden="true" /><span className="truncate"><span className="sr-only sm:not-sr-only">Signed in as </span>{identity}</span></span>}
         <ThemeToggle />
         <LogoutButton />

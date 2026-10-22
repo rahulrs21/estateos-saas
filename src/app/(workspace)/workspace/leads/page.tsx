@@ -18,7 +18,7 @@ async function LeadsContent({ searchParams }: { searchParams: SearchParams }) {
   try {
     data = await getLeadsPageData(await searchParams);
   } catch (error) {
-    if (error instanceof WorkspaceError) return <LeadsAccessState error={error} />;
+    if (error instanceof WorkspaceError) return <LeadsAccessState error={error} scope="list" />;
     throw error;
   }
   return <LeadsList data={data} />;

@@ -14,7 +14,7 @@ test("lead creation normalizes contact fields and accepts only valid reference i
     fullName: " Local Buyer ", email: "BUYER@example.test", phone: "+971 50 100 0000",
     source: " Website ", assignedMembershipId: member.replaceAll("-", ""), branchId: null,
   }), {
-    fullName: "Local Buyer", email: "buyer@example.test", phone: "+971 50 100 0000",
+    fullName: "Local Buyer", email: "BUYER@example.test", phone: "+971 50 100 0000",
     source: "Website", assignedMembershipId: member, branchId: null,
   });
   for (const input of [
@@ -47,11 +47,11 @@ test("all lead operations reject client-supplied tenant, identity, membership an
 });
 
 test("status input permits every defined pipeline stage and rejects unknown future values", () => {
-  for (const status of ["NEW", "CONTACTED", "QUALIFIED", "LOST", "CONVERTED"]) {
+  for (const status of ["NEW", "CONTACTED", "QUALIFIED", "VIEWING_SCHEDULED", "VIEWING_COMPLETED", "NEGOTIATION", "WON", "LOST", "CONVERTED"]) {
     assert.equal(leadStatusInputSchema.safeParse({ leadId: id, status }).success, true);
     assert.equal(updateLeadSchema.safeParse({ leadId: id, fullName: "Local Buyer", status }).success, true);
   }
-  for (const status of ["ADMIN", "new", "WON", "ARCHIVED", "", null, 1]) {
+  for (const status of ["ADMIN", "new", "SOLD", "ARCHIVED", "", null, 1]) {
     assert.equal(leadStatusInputSchema.safeParse({ leadId: id, status }).success, false);
     assert.equal(updateLeadSchema.safeParse({ leadId: id, fullName: "Local Buyer", status }).success, false);
   }
@@ -59,8 +59,10 @@ test("status input permits every defined pipeline stage and rejects unknown futu
 
 test("assignment requires an explicit valid UUID or an explicit unassignment", () => {
   assert.deepEqual(leadAssignmentInputSchema.parse({ leadId: id.replaceAll("-", ""), assignedMembershipId: member }),
-    { leadId: id, assignedMembershipId: member });
+    { leadId: id, assignedMembershipId: member, reason: "Manual assignment", overrideClosed: false });
   assert.equal(leadAssignmentInputSchema.safeParse({ leadId: id, assignedMembershipId: null }).success, true);
+  assert.equal(leadAssignmentInputSchema.safeParse({ leadId: id, assignedMembershipId: member, reason: "Coverage", overrideClosed: true }).success, true);
+  assert.equal(leadAssignmentInputSchema.safeParse({ leadId: id, assignedMembershipId: member, reason: "" }).success, false);
   for (const assignedMembershipId of [undefined, "", "other-member", 1, { role: "ADMIN" }]) {
     assert.equal(leadAssignmentInputSchema.safeParse({ leadId: id, assignedMembershipId }).success, false);
   }
@@ -89,7 +91,7 @@ test("follow-up requires an unambiguous future timestamp within one year and a b
 });
 
 test("lead list validation bounds pagination and rejects invalid status or filter selectors", () => {
-  assert.deepEqual(leadListInputSchema.parse({}), { search: "", followUp: "ALL", limit: 50, offset: 0 });
+  assert.deepEqual(leadListInputSchema.parse({}), { archive: "ACTIVE", search: "", followUp: "ALL", sort: "CREATED_DESC", limit: 50, offset: 0 });
   assert.equal(leadListInputSchema.safeParse({ search: " Local buyer ", status: "NEW", branchId: id, assignedMembershipId: member, followUp: "OVERDUE", limit: 100, offset: 10000 }).success, true);
   for (const input of [
     { limit: 0 }, { limit: 101 }, { limit: "25" }, { limit: 1.5 }, { offset: -1 }, { offset: 10001 },
@@ -100,13 +102,30 @@ test("lead list validation bounds pagination and rejects invalid status or filte
 
 test("URL pagination rejects invalid or excessive pages while retaining explicit empty filters", () => {
   assert.deepEqual(leadPageFiltersSchema.parse({ page: "2", pageSize: "25" }), {
-    search: "", status: "", branchId: "", assignedMembershipId: "", followUp: "ALL", page: 2, pageSize: 25,
+    search: "", status: "", branchId: "", assignedMembershipId: "", sourceId: "", priority: "", createdFrom: "", createdTo: "", sort: "CREATED_DESC", view: "LIST", followUp: "ALL", page: 2, pageSize: 25,
   });
   assert.equal(leadPageFiltersSchema.safeParse({ page: "401", pageSize: "25" }).success, true);
   for (const input of [
     { page: "0" }, { page: "abc" }, { page: "1.5" }, { page: "402" },
     { page: "202", pageSize: "50" }, { pageSize: "500" }, { status: "SUPERUSER" },
   ]) assert.equal(leadPageFiltersSchema.safeParse(input).success, false);
+});
+
+test("list sorting and calendar ranges accept only explicit bounded filter selectors", () => {
+  for (const sort of ["CREATED_DESC", "CREATED_ASC", "UPDATED_DESC", "NAME_ASC", "NAME_DESC", "FOLLOW_UP_ASC"]) {
+    assert.equal(leadListInputSchema.safeParse({sort, createdFrom: "2026-10-01", createdTo: "2026-10-31", sourceId: id, priority: "HIGH"}).success, true);
+  }
+  for (const filter of [{sort: "drop table"}, {createdFrom: "2026-02-30"}, {createdFrom: "2026-10-21", createdTo: "2026-10-20"}, {createdTo: "2026-10-20T00:00:00Z"}, {view: "UNRESTRICTED"}]) {
+    assert.equal(leadPageFiltersSchema.safeParse(filter).success, false);
+  }
+});
+
+test("initial lead notes and follow-up values reject invalid data and internal inclusion flags", () => {
+  const initialFollowUpAt = new Date(Date.now() + 86400000).toISOString();
+  assert.equal(createLeadSchema.safeParse({fullName: "Buyer", initialNote: "Call tomorrow", initialFollowUpAt, initialFollowUpNote: "Discuss requirements"}).success, true);
+  for (const extra of [{initialNote: "x".repeat(4001)}, {initialFollowUpAt: "2020-01-01T00:00:00Z"}, {initialFollowUpNote: "x".repeat(501)}, {hasInitialNote: true}, {hasInitialFollowUp: true}]) {
+    assert.equal(createLeadSchema.safeParse({fullName: "Buyer", ...extra}).success, false);
+  }
 });
 
 test("search escapes SQL LIKE wildcard characters as literal user text", () => {

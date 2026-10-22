@@ -46,7 +46,7 @@ test("duplicate slugs have a safe conflict error while unrelated provider failur
     assert.equal(safe.status, 409);
     assert.doesNotMatch(safe.message, /private|tokenHash|secret|SQL/);
   }
-  assert.equal(mapOrganizationCreationError({ code: "data-connect/query-error", message: "different constraint" }).status, 403);
+  assert.equal(mapOrganizationCreationError({ code: "data-connect/query-error", message: "different constraint" }).status, 503);
   assert.equal(mapOrganizationCreationError(new Error("provider offline")).status, 503);
 });
 
@@ -64,6 +64,9 @@ test("a missing SQL Connect service or operation is a setup failure, not a missi
 test("explicit record-level missing errors and authorization denials keep their meaning", () => {
   const missing = new WorkspaceError("NOT_FOUND", 404, "This lead is unavailable.");
   assert.equal(mapWorkspaceDataError(missing), missing);
+  assert.equal(mapWorkspaceDataError({ code: "data-connect/permission-denied" }).code, "PERMISSION_DENIED");
   assert.equal(mapWorkspaceDataError({ code: "data-connect/permission-denied" }).status, 403);
-  assert.equal(mapWorkspaceDataError({ code: "data-connect/query-error" }).status, 403);
+  assert.equal(mapWorkspaceDataError({ code: "data-connect/query-error", message: "@check(expr) denied" }).code, "PERMISSION_DENIED");
+  assert.equal(mapWorkspaceDataError({ code: "data-connect/query-error", message: "private SQL details" }).code, "DATABASE_ERROR");
+  assert.equal(mapWorkspaceDataError({ code: "data-connect/invalid-argument" }).code, "VALIDATION_ERROR");
 });

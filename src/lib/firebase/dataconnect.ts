@@ -40,10 +40,38 @@ export async function requireSqlConnectRequest() {
 }
 
 /** A sanitized boundary; do not return provider errors containing query details. */
-export async function executeWorkspaceOperation<T>(operation: () => Promise<{ data: T }>): Promise<T> {
+export async function executeWorkspaceOperation<T>(
+  operation: () => Promise<{ data: T }>,
+  operationName = "unknown",
+): Promise<T> {
   try {
     return (await operation()).data;
   } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      const rawCode = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+        ? error.code
+        : "";
+      const allowedCodes = new Set([
+        "data-connect/aborted",
+        "data-connect/invalid-argument",
+        "data-connect/invalid-credential",
+        "data-connect/internal-error",
+        "data-connect/permission-denied",
+        "data-connect/unauthenticated",
+        "data-connect/not-found",
+        "data-connect/unknown-error",
+        "data-connect/query-error",
+      ]);
+      const providerCode = allowedCodes.has(rawCode) ? rawCode : "unclassified";
+      const safeOperationName = /^[A-Za-z][A-Za-z0-9:_-]{0,79}$/.test(operationName)
+        ? operationName
+        : "unknown";
+      // Keep server diagnostics useful without logging provider messages,
+      // variables, credentials, customer data or raw query details.
+      // Use a single string because Next.js's development overlay serializes
+      // object arguments as `{}`, hiding these otherwise safe diagnostic fields.
+      console.error(`EstateOS SQL Connect operation failed: operation=${safeOperationName} code=${providerCode}`);
+    }
     throw mapWorkspaceDataError(error);
   }
 }

@@ -19,12 +19,13 @@
     "test:auth:emulator": "node scripts/test-auth-emulator.mjs",
     "test:tenancy": "node scripts/test-tenancy.mjs",
     "test:leads": "node scripts/test-leads.mjs",
+    "test:leads:ui": "node scripts/test-leads-ui.mjs",
     "test:sidebar": "node scripts/test-sidebar.mjs",
     "sql:validate": "node scripts/sql-connect-toolkit.mjs build",
     "sql:generate": "node scripts/sql-connect-toolkit.mjs generate",
     "sql:emulators": "firebase emulators:start --project demo-estateos --only dataconnect",
     "sql:seed": "node scripts/seed-sql-connect.mjs",
-    "test:dataconnect": "firebase emulators:exec --project demo-estateos --config firebase.test.json --only dataconnect \"node --test tests/sql-connect.integration.test.mjs\""
+    "test:dataconnect": "firebase emulators:exec --project demo-estateos-test --config firebase.test.json --only dataconnect \"node --test tests/sql-connect.integration.test.mjs\""
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

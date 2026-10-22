@@ -18,9 +18,9 @@ async function LeadDetailContent({ params, searchParams }: DetailProps) {
   try {
     const { leadId } = await params;
     const query = await searchParams;
-    data = await getLeadDetailData(leadId, query.activityPage);
+    data = await getLeadDetailData(leadId, query.activityPage, query.followUpPage);
   } catch (error) {
-    if (error instanceof WorkspaceError) return <LeadsAccessState error={error} />;
+    if (error instanceof WorkspaceError) return <LeadsAccessState error={error} scope="detail" />;
     throw error;
   }
   return <LeadDetail data={data} />;

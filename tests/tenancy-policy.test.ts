@@ -136,7 +136,8 @@ for (const host of ["example.com:9399", "127.0.0.1", "localhost:9399/path", "loc
 
 test("data errors never expose provider details or invitation secrets", () => {
   const error = mapWorkspaceDataError({ code: "data-connect/query-error", message: "private SQL tokenHash=secret" });
-  assert.equal(error.status, 403);
+  assert.equal(error.code, "DATABASE_ERROR");
+  assert.equal(error.status, 503);
   assert.doesNotMatch(error.message, /SQL|tokenHash|secret/);
   assert.equal(mapWorkspaceDataError(new Error("credential material")).status, 503);
   assert.equal(mapWorkspaceDataError({ code: "data-connect/aborted" }).status, 409);

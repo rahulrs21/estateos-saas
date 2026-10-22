@@ -7,6 +7,8 @@ import { getDataConnect } from "firebase-admin/data-connect";
 import * as sdk from "@dataconnect/admin-generated";
 import { localDataConnect, seedLocalDatabase } from "../scripts/sql-connect-local.mjs";
 import { fixture as f } from "./fixtures/sql-connect-fixtures.mjs";
+import {registerCrmCases} from "./sql-connect-crm.cases.mjs";
+import {registerCaptureCases} from "./sql-connect-capture.cases.mjs";
 
 // This harness refuses production, non-loopback hosts and non-demo project IDs.
 // Only fixture setup and deliberate FK-constraint probes use privileged access.
@@ -25,6 +27,22 @@ function options(uid, overrides = {}) {
 async function run(operation, uid, variables, overrides) {
   // Once an operation has optional variables, SDK options need an explicit
   // variables position; otherwise impersonation can be parsed as query input.
+  if ((operation === sdk.createLead || operation === sdk.createLeadForContact) && variables && !Object.hasOwn(variables, "hasAssignedMember")) {
+    variables = { ...variables, hasAssignedMember: variables.assignedMembershipId != null };
+  }
+  if (operation === sdk.updateLead && variables && !Object.hasOwn(variables, "recordAssignment")) {
+    const current = await sdk.getLead(dc, { organizationId: variables.organizationId, leadId: variables.leadId }, options(uid, overrides));
+    const currentAssignee = current.data.lead?.assignedMembershipId ?? null;
+    const requestedAssignee = Object.hasOwn(variables, "assignedMembershipId")
+      ? variables.assignedMembershipId ?? null
+      : currentAssignee;
+    variables = { ...variables, recordAssignment: currentAssignee !== requestedAssignee };
+  }
+  if ((operation === sdk.assignLead || operation === sdk.unassignLead) && variables && !Object.hasOwn(variables, "expectedWasUnassigned")) {
+    const current = await sdk.getLead(dc, { organizationId: variables.organizationId, leadId: variables.leadId }, options(uid, overrides));
+    const assignedMembershipId = current.data.lead?.assignedMembershipId ?? null;
+    variables = { ...variables, expectedAssignedMembershipId: assignedMembershipId, expectedWasUnassigned: assignedMembershipId === null };
+  }
   if (operation === sdk.listMyOrganizations && variables === undefined) variables = {};
   const result = variables === undefined
     ? await operation(dc, options(uid, overrides))
@@ -37,6 +55,8 @@ function forbidden(operation, uid, variables, overrides) {
 }
 
 describe("SQL Connect tenant and authorization integration", { concurrency: false }, () => {
+  registerCrmCases({sdk,run,forbidden,dc});
+  registerCaptureCases({sdk,run,forbidden,dc});
   before(async () => { await seedLocalDatabase(dc); });
   after(async () => { await deleteApp(app); });
 
@@ -341,15 +361,16 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
     assert.equal(record.lead.status, "CONTACTED");
     const audit = await run(sdk.listActivities, "owner-a", { organizationId: f.orgA });
     const events = audit.activities.filter(e => e.leadId && uuid(e.leadId) === uuid(leadId));
-    assert.deepEqual(new Set(events.map(e => e.kind)), new Set(["LEAD_CREATED", "LEAD_UPDATED"]));
-    assert.equal(events.length, 2);
+    assert.deepEqual(new Set(events.map(e => e.kind)), new Set(["LEAD_CREATED", "LEAD_ASSIGNED", "LEAD_UPDATED"]));
+    assert.equal(events.length, 3);
     assert.ok(events.every(e => e.actorUid === "agent-a"));
   });
 
-  it("permits managers to create unassigned leads without a branch", async () => {
-    const result = await run(sdk.createLead, "manager-a", { organizationId: f.orgA, fullName: "Local Unassigned Lead" });
+  it("limits managers to creating self-assigned leads without inventing team scope", async () => {
+    await forbidden(sdk.createLead, "manager-a", {organizationId:f.orgA,fullName:"Rejected unassigned manager lead"});
+    const result = await run(sdk.createLead, "manager-a", { organizationId: f.orgA, fullName: "Local Unassigned Lead", assignedMembershipId: f.memberManagerA });
     const detail = await run(sdk.getLead, "manager-a", { organizationId: f.orgA, leadId: result.lead.id });
-    assert.equal(detail.lead.assignedMembershipId ?? null, null);
+    assert.equal(uuid(detail.lead.assignedMembershipId), uuid(f.memberManagerA));
     assert.equal(detail.lead.branchId ?? null, null);
     await forbidden(sdk.getLead, "agent-a", { organizationId: f.orgA, leadId: result.lead.id });
   });
@@ -414,14 +435,14 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
   }
 
   it("denies every lead operation to an agent on an unassigned private lead", async () => {
-    const created = await run(sdk.createLead, "manager-a", { organizationId: f.orgA, fullName: "Local Private Unassigned Probe" });
+    const created = await run(sdk.createLead, "owner-a", { organizationId: f.orgA, fullName: "Local Private Unassigned Probe" });
     for (const [name, operation, input] of leadOperationCases(f.orgA, created.lead.id)) {
       await assert.rejects(() => run(operation, "agent-a", input), undefined, `unassigned private lead: ${name}`);
     }
-    const detail = await run(sdk.getLead, "manager-a", { organizationId: f.orgA, leadId: created.lead.id });
+    const detail = await run(sdk.getLead, "owner-a", { organizationId: f.orgA, leadId: created.lead.id });
     assert.equal(detail.lead.fullName, "Local Private Unassigned Probe");
     assert.equal(detail.lead.assignedMembershipId ?? null, null);
-    const timeline = await run(sdk.listLeadActivities, "manager-a", { organizationId: f.orgA, leadId: created.lead.id });
+    const timeline = await run(sdk.listLeadActivities, "owner-a", { organizationId: f.orgA, leadId: created.lead.id });
     assert.deepEqual(timeline.activities.map(event => event.kind), ["LEAD_CREATED"]);
   });
 
@@ -443,19 +464,18 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
     }
   });
 
-  it("allows managers to maintain permitted organization leads and read their private timeline", async () => {
-    const created = await run(sdk.createLead, "owner-a", {
-      organizationId: f.orgA, fullName: "Local Manager Workflow Probe", assignedMembershipId: f.memberAgentA,
+  it("allows managers to maintain their assigned leads and read their private timeline", async () => {
+    const created = await run(sdk.createLead, "manager-a", {
+      organizationId: f.orgA, fullName: "Local Manager Workflow Probe", assignedMembershipId: f.memberManagerA,
     });
     const key = { organizationId: f.orgA, leadId: created.lead.id };
     const due = new Date(Date.now() + 7 * 86400000).toISOString();
     await run(sdk.addLeadNote, "manager-a", { ...key, note: "Local manager private workflow note" });
     await run(sdk.changeLeadStatus, "manager-a", { ...key, status: "QUALIFIED" });
-    await run(sdk.assignLead, "manager-a", { ...key, assignedMembershipId: f.memberSharedA });
     await run(sdk.scheduleLeadFollowUp, "manager-a", { ...key, followUpAt: due, followUpNote: "Local manager scheduled follow-up" });
     const scheduled = await run(sdk.getLead, "manager-a", key);
     assert.equal(scheduled.lead.status, "QUALIFIED");
-    assert.equal(uuid(scheduled.lead.assignedMembershipId), uuid(f.memberSharedA));
+    assert.equal(uuid(scheduled.lead.assignedMembershipId), uuid(f.memberManagerA));
     assert.equal(new Date(scheduled.lead.followUpAt).getTime(), new Date(due).getTime());
     assert.equal(scheduled.lead.followUpNote, "Local manager scheduled follow-up");
     await run(sdk.completeLeadFollowUp, "manager-a", key);
@@ -465,24 +485,26 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
     await forbidden(sdk.completeLeadFollowUp, "manager-a", key);
     const timeline = await run(sdk.listLeadActivities, "manager-a", key);
     assert.deepEqual(new Set(timeline.activities.map(event => event.kind)), new Set([
-      "LEAD_CREATED", "LEAD_NOTE_ADDED", "LEAD_STATUS_CHANGED", "LEAD_ASSIGNED", "FOLLOW_UP_SCHEDULED", "FOLLOW_UP_COMPLETED",
+      "LEAD_CREATED", "LEAD_NOTE_ADDED", "LEAD_STATUS_CHANGED", "FOLLOW_UP_SCHEDULED", "FOLLOW_UP_COMPLETED",
     ]));
-    assert.equal(timeline.activities.length, 6);
+    assert.equal(timeline.activities.length, 5);
     const note = timeline.activities.find(event => event.kind === "LEAD_NOTE_ADDED");
     assert.equal(note.note, "Local manager private workflow note");
     assert.ok(timeline.activities.every(event => uuid(event.organizationId ?? f.orgA) === uuid(f.orgA) && uuid(event.leadId) === uuid(key.leadId)));
     assert.ok(timeline.activities.filter(event => event.kind !== "LEAD_CREATED").every(event => event.actorUid === "manager-a"));
     const pageOne = await run(sdk.listLeadActivities, "manager-a", { ...key, limit: 2, offset: 0 });
     const pageTwo = await run(sdk.listLeadActivities, "manager-a", { ...key, limit: 2, offset: 2 });
-    const pastLast = await run(sdk.listLeadActivities, "manager-a", { ...key, limit: 2, offset: 6 });
-    assert.equal(pageOne.total[0].count, 6);
-    assert.equal(pageTwo.total[0].count, 6);
+    const pastLast = await run(sdk.listLeadActivities, "manager-a", { ...key, limit: 2, offset: 5 });
+    assert.equal(pageOne.total[0].count, 5);
+    assert.equal(pageTwo.total[0].count, 5);
     assert.equal(new Set([...pageOne.activities, ...pageTwo.activities].map(event => uuid(event.id))).size, 4);
     assert.equal(pastLast.activities.length, 0);
-    assert.equal(pastLast.total[0].count, 6);
+    assert.equal(pastLast.total[0].count, 5);
     // Reassignment removes the previous assignee's access to contact data and notes.
     await forbidden(sdk.getLead, "agent-a", key);
     await forbidden(sdk.listLeadActivities, "agent-a", key);
+    await run(sdk.assignLead, "manager-a", {...key,assignedMembershipId:f.memberSharedA,reason:"Manager coverage reassignment"});
+    await forbidden(sdk.getLead, "manager-a", key);
     assert.equal((await run(sdk.listLeadActivities, "shared-agent", key)).activities.length, 6);
   });
 
@@ -508,21 +530,21 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
       phone: "+971 50 100 0099", source: "Local source", branchId: f.branchA, assignedMembershipId: f.memberAgentA,
     });
     const key = { organizationId: f.orgA, leadId: created.lead.id };
-    const initial = await run(sdk.getLead, "manager-a", key);
+    const initial = await run(sdk.getLead, "owner-a", key);
     const due = new Date(Date.now() + 86400000).toISOString();
-    await run(sdk.scheduleLeadFollowUp, "manager-a", { ...key, followUpAt: due, followUpNote: "Preserve this schedule" });
-    await run(sdk.updateLead, "manager-a", {
+    await run(sdk.scheduleLeadFollowUp, "owner-a", { ...key, followUpAt: due, followUpNote: "Preserve this schedule" });
+    await run(sdk.updateLead, "owner-a", {
       ...key, fullName: "Local Updated Contact", status: "CONTACTED", email: null, phone: null, source: null,
       branchId: null, assignedMembershipId: null,
     });
-    const updated = await run(sdk.getLead, "manager-a", key);
+    const updated = await run(sdk.getLead, "owner-a", key);
     assert.equal(updated.lead.fullName, "Local Updated Contact");
     assert.equal(updated.lead.status, "CONTACTED");
     for (const field of ["email", "phone", "source", "branchId", "assignedMembershipId"]) assert.equal(updated.lead[field] ?? null, null);
     assert.equal(updated.lead.createdAt, initial.lead.createdAt);
     assert.equal(new Date(updated.lead.followUpAt).getTime(), new Date(due).getTime());
     assert.equal(updated.lead.followUpNote, "Preserve this schedule");
-    assert.equal(updated.lead.updatedByUid, "manager-a");
+    assert.equal(updated.lead.updatedByUid, "owner-a");
     await forbidden(sdk.getLead, "agent-a", key);
   });
 
@@ -531,12 +553,12 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
     const key = { organizationId: f.orgA, leadId: created.lead.id };
     const firstDue = new Date(Date.now() + 86400000).toISOString();
     const secondDue = new Date(Date.now() + 2 * 86400000).toISOString();
-    await run(sdk.scheduleLeadFollowUp, "manager-a", { ...key, followUpAt: firstDue, followUpNote: "Previous schedule note" });
-    await run(sdk.scheduleLeadFollowUp, "manager-a", { ...key, followUpAt: secondDue });
-    const updated = await run(sdk.getLead, "manager-a", key);
+    await run(sdk.scheduleLeadFollowUp, "owner-a", { ...key, followUpAt: firstDue, followUpNote: "Previous schedule note" });
+    await run(sdk.scheduleLeadFollowUp, "owner-a", { ...key, followUpAt: secondDue });
+    const updated = await run(sdk.getLead, "owner-a", key);
     assert.equal(new Date(updated.lead.followUpAt).getTime(), new Date(secondDue).getTime());
     assert.equal(updated.lead.followUpNote ?? null, null);
-    const timeline = await run(sdk.listLeadActivities, "manager-a", key);
+    const timeline = await run(sdk.listLeadActivities, "owner-a", key);
     const schedules = timeline.activities.filter(event => event.kind === "FOLLOW_UP_SCHEDULED");
     assert.equal(schedules.length, 2);
     assert.ok(schedules.some(event => event.note === "Previous schedule note"));
@@ -591,7 +613,12 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
     });
     await forbidden(sdk.assignLead, "owner-a", { organizationId: f.orgA, leadId: f.leadA, assignedMembershipId: incompleteMemberId });
     const manager = await run(sdk.listLeadAssignees, "manager-a", { organizationId: f.orgA });
-    const ids = manager.memberships.map(member => uuid(member.id));
+    const managerAssigneeIds = new Set(manager.memberships.map(member=>uuid(member.id)));
+    assert.ok(managerAssigneeIds.has(uuid(f.memberAgentA)));
+    assert.ok(managerAssigneeIds.has(uuid(f.memberSharedA)));
+    assert.ok(manager.memberships.every(member=>member.role === "AGENT" && member.userProfile?.uid));
+    const administrators = await run(sdk.listLeadAssignees, "owner-a", {organizationId:f.orgA});
+    const ids = administrators.memberships.map(member => uuid(member.id));
     assert.ok(ids.includes(uuid(f.memberAgentA)));
     assert.ok(ids.includes(uuid(f.memberSharedA)));
     for (const id of [f.memberPendingA, f.memberSuspendedA, f.memberRevokedA, f.memberInvitedA, incompleteMemberId, "21000000-0000-4000-8000-000000000002"]) {
@@ -623,10 +650,10 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
       branchId: f.branchA, followUpAfter: new Date(Date.now() + 86400000).toISOString(),
       followUpBefore: new Date(Date.now() + 3 * 86400000).toISOString(), limit: 2,
     };
-    const first = await run(sdk.listLeads, "manager-a", { ...filters, offset: 0 });
-    const repeated = await run(sdk.listLeads, "manager-a", { ...filters, offset: 0 });
-    const second = await run(sdk.listLeads, "manager-a", { ...filters, offset: 2 });
-    const pastLast = await run(sdk.listLeads, "manager-a", { ...filters, offset: 4 });
+    const first = await run(sdk.listLeads, "owner-a", { ...filters, offset: 0 });
+    const repeated = await run(sdk.listLeads, "owner-a", { ...filters, offset: 0 });
+    const second = await run(sdk.listLeads, "owner-a", { ...filters, offset: 2 });
+    const pastLast = await run(sdk.listLeads, "owner-a", { ...filters, offset: 4 });
     assert.deepEqual(repeated, first);
     assert.equal(first.total[0].count, 4);
     assert.equal(second.total[0].count, 4);
@@ -641,17 +668,17 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
     const shared = await run(sdk.listLeads, "shared-agent", { organizationId: f.orgA, search: `%${marker}%`, assignedMembershipId: f.memberAgentA });
     assert.equal(shared.leads.length, 0);
     assert.equal(shared.total[0].count, 0);
-    const email = await run(sdk.listLeads, "manager-a", { organizationId: f.orgA, search: "%local-search-4@example.test%" });
+    const email = await run(sdk.listLeads, "owner-a", { organizationId: f.orgA, search: "%local-search-4@example.test%" });
     assert.equal(email.leads.length, 1);
-    const phone = await run(sdk.listLeads, "manager-a", { organizationId: f.orgA, search: "%+971 50 100 004%" });
+    const phone = await run(sdk.listLeads, "owner-a", { organizationId: f.orgA, search: "%+971 50 100 004%" });
     assert.equal(phone.leads.length, 1);
     const otherCompany = await run(sdk.listLeads, "owner-b", { organizationId: f.orgB, search: `%${marker}%` });
     assert.equal(otherCompany.total[0].count, 0);
     assert.equal(otherCompany.leads.length, 0);
-    const caseInsensitive = await run(sdk.listLeads, "manager-a", { organizationId: f.orgA, search: `%${marker.toLowerCase()}%` });
+    const caseInsensitive = await run(sdk.listLeads, "owner-a", { organizationId: f.orgA, search: `%${marker.toLowerCase()}%` });
     assert.equal(caseInsensitive.leads.length, 5);
     assert.equal(caseInsensitive.total[0].count, 5);
-    const unfiltered = await run(sdk.listLeads, "manager-a", { organizationId: f.orgA, limit: 100 });
+    const unfiltered = await run(sdk.listLeads, "owner-a", { organizationId: f.orgA, limit: 100 });
     assert.ok(unfiltered.leads.length >= 5);
     assert.ok(unfiltered.total[0].count >= unfiltered.leads.length);
     assert.ok(unfiltered.leads.every(lead => uuid(lead.organizationId) === uuid(f.orgA)));
@@ -661,7 +688,7 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
     const marker = `Local Wildcard ${randomUUID()}`;
     const literal = await run(sdk.createLead, "owner-a", { organizationId: f.orgA, fullName: `${marker} 50%_ literal` });
     await run(sdk.createLead, "owner-a", { organizationId: f.orgA, fullName: `${marker} 50zz literal` });
-    const result = await run(sdk.listLeads, "manager-a", { organizationId: f.orgA, search: `%${marker} 50\\%\\_ literal%` });
+    const result = await run(sdk.listLeads, "owner-a", { organizationId: f.orgA, search: `%${marker} 50\\%\\_ literal%` });
     assert.deepEqual(result.leads.map(lead => uuid(lead.id)), [uuid(literal.lead.id)]);
     assert.equal(result.total[0].count, 1);
   });

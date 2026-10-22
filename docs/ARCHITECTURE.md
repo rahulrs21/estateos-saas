@@ -68,7 +68,7 @@ docs/
   LEADS.md
   ROADMAP.md
 dataconnect/
-  schema/schema.gql          Eight relational models and tenant constraints
+  schema/schema.gql          Relational CRM models and tenant constraints
   connector/                Authorized operations and Admin SDK generation
   seed_data.gql             Emulator fixtures, excluded from deployed connector
 ```
@@ -117,7 +117,7 @@ Use one common authorization mechanism across protected pages, server actions, r
 
 Roles are `OWNER`, `ADMIN`, `MANAGER` and `AGENT`. A dedicated transaction creates a new organization and fixed active owner together. Existing-organization ownership cannot be self-assigned. Owners may administer non-owner memberships; administrators may manage only managers and agents. Self role/status edits and owner changes are unavailable. Invitation acceptance requires the matching verified email, unexpired single-use token, and current issuer authority. New acceptance activates and selects the company atomically; legacy PENDING records retain their approval workflow. See [SQL Connect](SQL_CONNECT.md) for the permission matrix, lifecycle and test runbook.
 
-Current lead permissions grant organization-wide access to active owners, administrators and managers. Active agents can create/read/update only leads assigned to themselves. The connector repeats this restriction for direct operation calls. Branch visibility and approved sharing remain future work; assigning a branch does not establish a branch ACL. Platform administration requires a separately verified privileged context, not a client flag.
+Current lead permissions grant organization-wide access to active owners and administrators. Active agents and managers can create/read/update only leads assigned to themselves; no team or branch membership ACL exists yet. The connector repeats this restriction for direct operation calls. Branch visibility and approved sharing remain future work; assigning a branch does not establish a branch ACL. Platform administration requires a separately verified privileged context, not a client flag.
 
 Tenant-owned primary keys include organization plus UUID. Composite branch, assignee, invitation and lead foreign keys reuse that organization identifier to reject cross-tenant relationships in PostgreSQL. Queries and mutations require explicit authorization; sensitive checks are redacted. Transactional writes use server timestamps and append their `Activity` timeline and separate `AuditLog` events atomically. The generated SDK is called with verified identity impersonation for normal service operations; raw unrestricted GraphQL remains confined to loopback fixtures/constraint tests. RecordInvitationDelivery is a separate NO_ACCESS stored operation called only by server delivery code with independently checked actor/tenant/issuer/digest binding; clients cannot write delivery receipts. See [Team](TEAM.md).
 
@@ -127,7 +127,7 @@ Leads pages obtain private records through the shared server service, never thro
 
 Cookie-authenticated HTTP writes independently verify the session and exact configured origin/CSRF pair. They accept at most 16 KiB of JSON object data, enforce strict schemas and compare `x-estateos-organization` against the server-resolved selection to reject a stale form after company switching. That header is a consistency guard and cannot establish tenant scope. Reads and writes are uncached across private request contexts; responses do not expose raw provider details.
 
-Lead notes are append-only `Activity.note` values, returned only by a lead-specific authorized timeline. Generic audit metadata contains safe identifiers/state transitions. Nullable `Lead.followUpAt` and `followUpNote` represent one upcoming follow-up, and dedicated transactional operations schedule/complete it with audit events. This creates no reminders, background jobs or external calendar calls. See [Leads](LEADS.md) for behavior, permission tests and additive migration steps.
+Lead notes are append-only `Activity.note` values, returned only by a lead-specific authorized timeline. Generic audit metadata contains safe identifiers/state transitions. `Lead.followUpAt` and `followUpNote` retain the next-pending summary for the existing editor; Phase 4A stores independent follow-up records and schedules/completes them with transactional audit events. This creates no reminders, background jobs or external calendar calls. See [Leads](LEADS.md) for behavior, permission tests and additive migration steps.
 
 ## Data and security boundaries
 
@@ -152,3 +152,54 @@ Each feature must distinguish loading, empty, error, and populated states. A mis
 Run `npm test`, `npm run lint`, `npx tsc --noEmit`, and `npm run build`. Authentication boundary tests cover session/request policy without real cloud credentials; live provider behavior needs the development-project checks in [Authentication](AUTHENTICATION.md). Verify public routes, protected-route redirects, workspace destinations, 404 behavior, mobile navigation, keyboard controls, and both themes.
 
 Tenant/Leads policy tests and SQL Connect emulator integration tests cover membership states, role restrictions, owner bootstrap, invitation boundaries, cross-tenant reads/writes, relationship constraints, private agent leads, permitted manager access, assignment/status rejection, note/follow-up/timeline authorization and real query pagination. Lead request tests cover strict inputs, stale-company guards and bounded streamed JSON. Run the integration suite separately as documented in [SQL Connect](SQL_CONNECT.md); authentication unit tests alone do not establish tenant isolation. Deployment readiness additionally requires staging integration, accessibility, HTTPS session, data migration, monitoring, recovery, privacy and operational checks.
+
+
+## Phase 4A backend extension
+
+The existing modular monolith and dashboard/authentication are retained. SQL Connect schema and stored operations define the new contact/pipeline/lead aggregate. src/modules/leads/crm-validation.ts and normalization.ts own shared strict inputs and conservative normalization; server/crm-service.ts handles contacts, metadata, stage changes, history, multiple follow-ups and archives. Existing server/service.ts preserves lead editor/create/status/assignment entry points. src/modules/leads/server/api-query.ts converts bounded URL filters before the same server-side query runs.
+
+Contact email normalization preserves the mailbox local part, plus tags and dots while normalizing the domain. A separate connector-derived normalizedEmail supplies case-insensitive possible-match detection without modifying or merging uncertain identities. Explicit international/00-prefixed numbers and recognizable UAE national forms normalize to E.164 format. Ambiguous local numbers are retained and return a warning; this is not number reachability or full international numbering-plan validation. Candidate duplicates are returned with successful creation and can be queried first; the existing lead form displays duplicate/phone warnings alongside its success message. Matching is company/record scoped, exact email/phone based and limited to 25 candidates. No fuzzy-name matching or automatic merge occurs.
+
+| HTTP boundary | Behavior |
+| --- | --- |
+| GET/POST /api/contacts | Search/paginate visible contacts; create a contact and return possibleDuplicates/warnings. |
+| GET/PATCH /api/contacts/:contactId | Read a permitted contact; administrator full-record update and duplicate warning. |
+| GET /api/contacts/duplicates | Exact candidate discovery by email, phone or alternatePhone, within permitted records. |
+| GET/POST /api/leads/configuration | Read active pipelines/stages/sources; initialize only the fixed default metadata if missing. |
+| GET/POST /api/leads | List/filter/search or create a lead using contactId, or atomically create a contact from legacy fullName/email/phone fields. |
+| GET/PATCH /api/leads/:leadId | Existing detail and full-record editor, extended with rich CRM fields and canonical contact data. |
+| POST /api/leads/:leadId/stage | Move using pipelineStageId after pipeline and state checks. |
+| GET/POST /api/leads/:leadId/activities | Authorized history; add a description as a fixed note activity, never a caller-selected audit event. |
+| GET/POST /api/leads/:leadId/follow-ups | Read bounded CRM history; create an independent follow-up using title, dueAt and optional assignedUserId. |
+| POST /api/leads/:leadId/follow-ups/:followUpId/complete | Complete that pending record once and recompute the next-due summary. |
+| POST /api/leads/:leadId/archive | Archive an active lead, preserve history and cancel pending follow-ups. |
+
+Existing singular follow-up, notes, status and assignment routes remain compatible. The singular scheduling route replaces pending work as the old UI expects; plural follow-ups add independent records. Lead.followUpAt is now the next-pending-date projection rather than the only follow-up store. Activity is reused for LeadActivity, including structured stage history; the security AuditLog stays separate and excludes free-form contact/note text.
+
+API list filters include search, status, branchId, assignedMembershipId, contactId, pipelineId, pipelineStageId, sourceId, priority, transactionType, followUp (ALL/OVERDUE/UPCOMING) and archive (ACTIVE/ARCHIVED/ALL). Use limit/offset (1..100 and 0..10000) or page/pageSize (10/25/50); mixed or unknown inputs are rejected. Counts use the identical tenant/record/filter predicates. Every write needs the existing exact-origin/CSRF pair and x-estateos-organization consistency header; that selector cannot grant tenant access. The helper rejects URL/body identifier conflicts and bounds JSON to 16 KiB. Optional rich fields omitted by the legacy editor are preserved; contact/reference fields keep the documented full-record semantics. Stage/contact/pipeline identifiers are validated again in SQL Connect.
+
+This phase is a backend extension. Dedicated Contacts UI, rich lead forms/kanban, pipeline configuration UI/CRUD, custom sharing/team ACLs, cursor pagination/full-text search tuning, fuzzy duplicate review/merge, reminders, external-source imports and future project/property integration remain follow-up work. The current lead UI still works and recognizes all added statuses. No Meta Ads, WhatsApp, AI, listing, property portal or notification integration is introduced. See DATABASE.md for the reviewed legacy-data backfill prerequisites; schema nullability is additive compatibility, not permission to create unlinked new CRM leads.
+
+Implementation follows the current Firebase guides for [schema relationships](https://firebase.google.com/docs/sql-connect/schemas-guide), [authorized operations, transactions and checks/redaction](https://firebase.google.com/docs/sql-connect/authorization-and-security), and verified-user Admin SDK impersonation. Local validation and generated SDKs use the installed official SQL Connect toolkit, without a second ORM or hand-edited generated schema.
+
+## Phase 4B Leads interface
+
+The primary routes are `/leads`, `/leads/new`, `/leads/[leadId]` and `/leads/[leadId]/edit`, with compatibility for existing `/workspace/leads` links. Server page loaders resolve the current authorized organization and return serializable records, membership-scoped KPI counts, configuration choices and bounded pagination. List filters and sorting run in SQL Connect rather than filtering a client-side copy of company data. KPI counts cover accessible active records independently of the chosen list filters, including legacy Converted records in Won. Date-range filters represent inclusive UTC calendar days.
+
+The existing feature module supplies the reusable editor dialog, detail/timeline/follow-up components, responsive table and pipeline board. List and Kanban views share URL-backed filters and server pagination; the board explicitly identifies that it shows the current result page. Pipeline columns use configured company stages. Native drag-and-drop has an accessible stage-selector alternative, and optimistic moves roll back after failed stored-operation requests. Terminal stages and cross-pipeline transitions remain subject to the server/database rules.
+
+The editor shares Zod validation with the server and uses the existing secure `leadRequest` helper. Initial notes and a follow-up are included in the lead-creation transaction, preventing partial success. Assignment controls follow trusted workspace capabilities; hiding controls never replaces authorization. The detail uses canonical contact fields, property requirements, real notes and independent follow-up history. The AI score is disabled. No advertising, messaging, reminder or property integration is introduced.
+
+`scripts/test-leads-ui.mjs` mounts the real components in an isolated loopback Next.js fixture and drives Chrome/Edge with a clean browser profile. Synthetic records and controlled responses exist only in that temporary test process; it neither loads environment credentials nor adds a fake-auth route to the application. These tests establish component interaction, validation, errors, responsive dialogs and optimistic rollback. Real database writes, scope, cross-company denial and persistence are independently checked by the SQL Connect emulator suite. See [LEADS.md](LEADS.md) for commands, acceptance steps and rollout limitations.
+
+## Phase 4C lead distribution
+
+Lead assignment remains within the existing leads module. `src/modules/leads/distribution` contains Zod validation, eligibility/round-robin policy, the server service, settings UI, availability controls and in-app notification UI. API routes use the current authenticated organization context and secure write helper. SQL Connect mutations remain the transaction boundary for creating a lead, updating a distribution cursor, recording assignment/audit/activity, and inserting notifications.
+
+The persistent cursor uses a monotonically increasing version checked and incremented in the lead-creation transaction. A stale concurrent request aborts before a partial lead is committed. The server retries with fresh eligibility/cursor data using a stable lead UUID, so a lost response does not create a second lead. Manual reassignments also compare the current assignment and update timestamp, preventing stale overwrites. See [Lead distribution](LEAD_DISTRIBUTION.md) for eligibility, settings and operational limitations.
+
+## Phase 4D website capture and analytics
+
+`src/modules/lead-capture` owns capture validation, the company form manager, public form UI, privileged server adapter and report aggregation adapter. `/settings/lead-forms` manages draft/active/disabled forms; `/forms/[publicId]` is the embeddable public surface; `/api/public/lead-forms/[publicId]` is the deliberately narrow submission boundary. `/workspace/reports` uses SQL Connect aggregate queries with validated local calendar filters. Capture is not a second database layer: SQL Connect/PostgreSQL remains the source of truth, with one transactional operation creating contact/lead/attribution/consent/activity/assignment/audit/notification records.
+
+Ordinary company operations use authenticated user impersonation. Public form lookup, rate counter, exact candidate lookup and transactional submission are `NO_ACCESS` operations invoked only through server-only Firebase Admin SDK code after validating the random public ID and request. The server resolves organization/source/consent from stored active form configuration, never from caller fields. The API accepts no organization ID and never returns saved CRM records. Reporting data is server loaded and subject to the same active organization and lead visibility policy as CRM reads. See [Lead capture](LEAD_CAPTURE.md) for data flow, public abuse controls, reporting definitions, rollout and limitations.

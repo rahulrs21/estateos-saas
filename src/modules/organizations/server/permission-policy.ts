@@ -70,5 +70,5 @@ export function assertCanWriteLead(
   actor: ActiveMembership,
   assignedMembershipId: string | null | undefined,
 ): void {
-  if (actor.role === "AGENT" && (!assignedMembershipId || canonicalUuid(assignedMembershipId) !== canonicalUuid(actor.id))) denied();
+  if (["AGENT", "MANAGER"].includes(actor.role) && (!assignedMembershipId || canonicalUuid(assignedMembershipId) !== canonicalUuid(actor.id))) denied();
 }

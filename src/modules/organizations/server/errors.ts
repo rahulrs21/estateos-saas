@@ -2,7 +2,7 @@
 export class WorkspaceError extends Error {
   constructor(
     public readonly code: string,
-    public readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 503,
+    public readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 429 | 503,
     message: string,
   ) {
     super(message);
@@ -12,27 +12,36 @@ export class WorkspaceError extends Error {
 
 export function mapWorkspaceDataError(error: unknown): WorkspaceError {
   if (error instanceof WorkspaceError) return error;
-  const code = typeof error === "object" && error !== null && "code" in error
-    ? error.code
-    : undefined;
-  if (code === "data-connect/permission-denied" || code === "data-connect/query-error") {
-    return new WorkspaceError("OPERATION_REJECTED", 403, "This operation is not permitted or the record is no longer available.");
+  const providerError = typeof error === "object" && error !== null ? error as { code?: unknown; message?: unknown } : undefined;
+  const code = providerError?.code;
+  if (code === "data-connect/permission-denied") {
+    return new WorkspaceError("PERMISSION_DENIED", 403, "You do not have permission to access this company data.");
+  }
+  if (code === "data-connect/query-error") {
+    // SQL Connect reports failed @check predicates as query errors. Keep those
+    // denials distinct, while unknown query failures remain database errors.
+    const message = typeof providerError?.message === "string" ? providerError.message : "";
+    if (message.includes("@check") || message.includes("PERMISSION_DENIED") ||
+        /\b(?:ACTIVE_MEMBERSHIP_REQUIRED|ADMINISTRATOR_REQUIRED|LEAD_NOT_FOUND_OR_FORBIDDEN|CONTACT_NOT_FOUND_OR_FORBIDDEN)\b/.test(message)) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "You do not have permission to access this company data.");
+    }
+    return new WorkspaceError("DATABASE_ERROR", 503, "Company data could not be loaded. Please try again.");
   }
   if (code === "data-connect/unauthenticated") {
     return new WorkspaceError("UNAUTHENTICATED", 401, "Sign in to continue.");
   }
   if (code === "data-connect/invalid-argument") {
-    return new WorkspaceError("INVALID_INPUT", 400, "Check the supplied details and try again.");
+    return new WorkspaceError("VALIDATION_ERROR", 400, "Check the supplied details and try again.");
   }
   if (code === "data-connect/not-found") {
     // Stored queries return null/[] for absent rows. This provider-level 404
     // means the configured service, connector or operation was not found.
-    return new WorkspaceError("SQL_CONNECT_NOT_CONFIGURED", 503, "The company database connection is not configured. Contact your workspace administrator.");
+    return new WorkspaceError("SQL_CONNECT_NOT_CONFIGURED", 503, "The company database connection is unavailable. Contact your workspace administrator.");
   }
   if (code === "data-connect/aborted") {
     return new WorkspaceError("CONFLICT", 409, "The record changed. Reload it and try again.");
   }
-  return new WorkspaceError("DATA_UNAVAILABLE", 503, "Workspace data is temporarily unavailable. Please try again.");
+  return new WorkspaceError("DATABASE_ERROR", 503, "Workspace data is temporarily unavailable. Please try again.");
 }
 
 /** Match only allowlisted conflict signals; never return provider/SQL text. */

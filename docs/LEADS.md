@@ -1,83 +1,71 @@
-# EstateOS Leads module
+# EstateOS Leads CRM
 
-The Leads module uses Firebase SQL Connect stored operations and the generated Admin Node SDK. Live pages never substitute fixture records for an unavailable database. The application is not production-ready: hosted migrations, real-project/IAM validation, operational release checks and the remaining organization workflows still need review.
+The Leads interface uses the existing verified Firebase session, selected company membership and SQL Connect operations. Pages never substitute demonstration records when the database is unavailable. The dashboard, authentication and company/team modules retain their existing design and responsibilities.
 
-## Pages and behavior
+## Routes and views
 
-- `/workspace/leads` lists the selected organization's permitted leads, with server-side contact search, status/assignment/branch/follow-up filters and bounded pagination.
-- `/workspace/leads/new` creates a lead using validated contact details, source, branch and assignment.
-- `/workspace/leads/[leadId]` displays contact details, the five-stage status pipeline, assignment, follow-up and the lead's activity timeline.
-- `/workspace/leads/[leadId]/edit` edits the lead's contact and reference fields. Status, assignment, notes and follow-up also have dedicated operations.
+- `/leads` is the primary Leads route. It provides authorized KPI counts, search, status/agent/source/priority/date filters, sorting, bounded server pagination and List/Kanban views.
+- `/leads/[leadId]` displays the customer, property requirements, assignment, pipeline, activity/notes and follow-up history. The AI lead score is explicitly unavailable and disabled.
+- Create and edit actions open responsive dialogs using the same validated editor as the direct `/leads/new` and `/leads/[leadId]/edit` routes.
+- Existing `/workspace/leads` links remain compatible with the primary routes.
 
-The allowed statuses are `NEW`, `CONTACTED`, `QUALIFIED`, `CONVERTED` and `LOST`. These are CRM labels; converting a lead does not create a deal or contact. Notes are append-only activity entries. A lead has one optional upcoming follow-up timestamp and note; scheduling replaces that current follow-up and completing it clears the current schedule while retaining the timeline event. No notification, calendar integration or message delivery is implied.
+The editor captures name, phone/email, source, project or property interest, location, property/transaction type, budget/currency, bedrooms, priority and permitted assignment. Creation also accepts initial notes and a next follow-up. A project/property interest is descriptive text; this phase does not create future property/project records or pretend to provide those integrations.
 
-Loading, missing organization/profile, empty list, no matching results, success, forbidden/unavailable and provider error states are explicit. A successful mutation is displayed only after SQL Connect confirms it. Database outages and missing configuration produce recoverable errors, never dummy lead data.
+Filters, sorting, view and pagination are represented in the URL. Applying filters starts at the first page, and pagination preserves the selected view. KPIs count all accessible active leads independently of list filters; Won includes legacy Converted records. Sorting supports newest/oldest creation, most recently updated, name in either direction and next follow-up. Date range inputs are inclusive UTC calendar days (`YYYY-MM-DD`), including the entire end date.
 
-## Authorization and request boundaries
+Empty results, first-use empty states, loading skeletons, invalid inputs, unavailable records and provider failures have separate feedback. Successful writes appear only after the server confirms them. Possible duplicate contacts and ambiguous phone formats produce warnings without automatic merging.
 
-Every protected page requires a verified Firebase session. Every data request independently resolves the profile's selected organization and checks current `ACTIVE` database membership. A submitted organization identifier can be used only as a consistency check against that server context; it never grants scope. Membership roles and record ownership come from the database, not hidden form fields, local storage or Firebase custom role claims.
+Kanban displays the current server-paginated result page and labels that boundary explicitly; column counts are not presented as whole-company totals. Columns come from the company's configured pipeline stages. Legacy leads without a stage are kept visible rather than assigned fabricated history. Permitted open leads can move within their own pipeline using drag-and-drop or a labeled stage selector. Stage writes use the existing transaction and history operations. An optimistic card movement is rolled back after a server rejection. Won/Lost and legacy Converted leads remain terminal under the current backend policy. Reloading the view reads the persisted database state.
 
-| Operation | OWNER / ADMIN / MANAGER | AGENT |
+Timestamps are stored as UTC. User-entered follow-up dates and displayed timestamps use Dubai time (UTC+4). Follow-ups are independent records with Pending/Completed/Cancelled history; the lead's next-follow-up field is a projection of the earliest pending item. Completing a follow-up retains its historical record. Scheduling does not send email, calendar or push reminders.
+
+## Authorization
+
+Every UI route verifies the Firebase session and resolves the selected organization on the server. Every API request independently checks the current database membership and permitted record. The consistency header sent by the browser cannot select an unauthorized organization or grant a role.
+
+| Capability | OWNER / ADMIN | MANAGER / AGENT |
 | --- | --- | --- |
-| List and read leads | All leads in the selected organization | Leads assigned to their own active membership |
-| Create leads | May select an active membership or leave unassigned | Must be assigned to themselves |
-| Edit contact details, status, notes or follow-up | Permitted organization leads | Their own assigned leads |
-| Change assignment | Active memberships in the same organization, or unassigned | Dedicated assignment operation unavailable; contact edits must preserve their own assignment |
-| Read activity | A permitted lead's timeline | Their own permitted lead's timeline |
+| List, search, KPI counts and read details | Permitted company-wide records | Own assigned records |
+| Create leads | Assign an active company member or leave unassigned | Assigned to the acting member |
+| Edit, add notes, change open pipeline stage and schedule follow-ups | Permitted company records | Own assigned records, subject to contact sharing restrictions |
+| Change assignment or archive | Permitted company records | Unavailable |
+| Read another company's lead/contact/history | Denied | Denied |
 
-The existing schema has no team entity or approved sharing model. A manager's permitted team is therefore the organization; managers have organization-wide lead access. Branch filters organize records and do not restrict managerial access. An unassigned lead is private from agents. There is no implicit sharing through an old assignment or an activity record.
+There is no verified team/branch sharing relationship yet, so managers do not receive invented access to unrelated leads. A previous assignment, activity entry or contact creator does not retain access after the lead is reassigned. Editing a contact shared with a lead outside the actor's scope is restricted by the connector. Hidden UI controls are a convenience; the SQL Connect authorization checks and server policies enforce the boundary.
 
-SQL Connect checks the verified identity, active membership, tenant key, existing lead access, role and active same-tenant references independently of the UI. All new operations carry explicit authorization. Mutation transactions lock the authorizing membership and affected lead, validate references and write their audit event atomically. A failed authorization, invalid assignment or invalid status must leave both the record and timeline unchanged. Notes and follow-up text are private CRM data; do not copy them to diagnostic logs or generic audit metadata.
+Mutation requests retain exact-origin checks, CSRF protection, bounded JSON, strict Zod validation and the stale-company guard. Ordinary generated Admin SDK calls use the verified user's impersonated identity. Sensitive changes, assignment/stage histories and audit events remain atomic where defined by the Phase 4A operations. The UI cannot write arbitrary activity kinds, actor IDs or privileged roles.
 
-Cookie-authenticated HTTP mutations require the configured exact application origin, the existing CSRF cookie/header pair, JSON content type, a bounded request body and strict Zod input validation. Provider failures are mapped to safe application errors. The generated Admin SDK is imported only by server modules, and ordinary operations always use verified-session impersonation.
+## Validation and test commands
 
-## Schema and migration
-
-This module extends the existing six-table schema. It does not add a second ORM or database:
-
-- Nullable `Lead.followUpAt` and `Lead.followUpNote` columns preserve existing lead rows without fabricated values.
-- Nullable `Activity.note` stores bounded user-authored lead notes separately from audit metadata.
-- Additional `ActivityKind` values identify status, assignment, note and follow-up events.
-- Lead follow-up and filtering indexes are declared in `schema.gql` and compiled by SQL Connect.
-- Tenant composite keys and foreign keys remain the source of relationship isolation.
-
-Local validation and generated code must move together:
+Run from the project directory:
 
 ```powershell
-npm.cmd run sql:validate
-npm.cmd run sql:generate
-npm.cmd test
-npm.cmd run test:dataconnect
 npm.cmd run lint
 npx.cmd tsc --noEmit
+npm.cmd test
+npm.cmd run sql:validate
+npm.cmd run test:dataconnect
+node scripts/test-leads-ui.mjs
 npm.cmd run build
 ```
 
-The emulator suite seeds only a disposable loopback `demo-estateos` database. Its synthetic contacts are test fixtures, not application fallback data. It refuses production mode, remote hosts and non-demo project IDs. Do not run seed/reset commands against hosted resources or while preserving emulator data.
+The unit/policy suite verifies strict inputs, authority-field rejection, dates, budgets, references, request boundaries and organization/assignment permissions. SQL Connect integration tests use the actual generated SDK against a disposable loopback `demo-estateos` PostgreSQL emulator. They cover company isolation, private assignment scope, invalid references/stage changes, real filters/pagination, notes and follow-up persistence, assignment/history and transactional rollback. These tests refuse remote/non-demo database targets. Do not run fixture reset commands against a database whose records must be preserved.
 
-No hosted migration or deployment is performed as part of this module. Before a future authorized deployment, follow the backup, reviewed diff, `COMPATIBLE` migration, matching connector/SDK rollout and staging checks in [SQL Connect](SQL_CONNECT.md#future-hosted-migration-separate-approval-required). Verify the proposed DDL adds nullable follow-up/note fields and declared indexes without dropping populated tables or columns. Review enum changes with the generated PostgreSQL schema. Existing rows need no contact-data backfill. Deploy the schema/connector before the matching server application; keep older operations compatible for any application instances still running. A database backup remains necessary even for additive changes. Rollback the application/connector only while keeping the added nullable columns compatible; do not drop notes or follow-up history to roll back UI code.
+The browser suite opens Chrome/Edge in a new isolated profile and mounts the real Leads components in a temporary loopback Next.js app. Its synthetic records and controlled HTTP responses exist only in that test process. It checks real form interaction and validation, rich-field request payloads, server-error feedback, detail/edit/note rendering, pagination/filter navigation, optimistic Kanban rollback and mobile/dialog behavior. It neither imports production authentication handlers nor claims to test a real Firebase login. Actual authorization and database persistence are established by the SQL emulator suite, with live project authentication requiring the separate checks in [AUTHENTICATION.md](AUTHENTICATION.md). Set `ESTATEOS_TEST_BROWSER` to a Chromium executable when it is outside the standard Chrome/Edge paths.
 
-## Automated and manual acceptance
+## Manual acceptance
 
-Unit tests cover strict validation, rejected client authority fields, UUID references, enumerated statuses, bounded filters/pagination, notes and follow-up dates. Emulator integration tests invoke the actual generated SDK with impersonated synthetic identities and verify:
+Use a Firebase development project with the existing browser/server authentication configuration and an explicitly selected SQL Connect development target. Prepare verified development users through the existing company and invitation workflows; signup alone never grants an elevated role.
 
-- Organization A cannot read, modify, assign, annotate or schedule Organization B's leads or inspect their timeline.
-- Agents cannot access another agent's lead or an unassigned private lead, even by submitting their own membership ID to claim it.
-- Managers can access permitted organization leads and their timelines without receiving administrator membership capabilities.
-- Pending, suspended, revoked and foreign-organization assignees are rejected, as are nonexistent branches and unknown statuses.
-- Search, filters, stable pagination and totals operate on authorized database records.
-- Successful note, pipeline, assignment and follow-up writes persist and emit the correct verified actor's activity; rejected writes do not emit success events.
+1. Sign in as the owner, open `/leads`, and confirm the company name and honest empty state or actual lead counts. Create a lead with property requirements, an initial note and a future follow-up. Open its detail and reload to verify persistence.
+2. Edit the lead, add another note, change an open stage and permitted assignment, then schedule and complete a follow-up. Check the timeline/history after reload. No reminder delivery or AI score should be claimed.
+3. Combine name/email/phone search with source, priority, agent, status and date filters. Change sorting and page size, move between pages, and switch List/Kanban. Verify the URL preserves the requested view and the board explains its page boundary.
+4. Move a card with drag-and-drop and the keyboard-accessible stage selector. Reload to verify persistence. Disconnect the development backend and retry a move/save; expect a visible error and card rollback without fabricated success.
+5. Repeat as an agent/manager and a user from a second company. Direct foreign detail/API URLs must be denied. An agent must not see another agent's private lead, contact, notes, totals or follow-ups, or gain assignment privileges by editing a browser request. Revoking membership must prevent the next request.
+6. Sign out and revisit list/new/detail/edit routes. Expect login redirects for pages and 401 from protected APIs. Check keyboard focus, dialog Escape/focus return, mobile width, dark/light themes, empty filters and unavailable records.
 
-For browser testing, use a Firebase development project with valid browser and server configuration and a reviewed SQL Connect development target. Prepare verified development identities with active memberships using the existing authorized organization/invitation services. Signing up alone does not create a profile, company or elevated role. The local test fixture UIDs do not automatically create Firebase Authentication accounts, and must never become default application administrators.
+## Rollout and remaining limits
 
-1. Sign in with a verified member and open `/workspace/leads`. Confirm the active organization, loading state, empty state and configuration errors are honest.
-2. Create a lead, then search by name/email/phone and combine status, assignee, branch and follow-up filters. Move between pages and clear filters; confirm totals and page contents match persisted records.
-3. Open the detail and edit pages directly. Change contact details, status and permitted assignment; reload and verify persistence and timeline events. Check labels, keyboard focus, light/dark themes and narrow/mobile screens.
-4. Add a note, schedule a future follow-up, replace it, then complete it. Confirm the current schedule clears and the historical events remain. Invalid text/date submissions must show errors without a success message.
-5. Repeat with an agent, manager and member of a separate company. Try direct foreign lead URLs and API requests; an agent must not see another member's private contact details, notes or follow-up. Revoking membership must prevent the next request despite an existing session or selected company.
-6. Sign out and revisit list, new, detail and edit URLs. Confirm protected rendering redirects to login and unauthenticated operations fail. Missing origin/CSRF and invalid JSON/body inputs must be rejected by mutation endpoints.
-7. Disconnect the development emulator/service and retry a read/write. Confirm the UI reports an error and does not fabricate leads, activity or a successful save.
+This UI phase does not deploy or change paid infrastructure. Apply the reviewed Phase 4A schema/connector migration and any legacy contact/stage backfill before releasing the matching application; see [DATABASE.md](DATABASE.md) and [SQL_CONNECT.md](SQL_CONNECT.md). Existing nullable legacy references are compatibility measures, not permission for new unlinked records. Never edit generated implicit GraphQL files by hand.
 
-## Remaining limits
-
-Organization onboarding, invitation delivery, branch/member administration and complete company lifecycle interfaces remain separate work. More granular team/branch sharing, deduplication/import/export, bulk distribution, attachments, deletion/retention, independent audit archival, reminders and notifications are not part of this module. Search is a bounded, case-insensitive SQL substring match and does not provide fuzzy/full-text ranking. Pagination is bounded and offset-based; large datasets require a separately reviewed cursor/search strategy. Branch and active-assignee choices currently show the first 100 matching records; an existing lead's current assignee is retained for display if outside that page. This does not make an inactive assignee valid: a manager must choose an active assignee or unassign before saving that reference. Larger organizations need paginated searchable choice controls. Concurrent edits can conflict and should be retried after refreshing the record. Hosted IAM, regional data residency, monitoring, backup/restore and privacy checks remain release requirements.
+Pipeline customization, explicit team sharing, bulk imports/distribution, fuzzy duplicate merge, attachments, reminder delivery, external advertising/messaging/property integrations and AI scores remain separate work. Search is bounded SQL substring matching and pagination is offset-based, with a maximum offset of 10,000. Choice lists are bounded; larger companies need searchable choice controls. Hosted IAM, staging, accessibility, HTTPS/session, data residency, backup/restore, privacy and monitoring review remain release requirements; this implementation is not a declaration of production readiness.

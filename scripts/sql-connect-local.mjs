@@ -4,6 +4,16 @@ import { getDataConnect } from "firebase-admin/data-connect";
 import { connectorConfig } from "@dataconnect/admin-generated";
 
 export const LOCAL_PROJECT_ID = "demo-estateos";
+export const SQL_TEST_PROJECT_ID = "demo-estateos-test";
+
+function localProjectIdFromEnvironment() {
+  const projectIds = [process.env.GCLOUD_PROJECT, process.env.GOOGLE_CLOUD_PROJECT].filter(Boolean);
+  if (projectIds.some((projectId) => ![LOCAL_PROJECT_ID, SQL_TEST_PROJECT_ID].includes(projectId))) {
+    throw new Error(`Local SQL tooling accepts only ${LOCAL_PROJECT_ID} or ${SQL_TEST_PROJECT_ID}.`);
+  }
+  if (new Set(projectIds).size > 1) throw new Error("Conflicting local SQL project IDs are not allowed.");
+  return projectIds[0] ?? LOCAL_PROJECT_ID;
+}
 
 /** Test/seed tooling only. Never load .env.local or fall back to a hosted service. */
 export function localDataConnect() {
@@ -14,12 +24,8 @@ export function localDataConnect() {
   if (!host || !/^127\.0\.0\.1:\d+$/.test(host)) {
     throw new Error("Set DATA_CONNECT_EMULATOR_HOST to the loopback emulator (127.0.0.1:PORT).");
   }
-  for (const key of ["GCLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT"]) {
-    if (process.env[key] && process.env[key] !== LOCAL_PROJECT_ID) {
-      throw new Error(`${key} must be ${LOCAL_PROJECT_ID} for local seeding and tests.`);
-    }
-  }
-  const app = initializeApp({ projectId: LOCAL_PROJECT_ID }, `estateos-local-${process.pid}`);
+  const projectId = localProjectIdFromEnvironment();
+  const app = initializeApp({ projectId }, `estateos-local-${process.pid}`);
   return { app, dc: getDataConnect(connectorConfig, app) };
 }
 
