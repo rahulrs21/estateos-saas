@@ -41,6 +41,7 @@ function LeadEditor({ data, onCancel, onSaved, onPendingChange }: {
     const source = sources.find(entry => entry.id === sourceValue);
     const input = {
       fullName: String(form.get("fullName") ?? ""), email: optional("email"), phone: optional("phone"),
+      alternatePhone: optional("alternatePhone"), nationality: optional("nationality"),
       sourceId: sourceValue === "legacy" ? null : sourceValue || null,
       source: source?.name ?? (sourceValue === "legacy" ? lead?.source ?? null : null),
       propertyInterest: optional("propertyInterest"), preferredLocation: optional("preferredLocation"), propertyType: optional("propertyType"),
@@ -82,6 +83,8 @@ function LeadEditor({ data, onCancel, onSaved, onPendingChange }: {
           <div className="sm:col-span-2">{field("fullName", "Full name *", <Input {...inputProps("fullName")} defaultValue={lead?.fullName ?? ""} autoComplete="name" maxLength={160} required />)}</div>
           {field("phone", "Phone number", <Input {...inputProps("phone")} type="tel" autoComplete="tel" defaultValue={lead?.phone ?? ""} maxLength={32} placeholder="+971 50 123 4567" />, "Include the country code when known.")}
           {field("email", "Email address", <Input {...inputProps("email")} type="email" autoComplete="email" defaultValue={lead?.email ?? ""} maxLength={254} placeholder="name@example.com" />)}
+          {field("alternatePhone", "Alternate phone", <Input {...inputProps("alternatePhone")} type="tel" autoComplete="tel-national" defaultValue={lead?.contact?.alternatePhone ?? ""} maxLength={32} placeholder="+971 50 123 4567" />, "Optional secondary contact number.")}
+          {field("nationality", "Nationality", <Input {...inputProps("nationality")} autoComplete="country-name" defaultValue={lead?.contact?.nationality ?? ""} maxLength={80} placeholder="For example, Emirati" />)}
         </div>
       </section>
       <section className="space-y-4 border-t pt-5" aria-labelledby={`${prefix}-requirements-heading`}>
@@ -104,7 +107,7 @@ function LeadEditor({ data, onCancel, onSaved, onPendingChange }: {
           {field("sourceId", "Lead source", <select {...inputProps("sourceId")} defaultValue={defaultSource} className={selectClassName}><option value="">Manual / not specified</option>{lead?.source && !lead.sourceId && <option value="legacy">{lead.source} (existing)</option>}{sources.map(source => <option key={source.id} value={source.id}>{source.name}</option>)}</select>)}
           {field("priority", "Priority", <select {...inputProps("priority")} defaultValue={lead?.priority ?? "NORMAL"} className={selectClassName}>{["LOW", "NORMAL", "HIGH", "URGENT"].map(value => <option key={value} value={value}>{value.charAt(0) + value.slice(1).toLowerCase()}</option>)}</select>)}
           {field("branchId", "Branch", <select {...inputProps("branchId")} defaultValue={lead?.branchId ?? ""} className={selectClassName}><option value="">No branch</option>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select>)}
-          {canManageAssignments ? field("assignedMembershipId", "Assigned agent", <select {...inputProps("assignedMembershipId")} defaultValue={lead?.assignedMembershipId ?? ""} className={selectClassName}><option value="">Unassigned</option>{assignees.map(assignee => <option key={assignee.id} value={assignee.id}>{assignee.userProfile?.displayName || assignee.email}</option>)}</select>, "Only active company members can be assigned.") : <div className="space-y-2"><p className="text-xs font-medium">Assigned agent</p><p className="flex h-10 items-center gap-2 rounded-lg border bg-muted/30 px-3 text-sm"><LockKeyhole className="size-3.5 text-muted-foreground" aria-hidden="true" />You</p><p className="text-xs text-muted-foreground">You can work on leads assigned to you.</p></div>}
+          {canManageAssignments ? field("assignedMembershipId", "Assigned agent", <select {...inputProps("assignedMembershipId")} defaultValue={lead?.assignedMembershipId ?? ""} className={selectClassName}><option value="">Unassigned</option>{assignees.map(assignee => <option key={assignee.id} value={assignee.id}>{assignee.userProfile?.displayName || assignee.email}</option>)}</select>, lead ? "Only active company agents can be assigned. Choose Unassigned to clear the assignment." : membership.role === "OWNER" || membership.role === "ADMIN" ? "Leave Unassigned to use the company Round Robin rule when enabled and matched. Otherwise, the lead stays in the unassigned queue." : "Automatic Round Robin runs for owner/admin lead creation. This lead is assigned to you.") : <div className="space-y-2"><p className="text-xs font-medium">Assigned agent</p><p className="flex h-10 items-center gap-2 rounded-lg border bg-muted/30 px-3 text-sm"><LockKeyhole className="size-3.5 text-muted-foreground" aria-hidden="true" />You</p><p className="text-xs text-muted-foreground">You can work on leads assigned to you.</p></div>}
         </div>
       </section>
       {!lead && <section className="space-y-4 border-t pt-5" aria-labelledby={`${prefix}-next-step-heading`}>

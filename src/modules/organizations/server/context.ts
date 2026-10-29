@@ -8,7 +8,7 @@ import { assertActiveMembership, type StoredMembership } from "./permission-poli
 type SqlConnectRequest = Awaited<ReturnType<typeof requireSqlConnectRequest>>;
 
 async function requireUserProfile(request: SqlConnectRequest) {
-  const { userProfile } = await executeWorkspaceOperation(() => getMyProfile(request.dc, request.options));
+  const { userProfile } = await executeWorkspaceOperation(() => getMyProfile(request.dc, request.options), "GetMyProfile");
   if (!userProfile) {
     throw new WorkspaceError("PROFILE_REQUIRED", 409, "Create your user profile before setting up an organization or accepting an invitation.");
   }
@@ -28,7 +28,7 @@ export async function requireActiveOrganizationRequest() {
     throw new WorkspaceError("ORGANIZATION_REQUIRED", 409, "Select an organization with an active membership to continue.");
   }
   const organizationId = profile.activeOrganizationId;
-  const data = await executeWorkspaceOperation(() => getOrganizationContext(request.dc, { organizationId }, request.options));
+  const data = await executeWorkspaceOperation(() => getOrganizationContext(request.dc, { organizationId }, request.options), "GetOrganizationContext");
   const row = data.ownMembership;
   const membership: StoredMembership | null = row ? {
     id: row.id,

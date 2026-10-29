@@ -49,7 +49,7 @@ query ListLeads($organizationId: UUID!, $pipelineId: UUID, $pipelineStageId: UUI
   { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
   { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
 ] }] }, limit: $limit, offset: $offset, orderBy: [{createdAt: DESC}, {id: ASC}]) {
-  id organizationId fullName email phone source status branchId assignedMembershipId followUpAt followUpNote createdByUid updatedByUid createdAt updatedAt
+  id organizationId fullName email phone source status branchId assignedMembershipId projectId followUpAt followUpNote createdByUid updatedByUid createdAt updatedAt
  contactId leadNumber sourceId pipelineId pipelineStageId propertyInterest preferredLocation propertyType transactionType budgetMin budgetMax currency bedroomPreference priority archivedAt
  contact { id organizationId fullName email normalizedEmail phone normalizedPhone alternatePhone normalizedAlternatePhone nationality preferredLanguage notes createdByUid createdAt updatedAt }
  pipelineStage { id name position stageType status }

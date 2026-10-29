@@ -1,0 +1,128 @@
+# Phase 5E property portal foundation. Every operation requires an ACTIVE
+# OWNER/ADMIN membership in the requested organization; tenant-composite keys
+# prevent cross-company publications. Export selections deliberately exclude
+# property internal notes, ownership/mandate references, member emails and
+# non-public media kinds (brochures and documents).
+
+query GetPortalSettings($organizationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
+  connections: organizationPortalConnections(where: {organizationId: {eq: $organizationId}}, orderBy: [{provider: ASC}]) {id provider status accountReference notes lastVerifiedAt lastErrorCode updatedAt}
+  mappings: portalFieldMappings(where: {organizationId: {eq: $organizationId}}, limit: 500, orderBy: [{provider: ASC}, {fieldKey: ASC}, {sourceValue: ASC}]) {id provider fieldKey sourceValue targetValue updatedAt}
+  publicationCounts: listingPublications(where: {organizationId: {eq: $organizationId}, listing: {archivedAt: {isNull: true}}}, orderBy: [{provider: ASC}, {status: ASC}], limit: 50) {provider status count: _count}
+  recentJobs: feedGenerationJobs(where: {organizationId: {eq: $organizationId}}, orderBy: [{createdAt: DESC}, {id: ASC}], limit: 15) {id provider format status dryRun listingCount validCount invalidCount byteSize errorSummary startedAt finishedAt}
+}
+
+query GetPortalExportListing($organizationId: UUID!, $listingId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
+  listing: propertyListing(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $listingId}, archivedAt: {isNull: true}}}) @check(expr: "this != null", message: "LISTING_NOT_FOUND") {
+    id listingReference listingPurpose marketType title description askingPriceMinor currency rentalPeriod listingStatus publicationStatus
+    advertisingPermitNumber permitExpiryDate permitVerificationUrl updatedAt
+    assignedMembershipId assignedMembership {id role status userProfile {displayName}}
+    property {
+      id propertyReference propertyType marketType bedrooms bathrooms builtUpArea plotArea areaUnit furnishedStatus parkingSpaces view
+      emirate community area floorNumber occupancyStatus inventoryStatus archivedAt project {projectName} building {name}
+      inventoryMedias_on_property(where: {status: {eq: ACTIVE}, archivedAt: {isNull: true}, mediaKind: {in: [PROPERTY_PHOTO, FLOOR_PLAN]}}, orderBy: [{isCover: DESC}, {sortOrder: ASC}, {id: ASC}], limit: 50) {id mediaKind fileName contentType isCover sortOrder}
+    }
+    listingPublications_on_listing(orderBy: [{provider: ASC}]) {
+      id provider status errorCount warningCount payloadHash lastValidatedAt updatedAt
+      publicationAttempts_on_publication(orderBy: [{createdAt: DESC}, {id: ASC}], limit: 5) {id action outcome errorCount warningCount errorSummary createdAt}
+    }
+  }
+  mappings: portalFieldMappings(where: {organizationId: {eq: $organizationId}}, limit: 500, orderBy: [{provider: ASC}, {fieldKey: ASC}]) {provider fieldKey sourceValue targetValue}
+}
+
+# Feed dry runs review ACTIVE listings in stable pages of up to 100.
+query ListPortalExportListings($organizationId: UUID!, $limit: Int! = 100, $offset: Int! = 0)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
+  ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
+  listings: propertyListings(where: {organizationId: {eq: $organizationId}, archivedAt: {isNull: true}, listingStatus: {eq: ACTIVE}}, limit: $limit, offset: $offset, orderBy: [{listingReference: ASC}, {id: ASC}]) {
+    id listingReference listingPurpose marketType title description askingPriceMinor currency rentalPeriod listingStatus publicationStatus
+    advertisingPermitNumber permitExpiryDate permitVerificationUrl updatedAt
+    assignedMembershipId assignedMembership {id role status userProfile {displayName}}
+    property {
+      id propertyReference propertyType marketType bedrooms bathrooms builtUpArea plotArea areaUnit furnishedStatus parkingSpaces view
+      emirate community area floorNumber occupancyStatus inventoryStatus archivedAt project {projectName} building {name}
+      inventoryMedias_on_property(where: {status: {eq: ACTIVE}, archivedAt: {isNull: true}, mediaKind: {in: [PROPERTY_PHOTO, FLOOR_PLAN]}}, orderBy: [{isCover: DESC}, {sortOrder: ASC}, {id: ASC}], limit: 50) {id mediaKind fileName contentType isCover sortOrder}
+    }
+  }
+  total: propertyListings(where: {organizationId: {eq: $organizationId}, archivedAt: {isNull: true}, listingStatus: {eq: ACTIVE}}) {_count}
+  mappings: portalFieldMappings(where: {organizationId: {eq: $organizationId}}, limit: 500, orderBy: [{provider: ASC}, {fieldKey: ASC}]) {provider fieldKey sourceValue targetValue}
+}
+
+# Administrators may only record a pending/disabled state. CONNECTED and ERROR
+# require a future server-side verification job; changing the state clears any
+# earlier verification so a stale CONNECTED cannot be implied.
+mutation SavePortalConnection($organizationId: UUID!, $provider: PortalProvider!, $status: PortalConnectionStatus!, $accountReference: String, $notes: String, $expectedUpdatedAt: Timestamp)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.status in ['NOT_CONFIGURED', 'PENDING_APPROVAL', 'DISABLED'] && (!has(vars.accountReference) || vars.accountReference == null || vars.accountReference.size() <= 120) && (!has(vars.notes) || vars.notes == null || vars.notes.size() <= 1000)") @transaction {
+  actor: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED")
+  before: query @redact {
+    existing: organizationPortalConnection(first: {where: {organizationId: {eq: $organizationId}, provider: {eq: $provider}}})
+      @check(expr: "this == null ? (!has(vars.expectedUpdatedAt) || vars.expectedUpdatedAt == null) : (has(vars.expectedUpdatedAt) && vars.expectedUpdatedAt != null && timestamp(this.updatedAt) == timestamp(vars.expectedUpdatedAt))", message: "PORTAL_CONNECTION_CHANGED_RELOAD") {id createdByUid createdAt updatedAt}
+  }
+  connection: organizationPortalConnection_upsert(data: {
+    organizationId: $organizationId, id_expr: "response.before.existing != null ? response.before.existing.id : uuidV4()", provider: $provider, status: $status,
+    accountReference: $accountReference, notes: $notes, lastVerifiedAt: null, lastErrorCode: null,
+    createdByUid_expr: "response.before.existing != null ? response.before.existing.createdByUid : auth.uid",
+    createdAt_expr: "response.before.existing != null ? response.before.existing.createdAt : request.time",
+    updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"
+  })
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: PORTAL_CONNECTION_UPDATED, targetType: PORTAL_CONNECTION, targetId_expr: "response.connection.id", metadata_expr: "{'provider': vars.provider, 'status': vars.status}"})
+}
+
+mutation SetPortalFieldMapping($organizationId: UUID!, $provider: PortalProvider!, $fieldKey: String!, $sourceValue: String!, $targetValue: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.fieldKey.matches('^[A-Z][A-Z_]{1,39}$') && vars.sourceValue.size() >= 1 && vars.sourceValue.size() <= 120 && vars.targetValue.size() >= 1 && vars.targetValue.size() <= 120") @transaction {
+  actor: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED")
+  before: query @redact {
+    existing: portalFieldMapping(first: {where: {organizationId: {eq: $organizationId}, provider: {eq: $provider}, fieldKey: {eq: $fieldKey}, sourceValue: {eq: $sourceValue}}}) {id createdByUid createdAt}
+  }
+  mapping: portalFieldMapping_upsert(data: {
+    organizationId: $organizationId, id_expr: "response.before.existing != null ? response.before.existing.id : uuidV4()", provider: $provider,
+    fieldKey: $fieldKey, sourceValue: $sourceValue, targetValue: $targetValue,
+    createdByUid_expr: "response.before.existing != null ? response.before.existing.createdByUid : auth.uid",
+    createdAt_expr: "response.before.existing != null ? response.before.existing.createdAt : request.time",
+    updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"
+  })
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: PORTAL_FIELD_MAPPING_CHANGED, targetType: PORTAL_FIELD_MAPPING, targetId_expr: "response.mapping.id", metadata_expr: "{'provider': vars.provider, 'fieldKey': vars.fieldKey, 'sourceValue': vars.sourceValue, 'targetValue': vars.targetValue}"})
+}
+
+mutation RemovePortalFieldMapping($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  actor: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED")
+  before: query @redact {
+    existing: portalFieldMapping(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}}}) @check(expr: "this != null", message: "PORTAL_MAPPING_NOT_FOUND") {id provider fieldKey sourceValue}
+  }
+  portalFieldMapping_deleteMany(where: {organizationId: {eq: $organizationId}, id: {eq: $id}})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: PORTAL_FIELD_MAPPING_CHANGED, targetType: PORTAL_FIELD_MAPPING, targetId: $id, metadata_expr: "{'provider': response.before.existing.provider, 'fieldKey': response.before.existing.fieldKey, 'sourceValue': response.before.existing.sourceValue, 'removed': true}"})
+}
+
+# Records a server-computed validation result. Only READY or VALIDATION_FAILED
+# can be written, READY requires zero errors, and a publication that a future
+# publisher has queued or published is never overwritten by a validation.
+mutation RecordListingValidation($organizationId: UUID!, $listingId: UUID!, $provider: PortalProvider!, $status: ListingPublicationState!, $errorCount: Int!, $warningCount: Int!, $payloadHash: String!, $errorSummary: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.status in ['READY', 'VALIDATION_FAILED'] && vars.errorCount >= 0 && vars.errorCount <= 1000 && vars.warningCount >= 0 && vars.warningCount <= 1000 && (vars.status == 'READY') == (vars.errorCount == 0) && vars.payloadHash.matches('^[a-f0-9]{64}$') && (!has(vars.errorSummary) || vars.errorSummary == null || vars.errorSummary.size() <= 2000)") @transaction {
+  actor: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED")
+  before: query @redact {
+    listing: propertyListing(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $listingId}, archivedAt: {isNull: true}}}) @check(expr: "this != null", message: "LISTING_NOT_FOUND") {id}
+    existing: listingPublication(first: {where: {organizationId: {eq: $organizationId}, listingId: {eq: $listingId}, provider: {eq: $provider}}})
+      @check(expr: "this == null || this.status in ['NOT_PUBLISHED', 'VALIDATION_FAILED', 'READY']", message: "PUBLICATION_LOCKED") {id status attemptCount createdByUid createdAt}
+  }
+  publication: listingPublication_upsert(data: {
+    organizationId: $organizationId, id_expr: "response.before.existing != null ? response.before.existing.id : uuidV4()", listingId: $listingId, provider: $provider,
+    status: $status, errorCount: $errorCount, warningCount: $warningCount, payloadHash: $payloadHash, lastValidatedAt_expr: "request.time",
+    attemptCount_expr: "response.before.existing != null ? response.before.existing.attemptCount : 0",
+    createdByUid_expr: "response.before.existing != null ? response.before.existing.createdByUid : auth.uid",
+    createdAt_expr: "response.before.existing != null ? response.before.existing.createdAt : request.time",
+    updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"
+  })
+  attempt: publicationAttempt_insert(data: {organizationId: $organizationId, publicationId_expr: "response.publication.id", action: VALIDATE, outcome_expr: "vars.status == 'READY' ? 'SUCCEEDED' : 'FAILED'", errorCount: $errorCount, warningCount: $warningCount, errorSummary: $errorSummary, payloadHash: $payloadHash, createdByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: LISTING_PUBLICATION_VALIDATED, targetType: LISTING_PUBLICATION, targetId_expr: "response.publication.id", metadata_expr: "{'listingId': vars.listingId, 'provider': vars.provider, 'status': vars.status, 'errorCount': vars.errorCount}"})
+}
+
+mutation RecordFeedGenerationJob($organizationId: UUID!, $provider: PortalProvider!, $format: FeedFormat!, $status: FeedGenerationStatus!, $listingCount: Int!, $validCount: Int!, $invalidCount: Int!, $byteSize: Int!, $errorSummary: String, $startedAt: Timestamp!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.status in ['SUCCEEDED', 'FAILED'] && vars.listingCount >= 0 && vars.listingCount <= 10100 && vars.validCount >= 0 && vars.invalidCount >= 0 && vars.validCount + vars.invalidCount == vars.listingCount && vars.byteSize >= 0 && timestamp(vars.startedAt) <= request.time && timestamp(vars.startedAt) > request.time - duration('3600s') && (!has(vars.errorSummary) || vars.errorSummary == null || vars.errorSummary.size() <= 2000)") @transaction {
+  actor: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED")
+  job: feedGenerationJob_insert(data: {organizationId: $organizationId, provider: $provider, format: $format, status: $status, dryRun: true, listingCount: $listingCount, validCount: $validCount, invalidCount: $invalidCount, byteSize: $byteSize, errorSummary: $errorSummary, startedAt: $startedAt, finishedAt_expr: "request.time", createdByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: FEED_GENERATION_RECORDED, targetType: FEED_GENERATION_JOB, targetId_expr: "response.job.id", metadata_expr: "{'provider': vars.provider, 'format': vars.format, 'listingCount': vars.listingCount, 'invalidCount': vars.invalidCount}"})
+}

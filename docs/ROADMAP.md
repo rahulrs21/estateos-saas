@@ -106,7 +106,9 @@ These capabilities are intentionally outside Phase 1. Publishing and externally 
 
 ## Phase 6 — AI CRM Copilot
 
-- Permission-aware record retrieval and summaries using the OpenAI API.
+- Permission-aware record retrieval and summaries using Anthropic Claude (read-only foundation delivered in Phase 6A; see [AI Copilot](AI_COPILOT.md)).
+- Editable, fact-checked marketing and sales drafts from CRM records (delivered in Phase 6B; see [AI Content Studio](AI_CONTENT_STUDIO.md)). Sending, publishing and campaign creation remain later phases.
+- Explainable rule-based lead qualification, follow-up assistant, viewing preparation and an AI Sales dashboard (delivered in Phase 6C; see [AI sales intelligence](AI_SALES_INTELLIGENCE.md)).
 - Assisted follow-up drafts, suggested next steps, and useful CRM explanations.
 - User review for consequential actions and server-enforced tool permissions.
 - Tenant-safe retrieval, prompt-injection defenses, privacy controls, evaluations, usage limits, auditability, and cost monitoring.

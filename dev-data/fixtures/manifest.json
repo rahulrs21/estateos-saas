@@ -1,0 +1,31 @@
+{
+  "fixtureSet": "uae-demo-v1",
+  "notice": "All records are fictional and for local EstateOS development only. Names, companies, contact details, prices and listings are invented and do not represent real people, developers or market inventory. Phone numbers use the UK Ofcom range reserved for drama (07700 900000-900999); email and web addresses use reserved example domains.",
+  "demoOrganization": {
+    "name": "Demo Realty (Sample Data)",
+    "slugPrefix": "demo-realty-sample"
+  },
+  "files": [
+    "developers.json",
+    "projects.json",
+    "properties.json",
+    "listings.json",
+    "contacts.json",
+    "leads.json"
+  ],
+  "counts": {
+    "developers": 5,
+    "projects": 10,
+    "projectPhases": 14,
+    "buildings": 17,
+    "properties": 30,
+    "propertyPhotos": 30,
+    "listings": 30,
+    "contacts": 50,
+    "leads": 50,
+    "leadNotes": 45,
+    "shortlistEntries": 27,
+    "viewings": 10,
+    "followUps": 35
+  }
+}

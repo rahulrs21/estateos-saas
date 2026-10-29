@@ -1,7 +1,8 @@
 import {
+  Gauge,
   BarChart3, Bot, BriefcaseBusiness, Building2, CalendarCheck2, ContactRound,
   FolderKanban, Handshake, House, LayoutDashboard, Megaphone, MessagesSquare,
-  Settings2, UsersRound, WalletCards, Workflow, type LucideIcon,
+  Settings2, UsersRound, WalletCards, Wand2, Workflow, type LucideIcon,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -29,9 +30,10 @@ export const navigationGroups: NavigationGroup[] = [
   {
     label: "Portfolio",
     items: [
-      { title: "Developers", href: "/workspace/developers", icon: Building2, description: "Manage developer relationships and their project portfolios." },
-      { title: "Projects", href: "/workspace/projects", icon: FolderKanban, description: "Bring project details, inventory, and sales materials together." },
-      { title: "Properties", href: "/workspace/properties", icon: House, description: "Manage property inventory, availability, and listing information." },
+      { title: "Developers", href: "/developers", icon: Building2, description: "Manage developer relationships and their project portfolios." },
+      { title: "Projects", href: "/projects", icon: FolderKanban, description: "Bring project details, inventory, and sales materials together." },
+      { title: "Properties", href: "/properties", icon: House, description: "Manage company property inventory and availability." },
+      { title: "Listings", href: "/listings", icon: Megaphone, description: "Prepare separate property marketing listings for review." },
       { title: "Deals", href: "/workspace/deals", icon: Handshake, description: "Follow opportunities from first conversation to a completed deal." },
     ],
   },
@@ -46,7 +48,9 @@ export const navigationGroups: NavigationGroup[] = [
   {
     label: "Intelligence",
     items: [
-      { title: "AI Copilot", href: "/workspace/ai-copilot", icon: Bot, description: "Get permission-aware assistance with your agency's CRM work." },
+      { title: "AI Copilot", href: "/ai-copilot", icon: Bot, description: "Ask permission-aware questions about your agency's CRM data." },
+      { title: "AI Sales", href: "/ai-sales", icon: Gauge, description: "Lead priorities, follow-up gaps and pipeline metrics from your CRM records." },
+      { title: "AI Content Studio", href: "/ai-content", icon: Wand2, description: "Draft marketing and sales content from verified CRM records." },
       { title: "Automation", href: "/workspace/automation", icon: Workflow, description: "Coordinate repeatable workflows with explicit rules and oversight." },
     ],
   },

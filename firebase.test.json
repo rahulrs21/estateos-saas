@@ -1,5 +1,6 @@
 {
   "dataconnect": { "source": "dataconnect" },
+  "storage": { "rules": "storage.rules" },
   "emulators": {
     "dataconnect": {
       "host": "127.0.0.1",
@@ -7,6 +8,7 @@
       "postgresPort": 19432,
       "dataDir": ".tmp/sql-connect-integration/data"
     },
+    "storage": { "host": "127.0.0.1", "port": 19599 },
     "hub": { "host": "127.0.0.1", "port": 19400 },
     "logging": { "host": "127.0.0.1", "port": 19500 },
     "ui": { "enabled": false },

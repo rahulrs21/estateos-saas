@@ -1,0 +1,11 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // EstateOS authorizes inventory file access in server routes using the
+    // verified session and active SQL Connect membership. Browser SDK access
+    // is intentionally denied because Storage Rules cannot query that database.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -18,11 +18,13 @@ const fields = {
   assignedMembershipId: uuid.nullable().optional(),
 };
 export const createLeadSchema = z.strictObject({ ...fields, ...crmLeadFields, fullName: fields.fullName.optional(), email: contactFields.email,
+  alternatePhone: contactFields.alternatePhone, nationality: contactFields.nationality,
   initialNote: optionalText(4000), initialFollowUpAt: futureTimestamp.nullable().optional(), initialFollowUpNote: optionalText(500),
 })
   .refine(value => !!value.contactId || !!value.fullName, "Choose a contact or enter a full name.")
   .refine(validBudget, "Maximum budget must be at least the minimum budget.");
-export const updateLeadSchema = z.strictObject({ ...fields, ...crmLeadFields, contactId: z.never().optional(), pipelineId: z.never().optional(), email: contactFields.email, leadId: uuid, status: z.enum(leadStatuses) })
+export const updateLeadSchema = z.strictObject({ ...fields, ...crmLeadFields, contactId: z.never().optional(), pipelineId: z.never().optional(), email: contactFields.email,
+  alternatePhone: contactFields.alternatePhone, nationality: contactFields.nationality, leadId: uuid, status: z.enum(leadStatuses) })
   .refine(validBudget, "Maximum budget must be at least the minimum budget.");
 export const leadIdInputSchema = z.strictObject({ leadId: uuid });
 export const leadStatusInputSchema = z.strictObject({ leadId: uuid, status: z.enum(leadStatuses) });

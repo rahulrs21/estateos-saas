@@ -1,0 +1,51 @@
+# LOCAL ONLY: run by scripts/seed-demo.mjs through the Admin SDK against the
+# local demo-* emulator after its environment guard. Outside connectorDirs, so
+# never deployed and never part of the generated SDK. CRM records are created
+# with the normal connector operations (impersonating the member); these
+# operations only look up the member and track which records are demo fixtures.
+
+query DemoSeedProfile($email: String!) {
+  userProfiles(where: {email: {eq: $email}}, limit: 2) { uid email displayName activeOrganizationId }
+}
+
+query DemoSeedMemberships($uid: String!) {
+  memberships(where: {userProfileUid: {eq: $uid}, status: {eq: ACTIVE}}, limit: 100) {
+    id organizationId role organization { id name slug }
+  }
+}
+
+query DemoSeedOrganizationBySlug($slug: String!) {
+  organizations(where: {slug: {eq: $slug}}, limit: 1) { id name slug }
+}
+
+query DemoSeedFixtures($organizationId: UUID!) {
+  demoFixtureRecords(where: {organizationId: {eq: $organizationId}}, limit: 10000) { fixtureKey recordType recordId }
+}
+
+mutation DemoSeedClaim($organizationId: UUID!, $fixtureKey: String!, $fixtureSet: String!, $recordType: String!) {
+  demoFixtureRecord_insert(data: {organizationId: $organizationId, fixtureKey: $fixtureKey, fixtureSet: $fixtureSet, recordType: $recordType})
+}
+
+mutation DemoSeedComplete($organizationId: UUID!, $fixtureKey: String!, $recordId: UUID!) {
+  demoFixtureRecord_update(key: {organizationId: $organizationId, fixtureKey: $fixtureKey}, data: {recordId: $recordId, completedAt_expr: "request.time"})
+}
+
+# Only for a claim whose record was never created (the create call failed).
+mutation DemoSeedRelease($organizationId: UUID!, $fixtureKey: String!) {
+  demoFixtureRecord_deleteMany(where: {organizationId: {eq: $organizationId}, fixtureKey: {eq: $fixtureKey}, recordId: {isNull: true}})
+}
+
+# Natural keys, used only to finish a fixture whose run was interrupted after
+# the record was created but before it was tracked.
+query DemoSeedNaturalKeys($organizationId: UUID!) {
+  developers(where: {organizationId: {eq: $organizationId}}, limit: 10000) { id slug }
+  projects(where: {organizationId: {eq: $organizationId}}, limit: 10000) { id projectCode }
+  projectPhases(where: {organizationId: {eq: $organizationId}}, limit: 10000) { id projectId reference }
+  buildings(where: {organizationId: {eq: $organizationId}}, limit: 10000) { id projectId reference }
+  properties(where: {organizationId: {eq: $organizationId}}, limit: 10000) { id propertyReference }
+  propertyListings(where: {organizationId: {eq: $organizationId}}, limit: 10000) { id listingReference }
+  contacts(where: {organizationId: {eq: $organizationId}}, limit: 10000) { id normalizedEmail }
+  leads(where: {organizationId: {eq: $organizationId}}, limit: 10000) { id }
+  leadPropertyInterests(where: {organizationId: {eq: $organizationId}}, limit: 10000) { id leadId propertyId }
+  inventoryMedias(where: {organizationId: {eq: $organizationId}}, limit: 10000) { id storagePath status }
+}

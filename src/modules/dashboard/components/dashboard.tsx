@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { InventoryMetrics } from "./inventory-metrics";
 import Link from "next/link";
 import { Activity, ArrowRight, CalendarCheck2, ChartNoAxesCombined, CircleDollarSign, GitBranch, Handshake, ListTodo, LockKeyhole, Plug, UsersRound } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
@@ -20,11 +22,13 @@ export function Dashboard({ companyName }: { companyName: string }) {
           <span className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-card text-primary"><Plug className="size-5" aria-hidden="true" /></span>
           <div>
             <div className="flex flex-wrap items-center gap-2"><h2 id="workspace-start-title" className="text-base font-semibold">{companyName}</h2><Badge variant="outline" className="border-primary/20 text-[10px] text-primary">Company workspace</Badge></div>
-            <p className="mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">Your company workspace is ready. Manage leads with your team; dashboard analytics will arrive in a future update.</p>
+            <p className="mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">Manage leads, shortlist properties and schedule viewings with your team. Your inventory overview uses current company records.</p>
           </div>
         </div>
         <Link href="/settings/company" className="inline-flex shrink-0 items-center gap-2 self-start rounded text-sm font-semibold text-primary sm:self-center">Company settings<ArrowRight className="size-4" aria-hidden="true" /></Link>
       </section>
+
+      <Suspense fallback={<div role="status" className="animate-pulse rounded-xl border p-6 text-sm text-muted-foreground">Loading inventory overview...</div>}><InventoryMetrics /></Suspense>
 
       <section aria-label="Agency key performance indicators" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard title="Total leads" icon={UsersRound} description="Lead metrics not connected" />
@@ -66,7 +70,7 @@ export function Dashboard({ companyName }: { companyName: string }) {
         </Card>
       </div>
 
-      <div className="flex items-start gap-2 rounded-lg px-1 text-xs leading-5 text-muted-foreground"><LockKeyhole className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /><p>Company records are protected by your active membership and role. Dashboard metrics remain empty until analytics are connected.</p></div>
+      <div className="flex items-start gap-2 rounded-lg px-1 text-xs leading-5 text-muted-foreground"><LockKeyhole className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /><p>Company records are protected by your active membership and role. Inventory figures reflect your permitted records; lead and deal analytics below remain unconnected.</p></div>
     </div>
   );
 }

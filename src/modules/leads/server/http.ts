@@ -12,7 +12,9 @@ import { parseLeadJsonRequest } from "./request-policy";
 export function leadErrorResponse(error: unknown) {
   const safe = error instanceof WorkspaceError || error instanceof SessionPolicyError || error instanceof AuthRequestError
     ? error : mapWorkspaceDataError(error);
-  return authJson({ error: { code: safe.code, message: safe.message } }, safe.status);
+  const response = authJson({ error: { code: safe.code, message: safe.message } }, safe.status);
+  if (safe instanceof WorkspaceError && safe.retryAfterSeconds) response.headers.set("Retry-After", String(Math.ceil(safe.retryAfterSeconds)));
+  return response;
 }
 
 export async function authorizeLeadRead(request: Request) {

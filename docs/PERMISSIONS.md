@@ -98,3 +98,65 @@ and in the `CreateContact` / `UpdateContact` SQL Connect operations. Agents and
 managers can read contacts linked to leads they are authorized to access, but
 cannot create or edit shared contact records. Duplicate detection is company
 scoped and warns without merging records.
+
+## Property inventory access
+
+Inventory requests use the existing Firebase session and trusted active-company resolver. The server derives UID, organization and membership, passes verified-user impersonation options to the generated SQL Connect Admin SDK, and checks organization consistency on writes. Every stored inventory operation independently verifies an active membership and the role needed for that operation; SQL Connect transactions include the Activity and AuditLog event. Browser inputs cannot choose a tenant, actor, creator, updater or role.
+
+| Role | Inventory reads | Inventory writes |
+| --- | --- | --- |
+| OWNER, ADMIN | Company-scoped developers, projects, phases, buildings, properties, listings, floor plans, amenities, features and payment plans. | Create, update and soft-archive catalog/inventory resources; manage amenities and typed attributes; attach/detach amenities; manage listing assignments and payment plans. Listing assignees must be active AGENT memberships in this company. |
+| AGENT | Company developer/project reference catalog; properties assigned to the agent's active membership; listings assigned to the agent's active membership. | Create/update only listings explicitly assigned to their own membership, limited to draft and pending review. No property, plan, amenity or feature administration. |
+| MANAGER | Denied inventory access for now. | Denied inventory writes for now. |
+
+MANAGER inventory access is intentionally denied because the current schema has no verified branch/team inventory scope. A branch or project ID supplied by the browser would not establish that scope. Add manager access only after a trusted scope relationship and query predicates are implemented. This denial does not change the existing Leads permission model.
+
+All references are tenant-bound: project-to-developer, phase/building-to-project, building-to-phase, property-to-project/building, listing-to-property/assignee, floor-plan-to-project/building, plan-to-project, feature-to-property and amenity joins. Composite foreign keys reject cross-company references in PostgreSQL, while stored operations verify active referenced rows and membership status. Listing reads are explicitly split into owner/admin company queries and agent self-assignment queries. Missing rows do not disclose another tenant's record. There are no public inventory operations, platform-admin bypass, client-side Admin SDK or NO_ACCESS raw query escape hatch. See DATABASE.md for model and migration details.
+
+The `/developers` and `/projects` pages reuse the protected workspace shell. Their controls reflect the membership role resolved by the server: OWNER/ADMIN can create, update and archive; AGENT can read; MANAGER sees the existing scope-denied state. Every mutation still passes through the server service and SQL Connect authorization, so hiding an editor is only a UI convenience. Project audit events are selected by both the authenticated organization and project target. Developer archiving is rejected in the same SQL Connect transaction while any active project remains linked.
+
+## Phase 5C property and listing access
+
+Property and listing routes resolve the active company and membership server-side. Owners and administrators manage organization inventory. Managers remain denied because the application has no verified branch/team inventory scope. Agents can view only properties assigned to their active membership and listings assigned to them; an assignment ID in a request cannot grant access because connector queries independently bind it to the authenticated UID and active membership. Agents may prepare their assigned listings as drafts or pending review; approval and activation are administrative actions.
+
+Media reads pass through a Node.js server route. That route verifies the session and active organization, fetches metadata using a verified-user SQL Connect request, and downloads only the stored object path. Agents can retrieve media attached to a property assigned to their membership. Project and floor-plan uploads remain available to inventory administrators until an explicit agent scope exists. Firebase Storage browser rules deny all reads and writes, so callers cannot substitute a company ID or write directly to an organization path.
+
+The upload route enforces origin/CSRF, active session/membership, a 20 MiB limit, allowed MIME type and file signature before creating metadata and storing bytes. It generates paths from the trusted organization and authorized parent record plus a random identifier; it does not use caller-supplied paths. Media state changes are limited to pending-to-active/deleted and active-to-deleting-to-deleted. Cover changes are transactional and only accept image property photos. Permit fields are references only and do not imply regulatory verification or approval.
+
+## Phase 5D: lead-property access
+
+OWNER/ADMIN may connect records in their active company. AGENT must independently have assignment access to both the lead and property, and to listings used for matching prices. Shortlists/viewings grant no additional access. All connector reads repeat the lead and property predicates; writes also recheck availability and use transaction guards. MANAGER inventory scope remains unavailable until a verified scope is implemented. Dashboard aggregates use the same inventory/agent assignment boundary. See [lead-property access and limits](LEAD_PROPERTY_INTEGRATION.md).
+
+## Phase 5E: property portal access
+
+Portal settings, field mappings, export previews, validation records and feed dry runs require an active OWNER/ADMIN membership in the active company, checked in the service and again in every stored operation. Agents and managers have no portal access. Administrators may record only `NOT_CONFIGURED`, `PENDING_APPROVAL` or `DISABLED`; `CONNECTED`/`ERROR` are reserved for future server-side verification. Validation results are recomputed on the server. Exports exclude internal property notes, ownership/mandate references, unit numbers, member emails, brochures and documents. See [Property portal integrations](PROPERTY_PORTAL_INTEGRATIONS.md#access-and-security).
+
+## Phase 5F: map access
+
+Map views and detail maps reuse the inventory read scope: OWNER/ADMIN see company records, AGENT only assigned properties and listings, MANAGER none. Every viewer sees locations as the record's `mapDisplayMode` allows (exact, ~1 km approximate, or hidden); only OWNER/ADMIN also receive stored exact coordinates. HIDDEN rows are excluded from map-pin queries and raw coordinates are stripped server-side. Address lookups (`/api/maps/{autocomplete,place,geocode,reverse-geocode}`, which call Google with a server-only key) require an active OWNER/ADMIN membership in the company named by the request header, plus CSRF and session checks. `GET /api/maps/pins` uses the session's company and role only; viewport bounds are snapped outward to the approximate grid so they cannot narrow an approximate location. Lookups and pin reads are rate limited per member, per trusted client IP and (lookups) per company through the shared database-backed limiter; see [Rate limiting](MAPS.md#rate-limiting). Developer head offices are editable by OWNER/ADMIN and visible exactly to OWNER/ADMIN/AGENT. Public map components accept only sanitized, explicitly published listings and are separate from CRM authorization; see [Public client-facing maps](MAPS.md#public-client-facing-maps). See [UAE map integration](MAPS.md#display-modes-and-privacy).
+
+## Phase 6B: AI Content Studio access
+
+Content drafts are private to the member who generated them. OWNER and ADMIN also manage company-wide content: they view, edit, archive and delete any draft in the company, and they alone approve drafts (internal approval only). MANAGER and AGENT work with their own drafts. The server passes the caller's uid as the draft scope for non-administrators, and each stored operation's membership `@check` re-verifies it, so a client cannot widen its scope.
+
+Generation re-reads every source record through the existing services as the member, independently of draft ownership:
+
+- AGENT: assigned leads and inventory, plus projects and developers.
+- MANAGER: no inventory, so only lead-based WhatsApp and email drafts.
+- OWNER and ADMIN: company records.
+
+Brand settings and templates are readable by every member and changeable by OWNER and ADMIN only. No new role was added. See [AI content security](AI_CONTENT_SECURITY.md).
+
+## Phase 6C: AI sales intelligence access
+
+| Role | Lead intelligence | Inventory-based features | Dashboard scope | Priority review |
+| --- | --- | --- | --- | --- |
+| OWNER, ADMIN | All company leads | Matching, viewing briefs, property actions | Company, one agent or one branch | Any lead |
+| MANAGER | Leads assigned to them | Not available (no inventory scope) | Their own leads | Their own leads |
+| AGENT | Leads assigned to them | Their assigned inventory | Their own leads | Their own leads |
+
+- **Enforcement:** the lead rule is enforced in every stored operation (`ai-sales.gql`).
+- **Server-only writes:** assessments and AI insights are NO_ACCESS.
+- **Pipeline summaries:** visible only to the member who generated them.
+
+See [AI sales intelligence](AI_SALES_INTELLIGENCE.md).

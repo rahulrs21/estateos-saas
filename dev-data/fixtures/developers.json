@@ -1,0 +1,57 @@
+[
+  {
+    "key": "DEV-01",
+    "name": "Falconridge Developments (Demo)",
+    "slug": "demo-falconridge-developments",
+    "description": "Fictional master developer of mid-rise and waterfront apartment communities in Dubai. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "website": "https://falconridge.example",
+    "email": "sales@falconridge.example",
+    "country": "AE",
+    "headOfficeAddress": "Business Bay, Dubai (fictional office)",
+    "status": "ACTIVE"
+  },
+  {
+    "key": "DEV-02",
+    "name": "Pearlstone Living (Demo)",
+    "slug": "demo-pearlstone-living",
+    "description": "Fictional developer of serviced and city-centre residences. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "website": "https://pearlstone.example",
+    "email": "sales@pearlstone.example",
+    "country": "AE",
+    "headOfficeAddress": "Downtown Dubai (fictional office)",
+    "status": "ACTIVE"
+  },
+  {
+    "key": "DEV-03",
+    "name": "Dunewell Properties (Demo)",
+    "slug": "demo-dunewell-properties",
+    "description": "Fictional villa and townhouse developer focused on family communities. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "website": "https://dunewell.example",
+    "email": "sales@dunewell.example",
+    "country": "AE",
+    "headOfficeAddress": "Dubai Hills Estate, Dubai (fictional office)",
+    "status": "ACTIVE"
+  },
+  {
+    "key": "DEV-04",
+    "name": "Marisol Bay Developers (Demo)",
+    "slug": "demo-marisol-bay-developers",
+    "description": "Fictional Abu Dhabi developer of waterfront apartments and townhouses. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "website": "https://marisolbay.example",
+    "email": "sales@marisolbay.example",
+    "country": "AE",
+    "headOfficeAddress": "Al Reem Island, Abu Dhabi (fictional office)",
+    "status": "ACTIVE"
+  },
+  {
+    "key": "DEV-05",
+    "name": "Qasr Crescent Estates (Demo)",
+    "slug": "demo-qasr-crescent-estates",
+    "description": "Fictional developer active in Sharjah and Ras Al Khaimah. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "website": "https://qasrcrescent.example",
+    "email": "sales@qasrcrescent.example",
+    "country": "AE",
+    "headOfficeAddress": "Al Majaz, Sharjah (fictional office)",
+    "status": "ACTIVE"
+  }
+]

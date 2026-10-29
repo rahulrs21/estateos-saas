@@ -4,7 +4,7 @@ import { connectorConfig } from "@dataconnect/admin-generated";
 import { getDataConnect, type OperationOptions } from "firebase-admin/data-connect";
 import { getSession } from "@/lib/auth/session";
 import { assertSafeDataConnectEnvironment } from "@/modules/organizations/server/dataconnect-policy";
-import { mapWorkspaceDataError, WorkspaceError } from "@/modules/organizations/server/errors";
+import { getSafeDataConnectDiagnostics, mapWorkspaceDataError, mapWorkspaceOperationError, WorkspaceError } from "@/modules/organizations/server/errors";
 import { getFirebaseAdminApp } from "./admin";
 
 /**
@@ -48,30 +48,14 @@ export async function executeWorkspaceOperation<T>(
     return (await operation()).data;
   } catch (error) {
     if (process.env.NODE_ENV === "development") {
-      const rawCode = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-        ? error.code
-        : "";
-      const allowedCodes = new Set([
-        "data-connect/aborted",
-        "data-connect/invalid-argument",
-        "data-connect/invalid-credential",
-        "data-connect/internal-error",
-        "data-connect/permission-denied",
-        "data-connect/unauthenticated",
-        "data-connect/not-found",
-        "data-connect/unknown-error",
-        "data-connect/query-error",
-      ]);
-      const providerCode = allowedCodes.has(rawCode) ? rawCode : "unclassified";
       const safeOperationName = /^[A-Za-z][A-Za-z0-9:_-]{0,79}$/.test(operationName)
         ? operationName
         : "unknown";
-      // Keep server diagnostics useful without logging provider messages,
-      // variables, credentials, customer data or raw query details.
-      // Use a single string because Next.js's development overlay serializes
-      // object arguments as `{}`, hiding these otherwise safe diagnostic fields.
-      console.error(`EstateOS SQL Connect operation failed: operation=${safeOperationName} code=${providerCode}`);
+      const diagnostic = getSafeDataConnectDiagnostics(error);
+      // A single string keeps safe diagnostics visible in the Next.js overlay.
+      const backend = process.env.DATA_CONNECT_EMULATOR_HOST ? "emulator" : "hosted";
+      console.error(`EstateOS SQL Connect operation failed: operation=${safeOperationName} backend=${backend} code=${diagnostic.code} cause=${diagnostic.failureClass} hint=${diagnostic.failureHint} http=${diagnostic.httpStatus ?? "unknown"} stack=${diagnostic.stackFrames.join(">") || "unavailable"}`);
     }
-    throw mapWorkspaceDataError(error);
+    throw mapWorkspaceOperationError(error, operationName, Boolean(process.env.DATA_CONNECT_EMULATOR_HOST));
   }
 }

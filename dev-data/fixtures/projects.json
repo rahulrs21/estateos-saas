@@ -1,0 +1,543 @@
+[
+  {
+    "key": "PRJ-01",
+    "developerKey": "DEV-01",
+    "projectName": "Falconridge Marina Heights (Demo)",
+    "projectCode": "DEMO-PRJ-01",
+    "description": "Fictional apartment community in Dubai Marina. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "projectType": "RESIDENTIAL",
+    "ownershipType": "FREEHOLD",
+    "emirate": "DUBAI",
+    "community": "Dubai Marina",
+    "area": "Dubai Marina",
+    "city": "Dubai",
+    "country": "AE",
+    "latitude": 25.0805,
+    "longitude": 55.1403,
+    "mapDisplayMode": "APPROXIMATE",
+    "launchDate": "2016-02-01",
+    "expectedHandoverDate": null,
+    "actualHandoverDate": "2019-09-30",
+    "constructionStatus": "COMPLETED",
+    "projectStatus": "ACTIVE",
+    "startingPriceAed": 1450000,
+    "currency": "AED",
+    "totalUnits": 337,
+    "phases": [
+      {
+        "key": "PH1",
+        "name": "Phase 1",
+        "reference": "PH1",
+        "status": "COMPLETED",
+        "actualHandoverDate": "2019-09-30"
+      }
+    ],
+    "buildings": [
+      {
+        "key": "A",
+        "name": "Tower A",
+        "reference": "A",
+        "phaseKey": "PH1",
+        "buildingType": "RESIDENTIAL",
+        "floors": 27,
+        "status": "COMPLETED"
+      },
+      {
+        "key": "B",
+        "name": "Tower B",
+        "reference": "B",
+        "phaseKey": "PH1",
+        "buildingType": "RESIDENTIAL",
+        "floors": 23,
+        "status": "COMPLETED"
+      }
+    ]
+  },
+  {
+    "key": "PRJ-02",
+    "developerKey": "DEV-01",
+    "projectName": "Falconridge Circle Residences (Demo)",
+    "projectCode": "DEMO-PRJ-02",
+    "description": "Fictional apartment community in Jumeirah Village Circle. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "projectType": "RESIDENTIAL",
+    "ownershipType": "FREEHOLD",
+    "emirate": "DUBAI",
+    "community": "Jumeirah Village Circle",
+    "area": "Jumeirah Village Circle",
+    "city": "Dubai",
+    "country": "AE",
+    "latitude": 25.0587,
+    "longitude": 55.2066,
+    "mapDisplayMode": "APPROXIMATE",
+    "launchDate": "2024-02-01",
+    "expectedHandoverDate": "2027-06-30",
+    "actualHandoverDate": null,
+    "constructionStatus": "UNDER_CONSTRUCTION",
+    "projectStatus": "ACTIVE",
+    "startingPriceAed": 780000,
+    "currency": "AED",
+    "totalUnits": 354,
+    "phases": [
+      {
+        "key": "PH1",
+        "name": "Phase 1",
+        "reference": "PH1",
+        "status": "UNDER_CONSTRUCTION",
+        "expectedHandoverDate": "2027-06-30"
+      },
+      {
+        "key": "PH2",
+        "name": "Phase 2",
+        "reference": "PH2",
+        "status": "PLANNED",
+        "expectedHandoverDate": "2028-03-31"
+      }
+    ],
+    "buildings": [
+      {
+        "key": "A",
+        "name": "Tower A",
+        "reference": "A",
+        "phaseKey": "PH1",
+        "buildingType": "RESIDENTIAL",
+        "floors": 30,
+        "status": "UNDER_CONSTRUCTION"
+      },
+      {
+        "key": "B",
+        "name": "Tower B",
+        "reference": "B",
+        "phaseKey": "PH2",
+        "buildingType": "RESIDENTIAL",
+        "floors": 28,
+        "status": "PLANNED"
+      }
+    ]
+  },
+  {
+    "key": "PRJ-03",
+    "developerKey": "DEV-02",
+    "projectName": "Pearlstone Bay Tower (Demo)",
+    "projectCode": "DEMO-PRJ-03",
+    "description": "Fictional apartment community in Business Bay. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "projectType": "RESIDENTIAL",
+    "ownershipType": "FREEHOLD",
+    "emirate": "DUBAI",
+    "community": "Business Bay",
+    "area": "Business Bay",
+    "city": "Dubai",
+    "country": "AE",
+    "latitude": 25.1862,
+    "longitude": 55.2724,
+    "mapDisplayMode": "APPROXIMATE",
+    "launchDate": "2018-02-01",
+    "expectedHandoverDate": null,
+    "actualHandoverDate": "2021-09-30",
+    "constructionStatus": "COMPLETED",
+    "projectStatus": "ACTIVE",
+    "startingPriceAed": 1100000,
+    "currency": "AED",
+    "totalUnits": 371,
+    "phases": [
+      {
+        "key": "PH1",
+        "name": "Phase 1",
+        "reference": "PH1",
+        "status": "COMPLETED",
+        "actualHandoverDate": "2021-09-30"
+      }
+    ],
+    "buildings": [
+      {
+        "key": "A",
+        "name": "Tower A",
+        "reference": "A",
+        "phaseKey": "PH1",
+        "buildingType": "RESIDENTIAL",
+        "floors": 33,
+        "status": "COMPLETED"
+      },
+      {
+        "key": "B",
+        "name": "Tower B",
+        "reference": "B",
+        "phaseKey": "PH1",
+        "buildingType": "RESIDENTIAL",
+        "floors": 18,
+        "status": "COMPLETED"
+      }
+    ]
+  },
+  {
+    "key": "PRJ-04",
+    "developerKey": "DEV-02",
+    "projectName": "Pearlstone Boulevard Suites (Demo)",
+    "projectCode": "DEMO-PRJ-04",
+    "description": "Fictional apartment community in Downtown Dubai. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "projectType": "RESIDENTIAL",
+    "ownershipType": "FREEHOLD",
+    "emirate": "DUBAI",
+    "community": "Downtown Dubai",
+    "area": "Downtown Dubai",
+    "city": "Dubai",
+    "country": "AE",
+    "latitude": 25.1972,
+    "longitude": 55.2744,
+    "mapDisplayMode": "APPROXIMATE",
+    "launchDate": "2015-02-01",
+    "expectedHandoverDate": null,
+    "actualHandoverDate": "2018-09-30",
+    "constructionStatus": "COMPLETED",
+    "projectStatus": "ACTIVE",
+    "startingPriceAed": 2300000,
+    "currency": "AED",
+    "totalUnits": 388,
+    "phases": [
+      {
+        "key": "PH1",
+        "name": "Phase 1",
+        "reference": "PH1",
+        "status": "COMPLETED",
+        "actualHandoverDate": "2018-09-30"
+      }
+    ],
+    "buildings": [
+      {
+        "key": "A",
+        "name": "Tower A",
+        "reference": "A",
+        "phaseKey": "PH1",
+        "buildingType": "RESIDENTIAL",
+        "floors": 36,
+        "status": "COMPLETED"
+      },
+      {
+        "key": "B",
+        "name": "Tower B",
+        "reference": "B",
+        "phaseKey": "PH1",
+        "buildingType": "RESIDENTIAL",
+        "floors": 23,
+        "status": "COMPLETED"
+      }
+    ]
+  },
+  {
+    "key": "PRJ-05",
+    "developerKey": "DEV-03",
+    "projectName": "Dunewell Hills Villas (Demo)",
+    "projectCode": "DEMO-PRJ-05",
+    "description": "Fictional villa community in Dubai Hills Estate. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "projectType": "RESIDENTIAL",
+    "ownershipType": "FREEHOLD",
+    "emirate": "DUBAI",
+    "community": "Dubai Hills Estate",
+    "area": "Dubai Hills Estate",
+    "city": "Dubai",
+    "country": "AE",
+    "latitude": 25.1036,
+    "longitude": 55.2459,
+    "mapDisplayMode": "APPROXIMATE",
+    "launchDate": "2019-02-01",
+    "expectedHandoverDate": null,
+    "actualHandoverDate": "2022-09-30",
+    "constructionStatus": "COMPLETED",
+    "projectStatus": "ACTIVE",
+    "startingPriceAed": 5800000,
+    "currency": "AED",
+    "totalUnits": 84,
+    "phases": [
+      {
+        "key": "PH1",
+        "name": "Phase 1",
+        "reference": "PH1",
+        "status": "COMPLETED",
+        "actualHandoverDate": "2022-09-30"
+      }
+    ],
+    "buildings": [
+      {
+        "key": "C1",
+        "name": "Cluster 1",
+        "reference": "C1",
+        "phaseKey": "PH1",
+        "buildingType": "VILLA",
+        "floors": 2,
+        "status": "COMPLETED"
+      }
+    ]
+  },
+  {
+    "key": "PRJ-06",
+    "developerKey": "DEV-03",
+    "projectName": "Dunewell Ranches Townhouses (Demo)",
+    "projectCode": "DEMO-PRJ-06",
+    "description": "Fictional townhouse community in Arabian Ranches. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "projectType": "RESIDENTIAL",
+    "ownershipType": "FREEHOLD",
+    "emirate": "DUBAI",
+    "community": "Arabian Ranches",
+    "area": "Arabian Ranches",
+    "city": "Dubai",
+    "country": "AE",
+    "latitude": 25.0545,
+    "longitude": 55.2667,
+    "mapDisplayMode": "APPROXIMATE",
+    "launchDate": "2024-02-01",
+    "expectedHandoverDate": "2027-06-30",
+    "actualHandoverDate": null,
+    "constructionStatus": "UNDER_CONSTRUCTION",
+    "projectStatus": "ACTIVE",
+    "startingPriceAed": 3100000,
+    "currency": "AED",
+    "totalUnits": 88,
+    "phases": [
+      {
+        "key": "PH1",
+        "name": "Phase 1",
+        "reference": "PH1",
+        "status": "UNDER_CONSTRUCTION",
+        "expectedHandoverDate": "2027-06-30"
+      },
+      {
+        "key": "PH2",
+        "name": "Phase 2",
+        "reference": "PH2",
+        "status": "PLANNED",
+        "expectedHandoverDate": "2028-03-31"
+      }
+    ],
+    "buildings": [
+      {
+        "key": "C1",
+        "name": "Cluster 1",
+        "reference": "C1",
+        "phaseKey": "PH1",
+        "buildingType": "TOWNHOUSE",
+        "floors": 2,
+        "status": "UNDER_CONSTRUCTION"
+      }
+    ]
+  },
+  {
+    "key": "PRJ-07",
+    "developerKey": "DEV-04",
+    "projectName": "Marisol Reem Waterfront (Demo)",
+    "projectCode": "DEMO-PRJ-07",
+    "description": "Fictional apartment community in Al Reem Island. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "projectType": "RESIDENTIAL",
+    "ownershipType": "FREEHOLD",
+    "emirate": "ABU_DHABI",
+    "community": "Al Reem Island",
+    "area": "Al Reem Island",
+    "city": "Abu Dhabi",
+    "country": "AE",
+    "latitude": 24.4994,
+    "longitude": 54.404,
+    "mapDisplayMode": "APPROXIMATE",
+    "launchDate": "2017-02-01",
+    "expectedHandoverDate": null,
+    "actualHandoverDate": "2020-09-30",
+    "constructionStatus": "COMPLETED",
+    "projectStatus": "ACTIVE",
+    "startingPriceAed": 1150000,
+    "currency": "AED",
+    "totalUnits": 439,
+    "phases": [
+      {
+        "key": "PH1",
+        "name": "Phase 1",
+        "reference": "PH1",
+        "status": "COMPLETED",
+        "actualHandoverDate": "2020-09-30"
+      }
+    ],
+    "buildings": [
+      {
+        "key": "A",
+        "name": "Tower A",
+        "reference": "A",
+        "phaseKey": "PH1",
+        "buildingType": "RESIDENTIAL",
+        "floors": 25,
+        "status": "COMPLETED"
+      },
+      {
+        "key": "B",
+        "name": "Tower B",
+        "reference": "B",
+        "phaseKey": "PH1",
+        "buildingType": "RESIDENTIAL",
+        "floors": 23,
+        "status": "COMPLETED"
+      }
+    ]
+  },
+  {
+    "key": "PRJ-08",
+    "developerKey": "DEV-04",
+    "projectName": "Marisol Yas Gardens (Demo)",
+    "projectCode": "DEMO-PRJ-08",
+    "description": "Fictional townhouse community in Yas Island. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "projectType": "RESIDENTIAL",
+    "ownershipType": "FREEHOLD",
+    "emirate": "ABU_DHABI",
+    "community": "Yas Island",
+    "area": "Yas Island",
+    "city": "Abu Dhabi",
+    "country": "AE",
+    "latitude": 24.4887,
+    "longitude": 54.6078,
+    "mapDisplayMode": "APPROXIMATE",
+    "launchDate": "2025-02-01",
+    "expectedHandoverDate": "2028-06-30",
+    "actualHandoverDate": null,
+    "constructionStatus": "LAUNCHED",
+    "projectStatus": "ACTIVE",
+    "startingPriceAed": 2650000,
+    "currency": "AED",
+    "totalUnits": 96,
+    "phases": [
+      {
+        "key": "PH1",
+        "name": "Phase 1",
+        "reference": "PH1",
+        "status": "UNDER_CONSTRUCTION",
+        "expectedHandoverDate": "2028-06-30"
+      },
+      {
+        "key": "PH2",
+        "name": "Phase 2",
+        "reference": "PH2",
+        "status": "PLANNED",
+        "expectedHandoverDate": "2029-03-31"
+      }
+    ],
+    "buildings": [
+      {
+        "key": "C1",
+        "name": "Cluster 1",
+        "reference": "C1",
+        "phaseKey": "PH1",
+        "buildingType": "TOWNHOUSE",
+        "floors": 2,
+        "status": "UNDER_CONSTRUCTION"
+      }
+    ]
+  },
+  {
+    "key": "PRJ-09",
+    "developerKey": "DEV-05",
+    "projectName": "Qasr Majaz Lakeside (Demo)",
+    "projectCode": "DEMO-PRJ-09",
+    "description": "Fictional apartment community in Al Majaz. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "projectType": "RESIDENTIAL",
+    "ownershipType": "FREEHOLD",
+    "emirate": "SHARJAH",
+    "community": "Al Majaz",
+    "area": "Al Majaz",
+    "city": "Sharjah",
+    "country": "AE",
+    "latitude": 25.3247,
+    "longitude": 55.3863,
+    "mapDisplayMode": "APPROXIMATE",
+    "launchDate": "2014-02-01",
+    "expectedHandoverDate": null,
+    "actualHandoverDate": "2017-09-30",
+    "constructionStatus": "COMPLETED",
+    "projectStatus": "ACTIVE",
+    "startingPriceAed": 690000,
+    "currency": "AED",
+    "totalUnits": 473,
+    "phases": [
+      {
+        "key": "PH1",
+        "name": "Phase 1",
+        "reference": "PH1",
+        "status": "COMPLETED",
+        "actualHandoverDate": "2017-09-30"
+      }
+    ],
+    "buildings": [
+      {
+        "key": "A",
+        "name": "Tower A",
+        "reference": "A",
+        "phaseKey": "PH1",
+        "buildingType": "RESIDENTIAL",
+        "floors": 31,
+        "status": "COMPLETED"
+      },
+      {
+        "key": "B",
+        "name": "Tower B",
+        "reference": "B",
+        "phaseKey": "PH1",
+        "buildingType": "RESIDENTIAL",
+        "floors": 18,
+        "status": "COMPLETED"
+      }
+    ]
+  },
+  {
+    "key": "PRJ-10",
+    "developerKey": "DEV-05",
+    "projectName": "Qasr Marjan Shores (Demo)",
+    "projectCode": "DEMO-PRJ-10",
+    "description": "Fictional apartment community in Al Marjan Island. Fictional demo record for EstateOS development. Not real inventory or a real company.",
+    "projectType": "RESIDENTIAL",
+    "ownershipType": "FREEHOLD",
+    "emirate": "RAS_AL_KHAIMAH",
+    "community": "Al Marjan Island",
+    "area": "Al Marjan Island",
+    "city": "Ras Al Khaimah",
+    "country": "AE",
+    "latitude": 25.6782,
+    "longitude": 55.7476,
+    "mapDisplayMode": "APPROXIMATE",
+    "launchDate": "2024-02-01",
+    "expectedHandoverDate": "2027-06-30",
+    "actualHandoverDate": null,
+    "constructionStatus": "UNDER_CONSTRUCTION",
+    "projectStatus": "ACTIVE",
+    "startingPriceAed": 1050000,
+    "currency": "AED",
+    "totalUnits": 490,
+    "phases": [
+      {
+        "key": "PH1",
+        "name": "Phase 1",
+        "reference": "PH1",
+        "status": "UNDER_CONSTRUCTION",
+        "expectedHandoverDate": "2027-06-30"
+      },
+      {
+        "key": "PH2",
+        "name": "Phase 2",
+        "reference": "PH2",
+        "status": "PLANNED",
+        "expectedHandoverDate": "2028-03-31"
+      }
+    ],
+    "buildings": [
+      {
+        "key": "A",
+        "name": "Tower A",
+        "reference": "A",
+        "phaseKey": "PH1",
+        "buildingType": "RESIDENTIAL",
+        "floors": 34,
+        "status": "UNDER_CONSTRUCTION"
+      },
+      {
+        "key": "B",
+        "name": "Tower B",
+        "reference": "B",
+        "phaseKey": "PH2",
+        "buildingType": "RESIDENTIAL",
+        "floors": 23,
+        "status": "PLANNED"
+      }
+    ]
+  }
+]

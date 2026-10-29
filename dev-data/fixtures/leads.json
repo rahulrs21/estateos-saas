@@ -1,0 +1,1724 @@
+[
+  {
+    "key": "LD-001",
+    "contactKey": "CT-001",
+    "projectKey": "PRJ-01",
+    "transactionType": "INVEST",
+    "propertyType": "Apartment",
+    "bedroomPreference": "Studio",
+    "preferredLocation": "Dubai Marina",
+    "budgetMin": 796000,
+    "budgetMax": 1144000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Dubai Marina for investment (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Called the customer; prefers WhatsApp after 6pm. (demo)"
+      },
+      {
+        "key": "note-2",
+        "note": "Budget confirmed by phone; mortgage pre-approval in progress. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-001",
+        "propertyKey": "DEMO-P-001",
+        "status": "INTERESTED",
+        "notes": "Matches budget and location. (demo)"
+      },
+      {
+        "key": "DEMO-P-002",
+        "propertyKey": "DEMO-P-002",
+        "status": "SAVED",
+        "notes": "Alternative in the same project. (demo)"
+      }
+    ],
+    "viewings": [
+      {
+        "key": "viewing-DEMO-P-001",
+        "propertyKey": "DEMO-P-001",
+        "inDays": 2,
+        "timeDubai": "10:30",
+        "customerConfirmation": "CONFIRMED",
+        "notes": "Meet at the building lobby. (demo)"
+      }
+    ],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 1,
+        "timeDubai": "09:30",
+        "title": "Call back",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-002",
+    "contactKey": "CT-002",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "1",
+    "preferredLocation": "Business Bay",
+    "budgetMin": 1100000,
+    "budgetMax": 1581000,
+    "currency": "AED",
+    "priority": "HIGH",
+    "propertyInterest": "Apartment in Business Bay (demo enquiry)",
+    "status": "CONTACTED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Customer wants a ready unit and can move within 3 months. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 2,
+        "timeDubai": "11:00",
+        "title": "Send brochure",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-003",
+    "contactKey": "CT-003",
+    "projectKey": null,
+    "transactionType": "RENT",
+    "propertyType": "Villa",
+    "bedroomPreference": "4",
+    "preferredLocation": "Dubai Hills Estate",
+    "budgetMin": 254000,
+    "budgetMax": 365000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Villa in Dubai Hills Estate to rent (demo enquiry)",
+    "status": "QUALIFIED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Asked for the payment plan and service charge details. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-015",
+        "propertyKey": "DEMO-P-015",
+        "status": "SAVED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [],
+    "followUps": []
+  },
+  {
+    "key": "LD-004",
+    "contactKey": "CT-004",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Townhouse",
+    "bedroomPreference": "3",
+    "preferredLocation": "Yas Island",
+    "budgetMin": 2120000,
+    "budgetMax": 3047000,
+    "currency": "AED",
+    "priority": "LOW",
+    "propertyInterest": "Townhouse in Yas Island (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Budget confirmed by phone; mortgage pre-approval in progress. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 4,
+        "timeDubai": "17:30",
+        "title": "Share new listings",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-005",
+    "contactKey": "CT-005",
+    "projectKey": "PRJ-10",
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "1",
+    "preferredLocation": "Al Marjan Island",
+    "budgetMin": 1052000,
+    "budgetMax": 1512000,
+    "currency": "AED",
+    "priority": "URGENT",
+    "propertyInterest": "Apartment in Al Marjan Island (demo enquiry)",
+    "status": "CONTACTED",
+    "notes": [],
+    "shortlist": [
+      {
+        "key": "DEMO-P-029",
+        "propertyKey": "DEMO-P-029",
+        "status": "INTERESTED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [
+      {
+        "key": "viewing-DEMO-P-029",
+        "propertyKey": "DEMO-P-029",
+        "inDays": 6,
+        "timeDubai": "10:30",
+        "customerConfirmation": "PENDING",
+        "notes": "Meet at the building lobby. (demo)"
+      }
+    ],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 5,
+        "timeDubai": "09:30",
+        "title": "Call back",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-006",
+    "contactKey": "CT-006",
+    "projectKey": null,
+    "transactionType": "INVEST",
+    "propertyType": "Apartment",
+    "bedroomPreference": "2",
+    "preferredLocation": "Jumeirah Village Circle",
+    "budgetMin": 1208000,
+    "budgetMax": 1736000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Jumeirah Village Circle for investment (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Comparing two communities; send a short comparison. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 6,
+        "timeDubai": "11:00",
+        "title": "Send brochure",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-007",
+    "contactKey": "CT-007",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Villa",
+    "bedroomPreference": "4",
+    "preferredLocation": "Dubai Hills Estate",
+    "budgetMin": 4640000,
+    "budgetMax": 6670000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Villa in Dubai Hills Estate (demo enquiry)",
+    "status": "QUALIFIED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Called the customer; prefers WhatsApp after 6pm. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-013",
+        "propertyKey": "DEMO-P-013",
+        "status": "SAVED",
+        "notes": "Matches budget and location. (demo)"
+      },
+      {
+        "key": "DEMO-P-014",
+        "propertyKey": "DEMO-P-014",
+        "status": "SAVED",
+        "notes": "Alternative in the same project. (demo)"
+      }
+    ],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 7,
+        "timeDubai": "15:00",
+        "title": "Confirm budget",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-008",
+    "contactKey": "CT-008",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "1",
+    "preferredLocation": "Al Reem Island",
+    "budgetMin": 1152000,
+    "budgetMax": 1656000,
+    "currency": "AED",
+    "priority": "HIGH",
+    "propertyInterest": "Apartment in Al Reem Island (demo enquiry)",
+    "status": "NEGOTIATION",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Customer wants a ready unit and can move within 3 months. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": []
+  },
+  {
+    "key": "LD-009",
+    "contactKey": "CT-009",
+    "projectKey": "PRJ-09",
+    "transactionType": "RENT",
+    "propertyType": "Apartment",
+    "bedroomPreference": "2",
+    "preferredLocation": "Al Majaz",
+    "budgetMin": 73000,
+    "budgetMax": 105000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Al Majaz to rent (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Asked for the payment plan and service charge details. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 9,
+        "timeDubai": "09:30",
+        "title": "Call back",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-010",
+    "contactKey": "CT-010",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "Studio",
+    "preferredLocation": "Jumeirah Village Circle",
+    "budgetMin": 428000,
+    "budgetMax": 615000,
+    "currency": "AED",
+    "priority": "LOW",
+    "propertyInterest": "Apartment in Jumeirah Village Circle (demo enquiry)",
+    "status": "LOST",
+    "notes": [],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": []
+  },
+  {
+    "key": "LD-011",
+    "contactKey": "CT-011",
+    "projectKey": null,
+    "transactionType": "INVEST",
+    "propertyType": "Apartment",
+    "bedroomPreference": "1",
+    "preferredLocation": "Downtown Dubai",
+    "budgetMin": 2300000,
+    "budgetMax": 3306000,
+    "currency": "AED",
+    "priority": "URGENT",
+    "propertyInterest": "Apartment in Downtown Dubai for investment (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Interested in a second viewing with family. (demo)"
+      },
+      {
+        "key": "note-2",
+        "note": "Customer wants a ready unit and can move within 3 months. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-011",
+        "propertyKey": "DEMO-P-011",
+        "status": "SAVED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 11,
+        "timeDubai": "15:00",
+        "title": "Confirm budget",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-012",
+    "contactKey": "CT-012",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Townhouse",
+    "bedroomPreference": "4",
+    "preferredLocation": "Arabian Ranches",
+    "budgetMin": 3224000,
+    "budgetMax": 4635000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Townhouse in Arabian Ranches (demo enquiry)",
+    "status": "CONTACTED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Comparing two communities; send a short comparison. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 12,
+        "timeDubai": "17:30",
+        "title": "Share new listings",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-013",
+    "contactKey": "CT-013",
+    "projectKey": "PRJ-09",
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "Studio",
+    "preferredLocation": "Al Majaz",
+    "budgetMin": 380000,
+    "budgetMax": 546000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Al Majaz (demo enquiry)",
+    "status": "QUALIFIED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Called the customer; prefers WhatsApp after 6pm. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-025",
+        "propertyKey": "DEMO-P-025",
+        "status": "INTERESTED",
+        "notes": "Matches budget and location. (demo)"
+      },
+      {
+        "key": "DEMO-P-026",
+        "propertyKey": "DEMO-P-026",
+        "status": "SAVED",
+        "notes": "Alternative in the same project. (demo)"
+      }
+    ],
+    "viewings": [
+      {
+        "key": "viewing-DEMO-P-025",
+        "propertyKey": "DEMO-P-025",
+        "inDays": 5,
+        "timeDubai": "10:30",
+        "customerConfirmation": "PENDING",
+        "notes": "Meet at the building lobby. (demo)"
+      }
+    ],
+    "followUps": []
+  },
+  {
+    "key": "LD-014",
+    "contactKey": "CT-014",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "1",
+    "preferredLocation": "Dubai Marina",
+    "budgetMin": 1452000,
+    "budgetMax": 2087000,
+    "currency": "AED",
+    "priority": "HIGH",
+    "propertyInterest": "Apartment in Dubai Marina (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Customer wants a ready unit and can move within 3 months. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 2,
+        "timeDubai": "11:00",
+        "title": "Send brochure",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-015",
+    "contactKey": "CT-015",
+    "projectKey": null,
+    "transactionType": "RENT",
+    "propertyType": "Apartment",
+    "bedroomPreference": "2",
+    "preferredLocation": "Business Bay",
+    "budgetMin": 116000,
+    "budgetMax": 167000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Business Bay to rent (demo enquiry)",
+    "status": "CONTACTED",
+    "notes": [],
+    "shortlist": [
+      {
+        "key": "DEMO-P-009",
+        "propertyKey": "DEMO-P-009",
+        "status": "SAVED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 3,
+        "timeDubai": "15:00",
+        "title": "Confirm budget",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-016",
+    "contactKey": "CT-016",
+    "projectKey": null,
+    "transactionType": "INVEST",
+    "propertyType": "Townhouse",
+    "bedroomPreference": "3",
+    "preferredLocation": "Arabian Ranches",
+    "budgetMin": 2480000,
+    "budgetMax": 3565000,
+    "currency": "AED",
+    "priority": "LOW",
+    "propertyInterest": "Townhouse in Arabian Ranches for investment (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Budget confirmed by phone; mortgage pre-approval in progress. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 4,
+        "timeDubai": "17:30",
+        "title": "Share new listings",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-017",
+    "contactKey": "CT-017",
+    "projectKey": "PRJ-08",
+    "transactionType": "BUY",
+    "propertyType": "Townhouse",
+    "bedroomPreference": "3",
+    "preferredLocation": "Yas Island",
+    "budgetMin": 2248000,
+    "budgetMax": 3231000,
+    "currency": "AED",
+    "priority": "URGENT",
+    "propertyInterest": "Townhouse in Yas Island (demo enquiry)",
+    "status": "QUALIFIED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Interested in a second viewing with family. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-023",
+        "propertyKey": "DEMO-P-023",
+        "status": "INTERESTED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [
+      {
+        "key": "viewing-DEMO-P-023",
+        "propertyKey": "DEMO-P-023",
+        "inDays": 9,
+        "timeDubai": "10:30",
+        "customerConfirmation": "CONFIRMED",
+        "notes": "Meet at the building lobby. (demo)"
+      }
+    ],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 5,
+        "timeDubai": "09:30",
+        "title": "Call back",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-018",
+    "contactKey": "CT-018",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "2",
+    "preferredLocation": "Al Marjan Island",
+    "budgetMin": 1628000,
+    "budgetMax": 2340000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Al Marjan Island (demo enquiry)",
+    "status": "NEGOTIATION",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Comparing two communities; send a short comparison. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": []
+  },
+  {
+    "key": "LD-019",
+    "contactKey": "CT-019",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "Studio",
+    "preferredLocation": "Business Bay",
+    "budgetMin": 604000,
+    "budgetMax": 868000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Business Bay (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Called the customer; prefers WhatsApp after 6pm. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 7,
+        "timeDubai": "15:00",
+        "title": "Confirm budget",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-020",
+    "contactKey": "CT-020",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Villa",
+    "bedroomPreference": "5",
+    "preferredLocation": "Dubai Hills Estate",
+    "budgetMin": 6264000,
+    "budgetMax": 9005000,
+    "currency": "AED",
+    "priority": "HIGH",
+    "propertyInterest": "Villa in Dubai Hills Estate (demo enquiry)",
+    "status": "LOST",
+    "notes": [],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": []
+  },
+  {
+    "key": "LD-021",
+    "contactKey": "CT-021",
+    "projectKey": "PRJ-07",
+    "transactionType": "RENT",
+    "propertyType": "Apartment",
+    "bedroomPreference": "2",
+    "preferredLocation": "Al Reem Island",
+    "budgetMin": 122000,
+    "budgetMax": 175000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Al Reem Island to rent (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Asked for the payment plan and service charge details. (demo)"
+      },
+      {
+        "key": "note-2",
+        "note": "Comparing two communities; send a short comparison. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-021",
+        "propertyKey": "DEMO-P-021",
+        "status": "INTERESTED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [
+      {
+        "key": "viewing-DEMO-P-021",
+        "propertyKey": "DEMO-P-021",
+        "inDays": 4,
+        "timeDubai": "10:30",
+        "customerConfirmation": "PENDING",
+        "notes": "Meet at the building lobby. (demo)"
+      }
+    ],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 9,
+        "timeDubai": "09:30",
+        "title": "Call back",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-022",
+    "contactKey": "CT-022",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "Studio",
+    "preferredLocation": "Al Marjan Island",
+    "budgetMin": 576000,
+    "budgetMax": 828000,
+    "currency": "AED",
+    "priority": "LOW",
+    "propertyInterest": "Apartment in Al Marjan Island (demo enquiry)",
+    "status": "CONTACTED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Budget confirmed by phone; mortgage pre-approval in progress. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 10,
+        "timeDubai": "11:00",
+        "title": "Send brochure",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-023",
+    "contactKey": "CT-023",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "1",
+    "preferredLocation": "Jumeirah Village Circle",
+    "budgetMin": 780000,
+    "budgetMax": 1121000,
+    "currency": "AED",
+    "priority": "URGENT",
+    "propertyInterest": "Apartment in Jumeirah Village Circle (demo enquiry)",
+    "status": "QUALIFIED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Interested in a second viewing with family. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-005",
+        "propertyKey": "DEMO-P-005",
+        "status": "SAVED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [],
+    "followUps": []
+  },
+  {
+    "key": "LD-024",
+    "contactKey": "CT-024",
+    "projectKey": null,
+    "transactionType": "RENT",
+    "propertyType": "Apartment",
+    "bedroomPreference": "2",
+    "preferredLocation": "Downtown Dubai",
+    "budgetMin": 242000,
+    "budgetMax": 348000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Downtown Dubai to rent (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Comparing two communities; send a short comparison. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 12,
+        "timeDubai": "17:30",
+        "title": "Share new listings",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-025",
+    "contactKey": "CT-025",
+    "projectKey": "PRJ-07",
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "Studio",
+    "preferredLocation": "Al Reem Island",
+    "budgetMin": 632000,
+    "budgetMax": 908000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Al Reem Island (demo enquiry)",
+    "status": "CONTACTED",
+    "notes": [],
+    "shortlist": [
+      {
+        "key": "DEMO-P-019",
+        "propertyKey": "DEMO-P-019",
+        "status": "INTERESTED",
+        "notes": "Matches budget and location. (demo)"
+      },
+      {
+        "key": "DEMO-P-020",
+        "propertyKey": "DEMO-P-020",
+        "status": "SAVED",
+        "notes": "Alternative in the same project. (demo)"
+      }
+    ],
+    "viewings": [
+      {
+        "key": "viewing-DEMO-P-019",
+        "propertyKey": "DEMO-P-019",
+        "inDays": 8,
+        "timeDubai": "10:30",
+        "customerConfirmation": "CONFIRMED",
+        "notes": "Meet at the building lobby. (demo)"
+      }
+    ],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 1,
+        "timeDubai": "09:30",
+        "title": "Call back",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-026",
+    "contactKey": "CT-026",
+    "projectKey": null,
+    "transactionType": "INVEST",
+    "propertyType": "Apartment",
+    "bedroomPreference": "1",
+    "preferredLocation": "Al Majaz",
+    "budgetMin": 692000,
+    "budgetMax": 995000,
+    "currency": "AED",
+    "priority": "HIGH",
+    "propertyInterest": "Apartment in Al Majaz for investment (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Customer wants a ready unit and can move within 3 months. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 2,
+        "timeDubai": "11:00",
+        "title": "Send brochure",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-027",
+    "contactKey": "CT-027",
+    "projectKey": null,
+    "transactionType": "RENT",
+    "propertyType": "Apartment",
+    "bedroomPreference": "2",
+    "preferredLocation": "Dubai Marina",
+    "budgetMin": 153000,
+    "budgetMax": 220000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Dubai Marina to rent (demo enquiry)",
+    "status": "QUALIFIED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Asked for the payment plan and service charge details. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-003",
+        "propertyKey": "DEMO-P-003",
+        "status": "SAVED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 3,
+        "timeDubai": "15:00",
+        "title": "Confirm budget",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-028",
+    "contactKey": "CT-028",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "Studio",
+    "preferredLocation": "Downtown Dubai",
+    "budgetMin": 1264000,
+    "budgetMax": 1817000,
+    "currency": "AED",
+    "priority": "LOW",
+    "propertyInterest": "Apartment in Downtown Dubai (demo enquiry)",
+    "status": "NEGOTIATION",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Budget confirmed by phone; mortgage pre-approval in progress. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": []
+  },
+  {
+    "key": "LD-029",
+    "contactKey": "CT-029",
+    "projectKey": "PRJ-06",
+    "transactionType": "BUY",
+    "propertyType": "Townhouse",
+    "bedroomPreference": "3",
+    "preferredLocation": "Arabian Ranches",
+    "budgetMin": 2628000,
+    "budgetMax": 3778000,
+    "currency": "AED",
+    "priority": "URGENT",
+    "propertyInterest": "Townhouse in Arabian Ranches (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Interested in a second viewing with family. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 5,
+        "timeDubai": "09:30",
+        "title": "Call back",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-030",
+    "contactKey": "CT-030",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Townhouse",
+    "bedroomPreference": "4",
+    "preferredLocation": "Yas Island",
+    "budgetMin": 2756000,
+    "budgetMax": 3962000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Townhouse in Yas Island (demo enquiry)",
+    "status": "LOST",
+    "notes": [],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": []
+  },
+  {
+    "key": "LD-031",
+    "contactKey": "CT-031",
+    "projectKey": null,
+    "transactionType": "INVEST",
+    "propertyType": "Apartment",
+    "bedroomPreference": "Studio",
+    "preferredLocation": "Dubai Marina",
+    "budgetMin": 796000,
+    "budgetMax": 1144000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Dubai Marina for investment (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Called the customer; prefers WhatsApp after 6pm. (demo)"
+      },
+      {
+        "key": "note-2",
+        "note": "Budget confirmed by phone; mortgage pre-approval in progress. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-001",
+        "propertyKey": "DEMO-P-001",
+        "status": "SAVED",
+        "notes": "Matches budget and location. (demo)"
+      },
+      {
+        "key": "DEMO-P-002",
+        "propertyKey": "DEMO-P-002",
+        "status": "SAVED",
+        "notes": "Alternative in the same project. (demo)"
+      }
+    ],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 7,
+        "timeDubai": "15:00",
+        "title": "Confirm budget",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-032",
+    "contactKey": "CT-032",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "1",
+    "preferredLocation": "Business Bay",
+    "budgetMin": 1100000,
+    "budgetMax": 1581000,
+    "currency": "AED",
+    "priority": "HIGH",
+    "propertyInterest": "Apartment in Business Bay (demo enquiry)",
+    "status": "CONTACTED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Customer wants a ready unit and can move within 3 months. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 8,
+        "timeDubai": "17:30",
+        "title": "Share new listings",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-033",
+    "contactKey": "CT-033",
+    "projectKey": "PRJ-05",
+    "transactionType": "RENT",
+    "propertyType": "Villa",
+    "bedroomPreference": "4",
+    "preferredLocation": "Dubai Hills Estate",
+    "budgetMin": 254000,
+    "budgetMax": 365000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Villa in Dubai Hills Estate to rent (demo enquiry)",
+    "status": "QUALIFIED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Asked for the payment plan and service charge details. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-015",
+        "propertyKey": "DEMO-P-015",
+        "status": "INTERESTED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [
+      {
+        "key": "viewing-DEMO-P-015",
+        "propertyKey": "DEMO-P-015",
+        "inDays": 7,
+        "timeDubai": "10:30",
+        "customerConfirmation": "CONFIRMED",
+        "notes": "Meet at the building lobby. (demo)"
+      }
+    ],
+    "followUps": []
+  },
+  {
+    "key": "LD-034",
+    "contactKey": "CT-034",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Townhouse",
+    "bedroomPreference": "3",
+    "preferredLocation": "Yas Island",
+    "budgetMin": 2120000,
+    "budgetMax": 3047000,
+    "currency": "AED",
+    "priority": "LOW",
+    "propertyInterest": "Townhouse in Yas Island (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Budget confirmed by phone; mortgage pre-approval in progress. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 10,
+        "timeDubai": "11:00",
+        "title": "Send brochure",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-035",
+    "contactKey": "CT-035",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "1",
+    "preferredLocation": "Al Marjan Island",
+    "budgetMin": 1052000,
+    "budgetMax": 1512000,
+    "currency": "AED",
+    "priority": "URGENT",
+    "propertyInterest": "Apartment in Al Marjan Island (demo enquiry)",
+    "status": "CONTACTED",
+    "notes": [],
+    "shortlist": [
+      {
+        "key": "DEMO-P-029",
+        "propertyKey": "DEMO-P-029",
+        "status": "SAVED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 11,
+        "timeDubai": "15:00",
+        "title": "Confirm budget",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-036",
+    "contactKey": "CT-036",
+    "projectKey": null,
+    "transactionType": "INVEST",
+    "propertyType": "Apartment",
+    "bedroomPreference": "2",
+    "preferredLocation": "Jumeirah Village Circle",
+    "budgetMin": 1208000,
+    "budgetMax": 1736000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Jumeirah Village Circle for investment (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Comparing two communities; send a short comparison. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 12,
+        "timeDubai": "17:30",
+        "title": "Share new listings",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-037",
+    "contactKey": "CT-037",
+    "projectKey": "PRJ-05",
+    "transactionType": "BUY",
+    "propertyType": "Villa",
+    "bedroomPreference": "4",
+    "preferredLocation": "Dubai Hills Estate",
+    "budgetMin": 4640000,
+    "budgetMax": 6670000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Villa in Dubai Hills Estate (demo enquiry)",
+    "status": "QUALIFIED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Called the customer; prefers WhatsApp after 6pm. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-013",
+        "propertyKey": "DEMO-P-013",
+        "status": "INTERESTED",
+        "notes": "Matches budget and location. (demo)"
+      },
+      {
+        "key": "DEMO-P-014",
+        "propertyKey": "DEMO-P-014",
+        "status": "SAVED",
+        "notes": "Alternative in the same project. (demo)"
+      }
+    ],
+    "viewings": [
+      {
+        "key": "viewing-DEMO-P-013",
+        "propertyKey": "DEMO-P-013",
+        "inDays": 2,
+        "timeDubai": "10:30",
+        "customerConfirmation": "PENDING",
+        "notes": "Meet at the building lobby. (demo)"
+      }
+    ],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 1,
+        "timeDubai": "09:30",
+        "title": "Call back",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-038",
+    "contactKey": "CT-038",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "1",
+    "preferredLocation": "Al Reem Island",
+    "budgetMin": 1152000,
+    "budgetMax": 1656000,
+    "currency": "AED",
+    "priority": "HIGH",
+    "propertyInterest": "Apartment in Al Reem Island (demo enquiry)",
+    "status": "NEGOTIATION",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Customer wants a ready unit and can move within 3 months. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": []
+  },
+  {
+    "key": "LD-039",
+    "contactKey": "CT-039",
+    "projectKey": null,
+    "transactionType": "RENT",
+    "propertyType": "Apartment",
+    "bedroomPreference": "2",
+    "preferredLocation": "Al Majaz",
+    "budgetMin": 73000,
+    "budgetMax": 105000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Al Majaz to rent (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Asked for the payment plan and service charge details. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 3,
+        "timeDubai": "15:00",
+        "title": "Confirm budget",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-040",
+    "contactKey": "CT-040",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "Studio",
+    "preferredLocation": "Jumeirah Village Circle",
+    "budgetMin": 428000,
+    "budgetMax": 615000,
+    "currency": "AED",
+    "priority": "LOW",
+    "propertyInterest": "Apartment in Jumeirah Village Circle (demo enquiry)",
+    "status": "LOST",
+    "notes": [],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": []
+  },
+  {
+    "key": "LD-041",
+    "contactKey": "CT-041",
+    "projectKey": "PRJ-04",
+    "transactionType": "INVEST",
+    "propertyType": "Apartment",
+    "bedroomPreference": "1",
+    "preferredLocation": "Downtown Dubai",
+    "budgetMin": 2300000,
+    "budgetMax": 3306000,
+    "currency": "AED",
+    "priority": "URGENT",
+    "propertyInterest": "Apartment in Downtown Dubai for investment (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Interested in a second viewing with family. (demo)"
+      },
+      {
+        "key": "note-2",
+        "note": "Customer wants a ready unit and can move within 3 months. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-011",
+        "propertyKey": "DEMO-P-011",
+        "status": "INTERESTED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [
+      {
+        "key": "viewing-DEMO-P-011",
+        "propertyKey": "DEMO-P-011",
+        "inDays": 6,
+        "timeDubai": "10:30",
+        "customerConfirmation": "CONFIRMED",
+        "notes": "Meet at the building lobby. (demo)"
+      }
+    ],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 5,
+        "timeDubai": "09:30",
+        "title": "Call back",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-042",
+    "contactKey": "CT-042",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Townhouse",
+    "bedroomPreference": "4",
+    "preferredLocation": "Arabian Ranches",
+    "budgetMin": 3224000,
+    "budgetMax": 4635000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Townhouse in Arabian Ranches (demo enquiry)",
+    "status": "CONTACTED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Comparing two communities; send a short comparison. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 6,
+        "timeDubai": "11:00",
+        "title": "Send brochure",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-043",
+    "contactKey": "CT-043",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "Studio",
+    "preferredLocation": "Al Majaz",
+    "budgetMin": 380000,
+    "budgetMax": 546000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Al Majaz (demo enquiry)",
+    "status": "QUALIFIED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Called the customer; prefers WhatsApp after 6pm. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-025",
+        "propertyKey": "DEMO-P-025",
+        "status": "SAVED",
+        "notes": "Matches budget and location. (demo)"
+      },
+      {
+        "key": "DEMO-P-026",
+        "propertyKey": "DEMO-P-026",
+        "status": "SAVED",
+        "notes": "Alternative in the same project. (demo)"
+      }
+    ],
+    "viewings": [],
+    "followUps": []
+  },
+  {
+    "key": "LD-044",
+    "contactKey": "CT-044",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "1",
+    "preferredLocation": "Dubai Marina",
+    "budgetMin": 1452000,
+    "budgetMax": 2087000,
+    "currency": "AED",
+    "priority": "HIGH",
+    "propertyInterest": "Apartment in Dubai Marina (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Customer wants a ready unit and can move within 3 months. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 8,
+        "timeDubai": "17:30",
+        "title": "Share new listings",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-045",
+    "contactKey": "CT-045",
+    "projectKey": "PRJ-03",
+    "transactionType": "RENT",
+    "propertyType": "Apartment",
+    "bedroomPreference": "2",
+    "preferredLocation": "Business Bay",
+    "budgetMin": 116000,
+    "budgetMax": 167000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Business Bay to rent (demo enquiry)",
+    "status": "CONTACTED",
+    "notes": [],
+    "shortlist": [
+      {
+        "key": "DEMO-P-009",
+        "propertyKey": "DEMO-P-009",
+        "status": "INTERESTED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [
+      {
+        "key": "viewing-DEMO-P-009",
+        "propertyKey": "DEMO-P-009",
+        "inDays": 10,
+        "timeDubai": "10:30",
+        "customerConfirmation": "PENDING",
+        "notes": "Meet at the building lobby. (demo)"
+      }
+    ],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 9,
+        "timeDubai": "09:30",
+        "title": "Call back",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-046",
+    "contactKey": "CT-046",
+    "projectKey": null,
+    "transactionType": "INVEST",
+    "propertyType": "Townhouse",
+    "bedroomPreference": "3",
+    "preferredLocation": "Arabian Ranches",
+    "budgetMin": 2480000,
+    "budgetMax": 3565000,
+    "currency": "AED",
+    "priority": "LOW",
+    "propertyInterest": "Townhouse in Arabian Ranches for investment (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Budget confirmed by phone; mortgage pre-approval in progress. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 10,
+        "timeDubai": "11:00",
+        "title": "Send brochure",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-047",
+    "contactKey": "CT-047",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Townhouse",
+    "bedroomPreference": "3",
+    "preferredLocation": "Yas Island",
+    "budgetMin": 2248000,
+    "budgetMax": 3231000,
+    "currency": "AED",
+    "priority": "URGENT",
+    "propertyInterest": "Townhouse in Yas Island (demo enquiry)",
+    "status": "QUALIFIED",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Interested in a second viewing with family. (demo)"
+      }
+    ],
+    "shortlist": [
+      {
+        "key": "DEMO-P-023",
+        "propertyKey": "DEMO-P-023",
+        "status": "SAVED",
+        "notes": "Matches budget and location. (demo)"
+      }
+    ],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 11,
+        "timeDubai": "15:00",
+        "title": "Confirm budget",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-048",
+    "contactKey": "CT-048",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "2",
+    "preferredLocation": "Al Marjan Island",
+    "budgetMin": 1628000,
+    "budgetMax": 2340000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Al Marjan Island (demo enquiry)",
+    "status": "NEGOTIATION",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Comparing two communities; send a short comparison. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": []
+  },
+  {
+    "key": "LD-049",
+    "contactKey": "CT-049",
+    "projectKey": "PRJ-03",
+    "transactionType": "BUY",
+    "propertyType": "Apartment",
+    "bedroomPreference": "Studio",
+    "preferredLocation": "Business Bay",
+    "budgetMin": 604000,
+    "budgetMax": 868000,
+    "currency": "AED",
+    "priority": "NORMAL",
+    "propertyInterest": "Apartment in Business Bay (demo enquiry)",
+    "status": "NEW",
+    "notes": [
+      {
+        "key": "note-1",
+        "note": "Called the customer; prefers WhatsApp after 6pm. (demo)"
+      }
+    ],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": [
+      {
+        "key": "follow-up-1",
+        "inDays": 1,
+        "timeDubai": "09:30",
+        "title": "Call back",
+        "note": "Demo follow-up."
+      }
+    ]
+  },
+  {
+    "key": "LD-050",
+    "contactKey": "CT-050",
+    "projectKey": null,
+    "transactionType": "BUY",
+    "propertyType": "Villa",
+    "bedroomPreference": "5",
+    "preferredLocation": "Dubai Hills Estate",
+    "budgetMin": 6264000,
+    "budgetMax": 9005000,
+    "currency": "AED",
+    "priority": "HIGH",
+    "propertyInterest": "Villa in Dubai Hills Estate (demo enquiry)",
+    "status": "LOST",
+    "notes": [],
+    "shortlist": [],
+    "viewings": [],
+    "followUps": []
+  }
+]

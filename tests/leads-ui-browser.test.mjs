@@ -53,7 +53,7 @@ async function clickText(label, scope = "document") {
   await evaluate(`document.querySelector('[data-browser-action="${marker}"]')?.removeAttribute('data-browser-action')`);
 }
 async function fill(name, value) {
-  await evaluate(`(()=>{const e=[...document.querySelectorAll('[name='+${JSON.stringify(JSON.stringify(name))}+']')].find(e=>e.getBoundingClientRect().width>0&&!e.disabled);if(!e)throw Error('Missing field '+${JSON.stringify(name)});const prototype=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:e.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}));})()`);
+  await evaluate(`(()=>{const e=[...(document.querySelector('[role="dialog"]')??document).querySelectorAll('[name='+${JSON.stringify(JSON.stringify(name))}+']')].find(e=>e.getBoundingClientRect().width>0&&!e.disabled);if(!e)throw Error('Missing field '+${JSON.stringify(name)});const prototype=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:e.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}));})()`);
 }
 async function fixtureState() {
   return (await fetch(origin + "/fixture")).json();
@@ -162,7 +162,7 @@ try {
   await waitFor(`!!document.querySelector('input[name="fullName"]')`, "the edit form");
   await fill("fullName", name + " Updated");
   await fill("budgetMax", "1250000");
-  await click('button[type="submit"]');
+  await click('[role="dialog"] button[type="submit"]');
   await waitFor(`!document.querySelector('input[name="fullName"]')`, "successful edit completion");
   state = await fixtureState();
   assert.equal(state.leads.find(row => row.id === lead.id).fullName, name + " Updated");
@@ -170,6 +170,82 @@ try {
   await load("/leads/" + lead.id);
   assert.equal(await evaluate(`document.querySelector('h1')?.textContent.includes('Updated')`), true);
   pass("Editing retains the record identity and the detail view reflects a reload.");
+
+  await clickText("Change interested inventory");
+  await clickText("Search", "document.querySelector('[role=dialog]')");
+  await waitFor(`!![...document.querySelectorAll('[role="dialog"] option')].find(e=>e.textContent==='UI-UNIT-101')`, "authorized property choices");
+  await evaluate(`(()=>{const e=document.querySelector('[role="dialog"] select[id$="-property"]');e.value='30000000-0000-4000-8000-000000000002';e.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+  await waitFor(`document.querySelector('[role="dialog"] select[id$="-project"]').selectedOptions[0]?.textContent==='Fixture Marina Project'`, "the selected property's project");
+  await clickText("Save interest");
+  await waitFor(`!document.querySelector('[role="dialog"]')`, "primary interest saved");
+  assert.equal((await fixtureState()).leads.find(row=>row.id===lead.id).primaryProperty.propertyReference, "UI-UNIT-101");
+  pass("Primary property search selects its related project even when the project name was not in search results.");
+
+  await rejectNext();
+  await clickText("Save property");
+  await waitFor(`document.body.innerText.includes('Fixture rejected the change.')`, "shortlist rejection");
+  assert.equal((await fixtureState()).leads.find(row=>row.id===lead.id).propertyInterests?.length ?? 0, 0);
+  await clickText("Save property");
+  await waitFor(`document.body.innerText.includes('Interest & feedback')`, "saved property shortlist");
+  await clickText("Interest & feedback");
+  await fill("status", "INTERESTED");
+  await fill("notes", "Customer wants a marina view.");
+  await clickText("Save changes");
+  await waitFor(`!document.querySelector('[role="dialog"]')`, "interest notes saved");
+  state=await fixtureState();
+  const savedInterest=state.leads.find(row=>row.id===lead.id).propertyInterests[0];
+  assert.equal(savedInterest.status,"INTERESTED");
+  assert.equal(savedInterest.notes,"Customer wants a marina view.");
+  const shortlistRequest=state.requests.findLast(row=>row.path===`leads/${lead.id}/properties`);
+  assert.ok(shortlistRequest.body.expectedUpdatedAt);
+  assert.equal(shortlistRequest.organization,"10000000-0000-4000-8000-000000000001");
+  assert.equal(shortlistRequest.csrf,"component-test-only");
+  pass("Shortlist errors preserve state; interest/notes use CSRF, organization consistency and stale-write protection.");
+
+  await clickText("Schedule viewing");
+  const appointmentInput=new Date(Date.now()+2*86400000+4*3600000).toISOString().slice(0,16);
+  await fill("scheduledAt",appointmentInput);
+  await fill("notes","Meet in the reception lobby.");
+  await fill("customerConfirmation","CONFIRMED");
+  assert.equal(await evaluate(`document.querySelector('[role="dialog"] select[name="assignedMembershipId"]').value`),"10000000-0000-4000-8000-000000000002");
+  await clickText("Schedule viewing","document.querySelector('[role=dialog]')");
+  await waitFor(`!document.querySelector('[role="dialog"]')`, "viewing scheduled");
+  state=await fixtureState();
+  const scheduleRequest=state.requests.findLast(row=>row.path===`leads/${lead.id}/viewings`);
+  assert.equal(scheduleRequest.body.assignedMembershipId,"10000000-0000-4000-8000-000000000002");
+  assert.equal(scheduleRequest.body.customerConfirmation,"CONFIRMED");
+  assert.equal(Date.parse(state.leads.find(row=>row.id===lead.id).propertyViewings[0].scheduledAt), Date.parse(appointmentInput+':00+04:00'));
+  await load("/leads/"+lead.id);
+  assert.equal(await evaluate(`document.body.innerText.includes('Meet in the reception lobby.')&&document.body.innerText.includes('Customer confirmed')&&document.body.innerText.includes('Assigned to Fixture Agent')`),true);
+  await clickText("Update viewing");
+  await fill("status","COMPLETED");
+  await waitFor(`!!document.querySelector('[role="dialog"] select[name="outcome"]')`, "outcome field for a completed viewing");
+  await fill("outcome","POSITIVE");
+  await fill("notes","Customer attended and requested a second viewing.");
+  await evaluate(`document.querySelector('[role="dialog"] input[name="createFollowUp"]').click()`);
+  await waitFor(`!!document.querySelector('[role="dialog"] input[name="followUpAt"]')`, "follow-up fields");
+  const followUpInput=new Date(Date.now()+3*86400000+4*3600000).toISOString().slice(0,16);
+  await fill("followUpAt",followUpInput);
+  await clickText("Save viewing");
+  await waitFor(`!document.querySelector('[role="dialog"]')`, "viewing outcome saved");
+  state=await fixtureState();
+  const completed=state.leads.find(row=>row.id===lead.id).propertyViewings[0];
+  assert.equal(completed.status,"COMPLETED"); assert.equal(completed.outcome,"POSITIVE");
+  assert.equal(Date.parse(completed.followUp.dueAt), Date.parse(followUpInput+':00+04:00'));
+  assert.equal(completed.followUp.title,"Follow up after viewing UI-UNIT-101");
+  pass("Viewing scheduling records assignee and confirmation, converts Dubai time to UTC, survives reload and saves the outcome with a follow-up.");
+
+  await clickText("Remove");
+  await clickText("Remove from shortlist","document.querySelector('[role=dialog]')");
+  await waitFor(`!document.querySelector('[role="dialog"]')&&document.body.innerText.includes('No saved properties yet')`, "shortlist removal");
+  assert.equal(await evaluate(`document.body.innerText.includes('Customer attended and requested a second viewing.')`),true);
+  await load("/leads/"+lead.id,375);
+  await waitFor(`document.body.innerText.includes('Available matching properties')`, "mobile property panel");
+  assert.equal(await evaluate(`document.documentElement.scrollWidth<=innerWidth+1`),true,"Mobile property panel must fit the viewport");
+  await clickText("Change interested inventory");
+  await waitFor(`!!document.querySelector('[role="dialog"]')`, "mobile primary interest dialog");
+  assert.equal(await evaluate(`(()=>{const r=document.querySelector('[role="dialog"]').getBoundingClientRect();return r.width<=innerWidth&&r.left>=0})()`),true);
+  pass("Removing a shortlist item keeps viewing history, and property controls fit mobile screens.");
 
   await load("/leads?view=KANBAN&pageSize=25");
   const cardSelector = `[data-lead-id="${lead.id}"]`;

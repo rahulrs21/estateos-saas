@@ -1,0 +1,136 @@
+# Phase 6C AI sales intelligence (docs/AI_SALES_INTELLIGENCE.md, docs/AI_LEAD_QUALIFICATION.md).
+#
+# Every member operation repeats the existing lead visibility rule in the
+# database: the lead is assigned to the caller, or the caller is an active
+# OWNER or ADMIN. Managers and agents therefore see only their own leads.
+# Operations marked NO_ACCESS are server-only: the web app runs them after
+# verifying the session, membership and lead access, and client SDKs cannot
+# call them, so a member cannot store a score or an AI insight directly.
+
+# --- Lead intelligence: member reads ------------------------------------------
+
+query GetLeadSalesIntelligence($organizationId: UUID!, $leadId: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ lead: lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}}, {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}]}}) @redact @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN") {id}
+ details: leadQualificationDetails(first: {where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, lead: {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}}}) {
+  id timeline readiness revision createdAt updatedAt updatedBy {displayName}
+ }
+ assessments: leadQualificationAssessments(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, lead: {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}}, limit: 10, orderBy: [{evaluatedAt: DESC}, {id: ASC}]) {
+  id ruleVersion configHash score priority sufficientData result evaluatedAt evaluatedBy {displayName}
+ }
+ reviews: leadPriorityReviews(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, lead: {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}}, limit: 10, orderBy: [{createdAt: DESC}, {id: ASC}]) {
+  id assessmentId suggestedPriority reviewedPriority reason createdAt createdBy {displayName}
+ }
+ insights: aiSalesInsights(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, lead: {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}}, limit: 20, orderBy: [{createdAt: DESC}, {id: ASC}]) {
+  id kind propertyId viewingId assessmentId model promptVersion createdAt createdBy {displayName}
+ }
+}
+
+# One stored insight: lead-linked insights follow the lead's visibility;
+# pipeline summaries (no lead) are visible only to the member who created them.
+query GetAiSalesInsight($organizationId: UUID!, $id: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ insight: aiSalesInsight(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}}, {_or: [
+  {leadId: {isNull: false}, lead: {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}},
+  {leadId: {isNull: true}, createdByUid: {eq_expr: "auth.uid"}}
+ ]}]}}) {
+  id kind leadId propertyId viewingId assessmentId content model promptVersion createdAt createdBy {displayName}
+ }
+}
+
+query ListMyAiSalesSummaries($organizationId: UUID!, $limit: Int! = 5)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 20") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ insights: aiSalesInsights(where: {organizationId: {eq: $organizationId}, kind: {eq: PIPELINE_SUMMARY}, leadId: {isNull: true}, createdByUid: {eq_expr: "auth.uid"}}, limit: $limit, orderBy: [{createdAt: DESC}, {id: ASC}]) {
+  id kind model promptVersion createdAt
+ }
+}
+
+# --- Dashboard: member reads over visible, active leads -----------------------
+
+query ListAiSalesAssessments($organizationId: UUID!, $since: Timestamp!, $limit: Int! = 500, $offset: Int! = 0)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 1000 && vars.offset >= 0 && vars.offset <= 10000") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ assessments: leadQualificationAssessments(where: {organizationId: {eq: $organizationId}, evaluatedAt: {ge: $since}, lead: {_and: [{archivedAt: {isNull: true}}, {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}]}}, limit: $limit, offset: $offset, orderBy: [{evaluatedAt: DESC}, {id: ASC}]) {
+  id leadId score priority sufficientData ruleVersion evaluatedAt
+ }
+ reviews: leadPriorityReviews(where: {organizationId: {eq: $organizationId}, createdAt: {ge: $since}, lead: {_and: [{archivedAt: {isNull: true}}, {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}]}}, limit: $limit, orderBy: [{createdAt: DESC}, {id: ASC}]) {
+  id leadId assessmentId reviewedPriority createdAt
+ }
+}
+
+query ListAiSalesViewings($organizationId: UUID!, $from: Timestamp!, $to: Timestamp!, $propertyId: UUID, $limit: Int! = 500)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 1000") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ viewings: leadPropertyViewings(where: {organizationId: {eq: $organizationId}, propertyId: {eq: $propertyId}, scheduledAt: {ge: $from, lt: $to}, lead: {_and: [{archivedAt: {isNull: true}}, {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}]}}, limit: $limit, orderBy: [{scheduledAt: ASC}, {id: ASC}]) {
+  id leadId propertyId scheduledAt status customerConfirmation outcome assignedMembershipId
+  lead {fullName assignedMembershipId branchId}
+ }
+}
+
+query ListAiSalesActivity($organizationId: UUID!, $since: Timestamp!, $limit: Int! = 1000)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 2000") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ activities(where: {organizationId: {eq: $organizationId}, createdAt: {ge: $since}, leadId: {isNull: false}, lead: {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}}, limit: $limit, orderBy: [{createdAt: DESC}, {id: ASC}]) {
+  kind createdAt leadId lead {assignedMembershipId branchId}
+ }
+}
+
+# --- Customer-stated qualification details: member writes ---------------------
+# Same lead write rule as notes and follow-ups: OWNER/ADMIN, or the assigned member.
+
+mutation CreateLeadQualificationDetails($organizationId: UUID!, $leadId: UUID!, $timeline: LeadTimeline, $readiness: LeadReadiness)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ before: query @redact {
+  lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}, {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}]}}) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN") {id}
+  existing: leadQualificationDetails(first: {where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}}}) @check(expr: "this == null", message: "QUALIFICATION_CHANGED_RELOAD") {id}
+ }
+ details: leadQualificationDetails_insert(data: {organizationId: $organizationId, leadId: $leadId, timeline: $timeline, readiness: $readiness, updatedByUid_expr: "auth.uid"})
+ activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: LEAD_QUALIFICATION_UPDATED, leadId: $leadId, targetId: $leadId})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: LEAD_QUALIFICATION_UPDATED, targetType: LEAD_QUALIFICATION, targetId: $leadId})
+}
+
+mutation UpdateLeadQualificationDetails($organizationId: UUID!, $leadId: UUID!, $expectedRevision: Int!, $nextRevision: Int!, $timeline: LeadTimeline, $readiness: LeadReadiness)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.expectedRevision >= 1 && vars.nextRevision == vars.expectedRevision + 1") @transaction {
+ before: query @redact {
+  lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}, {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}]}}) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN") {id}
+ }
+ details: leadQualificationDetails_update(first: {where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, revision: {eq: $expectedRevision}}},
+  data: {timeline: $timeline, readiness: $readiness, revision: $nextRevision, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "QUALIFICATION_CHANGED_RELOAD")
+ activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: LEAD_QUALIFICATION_UPDATED, leadId: $leadId, targetId: $leadId})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: LEAD_QUALIFICATION_UPDATED, targetType: LEAD_QUALIFICATION, targetId: $leadId})
+}
+
+# --- Priority review: member write ------------------------------------------
+# Records a person's decision about a suggested priority. It never changes the
+# lead or the assessment; the suggested priority must match the stored one.
+
+mutation RecordLeadPriorityReview($organizationId: UUID!, $leadId: UUID!, $assessmentId: UUID!, $suggestedPriority: AiLeadPriority!, $reviewedPriority: AiLeadPriority!, $reason: String!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.reviewedPriority != 'INSUFFICIENT_DATA' && vars.reason.size() >= 10 && vars.reason.size() <= 500") @transaction {
+ before: query @redact {
+  lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}, {_or: [{assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}]}]}}) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN") {id}
+  assessment: leadQualificationAssessment(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $assessmentId}, leadId: {eq: $leadId}}})
+   @check(expr: "this != null && this.priority == vars.suggestedPriority", message: "ASSESSMENT_NOT_FOUND") {id priority}
+ }
+ review: leadPriorityReview_insert(data: {organizationId: $organizationId, leadId: $leadId, assessmentId: $assessmentId, suggestedPriority: $suggestedPriority, reviewedPriority: $reviewedPriority, reason: $reason, createdByUid_expr: "auth.uid"})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AI_LEAD_PRIORITY_REVIEWED, targetType: AI_LEAD_PRIORITY_REVIEW, targetId_expr: "response.review.id", metadata_expr: "{'leadId': vars.leadId, 'suggestedPriority': vars.suggestedPriority, 'reviewedPriority': vars.reviewedPriority}"})
+}
+
+# --- Server-only writes (NO_ACCESS) --------------------------------------------
+
+mutation RecordLeadQualificationAssessment($organizationId: UUID!, $id: UUID!, $leadId: UUID!, $evaluatedByUid: String!, $ruleVersion: String!, $configHash: String!,
+ $score: Int, $priority: AiLeadPriority!, $sufficientData: Boolean!, $result: String!)
+ @auth(level: NO_ACCESS) {
+ assessment: leadQualificationAssessment_insert(data: {organizationId: $organizationId, id: $id, leadId: $leadId, evaluatedByUid: $evaluatedByUid, ruleVersion: $ruleVersion,
+  configHash: $configHash, score: $score, priority: $priority, sufficientData: $sufficientData, result: $result})
+}
+
+mutation RecordAiSalesInsight($organizationId: UUID!, $id: UUID!, $kind: AiSalesInsightKind!, $leadId: UUID, $propertyId: UUID, $viewingId: UUID, $assessmentId: UUID,
+ $content: String!, $model: String!, $promptVersion: String!, $createdByUid: String!)
+ @auth(level: NO_ACCESS) {
+ insight: aiSalesInsight_insert(data: {organizationId: $organizationId, id: $id, kind: $kind, leadId: $leadId, propertyId: $propertyId, viewingId: $viewingId,
+  assessmentId: $assessmentId, content: $content, model: $model, promptVersion: $promptVersion, createdByUid: $createdByUid})
+}

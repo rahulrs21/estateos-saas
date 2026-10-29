@@ -7,7 +7,7 @@ enum CompanySize { SOLO TWO_TO_TEN ELEVEN_TO_FIFTY FIFTY_ONE_TO_TWO_HUNDRED TWO_
 enum MembershipStatus { INVITED PENDING ACTIVE SUSPENDED REVOKED REMOVED }
 enum InvitationStatus { PENDING ACCEPTED REVOKED }
 enum InvitationDeliveryStatus { NOT_SENT PREVIEW ACCEPTED FAILED }
-enum AuditTargetType { ORGANIZATION MEMBERSHIP BRANCH LEAD INVITATION CONTACT PIPELINE LEAD_DISTRIBUTION_RULE AGENT_AVAILABILITY LEAD_CAPTURE_FORM WEBSITE_SUBMISSION }
+enum AuditTargetType { ORGANIZATION MEMBERSHIP BRANCH LEAD INVITATION CONTACT PIPELINE LEAD_DISTRIBUTION_RULE AGENT_AVAILABILITY LEAD_CAPTURE_FORM WEBSITE_SUBMISSION DEVELOPER PROJECT BUILDING PROPERTY PROPERTY_LISTING FLOOR_PLAN PAYMENT_PLAN PROPERTY_AMENITY PROPERTY_FEATURE INVENTORY_MEDIA PORTAL_CONNECTION PORTAL_FIELD_MAPPING LISTING_PUBLICATION FEED_GENERATION_JOB AI_CONVERSATION AI_CONTENT_DRAFT AI_CONTENT_TEMPLATE AI_BRAND_PROFILE LEAD_QUALIFICATION AI_LEAD_PRIORITY_REVIEW }
 enum LeadStatus { NEW CONTACTED QUALIFIED LOST CONVERTED VIEWING_SCHEDULED VIEWING_COMPLETED NEGOTIATION WON }
 enum TransactionType { BUY RENT INVEST }
 enum LeadPriority { LOW NORMAL HIGH URGENT }
@@ -19,6 +19,10 @@ enum AgentAvailabilityStatus { AVAILABLE UNAVAILABLE }
 enum NotificationAudience { MEMBER ADMIN }
 enum InAppNotificationType { LEAD_ASSIGNED LEAD_UNASSIGNED }
 enum LeadFollowUpStatus { PENDING COMPLETED CANCELLED }
+enum LeadPropertyInterestStatus { SAVED INTERESTED NOT_INTERESTED REMOVED }
+enum LeadPropertyViewingStatus { SCHEDULED COMPLETED CANCELLED }
+enum LeadPropertyViewingConfirmation { PENDING CONFIRMED DECLINED }
+enum LeadPropertyViewingOutcome { POSITIVE NEUTRAL NEGATIVE NO_SHOW }
 enum LeadCaptureFormStatus { DRAFT ACTIVE DISABLED }
 enum LeadCaptureFieldKey { FULL_NAME EMAIL PHONE MESSAGE PROPERTY_INTEREST PREFERRED_LOCATION PROPERTY_TYPE TRANSACTION_TYPE BUDGET_MIN BUDGET_MAX BEDROOM_PREFERENCE }
 enum ActivityKind {
@@ -31,7 +35,44 @@ enum ActivityKind {
   LEAD_NOTE_ADDED LEAD_STATUS_CHANGED LEAD_ASSIGNED FOLLOW_UP_SCHEDULED FOLLOW_UP_COMPLETED
   CONTACT_CREATED CONTACT_UPDATED PIPELINE_INITIALIZED LEAD_ARCHIVED
   LEAD_FORM_CREATED LEAD_FORM_UPDATED WEBSITE_LEAD_CAPTURED
+  DEVELOPER_CREATED DEVELOPER_UPDATED DEVELOPER_ARCHIVED
+  PROJECT_CREATED PROJECT_UPDATED PROJECT_ARCHIVED
+  BUILDING_CREATED BUILDING_UPDATED BUILDING_ARCHIVED
+  PROPERTY_CREATED PROPERTY_UPDATED PROPERTY_ARCHIVED
+  PROPERTY_LISTING_CREATED PROPERTY_LISTING_UPDATED PROPERTY_LISTING_ARCHIVED
+  FLOOR_PLAN_CREATED FLOOR_PLAN_UPDATED FLOOR_PLAN_ARCHIVED
+  PAYMENT_PLAN_CREATED PAYMENT_PLAN_UPDATED PAYMENT_PLAN_ARCHIVED
+  PROPERTY_AMENITY_CHANGED PROPERTY_FEATURE_CREATED PROPERTY_FEATURE_UPDATED PROPERTY_FEATURE_ARCHIVED
+  LEAD_PROPERTY_INTEREST_CHANGED LEAD_PRIMARY_INTEREST_CHANGED LEAD_PROPERTY_VIEWING_SCHEDULED LEAD_PROPERTY_VIEWING_UPDATED
+  PORTAL_CONNECTION_UPDATED PORTAL_FIELD_MAPPING_CHANGED LISTING_PUBLICATION_VALIDATED FEED_GENERATION_RECORDED
+  AI_CONVERSATION_DELETED
+  AI_CONTENT_DRAFT_CREATED AI_CONTENT_DRAFT_STATUS_CHANGED AI_CONTENT_DRAFT_DELETED AI_CONTENT_TEMPLATE_CHANGED AI_BRAND_PROFILE_UPDATED
+  LEAD_QUALIFICATION_UPDATED AI_LEAD_PRIORITY_REVIEWED
 }
+
+enum DeveloperStatus { ACTIVE INACTIVE }
+enum ProjectType { RESIDENTIAL COMMERCIAL MIXED_USE LAND }
+enum OwnershipType { FREEHOLD LEASEHOLD SHARED_OWNERSHIP }
+enum ConstructionStatus { PLANNING LAUNCHED UNDER_CONSTRUCTION COMPLETED ON_HOLD }
+enum ProjectStatus { DRAFT ACTIVE INACTIVE COMPLETED }
+enum BuildingType { RESIDENTIAL COMMERCIAL MIXED_USE TOWNHOUSE VILLA OTHER }
+enum CompletionStatus { PLANNED UNDER_CONSTRUCTION COMPLETED ON_HOLD }
+enum PropertyType { APARTMENT VILLA TOWNHOUSE PENTHOUSE PLOT COMMERCIAL OFFICE RETAIL WAREHOUSE }
+enum AreaUnit { SQFT SQM }
+enum FurnishedStatus { FURNISHED SEMI_FURNISHED UNFURNISHED }
+enum OccupancyStatus { VACANT OCCUPIED TENANTED UNDER_CONSTRUCTION }
+enum InventoryStatus { DRAFT AVAILABLE RESERVED SOLD RENTED INACTIVE }
+enum ListingPurpose { SALE RENT }
+enum MarketType { OFF_PLAN SECONDARY }
+enum ListingStatus { DRAFT PENDING_REVIEW APPROVED ACTIVE PAUSED CLOSED ARCHIVED UNDER_OFFER SOLD RENTED WITHDRAWN EXPIRED }
+enum ListingPublicationStatus { NOT_PUBLISHED READY PUBLISHED FAILED }
+enum RentalPeriod { MONTHLY YEARLY }
+enum PaymentDueTrigger { CONSTRUCTION_MILESTONE HANDOVER POST_HANDOVER }
+# How a record's coordinates may be presented on maps and map links. EXACT shows
+# the stored point, APPROXIMATE only a coarse ~1 km area, HIDDEN no map location.
+# The mode never alters the stored coordinates.
+enum MapDisplayMode { EXACT APPROXIMATE HIDDEN }
+enum FeatureValueType { TEXT NUMBER BOOLEAN }
 
 type UserProfile @table(key: ["uid"]) {
   uid: String! @col(dataType: "varchar(128)") @default(expr: "auth.uid")
@@ -144,9 +185,12 @@ type Lead @table(key: ["organization", "id"])
   pipeline: Pipeline @ref(fields: ["organizationId", "pipelineId"], references: ["organizationId", "id"])
   pipelineStageId: UUID
   pipelineStage: PipelineStage @ref(fields: ["organizationId", "pipelineId", "pipelineStageId"], references: ["organizationId", "pipelineId", "id"])
-  # Reserved identifiers only; no invented Project/Property tables or FKs.
+  # These were nullable future references. Composite tenant-scoped FKs are added
+  # now; existing null values remain valid during the additive migration.
   projectId: UUID
+  project: Project @ref(fields: ["organizationId", "projectId"], references: ["organizationId", "id"])
   propertyId: UUID
+  property: Property @ref(fields: ["organizationId", "propertyId"], references: ["organizationId", "id"])
   propertyInterest: String @col(dataType: "varchar(500)")
   preferredLocation: String @col(dataType: "varchar(160)")
   propertyType: String @col(dataType: "varchar(80)")
@@ -325,6 +369,18 @@ type LeadCaptureSubmission @table(key: ["organization", "id"])
   submittedAt: Timestamp! @default(expr: "request.time")
 }
 
+# Shared fixed-window counters for API rate limits (Phase 5F). Every app
+# instance increments the same row atomically, so limits hold across instances.
+# bucketKey is an HMAC of the scope, subject (member, company or IP) and window;
+# no raw identifier or IP address is stored. Rows expire with their window.
+type RateLimitCounter @table(key: "bucketKey") @index(fields: ["windowEndsAt"]) {
+  bucketKey: String! @col(dataType: "varchar(80)")
+  scope: String! @col(dataType: "varchar(48)")
+  hitCount: Int! @default(value: 0)
+  windowEndsAt: Timestamp!
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
 # One row per form/minute. requestCount updates compare against the observed
 # value in a transaction, so concurrent submissions cannot skip the limit.
 type LeadCaptureRateWindow @table(key: ["organization", "id"])
@@ -469,3 +525,866 @@ type AuditLog @table(key: ["organization", "id"])
   createdAt: Timestamp! @default(expr: "request.time")
 }
 
+# Inventory records describe physical assets separately from marketing listings.
+# Every reference includes organizationId so the database itself rejects
+# cross-tenant relationships.
+type Developer @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "slug"])
+  @index(fields: ["organizationId", "status", "name"])
+  @index(fields: ["organizationId", "updatedAt"], order: [ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  name: String! @col(dataType: "varchar(160)")
+  slug: String! @col(dataType: "varchar(80)")
+  logoReference: String @col(dataType: "varchar(2048)")
+  description: String @col(dataType: "varchar(4000)")
+  website: String @col(dataType: "varchar(2048)")
+  email: String @col(dataType: "varchar(254)")
+  phone: String @col(dataType: "varchar(32)")
+  country: String! @col(dataType: "varchar(2)") @default(value: "AE")
+  headOfficeAddress: String @col(dataType: "varchar(1000)")
+  # Phase 5F head-office location. A company address is business contact
+  # information, so it is shown exactly to every member who can see developers.
+  headOfficeLatitude: Float @col(dataType: "numeric(9,6)")
+  headOfficeLongitude: Float @col(dataType: "numeric(9,6)")
+  headOfficeGooglePlaceId: String @col(dataType: "varchar(255)")
+  status: DeveloperStatus! @default(value: ACTIVE)
+  archivedAt: Timestamp
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type Project @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "projectCode"])
+  @index(fields: ["organizationId", "developerId", "projectStatus", "updatedAt"], order: [ASC, ASC, ASC, DESC])
+  @index(fields: ["organizationId", "emirate", "area"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  developerId: UUID!
+  developer: Developer! @ref(fields: ["organizationId", "developerId"], references: ["organizationId", "id"])
+  projectName: String! @col(dataType: "varchar(180)")
+  projectCode: String! @col(dataType: "varchar(80)")
+  description: String @col(dataType: "varchar(4000)")
+  projectType: ProjectType!
+  ownershipType: OwnershipType
+  community: String @col(dataType: "varchar(160)")
+  area: String @col(dataType: "varchar(160)")
+  emirate: Emirate
+  country: String! @col(dataType: "varchar(2)") @default(value: "AE")
+  address: String @col(dataType: "varchar(1000)")
+  latitude: Float @col(dataType: "numeric(9,6)")
+  longitude: Float @col(dataType: "numeric(9,6)")
+  # Phase 5F additive location fields; existing rows keep NULLs and EXACT.
+  city: String @col(dataType: "varchar(120)")
+  googlePlaceId: String @col(dataType: "varchar(255)")
+  mapDisplayMode: MapDisplayMode! @default(value: EXACT)
+  launchDate: Date
+  expectedHandoverDate: Date
+  actualHandoverDate: Date
+  constructionStatus: ConstructionStatus! @default(value: PLANNING)
+  projectStatus: ProjectStatus! @default(value: DRAFT)
+  startingPriceMinor: Int64 @col(dataType: "numeric(18,0)")
+  currency: String! @col(dataType: "varchar(3)") @default(value: "AED")
+  totalUnits: Int
+  marketingDescription: String @col(dataType: "varchar(4000)")
+  brochureReference: String @col(dataType: "varchar(2048)")
+  permitNumber: String @col(dataType: "varchar(120)")
+  permitExpiryDate: Date
+  permitReferenceUrl: String @col(dataType: "varchar(2048)")
+  archivedAt: Timestamp
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type ProjectPhase @table(key: ["organization", "projectId", "id"])
+  @unique(fields: ["organizationId", "projectId", "reference"])
+  @index(fields: ["organizationId", "projectId", "status", "expectedHandoverDate"]) {
+  organizationId: UUID!
+  organization: Organization!
+  projectId: UUID!
+  project: Project! @ref(fields: ["organizationId", "projectId"], references: ["organizationId", "id"])
+  id: UUID! @default(expr: "uuidV4()")
+  name: String! @col(dataType: "varchar(160)")
+  reference: String @col(dataType: "varchar(80)")
+  description: String @col(dataType: "varchar(2000)")
+  status: CompletionStatus! @default(value: PLANNED)
+  expectedHandoverDate: Date
+  actualHandoverDate: Date
+  archivedAt: Timestamp
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type Building @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "projectId", "id"])
+  @unique(fields: ["organizationId", "projectId", "reference"])
+  @index(fields: ["organizationId", "projectId", "phaseId", "status"])
+  @index(fields: ["organizationId", "projectId", "name"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  projectId: UUID!
+  project: Project! @ref(fields: ["organizationId", "projectId"], references: ["organizationId", "id"])
+  phaseId: UUID
+  phase: ProjectPhase @ref(fields: ["organizationId", "projectId", "phaseId"], references: ["organizationId", "projectId", "id"])
+  name: String! @col(dataType: "varchar(160)")
+  reference: String @col(dataType: "varchar(80)")
+  floors: Int
+  buildingType: BuildingType!
+  status: CompletionStatus! @default(value: PLANNED)
+  handoverDate: Date
+  latitude: Float @col(dataType: "numeric(9,6)")
+  longitude: Float @col(dataType: "numeric(9,6)")
+  archivedAt: Timestamp
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type InventoryAmenity @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "name"])
+  @index(fields: ["organizationId", "isActive", "name"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  name: String! @col(dataType: "varchar(120)")
+  category: String @col(dataType: "varchar(80)")
+  isActive: Boolean! @default(value: true)
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type Property @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "propertyReference"])
+  @index(fields: ["organizationId", "inventoryStatus", "propertyType", "updatedAt"], order: [ASC, ASC, ASC, DESC])
+  @index(fields: ["organizationId", "projectId", "buildingId"])
+  @index(fields: ["organizationId", "bedrooms", "builtUpArea"])
+  @index(fields: ["organizationId", "emirate", "community"])
+  @index(fields: ["organizationId", "createdAt"], order: [ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  propertyReference: String! @col(dataType: "varchar(80)")
+  projectId: UUID
+  project: Project @ref(fields: ["organizationId", "projectId"], references: ["organizationId", "id"])
+  buildingId: UUID
+  building: Building @ref(fields: ["organizationId", "projectId", "buildingId"], references: ["organizationId", "projectId", "id"])
+  unitNumber: String @col(dataType: "varchar(80)")
+  propertyType: PropertyType!
+  marketType: MarketType! @default(value: SECONDARY)
+  bedrooms: Int
+  bathrooms: Float @col(dataType: "numeric(4,1)")
+  floorNumber: Int
+  builtUpArea: Float @col(dataType: "numeric(12,2)")
+  plotArea: Float @col(dataType: "numeric(12,2)")
+  areaUnit: AreaUnit! @default(value: SQFT)
+  furnishedStatus: FurnishedStatus
+  parkingSpaces: Int
+  view: String @col(dataType: "varchar(120)")
+  emirate: Emirate
+  community: String @col(dataType: "varchar(160)")
+  area: String @col(dataType: "varchar(160)")
+  address: String @col(dataType: "varchar(1000)")
+  latitude: Float @col(dataType: "numeric(9,6)")
+  longitude: Float @col(dataType: "numeric(9,6)")
+  # Phase 5F additive location fields. Properties are UAE inventory (see
+  # Emirate), so the country is implied. Unit-level locations default to an
+  # approximate map presentation; existing rows receive APPROXIMATE.
+  city: String @col(dataType: "varchar(120)")
+  googlePlaceId: String @col(dataType: "varchar(255)")
+  mapDisplayMode: MapDisplayMode! @default(value: APPROXIMATE)
+  referencePriceMinor: Int64 @col(dataType: "numeric(18,0)")
+  internalNotes: String @col(dataType: "varchar(4000)")
+  ownershipReference: String @col(dataType: "varchar(160)")
+  mandateReference: String @col(dataType: "varchar(160)")
+  assignedMembershipId: UUID
+  assignedMembership: Membership @ref(fields: ["organizationId", "assignedMembershipId"], references: ["organizationId", "id"])
+  occupancyStatus: OccupancyStatus! @default(value: VACANT)
+  inventoryStatus: InventoryStatus! @default(value: DRAFT)
+  archivedAt: Timestamp
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Additive Phase 5D relationships. Removing a shortlist item preserves its history.
+# Tenant-composite foreign keys prevent links across organizations independently
+# of connector authorization; every operation also rechecks lead/property access.
+type LeadPropertyInterest @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "leadId", "propertyId"])
+  @index(fields: ["organizationId", "leadId", "status", "updatedAt"])
+  @index(fields: ["organizationId", "propertyId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  leadId: UUID!
+  lead: Lead! @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  propertyId: UUID!
+  property: Property! @ref(fields: ["organizationId", "propertyId"], references: ["organizationId", "id"])
+  status: LeadPropertyInterestStatus! @default(value: SAVED)
+  notes: String @col(dataType: "varchar(4000)")
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# An appointment entity, not a unique join: the same lead/property can have
+# repeat viewings. The toolkit's MISSING_JOIN_TABLE_KEY advisory is reviewed in
+# scripts/sql-connect-toolkit.mjs; do not replace this key with lead/property.
+type LeadPropertyViewing @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "leadId", "scheduledAt"])
+  @index(fields: ["organizationId", "propertyId", "scheduledAt"])
+  @index(fields: ["organizationId", "status", "scheduledAt"])
+  @index(fields: ["organizationId", "assignedMembershipId", "scheduledAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  leadId: UUID!
+  lead: Lead! @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  propertyId: UUID!
+  property: Property! @ref(fields: ["organizationId", "propertyId"], references: ["organizationId", "id"])
+  scheduledAt: Timestamp!
+  status: LeadPropertyViewingStatus! @default(value: SCHEDULED)
+  viewingNotes: String @col(dataType: "varchar(4000)")
+  # Nullable so appointments created before agent assignment remain valid; every
+  # new or edited appointment supplies an assignee.
+  assignedMembershipId: UUID
+  assignedMembership: Membership @ref(fields: ["organizationId", "assignedMembershipId"], references: ["organizationId", "id"], constraintName: "lead_property_viewing_assigned_membership_fkey")
+  customerConfirmation: LeadPropertyViewingConfirmation! @default(value: PENDING)
+  # Recorded only when the appointment is completed.
+  outcome: LeadPropertyViewingOutcome
+  # Follow-up created in the same transaction that completed/cancelled the viewing.
+  followUpId: UUID
+  followUp: LeadFollowUp @ref(fields: ["organizationId", "followUpId"], references: ["organizationId", "id"])
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type PropertyAmenity @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "propertyId", "amenityId"])
+  @index(fields: ["organizationId", "propertyId"])
+  @index(fields: ["organizationId", "amenityId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  propertyId: UUID!
+  property: Property! @ref(fields: ["organizationId", "propertyId"], references: ["organizationId", "id"])
+  amenityId: UUID!
+  amenity: InventoryAmenity! @ref(fields: ["organizationId", "amenityId"], references: ["organizationId", "id"])
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type PropertyFeature @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "propertyId", "key"])
+  @index(fields: ["organizationId", "propertyId", "key"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  propertyId: UUID!
+  property: Property! @ref(fields: ["organizationId", "propertyId"], references: ["organizationId", "id"])
+  key: String! @col(dataType: "varchar(80)")
+  valueType: FeatureValueType!
+  textValue: String @col(dataType: "varchar(500)")
+  numberValue: Float @col(dataType: "numeric(16,4)")
+  booleanValue: Boolean
+  unit: String @col(dataType: "varchar(40)")
+  archivedAt: Timestamp
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type ProjectAmenity @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "projectId", "amenityId"])
+  @index(fields: ["organizationId", "projectId"])
+  @index(fields: ["organizationId", "amenityId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  projectId: UUID!
+  project: Project! @ref(fields: ["organizationId", "projectId"], references: ["organizationId", "id"])
+  amenityId: UUID!
+  amenity: InventoryAmenity! @ref(fields: ["organizationId", "amenityId"], references: ["organizationId", "id"])
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type PropertyListing @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "listingReference"])
+  @index(fields: ["organizationId", "propertyId", "listingStatus", "updatedAt"], order: [ASC, ASC, ASC, DESC])
+  @index(fields: ["organizationId", "assignedMembershipId", "listingStatus"])
+  @index(fields: ["organizationId", "publicationStatus", "updatedAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  propertyId: UUID!
+  property: Property! @ref(fields: ["organizationId", "propertyId"], references: ["organizationId", "id"])
+  listingReference: String! @col(dataType: "varchar(80)")
+  listingPurpose: ListingPurpose!
+  marketType: MarketType!
+  title: String! @col(dataType: "varchar(180)")
+  description: String @col(dataType: "varchar(4000)")
+  askingPriceMinor: Int64! @col(dataType: "numeric(18,0)")
+  currency: String! @col(dataType: "varchar(3)") @default(value: "AED")
+  rentalPeriod: RentalPeriod
+  assignedMembershipId: UUID
+  assignedMembership: Membership @ref(fields: ["organizationId", "assignedMembershipId"], references: ["organizationId", "id"])
+  listingStatus: ListingStatus! @default(value: DRAFT)
+  publicationStatus: ListingPublicationStatus! @default(value: NOT_PUBLISHED)
+  advertisingPermitNumber: String @col(dataType: "varchar(120)")
+  permitExpiryDate: Date
+  permitVerificationUrl: String @col(dataType: "varchar(2048)")
+  archivedAt: Timestamp
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type FloorPlan @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "projectId", "propertyType", "bedrooms"])
+  @index(fields: ["organizationId", "buildingId", "updatedAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  projectId: UUID!
+  project: Project! @ref(fields: ["organizationId", "projectId"], references: ["organizationId", "id"])
+  buildingId: UUID
+  building: Building @ref(fields: ["organizationId", "projectId", "buildingId"], references: ["organizationId", "projectId", "id"])
+  name: String! @col(dataType: "varchar(160)")
+  propertyType: PropertyType!
+  bedrooms: Int
+  builtUpArea: Float @col(dataType: "numeric(12,2)")
+  plotArea: Float @col(dataType: "numeric(12,2)")
+  areaUnit: AreaUnit! @default(value: SQFT)
+  mediaReference: String @col(dataType: "varchar(2048)")
+  propertyId: UUID
+  property: Property @ref(fields: ["organizationId", "propertyId"], references: ["organizationId", "id"])
+  archivedAt: Timestamp
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Private files are never exposed through public URLs. Server routes authorize
+# each read/write, then use Firebase Admin Storage. Exactly one parent is set
+# and verified by the corresponding transaction operation.
+type InventoryMedia @table(key: ["organization", "id"])
+  @unique(fields: ["storagePath"])
+  @index(fields: ["organizationId", "propertyId", "status", "sortOrder"])
+  @index(fields: ["organizationId", "projectId", "status", "sortOrder"])
+  @index(fields: ["organizationId", "floorPlanId", "status", "sortOrder"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  propertyId: UUID
+  property: Property @ref(fields: ["organizationId", "propertyId"], references: ["organizationId", "id"])
+  projectId: UUID
+  project: Project @ref(fields: ["organizationId", "projectId"], references: ["organizationId", "id"])
+  floorPlanId: UUID
+  floorPlan: FloorPlan @ref(fields: ["organizationId", "floorPlanId"], references: ["organizationId", "id"])
+  storagePath: String! @col(dataType: "varchar(512)")
+  fileName: String! @col(dataType: "varchar(180)")
+  contentType: String! @col(dataType: "varchar(100)")
+  byteSize: Int64! @col(dataType: "numeric(18,0)")
+  mediaKind: InventoryMediaKind!
+  sortOrder: Int! @default(value: 0)
+  isCover: Boolean! @default(value: false)
+  status: InventoryMediaStatus! @default(value: PENDING)
+  uploadedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+  archivedAt: Timestamp
+}
+
+enum InventoryMediaKind { PROPERTY_PHOTO FLOOR_PLAN BROCHURE DOCUMENT }
+enum InventoryMediaStatus { PENDING ACTIVE DELETING DELETED }
+
+type PaymentPlan @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "projectId", "isActive", "updatedAt"], order: [ASC, ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  projectId: UUID!
+  project: Project! @ref(fields: ["organizationId", "projectId"], references: ["organizationId", "id"])
+  propertyId: UUID
+  property: Property @ref(fields: ["organizationId", "propertyId"], references: ["organizationId", "id"])
+  name: String! @col(dataType: "varchar(160)")
+  bookingPercentageBps: Int! @default(value: 0)
+  handoverPercentageBps: Int! @default(value: 0)
+  # Transactionally maintained by installment operations; activation is only
+  # allowed when header + installment percentages total exactly 10,000 BPS.
+  installmentTotalBps: Int! @default(value: 0)
+  isActive: Boolean! @default(value: true)
+  archivedAt: Timestamp
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type PaymentPlanInstallment @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "paymentPlanId", "position"])
+  @index(fields: ["organizationId", "paymentPlanId", "position"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  paymentPlanId: UUID!
+  paymentPlan: PaymentPlan! @ref(fields: ["organizationId", "paymentPlanId"], references: ["organizationId", "id"])
+  position: Int!
+  percentageBps: Int!
+  dueTrigger: PaymentDueTrigger!
+  constructionMilestonePercent: Int
+  postHandoverMonths: Int
+  description: String @col(dataType: "varchar(240)")
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+
+# Phase 5E property portal foundation. The provider catalog is code-defined
+# (src/modules/portals/adapters): each provider needs an adapter, so a seeded
+# provider table would only duplicate the enum. Every table is tenant-keyed and
+# references listings through tenant-composite foreign keys.
+enum PortalProvider { PROPERTY_FINDER BAYUT DUBIZZLE }
+# CONNECTED and ERROR are reserved for a future server-side verification job;
+# administrators can set only NOT_CONFIGURED, PENDING_APPROVAL or DISABLED.
+enum PortalConnectionStatus { NOT_CONFIGURED PENDING_APPROVAL CONNECTED ERROR DISABLED }
+# Per-provider publication state. Only READY and VALIDATION_FAILED are written in
+# this phase; the remaining values are reserved for approved live publishing.
+enum ListingPublicationState { NOT_PUBLISHED VALIDATION_FAILED READY QUEUED PUBLISHED FAILED REMOVAL_REQUESTED REMOVED }
+enum PublicationAction { VALIDATE PUBLISH UPDATE REMOVE }
+enum PublicationOutcome { SUCCEEDED FAILED SKIPPED }
+enum FeedFormat { JSON XML }
+enum FeedGenerationStatus { QUEUED RUNNING SUCCEEDED FAILED CANCELLED }
+
+# No credentials are stored here. Future API secrets belong in a server-side
+# secret manager; accountReference is a non-secret portal account identifier.
+type OrganizationPortalConnection @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "provider"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  provider: PortalProvider!
+  status: PortalConnectionStatus! @default(value: NOT_CONFIGURED)
+  accountReference: String @col(dataType: "varchar(120)")
+  notes: String @col(dataType: "varchar(1000)")
+  lastVerifiedAt: Timestamp
+  lastErrorCode: String @col(dataType: "varchar(80)")
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Company overrides of an adapter's default value mapping, for example a
+# property type code or a membership-to-portal-agent identifier.
+type PortalFieldMapping @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "provider", "fieldKey", "sourceValue"])
+  @index(fields: ["organizationId", "provider"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  provider: PortalProvider!
+  fieldKey: String! @col(dataType: "varchar(40)")
+  sourceValue: String! @col(dataType: "varchar(120)")
+  targetValue: String! @col(dataType: "varchar(120)")
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# One row per listing and provider. PropertyListing.publicationStatus remains
+# the company-wide summary; this row tracks each portal independently.
+type ListingPublication @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "listingId", "provider"])
+  @index(fields: ["organizationId", "provider", "status"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  listingId: UUID!
+  listing: PropertyListing! @ref(fields: ["organizationId", "listingId"], references: ["organizationId", "id"])
+  provider: PortalProvider!
+  status: ListingPublicationState! @default(value: NOT_PUBLISHED)
+  errorCount: Int! @default(value: 0)
+  warningCount: Int! @default(value: 0)
+  payloadHash: String @col(dataType: "varchar(64)")
+  externalReference: String @col(dataType: "varchar(160)")
+  lastValidatedAt: Timestamp
+  lastPublishedAt: Timestamp
+  attemptCount: Int! @default(value: 0)
+  nextRetryAt: Timestamp
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type PublicationAttempt @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "publicationId", "createdAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  publicationId: UUID!
+  publication: ListingPublication! @ref(fields: ["organizationId", "publicationId"], references: ["organizationId", "id"])
+  action: PublicationAction!
+  outcome: PublicationOutcome!
+  errorCount: Int! @default(value: 0)
+  warningCount: Int! @default(value: 0)
+  # Validation codes only (for example "PERMIT_REQUIRED"); never payload content.
+  errorSummary: String @col(dataType: "varchar(2000)")
+  payloadHash: String @col(dataType: "varchar(64)")
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# Feed generation is an in-memory dry run in this phase: counts and error codes
+# are recorded, the feed itself is not stored and no public URL exists.
+type FeedGenerationJob @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "provider", "createdAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  provider: PortalProvider!
+  format: FeedFormat!
+  status: FeedGenerationStatus!
+  dryRun: Boolean! @default(value: true)
+  listingCount: Int! @default(value: 0)
+  validCount: Int! @default(value: 0)
+  invalidCount: Int! @default(value: 0)
+  byteSize: Int! @default(value: 0)
+  errorSummary: String @col(dataType: "varchar(2000)")
+  startedAt: Timestamp!
+  finishedAt: Timestamp
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# Phase 6A AI Copilot (docs/AI_COPILOT.md). Additive tables only.
+enum AiMessageRole { USER ASSISTANT }
+enum AiRequestStatus { SUCCEEDED FAILED CANCELLED }
+enum AiToolExecutionStatus { SUCCEEDED FAILED REJECTED }
+
+# A conversation is private to the member who started it in this organization.
+type AiConversation @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "ownerUid", "lastMessageAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  owner: UserProfile!
+  title: String! @col(dataType: "varchar(120)")
+  # Compare-and-set guard: each saved exchange advances this by two.
+  messageCount: Int! @default(value: 0)
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+  lastMessageAt: Timestamp! @default(expr: "request.time")
+}
+
+# Only completed user/assistant text is stored. Tool inputs and CRM tool
+# results are never persisted; the server re-queries data on later turns.
+type AiMessage @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "conversationId", "sequence"])
+  @index(fields: ["organizationId", "ownerUid", "createdAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  conversationId: UUID!
+  conversation: AiConversation! @ref(fields: ["organizationId", "conversationId"], references: ["organizationId", "id"])
+  owner: UserProfile!
+  sequence: Int!
+  role: AiMessageRole!
+  content: String! @col(dataType: "varchar(40000)")
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# One row per Copilot request (successful or not) with provider-reported
+# token usage. No prompt or response text.
+type AiUsageRecord @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "createdAt"], order: [ASC, DESC])
+  @index(fields: ["organizationId", "userUid", "createdAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  user: UserProfile!
+  # Plain identifier (no foreign key) so usage survives conversation deletion.
+  conversationId: UUID
+  model: String! @col(dataType: "varchar(80)")
+  promptVersion: String! @col(dataType: "varchar(20)")
+  status: AiRequestStatus!
+  errorCode: String @col(dataType: "varchar(40)")
+  inputTokens: Int! @default(value: 0)
+  outputTokens: Int! @default(value: 0)
+  cacheReadInputTokens: Int! @default(value: 0)
+  cacheCreationInputTokens: Int! @default(value: 0)
+  estimatedCostUsd: Float @col(dataType: "numeric(12,6)")
+  # Phase 6B: COPILOT or CONTENT, and the content type for Content Studio
+  # generations. Nullable so rows written before 6B stay valid.
+  feature: String @col(dataType: "varchar(20)")
+  contentType: String @col(dataType: "varchar(40)")
+  modelRequests: Int! @default(value: 0)
+  toolCalls: Int! @default(value: 0)
+  durationMs: Int! @default(value: 0)
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# Tool names, outcomes and timings only; arguments and results are not stored.
+type AiToolExecution @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "usageRecordId"])
+  @index(fields: ["organizationId", "toolName", "createdAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  usageRecordId: UUID!
+  usageRecord: AiUsageRecord! @ref(fields: ["organizationId", "usageRecordId"], references: ["organizationId", "id"])
+  toolName: String! @col(dataType: "varchar(64)")
+  status: AiToolExecutionStatus!
+  errorCode: String @col(dataType: "varchar(40)")
+  resultCount: Int
+  durationMs: Int! @default(value: 0)
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# Monthly request allowance counters, written only by the server-only
+# ReserveAiRequest/ReleaseAiRequest statements (atomic across instances).
+# subjectKey is "organization" or "user:<uid>"; periodKey is the UTC month.
+type AiUsageCounter @table(key: ["organization", "periodKey", "subjectKey"]) {
+  organizationId: UUID!
+  organization: Organization!
+  periodKey: String! @col(dataType: "varchar(7)")
+  subjectKey: String! @col(dataType: "varchar(160)")
+  requestCount: Int! @default(value: 0)
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# --- Phase 6B: AI Content Studio (docs/AI_CONTENT_STUDIO.md) ----------------
+
+enum AiContentType { PROPERTY_DESCRIPTION PROJECT_MARKETING WHATSAPP_MESSAGE EMAIL SOCIAL_MEDIA ADVERTISING CLIENT_PROPOSAL }
+enum AiContentLanguage { EN AR EN_AR }
+# Internal editorial states only; they say nothing about approval by an
+# advertising platform, a portal or WhatsApp.
+enum AiContentDraftStatus { DRAFT IN_REVIEW APPROVED ARCHIVED }
+enum AiContentVersionKind { GENERATED REGENERATED ALTERNATIVE EDITED RESTORED }
+
+# Company-approved marketing details. Company name, phone and email stay on
+# Organization; the profile only records whether they are approved for
+# generated content, plus details Organization does not have.
+type AiBrandProfile @table(key: ["organization"]) {
+  organizationId: UUID!
+  organization: Organization!
+  displayName: String @col(dataType: "varchar(160)")
+  logoReference: String @col(dataType: "varchar(2048)")
+  brandTone: String @col(dataType: "varchar(400)")
+  preferredLanguage: AiContentLanguage! @default(value: EN)
+  useCompanyPhone: Boolean! @default(value: false)
+  useCompanyEmail: Boolean! @default(value: false)
+  website: String @col(dataType: "varchar(2048)")
+  whatsappNumber: String @col(dataType: "varchar(32)")
+  defaultCallToAction: String @col(dataType: "varchar(200)")
+  tagline: String @col(dataType: "varchar(160)")
+  marketingDisclaimer: String @col(dataType: "varchar(1000)")
+  # Compare-and-set guard for concurrent edits.
+  revision: Int! @default(value: 1)
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Organization-specific style templates. They guide tone and structure only;
+# they can never add facts. Private to their organization.
+type AiContentTemplate @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "contentType", "isActive"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  name: String! @col(dataType: "varchar(120)")
+  contentType: AiContentType!
+  purpose: String @col(dataType: "varchar(40)")
+  instructions: String! @col(dataType: "varchar(2000)")
+  tone: String @col(dataType: "varchar(30)")
+  language: AiContentLanguage
+  isActive: Boolean! @default(value: true)
+  revision: Int! @default(value: 1)
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# A generated, editable draft. Source record IDs are plain identifiers (no
+# foreign keys) so drafts never block archiving or deleting CRM records; the
+# server verifies access to every source before generating. contentData and
+# validation hold JSON validated by the application on every read and write.
+type AiContentDraft @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "createdByUid", "updatedAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "status", "updatedAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  contentType: AiContentType!
+  purpose: String! @col(dataType: "varchar(40)")
+  title: String! @col(dataType: "varchar(200)")
+  language: AiContentLanguage!
+  tone: String! @col(dataType: "varchar(30)")
+  audience: String! @col(dataType: "varchar(30)")
+  status: AiContentDraftStatus! @default(value: DRAFT)
+  sourceProjectId: UUID
+  sourcePropertyId: UUID
+  sourceListingId: UUID
+  sourceLeadId: UUID
+  # JSON: every source record with its updatedAt at generation time.
+  sourceRefs: String! @col(dataType: "varchar(4000)")
+  templateId: UUID
+  contentData: String! @col(dataType: "varchar(100000)")
+  validation: String! @col(dataType: "varchar(20000)")
+  model: String @col(dataType: "varchar(80)")
+  generatedAt: Timestamp!
+  # Compare-and-set guard: every change advances revision; versionCount is
+  # the number of the newest saved version.
+  revision: Int! @default(value: 1)
+  versionCount: Int! @default(value: 1)
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type AiContentVersion @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "draftId", "versionNumber"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  draftId: UUID!
+  draft: AiContentDraft! @ref(fields: ["organizationId", "draftId"], references: ["organizationId", "id"])
+  versionNumber: Int!
+  kind: AiContentVersionKind!
+  title: String! @col(dataType: "varchar(200)")
+  contentData: String! @col(dataType: "varchar(100000)")
+  validation: String! @col(dataType: "varchar(20000)")
+  model: String @col(dataType: "varchar(80)")
+  generatedAt: Timestamp
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# Local development demo data (npm run seed:demo). One row per fictional fixture
+# the seed created in a company: the (organization, fixtureKey) key is the
+# database-level guarantee that re-running the seed never creates duplicates,
+# and the rows identify demo records. Written only by the guarded local seed;
+# no connector operation reads or writes it.
+type DemoFixtureRecord @table(key: ["organization", "fixtureKey"])
+  @index(fields: ["organizationId", "recordType"]) {
+  organizationId: UUID!
+  organization: Organization!
+  fixtureKey: String! @col(dataType: "varchar(120)")
+  fixtureSet: String! @col(dataType: "varchar(40)")
+  recordType: String! @col(dataType: "varchar(40)")
+  # Null while claimed: set in the same run once the record exists.
+  recordId: UUID
+  createdAt: Timestamp! @default(expr: "request.time")
+  completedAt: Timestamp
+}
+
+# --- Phase 6C: AI sales intelligence (docs/AI_SALES_INTELLIGENCE.md) ----------
+# Customer-stated qualification facts are recorded by staff in their own table;
+# AI assessments, reviews and Claude output are separate from CRM records and
+# never change the lead.
+
+enum LeadTimeline { IMMEDIATE WITHIN_3_MONTHS WITHIN_6_MONTHS WITHIN_12_MONTHS LATER UNDECIDED }
+enum LeadReadiness { READY_TO_PROCEED EXPLORING NOT_READY }
+enum AiLeadPriority { HIGH MEDIUM LOW INSUFFICIENT_DATA }
+enum AiSalesInsightKind { LEAD_ANALYSIS VIEWING_BRIEF PIPELINE_SUMMARY }
+
+# What the customer told the agency about timing and readiness. One row per
+# lead; every change is a compare-and-set on revision, with activity and audit.
+type LeadQualificationDetails @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "leadId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  leadId: UUID!
+  lead: Lead! @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  timeline: LeadTimeline
+  readiness: LeadReadiness
+  revision: Int! @default(value: 1)
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Append-only history of rule-based lead qualification. `result` holds the
+# evaluated inputs, factors, missing information and suggested actions as JSON,
+# so every score can be recomputed and audited against its rule version.
+type LeadQualificationAssessment @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "leadId", "evaluatedAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "evaluatedAt"], order: [ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  leadId: UUID!
+  lead: Lead! @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  ruleVersion: String! @col(dataType: "varchar(40)")
+  configHash: String! @col(dataType: "varchar(16)")
+  score: Int
+  priority: AiLeadPriority!
+  sufficientData: Boolean!
+  result: String! @col(dataType: "varchar(20000)")
+  evaluatedBy: UserProfile!
+  evaluatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# A person's review of a suggested priority: kept or overridden, always with a reason.
+type LeadPriorityReview @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "leadId", "createdAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  leadId: UUID!
+  lead: Lead! @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  assessmentId: UUID!
+  assessment: LeadQualificationAssessment! @ref(fields: ["organizationId", "assessmentId"], references: ["organizationId", "id"])
+  suggestedPriority: AiLeadPriority!
+  reviewedPriority: AiLeadPriority!
+  reason: String! @col(dataType: "varchar(500)")
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# Validated Claude output (lead analyses, viewing briefs, pipeline summaries).
+# Lead-linked insights follow the lead's visibility; pipeline summaries are
+# private to the member who generated them.
+type AiSalesInsight @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "leadId", "kind", "createdAt"], order: [ASC, ASC, ASC, DESC])
+  @index(fields: ["organizationId", "createdByUid", "kind", "createdAt"], order: [ASC, ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  kind: AiSalesInsightKind!
+  leadId: UUID
+  lead: Lead @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  propertyId: UUID
+  viewingId: UUID
+  assessmentId: UUID
+  content: String! @col(dataType: "varchar(60000)")
+  model: String! @col(dataType: "varchar(80)")
+  promptVersion: String! @col(dataType: "varchar(20)")
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+}

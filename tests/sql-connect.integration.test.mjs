@@ -9,6 +9,16 @@ import { localDataConnect, seedLocalDatabase } from "../scripts/sql-connect-loca
 import { fixture as f } from "./fixtures/sql-connect-fixtures.mjs";
 import {registerCrmCases} from "./sql-connect-crm.cases.mjs";
 import {registerCaptureCases} from "./sql-connect-capture.cases.mjs";
+import {registerInventoryCases} from "./sql-connect-inventory.cases.mjs";
+import {registerLeadPropertyCases} from "./sql-connect-lead-properties.cases.mjs";
+import {registerPortalCases} from "./sql-connect-portals.cases.mjs";
+import {registerMapCases} from "./sql-connect-maps.cases.mjs";
+import {registerMapScaleCases} from "./sql-connect-map-scale.cases.mjs";
+import {registerRateLimitCases} from "./sql-connect-rate-limit.cases.mjs";
+import {registerListingCases} from "./sql-connect-listings.cases.mjs";
+import {registerAiCases} from "./sql-connect-ai.cases.mjs";
+import {registerAiContentCases} from "./sql-connect-ai-content.cases.mjs";
+import {registerAiSalesCases} from "./sql-connect-ai-sales.cases.mjs";
 
 // This harness refuses production, non-loopback hosts and non-demo project IDs.
 // Only fixture setup and deliberate FK-constraint probes use privileged access.
@@ -57,6 +67,16 @@ function forbidden(operation, uid, variables, overrides) {
 describe("SQL Connect tenant and authorization integration", { concurrency: false }, () => {
   registerCrmCases({sdk,run,forbidden,dc});
   registerCaptureCases({sdk,run,forbidden,dc});
+  registerInventoryCases({sdk,run,forbidden,dc});
+  registerLeadPropertyCases({sdk,run,forbidden,dc});
+  registerPortalCases({sdk,run,forbidden,dc});
+  registerMapCases({sdk,run,forbidden,dc});
+  registerMapScaleCases({sdk,run,forbidden,dc});
+  registerRateLimitCases({sdk,run,forbidden,dc});
+  registerListingCases({sdk,run,forbidden,dc});
+  registerAiCases({sdk,run,forbidden,dc});
+  registerAiContentCases({sdk,run,forbidden,dc});
+  registerAiSalesCases({sdk,run,forbidden,dc});
   before(async () => { await seedLocalDatabase(dc); });
   after(async () => { await deleteApp(app); });
 

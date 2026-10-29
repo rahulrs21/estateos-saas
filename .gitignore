@@ -47,3 +47,10 @@ pglite-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local emulator database backups (may contain company and customer data)
+/.local-backups/
+# Persistent local emulator data (company, customer and uploaded-file data)
+/.local-data/
+# Firebase emulator exports created outside the managed folders
+firebase-export-*/

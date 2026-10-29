@@ -1,8 +1,3 @@
-import type { Metadata } from "next";
-import { ModulePreview } from "@/modules/workspace/components/module-preview";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Projects" };
-
-export default function ProjectsPage() {
-  return <ModulePreview slug="projects" />;
-}
+export default function LegacyProjectsPage() { redirect("/projects"); }

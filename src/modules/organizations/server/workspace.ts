@@ -16,7 +16,7 @@ export const getCompanyWorkspace = cache(async () => {
   const request = await requireSqlConnectRequest();
   try {
     const [profile, choices] = await Promise.all([
-      executeWorkspaceOperation(() => getMyProfile(request.dc, request.options)),
+      executeWorkspaceOperation(() => getMyProfile(request.dc, request.options), "GetMyProfile"),
       listMyOrganizations(),
     ]);
     // Invitation discovery is needed only when no company is already available.

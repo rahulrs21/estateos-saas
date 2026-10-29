@@ -2,6 +2,7 @@ import "server-only";
 
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import { getStorage } from "firebase-admin/storage";
 import { readFirebaseAdminConfiguration } from "@/modules/auth/server/configuration-policy";
 
 const ADMIN_APP_NAME = "estateos-admin";
@@ -25,9 +26,15 @@ export function getFirebaseAdminApp() {
   });
   const credential = credentials ? cert(credentials) : applicationDefault();
 
-  return initializeApp({ projectId, credential }, ADMIN_APP_NAME);
+  return initializeApp({ projectId, credential, storageBucket: process.env.FIREBASE_STORAGE_BUCKET }, ADMIN_APP_NAME);
 }
 
 export function getFirebaseAdminAuth() {
   return getAuth(getFirebaseAdminApp());
+}
+
+export function getFirebaseAdminStorageBucket() {
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET?.trim();
+  if (!bucketName) throw new Error("FIREBASE_STORAGE_BUCKET is required for private inventory media.");
+  return getStorage(getFirebaseAdminApp()).bucket(bucketName);
 }

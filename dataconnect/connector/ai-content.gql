@@ -1,0 +1,223 @@
+# Phase 6B AI Content Studio (docs/AI_CONTENT_STUDIO.md, docs/AI_CONTENT_SECURITY.md).
+#
+# Draft scope: the server passes $createdByUid = the caller's uid for members
+# who are not owners or administrators, and omits it for owners and
+# administrators (company-wide content management). The membership @check
+# re-verifies that rule in the database, so a client cannot widen its scope
+# by omitting the variable. Operations marked NO_ACCESS are server-only: the
+# web app runs them after verifying the session, membership and access to
+# every source record, and client SDKs cannot call them.
+
+# --- Drafts: member operations (verified session identity) -----------------
+
+query ListAiContentDrafts($organizationId: UUID!, $createdByUid: String, $statuses: [AiContentDraftStatus!]!, $contentType: AiContentType, $search: String, $limit: Int! = 20, $offset: Int! = 0)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000 && (!has(vars.search) || vars.search == null || vars.search.size() <= 242)") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact
+  @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN'] || (has(vars.createdByUid) && vars.createdByUid == this.userProfileUid))", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role userProfileUid}
+ drafts: aiContentDrafts(where: {organizationId: {eq: $organizationId}, createdByUid: {eq: $createdByUid}, status: {in: $statuses}, contentType: {eq: $contentType}, title: {pattern: {like: $search, ignoreCase: true}}},
+  limit: $limit, offset: $offset, orderBy: [{updatedAt: DESC}, {id: ASC}]) {
+  id title contentType purpose language tone audience status sourceProjectId sourcePropertyId sourceListingId sourceLeadId
+  revision versionCount model generatedAt createdAt updatedAt createdByUid createdBy {displayName}
+ }
+ total: aiContentDrafts(where: {organizationId: {eq: $organizationId}, createdByUid: {eq: $createdByUid}, status: {in: $statuses}, contentType: {eq: $contentType}, title: {pattern: {like: $search, ignoreCase: true}}}) {count: _count}
+}
+
+# The draft with its version list (newest first, without version content).
+query GetAiContentDraft($organizationId: UUID!, $id: UUID!, $createdByUid: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact
+  @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN'] || (has(vars.createdByUid) && vars.createdByUid == this.userProfileUid))", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role userProfileUid}
+ draft: aiContentDraft(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}}}) {
+  id title contentType purpose language tone audience status sourceProjectId sourcePropertyId sourceListingId sourceLeadId sourceRefs templateId
+  contentData validation model generatedAt revision versionCount createdAt updatedAt createdByUid createdBy {displayName} updatedBy {displayName}
+ }
+ versions: aiContentVersions(where: {organizationId: {eq: $organizationId}, draftId: {eq: $id}, draft: {createdByUid: {eq: $createdByUid}}}, limit: 100, orderBy: [{versionNumber: DESC}]) {
+  id versionNumber kind title model generatedAt createdAt createdBy {displayName}
+ }
+}
+
+query GetAiContentVersion($organizationId: UUID!, $draftId: UUID!, $versionNumber: Int!, $createdByUid: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.versionNumber >= 1") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact
+  @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN'] || (has(vars.createdByUid) && vars.createdByUid == this.userProfileUid))", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role userProfileUid}
+ version: aiContentVersion(first: {where: {organizationId: {eq: $organizationId}, draftId: {eq: $draftId}, versionNumber: {eq: $versionNumber}, draft: {createdByUid: {eq: $createdByUid}}}}) {
+  id versionNumber kind title contentData validation model generatedAt createdAt
+ }
+}
+
+# Saves an edit or a restored version. The compare-and-set on revision makes
+# a concurrent change fail instead of being overwritten. Archived drafts are
+# read-only until restored to DRAFT.
+mutation SaveAiContentDraft($organizationId: UUID!, $id: UUID!, $createdByUid: String, $expectedRevision: Int!, $nextRevision: Int!, $versionNumber: Int!,
+ $kind: AiContentVersionKind!, $status: AiContentDraftStatus!, $title: String!, $contentData: String!, $validation: String!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.kind in ['EDITED', 'RESTORED'] && vars.status in ['DRAFT', 'IN_REVIEW'] && vars.nextRevision == vars.expectedRevision + 1 && vars.versionNumber >= 2 && vars.title.size() >= 1 && vars.title.size() <= 200 && vars.contentData.size() <= 100000 && vars.validation.size() <= 20000") @transaction {
+ before: query @redact {
+  ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN'] || (has(vars.createdByUid) && vars.createdByUid == this.userProfileUid))", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role userProfileUid}
+ }
+ draft: aiContentDraft_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}, revision: {eq: $expectedRevision}, versionCount: {lt: $versionNumber}, status: {ne: ARCHIVED}}},
+  data: {title: $title, contentData: $contentData, validation: $validation, status: $status, revision: $nextRevision, versionCount: $versionNumber, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "AI_CONTENT_DRAFT_CHANGED")
+ version: aiContentVersion_insert(data: {organizationId: $organizationId, draftId: $id, versionNumber: $versionNumber, kind: $kind, title: $title, contentData: $contentData, validation: $validation, createdByUid_expr: "auth.uid"})
+}
+
+# Editorial status. Only owners and administrators can approve.
+mutation SetAiContentDraftStatus($organizationId: UUID!, $id: UUID!, $createdByUid: String, $expectedRevision: Int!, $nextRevision: Int!, $status: AiContentDraftStatus!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.nextRevision == vars.expectedRevision + 1") @transaction {
+ before: query @redact {
+  ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN'] || (has(vars.createdByUid) && vars.createdByUid == this.userProfileUid && vars.status != 'APPROVED'))", message: "AI_CONTENT_APPROVAL_FORBIDDEN") {id role userProfileUid}
+ }
+ draft: aiContentDraft_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}, revision: {eq: $expectedRevision}}},
+  data: {status: $status, revision: $nextRevision, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "AI_CONTENT_DRAFT_CHANGED")
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AI_CONTENT_DRAFT_STATUS_CHANGED, targetType: AI_CONTENT_DRAFT, targetId: $id, metadata_expr: "{'status': vars.status}"})
+}
+
+mutation DeleteAiContentDraft($organizationId: UUID!, $id: UUID!, $createdByUid: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ before: query @redact {
+  ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN'] || (has(vars.createdByUid) && vars.createdByUid == this.userProfileUid))", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role userProfileUid}
+  draft: aiContentDraft(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}}}) @check(expr: "this != null", message: "AI_CONTENT_DRAFT_NOT_FOUND") {id}
+ }
+ versions: aiContentVersion_deleteMany(where: {organizationId: {eq: $organizationId}, draftId: {eq: $id}})
+ draft: aiContentDraft_deleteMany(where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AI_CONTENT_DRAFT_DELETED, targetType: AI_CONTENT_DRAFT, targetId: $id})
+}
+
+# --- Drafts: server-only writes of generated content -------------------------
+
+mutation CreateAiContentDraft($organizationId: UUID!, $id: UUID!, $actorUid: String!, $contentType: AiContentType!, $purpose: String!, $title: String!, $language: AiContentLanguage!,
+ $tone: String!, $audience: String!, $sourceProjectId: UUID, $sourcePropertyId: UUID, $sourceListingId: UUID, $sourceLeadId: UUID, $sourceRefs: String!, $templateId: UUID,
+ $contentData: String!, $validation: String!, $model: String!, $generatedAt: Timestamp!)
+ @auth(level: NO_ACCESS) @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ }
+ draft: aiContentDraft_insert(data: {organizationId: $organizationId, id: $id, createdByUid: $actorUid, updatedByUid: $actorUid, contentType: $contentType, purpose: $purpose, title: $title,
+  language: $language, tone: $tone, audience: $audience, status: DRAFT, sourceProjectId: $sourceProjectId, sourcePropertyId: $sourcePropertyId, sourceListingId: $sourceListingId,
+  sourceLeadId: $sourceLeadId, sourceRefs: $sourceRefs, templateId: $templateId, contentData: $contentData, validation: $validation, model: $model, generatedAt: $generatedAt, revision: 1, versionCount: 1})
+ version: aiContentVersion_insert(data: {organizationId: $organizationId, draftId: $id, versionNumber: 1, kind: GENERATED, title: $title, contentData: $contentData, validation: $validation,
+  model: $model, generatedAt: $generatedAt, createdByUid: $actorUid})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: AI_CONTENT_DRAFT_CREATED, targetType: AI_CONTENT_DRAFT, targetId: $id, metadata_expr: "{'contentType': vars.contentType}"})
+}
+
+# A regenerated draft replaces the current content; the earlier content stays
+# in the version history.
+mutation RegenerateAiContentDraft($organizationId: UUID!, $id: UUID!, $actorUid: String!, $createdByUid: String, $expectedRevision: Int!, $nextRevision: Int!, $versionNumber: Int!,
+ $title: String!, $sourceRefs: String!, $contentData: String!, $validation: String!, $model: String!, $generatedAt: Timestamp!)
+ @auth(level: NO_ACCESS) @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN'] || (has(vars.createdByUid) && vars.createdByUid == vars.actorUid))", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+ }
+ draft: aiContentDraft_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}, revision: {eq: $expectedRevision}, versionCount: {lt: $versionNumber}, status: {ne: ARCHIVED}}},
+  data: {title: $title, sourceRefs: $sourceRefs, contentData: $contentData, validation: $validation, model: $model, generatedAt: $generatedAt, status: DRAFT,
+   revision: $nextRevision, versionCount: $versionNumber, updatedByUid: $actorUid, updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "AI_CONTENT_DRAFT_CHANGED")
+ version: aiContentVersion_insert(data: {organizationId: $organizationId, draftId: $id, versionNumber: $versionNumber, kind: REGENERATED, title: $title, contentData: $contentData,
+  validation: $validation, model: $model, generatedAt: $generatedAt, createdByUid: $actorUid})
+}
+
+# An alternative is saved as a new version without replacing the current
+# content; the user can switch to it with "Use this version".
+mutation AddAiContentAlternative($organizationId: UUID!, $id: UUID!, $actorUid: String!, $createdByUid: String, $expectedRevision: Int!, $nextRevision: Int!, $versionNumber: Int!,
+ $title: String!, $contentData: String!, $validation: String!, $model: String!, $generatedAt: Timestamp!)
+ @auth(level: NO_ACCESS) @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN'] || (has(vars.createdByUid) && vars.createdByUid == vars.actorUid))", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+ }
+ draft: aiContentDraft_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}, revision: {eq: $expectedRevision}, versionCount: {lt: $versionNumber}, status: {ne: ARCHIVED}}},
+  data: {revision: $nextRevision, versionCount: $versionNumber, updatedByUid: $actorUid, updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "AI_CONTENT_DRAFT_CHANGED")
+ version: aiContentVersion_insert(data: {organizationId: $organizationId, draftId: $id, versionNumber: $versionNumber, kind: ALTERNATIVE, title: $title, contentData: $contentData,
+  validation: $validation, model: $model, generatedAt: $generatedAt, createdByUid: $actorUid})
+}
+
+# --- Templates -------------------------------------------------------------
+
+# Members see active templates; owners and administrators may include inactive ones.
+query ListAiContentTemplates($organizationId: UUID!, $contentType: AiContentType, $isActive: Boolean, $limit: Int! = 100)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 200") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact
+  @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN'] || (has(vars.isActive) && vars.isActive == true))", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+ templates: aiContentTemplates(where: {organizationId: {eq: $organizationId}, contentType: {eq: $contentType}, isActive: {eq: $isActive}}, limit: $limit, orderBy: [{contentType: ASC}, {name: ASC}]) {
+  id name contentType purpose instructions tone language isActive revision createdAt updatedAt updatedBy {displayName}
+ }
+}
+
+query GetAiContentTemplate($organizationId: UUID!, $id: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ template: aiContentTemplate(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, isActive: {eq: true}}}) {id name contentType purpose instructions tone language isActive revision}
+}
+
+mutation CreateAiContentTemplate($organizationId: UUID!, $name: String!, $contentType: AiContentType!, $purpose: String, $instructions: String!, $tone: String, $language: AiContentLanguage, $isActive: Boolean!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.name.size() >= 2 && vars.name.size() <= 120 && vars.instructions.size() >= 1 && vars.instructions.size() <= 2000") @transaction {
+ before: query @redact {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
+ }
+ template: aiContentTemplate_insert(data: {organizationId: $organizationId, name: $name, contentType: $contentType, purpose: $purpose, instructions: $instructions, tone: $tone, language: $language,
+  isActive: $isActive, revision: 1, createdByUid_expr: "auth.uid", updatedByUid_expr: "auth.uid"})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AI_CONTENT_TEMPLATE_CHANGED, targetType: AI_CONTENT_TEMPLATE, targetId_expr: "response.template.id", metadata_expr: "{'event': 'created'}"})
+}
+
+mutation UpdateAiContentTemplate($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $nextRevision: Int!, $name: String!, $contentType: AiContentType!, $purpose: String, $instructions: String!, $tone: String, $language: AiContentLanguage, $isActive: Boolean!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.nextRevision == vars.expectedRevision + 1 && vars.name.size() >= 2 && vars.name.size() <= 120 && vars.instructions.size() >= 1 && vars.instructions.size() <= 2000") @transaction {
+ before: query @redact {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
+ }
+ template: aiContentTemplate_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+  data: {name: $name, contentType: $contentType, purpose: $purpose, instructions: $instructions, tone: $tone, language: $language, isActive: $isActive, revision: $nextRevision, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "AI_CONTENT_RECORD_CHANGED")
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AI_CONTENT_TEMPLATE_CHANGED, targetType: AI_CONTENT_TEMPLATE, targetId: $id, metadata_expr: "{'event': 'updated'}"})
+}
+
+mutation DeleteAiContentTemplate($organizationId: UUID!, $id: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ before: query @redact {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
+  template: aiContentTemplate(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}}}) @check(expr: "this != null", message: "AI_CONTENT_RECORD_NOT_FOUND") {id}
+ }
+ template: aiContentTemplate_deleteMany(where: {organizationId: {eq: $organizationId}, id: {eq: $id}})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AI_CONTENT_TEMPLATE_CHANGED, targetType: AI_CONTENT_TEMPLATE, targetId: $id, metadata_expr: "{'event': 'deleted'}"})
+}
+
+# --- Brand profile -------------------------------------------------------------
+
+query GetAiBrandProfile($organizationId: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ organization: organization(id: $organizationId) {name contactPhone companyEmail}
+ profile: aiBrandProfile(key: {organizationId: $organizationId}) {
+  displayName logoReference brandTone preferredLanguage useCompanyPhone useCompanyEmail website whatsappNumber defaultCallToAction tagline marketingDisclaimer revision updatedAt updatedBy {displayName}
+ }
+}
+
+mutation CreateAiBrandProfile($organizationId: UUID!, $displayName: String, $logoReference: String, $brandTone: String, $preferredLanguage: AiContentLanguage!, $useCompanyPhone: Boolean!, $useCompanyEmail: Boolean!,
+ $website: String, $whatsappNumber: String, $defaultCallToAction: String, $tagline: String, $marketingDisclaimer: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ before: query @redact {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
+ }
+ profile: aiBrandProfile_insert(data: {organizationId: $organizationId, displayName: $displayName, logoReference: $logoReference, brandTone: $brandTone, preferredLanguage: $preferredLanguage,
+  useCompanyPhone: $useCompanyPhone, useCompanyEmail: $useCompanyEmail, website: $website, whatsappNumber: $whatsappNumber, defaultCallToAction: $defaultCallToAction, tagline: $tagline,
+  marketingDisclaimer: $marketingDisclaimer, revision: 1, updatedByUid_expr: "auth.uid"})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AI_BRAND_PROFILE_UPDATED, targetType: AI_BRAND_PROFILE, targetId: $organizationId})
+}
+
+mutation UpdateAiBrandProfile($organizationId: UUID!, $expectedRevision: Int!, $nextRevision: Int!, $displayName: String, $logoReference: String, $brandTone: String, $preferredLanguage: AiContentLanguage!,
+ $useCompanyPhone: Boolean!, $useCompanyEmail: Boolean!, $website: String, $whatsappNumber: String, $defaultCallToAction: String, $tagline: String, $marketingDisclaimer: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.nextRevision == vars.expectedRevision + 1") @transaction {
+ before: query @redact {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
+ }
+ profile: aiBrandProfile_update(first: {where: {organizationId: {eq: $organizationId}, revision: {eq: $expectedRevision}}},
+  data: {displayName: $displayName, logoReference: $logoReference, brandTone: $brandTone, preferredLanguage: $preferredLanguage, useCompanyPhone: $useCompanyPhone, useCompanyEmail: $useCompanyEmail,
+   website: $website, whatsappNumber: $whatsappNumber, defaultCallToAction: $defaultCallToAction, tagline: $tagline, marketingDisclaimer: $marketingDisclaimer,
+   revision: $nextRevision, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "AI_CONTENT_RECORD_CHANGED")
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AI_BRAND_PROFILE_UPDATED, targetType: AI_BRAND_PROFILE, targetId: $organizationId})
+}

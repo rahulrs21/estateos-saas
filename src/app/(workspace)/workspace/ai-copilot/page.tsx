@@ -1,8 +1,3 @@
-import type { Metadata } from "next";
-import { ModulePreview } from "@/modules/workspace/components/module-preview";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "AI Copilot" };
-
-export default function AiCopilotPage() {
-  return <ModulePreview slug="ai-copilot" />;
-}
+export default function LegacyAiCopilotPage() { redirect("/ai-copilot"); }

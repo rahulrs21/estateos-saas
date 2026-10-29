@@ -4,17 +4,20 @@ import { Activity, ArrowLeft, Building2, CalendarClock, ChevronLeft, ChevronRigh
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { LeadActivity, LeadDetailData } from "@/modules/leads/types";
 import { LeadAssignment, LeadFollowUp, LeadFollowUpCompletion, LeadNoteForm, LeadStatusPipeline } from "./lead-actions";
 import { LeadEditorDialog } from "./lead-form";
 import { formatLeadDate, LeadStatusBadge, leadStatusLabels } from "./lead-ui";
+import { AiContentLink } from "@/modules/ai/content/components/ai-content-link";
 
 const activityLabels: Record<string, string> = {
   LEAD_CREATED: "Lead created", LEAD_UPDATED: "Lead details updated", LEAD_ARCHIVED: "Lead archived",
   LEAD_NOTE_ADDED: "Note added", LEAD_STATUS_CHANGED: "Pipeline changed", LEAD_ASSIGNED: "Assignment changed",
   FOLLOW_UP_SCHEDULED: "Follow-up scheduled", FOLLOW_UP_COMPLETED: "Follow-up completed",
+  LEAD_PROPERTY_INTEREST_CHANGED: "Property shortlist updated", LEAD_PRIMARY_INTEREST_CHANGED: "Interested inventory updated",
+  LEAD_PROPERTY_VIEWING_SCHEDULED: "Property viewing scheduled", LEAD_PROPERTY_VIEWING_UPDATED: "Property viewing updated",
 };
 
 function activityDescription(activity: LeadActivity, data: LeadDetailData) {
@@ -33,7 +36,7 @@ function DetailValue({ label, children }: { label: string; children?: ReactNode 
   return <div><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-2 break-words text-sm font-medium">{children || <span className="font-normal text-muted-foreground">Not provided</span>}</dd></div>;
 }
 
-export function LeadDetail({ data }: { data: LeadDetailData }) {
+export function LeadDetail({ data, propertySection, salesSection }: { data: LeadDetailData; propertySection?: ReactNode; salesSection?: ReactNode }) {
   const { lead, organization, membership, activities, activityPage, hasMoreActivities, followUps, followUpPage, followUpTotal, hasMoreFollowUps } = data;
   const currency = lead.currency ?? "AED";
   const amount = (value?: number | null) => value == null ? null : `${new Intl.NumberFormat("en-AE", { maximumFractionDigits: 2 }).format(value)} ${currency}`;
@@ -41,16 +44,18 @@ export function LeadDetail({ data }: { data: LeadDetailData }) {
   const sourceName = data.sources.find(source => source.id === lead.sourceId)?.name || lead.source;
   return <div className="space-y-6 break-words">
     <Link href="/leads" className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" aria-hidden="true" />Back to leads</Link>
-    <div className="[&_h1]:break-words [&_h1]:[overflow-wrap:anywhere]"><PageHeader title={lead.fullName} eyebrow={organization.name} description="Customer information, conversations and the next step in one place.">{!lead.archivedAt && <LeadEditorDialog data={data} />}</PageHeader></div>
+    <div className="[&_h1]:break-words [&_h1]:[overflow-wrap:anywhere]"><PageHeader title={lead.fullName} eyebrow={organization.name} description="Customer information, conversations and the next step in one place."><AiContentLink label="Generate WhatsApp Follow-up" type="WHATSAPP_MESSAGE" purpose="ENQUIRY_FOLLOW_UP" record={{kind: "leadId", id: lead.id}} /><AiContentLink label="Generate Email Draft" type="EMAIL" purpose="FOLLOW_UP" record={{kind: "leadId", id: lead.id}} />{!lead.archivedAt && <LeadEditorDialog data={data} />}</PageHeader></div>
     {lead.archivedAt && <div role="status" className="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">Archived on {formatLeadDate(lead.archivedAt, true)}. This record and its history are available for reference.</div>}
 
     <div className="grid gap-4 sm:grid-cols-3">
       <Card className="gap-2 py-4 shadow-xs ring-border"><CardContent className="px-5"><p className="text-xs text-muted-foreground">Current stage</p><div className="mt-3"><LeadStatusBadge status={lead.status} /></div>{lead.pipelineStage?.name && lead.pipelineStage.name !== leadStatusLabels[lead.status] && <p className="mt-2 text-xs text-muted-foreground">{lead.pipelineStage.name}</p>}</CardContent></Card>
       <Card className="gap-2 py-4 shadow-xs ring-border"><CardContent className="px-5"><p className="flex items-center gap-2 text-xs text-muted-foreground"><Flag className="size-3.5" aria-hidden="true" />Priority</p><p className="mt-3 text-base font-semibold capitalize">{(lead.priority ?? "NORMAL").toLowerCase()}</p></CardContent></Card>
-      <Card className="gap-2 py-4 shadow-xs ring-border"><CardContent className="px-5"><p className="flex items-center gap-2 text-xs text-muted-foreground"><Sparkles className="size-3.5" aria-hidden="true" />Lead score</p><Button disabled variant="ghost" className="mt-2 h-auto px-0 text-sm text-muted-foreground">AI scoring not connected</Button><p className="mt-1 text-[11px] text-muted-foreground">No score has been calculated.</p></CardContent></Card>
+      <Card className="gap-2 py-4 shadow-xs ring-border"><CardContent className="px-5"><p className="flex items-center gap-2 text-xs text-muted-foreground"><Sparkles className="size-3.5" aria-hidden="true" />Lead score</p><a href="#ai-sales" className="mt-3 inline-flex text-sm font-medium text-primary hover:underline">View AI sales assistant</a><p className="mt-1 text-[11px] text-muted-foreground">Rule-based score, next actions and matches.</p></CardContent></Card>
     </div>
 
     <Card className="gap-4 py-5 shadow-xs ring-border"><CardHeader className="px-5 sm:px-6"><CardTitle role="heading" aria-level={2}>Lead pipeline</CardTitle><CardDescription>Move this opportunity to reflect your latest conversation.</CardDescription></CardHeader><CardContent className="px-5 sm:px-6"><LeadStatusPipeline lead={lead} pipelines={data.pipelines} /></CardContent></Card>
+
+    {salesSection}
 
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 space-y-5">
@@ -63,11 +68,13 @@ export function LeadDetail({ data }: { data: LeadDetailData }) {
           <DetailValue label="Lead source">{sourceName}</DetailValue><DetailValue label="Branch">{lead.branch?.name}</DetailValue>
         </dl>{lead.contact?.notes && <div className="mt-6 border-t pt-5"><h3 className="text-xs font-medium">Contact notes</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{lead.contact.notes}</p></div>}</CardContent></Card>
 
-        <Card className="gap-5 py-5 shadow-xs ring-border"><CardHeader className="px-5 sm:px-6"><div className="flex items-center gap-2"><Building2 className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Property requirements</CardTitle></div><CardDescription>Preferences for this opportunity.</CardDescription></CardHeader><CardContent className="px-5 sm:px-6"><dl className="grid gap-6 sm:grid-cols-2">
+        <Card id="lead-requirements" className="scroll-mt-24 gap-5 py-5 shadow-xs ring-border"><CardHeader className="px-5 sm:px-6"><div className="flex items-center gap-2"><Building2 className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Property requirements</CardTitle></div><CardDescription>Preferences for this opportunity.</CardDescription></CardHeader><CardContent className="px-5 sm:px-6"><dl className="grid gap-6 sm:grid-cols-2">
           <DetailValue label="Project or property interest">{lead.propertyInterest}</DetailValue><DetailValue label="Preferred location">{lead.preferredLocation && <span className="inline-flex items-start gap-2"><MapPin className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />{lead.preferredLocation}</span>}</DetailValue>
           <DetailValue label="Property type">{lead.propertyType}</DetailValue><DetailValue label="Transaction type">{lead.transactionType && <span className="capitalize">{lead.transactionType.toLowerCase()}</span>}</DetailValue>
           <DetailValue label="Minimum budget">{amount(lead.budgetMin)}</DetailValue><DetailValue label="Maximum budget">{amount(lead.budgetMax)}</DetailValue><DetailValue label="Bedrooms">{lead.bedroomPreference}</DetailValue>
         </dl></CardContent></Card>
+
+        {propertySection}
 
         <Card id="timeline" className="scroll-mt-24 gap-0 py-5 shadow-xs ring-border"><CardHeader className="border-b px-5 pb-5 sm:px-6"><div className="flex items-center gap-2"><Activity className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Notes and activity</CardTitle></div><CardDescription>Conversations and changes, most recent first. Times are in Dubai.</CardDescription></CardHeader><CardContent className="border-b px-5 py-5 sm:px-6"><LeadNoteForm lead={lead} /></CardContent>
           <CardContent className="px-5 pt-6 sm:px-6">{activities.length === 0 ? <EmptyState icon={MessageSquareText} title="No activity on this page" description="Notes and lead updates will appear here as your team works on this opportunity." className="py-8" /> : <ol aria-label="Lead activity timeline">{activities.map((entry, index) => {

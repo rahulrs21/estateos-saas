@@ -1,6 +1,8 @@
 /* Resolve source detection from this stylesheet, independently of the launcher. */
 @import "tailwindcss" source("../");
 @import "tw-animate-css";
+/* OpenStreetMap maps (src/modules/maps/components/leaflet-canvas.tsx). */
+@import "leaflet/dist/leaflet.css";
 
 @custom-variant dark (&:is(.dark *));
 

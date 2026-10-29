@@ -1,0 +1,21 @@
+# Shared API rate limiting (Phase 5F). Server-only: NO_ACCESS rejects every
+# client SDK call, and the web app executes these with its Admin SDK identity
+# from src/lib/rate-limit/sql-connect-store.ts. Bucket keys are opaque HMACs.
+
+# One atomic statement per hit: concurrent requests on different app instances
+# serialize on the row lock, so the returned count is exact.
+mutation HitRateLimitCounter($bucketKey: String!, $scope: String!, $windowEndsAt: Timestamp!) @auth(level: NO_ACCESS) {
+  counter: _executeReturningFirst(
+    sql: """
+      INSERT INTO rate_limit_counter (bucket_key, scope, hit_count, window_ends_at, updated_at)
+      VALUES ($1, $2, 1, $3, now())
+      ON CONFLICT (bucket_key) DO UPDATE SET hit_count = rate_limit_counter.hit_count + 1, updated_at = now()
+      RETURNING hit_count
+    """,
+    params: [$bucketKey, $scope, $windowEndsAt]
+  )
+}
+
+mutation PurgeExpiredRateLimitCounters($before: Timestamp!) @auth(level: NO_ACCESS) {
+  rateLimitCounter_deleteMany(where: {windowEndsAt: {lt: $before}})
+}

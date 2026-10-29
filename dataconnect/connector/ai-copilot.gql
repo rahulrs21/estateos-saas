@@ -1,0 +1,131 @@
+# Phase 6A AI Copilot (docs/AI_COPILOT.md).
+#
+# Member operations are called with the verified session identity and only
+# ever touch the caller's own conversations in an organization where the
+# caller has an ACTIVE membership. Operations marked NO_ACCESS are server-only:
+# the web app runs them with its Admin SDK identity after it has verified the
+# session and membership itself, and client SDKs cannot call them.
+
+query ListMyAiConversations($organizationId: UUID!, $search: String, $limit: Int! = 30, $offset: Int! = 0)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000 && (!has(vars.search) || vars.search == null || vars.search.size() <= 242)") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ conversations: aiConversations(where: {organizationId: {eq: $organizationId}, ownerUid: {eq_expr: "auth.uid"}, title: {pattern: {like: $search, ignoreCase: true}}}, limit: $limit, offset: $offset, orderBy: [{lastMessageAt: DESC}, {id: ASC}]) {
+  id title messageCount createdAt updatedAt lastMessageAt
+ }
+ total: aiConversations(where: {organizationId: {eq: $organizationId}, ownerUid: {eq_expr: "auth.uid"}, title: {pattern: {like: $search, ignoreCase: true}}}) {count: _count}
+}
+
+# Returns the newest messages first; the server reverses them for display and
+# for rebuilding the Claude context. A missing or foreign conversation is null.
+query GetMyAiConversation($organizationId: UUID!, $conversationId: UUID!, $limit: Int! = 50)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 200") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ conversation: aiConversation(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $conversationId}, ownerUid: {eq_expr: "auth.uid"}}}) {
+  id title messageCount createdAt updatedAt lastMessageAt
+ }
+ messages: aiMessages(where: {organizationId: {eq: $organizationId}, conversationId: {eq: $conversationId}, ownerUid: {eq_expr: "auth.uid"}}, limit: $limit, orderBy: [{sequence: DESC}]) {
+  id sequence role content createdAt
+ }
+}
+
+mutation DeleteMyAiConversation($organizationId: UUID!, $conversationId: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ before: query @redact {
+  ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+  conversation: aiConversation(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $conversationId}, ownerUid: {eq_expr: "auth.uid"}}}) @check(expr: "this != null", message: "AI_CONVERSATION_NOT_FOUND") {id}
+ }
+ messages: aiMessage_deleteMany(where: {organizationId: {eq: $organizationId}, conversationId: {eq: $conversationId}, ownerUid: {eq_expr: "auth.uid"}})
+ conversation: aiConversation_deleteMany(where: {organizationId: {eq: $organizationId}, id: {eq: $conversationId}, ownerUid: {eq_expr: "auth.uid"}})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AI_CONVERSATION_DELETED, targetType: AI_CONVERSATION, targetId: $conversationId})
+}
+
+# Application retention policy (AI_CONVERSATION_RETENTION_DAYS): removes the
+# caller's own conversations whose last message is older than $before.
+mutation PurgeMyExpiredAiConversations($organizationId: UUID!, $before: Timestamp!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ before: query @redact {
+  ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ }
+ messages: aiMessage_deleteMany(where: {organizationId: {eq: $organizationId}, ownerUid: {eq_expr: "auth.uid"}, conversation: {lastMessageAt: {lt: $before}}})
+ conversations: aiConversation_deleteMany(where: {organizationId: {eq: $organizationId}, ownerUid: {eq_expr: "auth.uid"}, lastMessageAt: {lt: $before}})
+}
+
+# --- Server-only operations (Admin SDK without impersonation) ---------------
+
+# Saves one completed exchange in a new conversation. Incomplete or failed
+# responses are never saved.
+mutation CreateAiConversationWithExchange($organizationId: UUID!, $conversationId: UUID!, $ownerUid: String!, $title: String!, $userContent: String!, $assistantContent: String!)
+ @auth(level: NO_ACCESS) @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $ownerUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ }
+ conversation: aiConversation_insert(data: {organizationId: $organizationId, id: $conversationId, ownerUid: $ownerUid, title: $title, messageCount: 2})
+ messages: aiMessage_insertMany(data: [
+  {organizationId: $organizationId, conversationId: $conversationId, ownerUid: $ownerUid, sequence: 1, role: USER, content: $userContent}
+  {organizationId: $organizationId, conversationId: $conversationId, ownerUid: $ownerUid, sequence: 2, role: ASSISTANT, content: $assistantContent}
+ ])
+}
+
+# Appends one completed exchange. The compare-and-set on messageCount makes a
+# concurrent exchange on the same conversation fail instead of interleaving.
+mutation AppendAiExchange($organizationId: UUID!, $conversationId: UUID!, $ownerUid: String!, $expectedMessageCount: Int!, $nextMessageCount: Int!, $userSequence: Int!, $assistantSequence: Int!, $userContent: String!, $assistantContent: String!)
+ @auth(level: NO_ACCESS) @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $ownerUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ }
+ conversation: aiConversation_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $conversationId}, ownerUid: {eq: $ownerUid}, messageCount: {eq: $expectedMessageCount}}},
+  data: {messageCount: $nextMessageCount, updatedAt_expr: "request.time", lastMessageAt_expr: "request.time"}) @check(expr: "this != null", message: "AI_CONVERSATION_CHANGED")
+ messages: aiMessage_insertMany(data: [
+  {organizationId: $organizationId, conversationId: $conversationId, ownerUid: $ownerUid, sequence: $userSequence, role: USER, content: $userContent}
+  {organizationId: $organizationId, conversationId: $conversationId, ownerUid: $ownerUid, sequence: $assistantSequence, role: ASSISTANT, content: $assistantContent}
+ ])
+}
+
+mutation RecordAiUsage($organizationId: UUID!, $id: UUID!, $userUid: String!, $conversationId: UUID, $model: String!, $promptVersion: String!, $status: AiRequestStatus!, $errorCode: String,
+ $inputTokens: Int!, $outputTokens: Int!, $cacheReadInputTokens: Int!, $cacheCreationInputTokens: Int!, $estimatedCostUsd: Float, $modelRequests: Int!, $toolCalls: Int!, $durationMs: Int!, $feature: String, $contentType: String)
+ @auth(level: NO_ACCESS) {
+ usage: aiUsageRecord_insert(data: {organizationId: $organizationId, id: $id, userUid: $userUid, conversationId: $conversationId, model: $model, promptVersion: $promptVersion, status: $status, errorCode: $errorCode,
+  inputTokens: $inputTokens, outputTokens: $outputTokens, cacheReadInputTokens: $cacheReadInputTokens, cacheCreationInputTokens: $cacheCreationInputTokens,
+  estimatedCostUsd: $estimatedCostUsd, modelRequests: $modelRequests, toolCalls: $toolCalls, durationMs: $durationMs, feature: $feature, contentType: $contentType})
+}
+
+# Called once per tool call after RecordAiUsage (bounded by AI_MAX_TOOL_CALLS).
+mutation RecordAiToolExecution($organizationId: UUID!, $usageRecordId: UUID!, $toolName: String!, $status: AiToolExecutionStatus!, $errorCode: String, $resultCount: Int, $durationMs: Int!)
+ @auth(level: NO_ACCESS) {
+ tool: aiToolExecution_insert(data: {organizationId: $organizationId, usageRecordId: $usageRecordId, toolName: $toolName, status: $status, errorCode: $errorCode, resultCount: $resultCount, durationMs: $durationMs})
+}
+
+# One atomic statement per reservation: the conditional upsert never lets the
+# stored count pass $limit, however many app instances reserve concurrently.
+# No row is returned when the allowance is used up.
+mutation ReserveAiRequest($organizationId: UUID!, $periodKey: String!, $subjectKey: String!, $limit: Int!) @auth(level: NO_ACCESS) {
+ counter: _executeReturningFirst(
+  sql: """
+   INSERT INTO ai_usage_counter (organization_id, period_key, subject_key, request_count, updated_at)
+   VALUES ($1::uuid, $2, $3, 1, now())
+   ON CONFLICT (organization_id, period_key, subject_key) DO UPDATE
+    SET request_count = ai_usage_counter.request_count + 1, updated_at = now()
+    WHERE ai_usage_counter.request_count < $4::int
+   RETURNING request_count
+  """,
+  params: [$organizationId, $periodKey, $subjectKey, $limit]
+ )
+}
+
+# Returns a reservation that never reached Claude (for example a rejected
+# second allowance or a configuration error).
+mutation ReleaseAiRequest($organizationId: UUID!, $periodKey: String!, $subjectKey: String!) @auth(level: NO_ACCESS) {
+ counter: _executeReturningFirst(
+  sql: """
+   UPDATE ai_usage_counter SET request_count = GREATEST(request_count - 1, 0), updated_at = now()
+   WHERE organization_id = $1::uuid AND period_key = $2 AND subject_key = $3
+   RETURNING request_count
+  """,
+  params: [$organizationId, $periodKey, $subjectKey]
+ )
+}
+
+query GetAiUsageCounters($organizationId: UUID!, $periodKey: String!, $userKey: String!) @auth(level: NO_ACCESS) {
+ organization: aiUsageCounter(key: {organizationId: $organizationId, periodKey: $periodKey, subjectKey: "organization"}) {requestCount}
+ user: aiUsageCounter(key: {organizationId: $organizationId, periodKey: $periodKey, subjectKey: $userKey}) {requestCount}
+}

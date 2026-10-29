@@ -8,7 +8,7 @@ export function PageHeader({ title, description, eyebrow, children }: { title: s
         <h1 className="text-2xl font-semibold tracking-tight sm:text-[28px]">{title}</h1>
         <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{description}</p>
       </div>
-      {children && <div className="flex shrink-0 items-center gap-2">{children}</div>}
+      {children && <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>}
     </div>
   );
 }

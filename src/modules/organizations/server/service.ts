@@ -53,7 +53,7 @@ export async function listMyOrganizations() {
   const request = await requireSqlConnectRequest();
   const memberships: ListMyOrganizationsData["memberships"] = [];
   for (let offset = 0; offset <= 10_000; offset += 100) {
-    const page = await executeWorkspaceOperation(() => listMyOrganizationsOperation(request.dc, { limit: 100, offset }, request.options));
+    const page = await executeWorkspaceOperation(() => listMyOrganizationsOperation(request.dc, { limit: 100, offset }, request.options), "ListMyOrganizations");
     memberships.push(...page.memberships);
     if (page.memberships.length < 100) return { memberships };
   }
@@ -79,7 +79,7 @@ export async function createOrganization(input: unknown) {
 /** Onboarding creates missing identity metadata from the verified session only. */
 async function ensureMyProfile() {
   const request = await requireSqlConnectRequest();
-  const { userProfile } = await executeWorkspaceOperation(() => getMyProfile(request.dc, request.options));
+  const { userProfile } = await executeWorkspaceOperation(() => getMyProfile(request.dc, request.options), "GetMyProfile");
   if (!userProfile) {
     const name = request.user.name?.trim();
     const displayName = name && name.length >= 2 ? name.slice(0, 120) : request.user.email.slice(0, 120);

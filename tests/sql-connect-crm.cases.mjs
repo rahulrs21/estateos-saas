@@ -80,6 +80,27 @@ export function registerCrmCases({sdk, run, forbidden, dc}) {
       assert.deepEqual(new Set(plan.eligibleAgents.map(row=>key(row.id))),new Set([key(memberAgent),key(memberAgent2)]));
       assert.ok(plan.rule.cursor);
     });
+    it("persists nationality and alternate phone on contacts created and updated through lead flows",async()=>{
+      const leadId=await lead({fullName:"Lead contact detail create",phone:"+971501234567",normalizedPhone:"+971501234567",
+        alternatePhone:"+971551234567",normalizedAlternatePhone:"+971551234567",nationality:"Canadian"});
+      const created=await details(leadId);
+      assert.equal(created.contact.alternatePhone,"+971551234567");
+      assert.equal(created.contact.nationality,"Canadian");
+
+      await run(sdk.updateLead,owner,{organizationId:org,leadId,fullName:created.fullName,status:"NEW",
+        email:created.email??null,phone:created.phone??null,normalizedPhone:created.phone??null,
+        alternatePhone:"+971551112223",normalizedAlternatePhone:"+971551112223",nationality:"British",recordAssignment:false});
+      const updated=await details(leadId);
+      assert.equal(updated.contact.alternatePhone,"+971551112223");
+      assert.equal(updated.contact.nationality,"British");
+
+      const linkedContactId=await contact("Existing contact with details",{alternatePhone:"+971552223334",nationality:"Australian"});
+      const linked=await run(sdk.createLeadForContact,owner,{organizationId:org,contactId:linkedContactId,
+        alternatePhone:"+971553334445",normalizedAlternatePhone:"+971553334445",nationality:"Irish"});
+      const linkedLead=await details(linked.lead.id);
+      assert.equal(linkedLead.contact.alternatePhone,"+971553334445");
+      assert.equal(linkedLead.contact.nationality,"Irish");
+    });
     it("serializes concurrent round-robin arrivals, retries stale cursors and notifies selected agents",async()=>{
       const plan=await run(sdk.getLeadDistributionPlan,owner,{organizationId:org});
       const selected=plan.eligibleAgents.map(row=>row.id).sort((a,b)=>key(a).localeCompare(key(b)))[0];

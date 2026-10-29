@@ -25,6 +25,22 @@ test("lead creation normalizes contact fields and accepts only valid reference i
   }
 });
 
+test("lead create and edit forms validate alternate phone and nationality contact fields", () => {
+  const create = createLeadSchema.parse({
+    fullName: "Lead with contact details", alternatePhone: "+971 55 123 4567", nationality: "Canadian",
+  });
+  assert.equal(create.alternatePhone, "+971 55 123 4567");
+  assert.equal(create.nationality, "Canadian");
+  const update = updateLeadSchema.parse({
+    leadId: id, fullName: "Updated contact details", status: "NEW",
+    alternatePhone: "+971 55 234 5678", nationality: "British",
+  });
+  assert.equal(update.alternatePhone, "+971 55 234 5678");
+  assert.equal(update.nationality, "British");
+  assert.equal(createLeadSchema.safeParse({ fullName: "Valid name", nationality: "x".repeat(81) }).success, false);
+  assert.equal(updateLeadSchema.safeParse({ leadId: id, fullName: "Valid name", status: "NEW", alternatePhone: "bad-number" }).success, false);
+});
+
 test("all lead operations reject client-supplied tenant, identity, membership and role authority", () => {
   const examples = [
     [createLeadSchema, { fullName: "Local Buyer" }],

@@ -1,15 +1,32 @@
 {
-  "dataconnect": { "source": "dataconnect" },
+  "dataconnect": {
+    "source": "dataconnect"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
   "emulators": {
     "dataconnect": {
       "host": "127.0.0.1",
       "port": 9399,
       "postgresPort": 9939,
-      "dataDir": ".tmp/sql-connect-local/data"
+      "dataDir": ".local-data/sql-connect"
     },
-    "hub": { "host": "127.0.0.1", "port": 4401 },
-    "logging": { "host": "127.0.0.1", "port": 4501 },
-    "ui": { "enabled": false },
+    "storage": {
+      "host": "127.0.0.1",
+      "port": 9199
+    },
+    "hub": {
+      "host": "127.0.0.1",
+      "port": 4401
+    },
+    "logging": {
+      "host": "127.0.0.1",
+      "port": 4501
+    },
+    "ui": {
+      "enabled": false
+    },
     "singleProjectMode": true
   }
 }

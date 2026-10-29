@@ -64,11 +64,6 @@ const capabilities: Record<string, Capability[]> = {
     { title: "Channel connections", description: "Future WhatsApp, email, calling, and video provider integrations." },
     { title: "Consent and delivery", description: "Communication preferences, provider status, and auditable delivery events." },
   ],
-  "ai-copilot": [
-    { title: "CRM assistance", description: "Future help finding and summarizing records the requesting user may access." },
-    { title: "Reviewed suggestions", description: "Draft follow-ups and next steps that keep consequential actions under user control." },
-    { title: "Usage controls", description: "Server-side credentials, tenant isolation, audit trails, and cost controls." },
-  ],
   automation: [
     { title: "Workflow rules", description: "Explicit triggers and conditions for repeatable agency processes." },
     { title: "Controlled execution", description: "Permission checks, retries, and safeguards for each automated action." },

@@ -54,6 +54,13 @@ function makeLead(index:number){return {id:'20000000-0000-4000-8000-'+String(ind
 type Store={leads:any[],activities:any[],followUps:any[],requests:any[],failNext:boolean};
 const shared=globalThis as typeof globalThis & {estateosLeadUiFixture?:Store};
 export const store=shared.estateosLeadUiFixture??=( {leads:Array.from({length:12},(_,index)=>makeLead(index+1)),activities:[],followUps:[],requests:[],failNext:false});
+const project={id:'30000000-0000-4000-8000-000000000001',projectName:'Fixture Marina Project'};
+const property={id:'30000000-0000-4000-8000-000000000002',propertyReference:'UI-UNIT-101',projectId:project.id,project,propertyType:'APARTMENT',bedrooms:2,community:'Dubai Marina',emirate:'DUBAI',area:null,inventoryStatus:'AVAILABLE',archivedAt:null,assignedMembershipId:membershipId};
+export function propertyData(id:string){
+ const lead=store.leads.find(row=>row.id===id);
+ const shortlist=lead?.propertyInterests??[],viewings=lead?.propertyViewings??[];
+ return {organizationId,page:1,candidateTotal:1,reviewed:1,primaryProject:lead?.primaryProject??null,primaryProperty:lead?.primaryProperty??null,shortlist,shortlistTotal:shortlist.length,viewings,viewingTotal:viewings.length,leadAssignedMembershipId:membershipId,viewingAssignees:[{id:membershipId,role:'AGENT',name:'Fixture Agent'}],matches:[{property,listing:{id:'30000000-0000-4000-8000-000000000003',listingPurpose:'SALE',askingPriceMinor:'100000000',currency:'AED'},reasons:['Available property','Matches Dubai Marina','Within budget']}]};
+}
 export function pageData(params:Record<string,string|undefined>={}){
  const filters={search:'',status:'',branchId:'',assignedMembershipId:'',sourceId:'',priority:'',createdFrom:'',createdTo:'',sort:'CREATED_DESC',view:'LIST',followUp:'ALL',page:1,pageSize:10,...params};
  filters.page=Number(filters.page);filters.pageSize=Number(filters.pageSize);
@@ -68,6 +75,12 @@ export function detailData(id:string){return {...workspace,lead:store.leads.find
 function activity(leadId:string,kind:string,note?:string){store.activities.unshift({id:randomUUID(),organizationId,leadId,actorUid:'fixture-agent',actor:{uid:'fixture-agent',displayName:'Fixture User'},kind,note,createdAt:new Date().toISOString()});}
 export async function respond(request:Request,path:string[]){
  if(path.join('/')==='auth/csrf')return Response.json({csrfToken:'component-test-only'});
+ if(request.method==='GET'){
+  if(path[0]==='inventory'&&path[1]==='projects')return Response.json({data:{projects:[]}});
+  if(path[0]==='inventory'&&path[1]==='properties')return Response.json({data:{properties:[property]}});
+  if(path[0]==='leads'&&path[2]==='properties')return Response.json({data:propertyData(path[1])});
+  return Response.json({error:{message:'Unknown component fixture read.'}},{status:404});
+ }
  const body=await request.json();
  store.requests.push({path:path.join('/'),method:request.method,body,organization:request.headers.get('X-EstateOS-Organization'),csrf:request.headers.get('X-CSRF-Token')});
  if(store.failNext){store.failNext=false;return Response.json({error:{message:'Fixture rejected the change.'}},{status:409});}
@@ -81,6 +94,17 @@ export async function respond(request:Request,path:string[]){
  else if(lead&&path[2]==='status'){lead.status=body.status;const stage=stages.find(x=>x.status===body.status);if(stage){lead.pipelineStageId=stage.id;lead.pipelineStage=stage;}activity(lead.id,'LEAD_STATUS_CHANGED');}
  else if(lead&&(path[2]==='notes'||path[2]==='activities'))activity(lead.id,'LEAD_NOTE_ADDED',body.note??body.description);
  else if(lead&&path[2]==='assignment'){lead.assignedMembershipId=body.assignedMembershipId;lead.assignedMembership=body.assignedMembershipId?assignee:null;activity(lead.id,'LEAD_ASSIGNED');}
+ else if(lead&&path[2]==='property-interest'){lead.primaryProperty=body.propertyId?property:null;lead.primaryProject=body.projectId?project:null;}
+ else if(lead&&path[2]==='properties'){
+  lead.propertyInterests??=[];const current=lead.propertyInterests.find((row:any)=>row.propertyId===body.propertyId);
+  if(current)Object.assign(current,body,{updatedAt:new Date().toISOString()});
+  else lead.propertyInterests.push({id:randomUUID(),propertyId:property.id,property,status:body.status,notes:body.notes??null,updatedAt:new Date().toISOString()});
+ }
+ else if(lead&&path[2]==='viewings'){
+  lead.propertyViewings??=[];
+  if(path[3]){const current=lead.propertyViewings.find((row:any)=>row.id===path[3]);if(current)Object.assign(current,{status:body.status,viewingNotes:body.notes,customerConfirmation:body.customerConfirmation,outcome:body.outcome??null,followUp:body.followUp?{id:randomUUID(),title:body.followUp.title,dueAt:body.followUp.dueAt,status:'PENDING'}:current.followUp,updatedAt:new Date().toISOString()});}
+  else lead.propertyViewings.push({id:randomUUID(),propertyId:property.id,property,status:'SCHEDULED',scheduledAt:body.scheduledAt,viewingNotes:body.notes,assignedMembershipId:body.assignedMembershipId,assignedMembership:assignee,customerConfirmation:body.customerConfirmation,outcome:null,followUp:null,updatedAt:new Date().toISOString()});
+ }
  else if(lead&&path[2]==='follow-ups'){if(path[4]==='complete'){const followUp=store.followUps.find(x=>x.id===path[3]);if(followUp){followUp.status='COMPLETED';followUp.completedAt=new Date().toISOString();}}else{store.followUps.unshift({id:randomUUID(),leadId:lead.id,organizationId,title:body.title,dueAt:body.dueAt,status:'PENDING',assignedUserId:membershipId,assignedUser:assignee,createdAt:new Date().toISOString()});}activity(lead.id,'FOLLOW_UP_SCHEDULED');}
  if(!lead)return Response.json({error:{message:'Fixture record unavailable.'}},{status:404});
  return Response.json({data:{lead,possibleDuplicates:[],warnings:[]}});
@@ -88,7 +112,7 @@ export async function respond(request:Request,path:string[]){
 `);
 write("app/leads/page.tsx", `import {LeadsList} from '@/modules/leads/components/leads-list';import{pageData}from'../../lib/store';import{Ready}from'../ready';export const dynamic='force-dynamic';export default async function Page({searchParams}:{searchParams:Promise<Record<string,string>>}){return <main className="p-4 sm:p-8"><Ready/><LeadsList data={pageData(await searchParams) as any}/></main>}`);
 write("app/leads/new/page.tsx", `import{LeadForm}from'@/modules/leads/components/lead-form';import{formData}from'../../../lib/store';import{Ready}from'../../ready';export const dynamic='force-dynamic';export default function Page(){return <main className="p-4 sm:p-8"><Ready/><LeadForm data={formData() as any}/></main>}`);
-write("app/leads/[leadId]/page.tsx", `import{LeadDetail}from'@/modules/leads/components/lead-detail';import{detailData}from'../../../lib/store';import{Ready}from'../../ready';export const dynamic='force-dynamic';export default async function Page({params}:{params:Promise<{leadId:string}>}){const{leadId}=await params;return <main className="p-4 sm:p-8"><Ready/><LeadDetail data={detailData(leadId) as any}/></main>}`);
+write("app/leads/[leadId]/page.tsx", `import{LeadDetail}from'@/modules/leads/components/lead-detail';import{LeadPropertyPanel}from'@/modules/leads/components/lead-property-panel';import{detailData,propertyData}from'../../../lib/store';import{Ready}from'../../ready';export const dynamic='force-dynamic';export default async function Page({params}:{params:Promise<{leadId:string}>}){const{leadId}=await params;return <main className="p-4 sm:p-8"><Ready/><LeadDetail data={detailData(leadId) as any} propertySection={<LeadPropertyPanel leadId={leadId} initialData={propertyData(leadId) as any}/>}/></main>}`);
 write("app/leads/[leadId]/edit/page.tsx", `import{LeadForm}from'@/modules/leads/components/lead-form';import{formData}from'../../../../lib/store';import{Ready}from'../../../ready';export const dynamic='force-dynamic';export default async function Page({params}:{params:Promise<{leadId:string}>}){const{leadId}=await params;return <main className="p-4 sm:p-8"><Ready/><LeadForm data={formData(leadId) as any}/></main>}`);
 write("app/api/[...path]/route.ts", `import{respond}from'../../../lib/store';async function handle(request:Request,{params}:{params:Promise<{path:string[]}>}){return respond(request,(await params).path)}export{handle as GET,handle as POST,handle as PATCH};`);
 write("app/fixture/route.ts", `import{store}from'../../lib/store';export function GET(){return Response.json(store)}export async function POST(request:Request){const body=await request.json();store.failNext=body.failNext===true;return Response.json({ok:true})}`);

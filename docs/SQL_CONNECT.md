@@ -147,20 +147,7 @@ The generated SDK must be regenerated whenever the schema or stored operations c
 
 The seed file is `dataconnect/seed_data.gql`, outside deployable connector directories. It contains synthetic local fixtures only; no hardcoded Firebase production accounts or default privileged application users are introduced. Emulator seeds can use unrestricted administrative setup to establish test roles, but normal integration-test calls must impersonate individual fixture users to exercise connector rules. Never move a seed/reset mutation into a deployable connector.
 
-For manual fixture exploration, start the emulator in one terminal:
-
-```powershell
-npm.cmd run sql:emulators
-```
-
-In another terminal, seed its default port:
-
-```powershell
-$env:DATA_CONNECT_EMULATOR_HOST = "127.0.0.1:9399"
-npm.cmd run sql:seed
-```
-
-The seed command resets the eight local tables before loading deterministic synthetic fixtures; it is destructive to that disposable emulator data. The script refuses remote hosts, production mode, and a project other than `demo-estateos`. It does not load `.env.local` or cloud credentials. If a project variable is already set in the terminal, use a separate local-development terminal configured for `demo-estateos`. Stop the emulator when finished; remove the emulator environment variable before a later intentional hosted invocation.
+Local development data is persistent; see [Local development database](LOCAL_DATABASE.md). `ResetEstateOS` (used by `npm run sql:seed` and the integration suite) deletes every row, so it runs only against the isolated integration-test emulator (`127.0.0.1:19499`, `demo-estateos-test`). Seeding the development database requires `npm run db:backup` first and `ESTATEOS_CONFIRM_LOCAL_RESET=delete-local-data`; it is refused otherwise. `npm run test:dataconnect` generates its emulator config under `.tmp/sql-connect-integration/` from `firebase.test.json`, without SDK generation, so tests never rewrite `src/dataconnect-admin-generated` and can run while `dev:local` is open.
 
 The integration runner refuses to fall back to a hosted service when the emulator is unavailable. The emulator is a local PostgreSQL-compatible test environment; live Cloud SQL/IAM behavior still requires a separately approved staging check.
 

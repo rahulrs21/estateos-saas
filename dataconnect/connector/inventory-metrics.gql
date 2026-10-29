@@ -1,0 +1,37 @@
+# Current inventory snapshot. These are exact database aggregates, never sampled
+# list lengths. Agent totals and breakdowns share the same assignment predicates.
+query GetInventoryDashboardMetrics($organizationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}})
+    @redact @check(expr: "this != null && this.role in ['OWNER', 'ADMIN', 'AGENT']", message: "INVENTORY_SCOPE_REQUIRED") {id role}
+
+  totalProperties: properties(where: {_and: [{organizationId: {eq: $organizationId}, archivedAt: {isNull: true}}, {_or: [
+    {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]} ) {count: _count}
+  availableProperties: properties(where: {_and: [{organizationId: {eq: $organizationId}, archivedAt: {isNull: true}, inventoryStatus: {eq: AVAILABLE}}, {_or: [
+    {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]} ) {count: _count}
+  reservedProperties: properties(where: {_and: [{organizationId: {eq: $organizationId}, archivedAt: {isNull: true}, inventoryStatus: {eq: RESERVED}}, {_or: [
+    {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]} ) {count: _count}
+  activeListings: propertyListings(where: {_and: [{organizationId: {eq: $organizationId}, archivedAt: {isNull: true}, listingStatus: {eq: ACTIVE}}, {_or: [
+    {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]} ) {count: _count}
+  totalListings: propertyListings(where: {_and: [{organizationId: {eq: $organizationId}, archivedAt: {isNull: true}}, {_or: [
+    {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]} ) {count: _count}
+
+  propertiesByProject: properties(where: {_and: [{organizationId: {eq: $organizationId}, archivedAt: {isNull: true}}, {_or: [
+    {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}, limit: 21, orderBy: [{projectId: ASC}]) {projectId project {projectName} count: _count}
+  listingsByAgent: propertyListings(where: {_and: [{organizationId: {eq: $organizationId}, archivedAt: {isNull: true}}, {_or: [
+    {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}, limit: 21, orderBy: [{assignedMembershipId: ASC}]) {assignedMembershipId assignedMembership {email userProfile {displayName}} count: _count}
+}

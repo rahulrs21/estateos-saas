@@ -17,7 +17,7 @@ EstateOS is planned as a multi-tenant real estate CRM for UAE agencies. The shel
 - Server-only organization creation/selection, invitation and membership administration, branch, lead and activity services with validated inputs and transactional audit events.
 - Connected Leads search/filter/pagination, create/edit/detail forms, status pipeline, active-member assignment, append-only notes, follow-up and an authorized activity timeline.
 
-`/workspace` requires a verified Firebase session and active selected company membership. New users go to onboarding; existing members without a valid selection choose an authorized company. Invalid, expired and revoked sessions fail closed. Services independently recheck membership and record authorization. Branch administration UI, billing, AI and marketing/communication integrations remain unimplemented. See [Onboarding](ONBOARDING.md) for the connected setup/settings flow.
+`/workspace` requires a verified Firebase session and active selected company membership. New users go to onboarding; existing members without a valid selection choose an authorized company. Invalid, expired and revoked sessions fail closed. Services independently recheck membership and record authorization. Branch administration UI, billing and marketing/communication integrations remain unimplemented; the read-only AI Copilot is described in the Phase 6A section. See [Onboarding](ONBOARDING.md) for the connected setup/settings flow.
 
 ## Source organization
 
@@ -97,7 +97,7 @@ modules/<module>/
 
 App Router pages and server actions/route handlers should coordinate requests. Validation accepts only documented inputs. Services enforce business rules and permissions. Repositories own database queries and receive a verified organization scope. Client components are reserved for interaction; credentials and protected data access remain in server-only modules. Avoid browser imports of privileged modules.
 
-Firebase Authentication is connected when valid development-project configuration is supplied. Firebase SQL Connect with PostgreSQL now supplies the first relational models and server services; Firebase Storage and Firebase App Hosting remain planned. OpenAI is reserved for a later Copilot phase. Cloud provisioning or deployment requires separate approval.
+Firebase Authentication is connected when valid development-project configuration is supplied. Firebase SQL Connect with PostgreSQL now supplies the first relational models and server services; Firebase Storage and Firebase App Hosting remain planned. The Phase 6A AI Copilot, the Phase 6B AI Content Studio and Phase 6C sales intelligence use Anthropic Claude (Messages API, official TypeScript SDK) from server-only code; no other AI provider is used. Cloud provisioning or deployment requires separate approval.
 
 ## Implemented identity boundary
 
@@ -203,3 +203,79 @@ The persistent cursor uses a monotonically increasing version checked and increm
 `src/modules/lead-capture` owns capture validation, the company form manager, public form UI, privileged server adapter and report aggregation adapter. `/settings/lead-forms` manages draft/active/disabled forms; `/forms/[publicId]` is the embeddable public surface; `/api/public/lead-forms/[publicId]` is the deliberately narrow submission boundary. `/workspace/reports` uses SQL Connect aggregate queries with validated local calendar filters. Capture is not a second database layer: SQL Connect/PostgreSQL remains the source of truth, with one transactional operation creating contact/lead/attribution/consent/activity/assignment/audit/notification records.
 
 Ordinary company operations use authenticated user impersonation. Public form lookup, rate counter, exact candidate lookup and transactional submission are `NO_ACCESS` operations invoked only through server-only Firebase Admin SDK code after validating the random public ID and request. The server resolves organization/source/consent from stored active form configuration, never from caller fields. The API accepts no organization ID and never returns saved CRM records. Reporting data is server loaded and subject to the same active organization and lead visibility policy as CRM reads. See [Lead capture](LEAD_CAPTURE.md) for data flow, public abuse controls, reporting definitions, rollout and limitations.
+
+## Phase 5A property inventory foundation
+
+src/modules/inventory/validation.ts owns strict Zod inputs and bounded filters. src/modules/inventory/server/service.ts derives the active organization from the verified session, enforces write roles and listing assignment rules, and calls the generated SQL Connect Admin SDK only with existing verified-user impersonation request options. Route handlers under /api/inventory reuse the CRM HTTP wrapper for session, CSRF/origin, organization-consistency, bounded JSON and safe errors. No inventory data path runs in the browser or falls back to fixtures.
+
+SQL Connect/PostgreSQL remains the only inventory persistence layer. Tenant-composite foreign keys bind developers, projects, phases, buildings, properties, listings, floor plans, payment plans, amenities and features to their organization. Physical Property rows are independent of PropertyListing advertisement rows; a standalone property requires no developer/project/building. Lead project/property references now use nullable same-tenant foreign keys. Available project units are derived from current property rows. Financial values are integer minor units and payment plan percentages are basis points.
+
+Every catalog/inventory write and its audit/activity entries is a stored @transaction operation. The generated Admin SDK is invoked with the verified Firebase identity impersonated, not unrestricted Admin access. Inventory queries and mutations repeat organization membership predicates; Manager is denied until a verified branch/team inventory scope exists. Agents can read the developer/project reference catalog, but property details and listings require assignment to their active membership. Payment-plan creation is an intentionally staged inactive workflow: each installment/counter/audit write is atomic, and activation performs the final exact-percentage check. See DATABASE.md and PERMISSIONS.md for migration and role boundaries.
+
+## Phase 5B developer and project management UI
+
+The canonical inventory pages are `/developers` and `/projects`; their nested layouts reuse the protected WorkspaceShell. Legacy `/workspace/developers` and `/workspace/projects` destinations redirect to the canonical pages. Server-rendered list/detail pages use `src/modules/inventory/server/views.ts` and the existing tenant-aware service; create/edit forms call the protected `/api/inventory` routes with the same-origin CSRF helper. OWNER/ADMIN receive write controls, AGENT can read the company catalog, and MANAGER access stays denied until a trusted branch/team scope exists. The UI never chooses its organization or role from browser form values.
+
+Project details load recorded phases, buildings, units, floor plans, payment plans, amenities, and project audit events. Project unit counts come from live non-archived Property rows, separate from the project's declared planned-unit count. Developer archive is a soft archive and its SQL Connect transaction rejects a developer that still has active projects. Marketing highlights use the existing `marketingDescription`; amenities use the existing project-amenity relation. Project brochure URLs are saved as references on Project; file upload and a general project document library are not configured. The Documents tab reports stored brochure, permit, and floor-plan media references and otherwise shows an explicit empty state. No external portal or storage integration was added. The query and schema changes require the matching connector operation rollout; no hosted deployment was performed.
+
+## Phase 5C property inventory and marketing listings
+
+`/properties` and `/listings` are server-rendered under the existing protected workspace shell. The inventory module keeps property CRUD, listing workflows, tenant-aware Data Connect access, media authorization and reusable form/list/detail components together. Property status transitions and listing status transitions are validated in the service and again in conditional SQL Connect mutations. Physical property rows and marketing listings are separate; `ACTIVE` is an internal listing status and does not publish to a portal.
+
+The five-step property editor persists the property first, then applies amenity links, custom text features and private file uploads. A related-write or upload failure is reported separately because those operations are not one cross-service transaction; successful property data is retained and can be retried. Payment plans use transactional installment operations and remain inactive until their percentages reconcile. Floor plans can be linked to a project and optionally a building/property.
+
+Firebase Storage is private. `storage.rules` denies all client reads and writes because Storage Rules cannot verify SQL Connect memberships. Authenticated Node.js routes authorize with the Firebase session and tenant-scoped SQL Connect operations, write bounded validated bytes with the Admin SDK, and serve content with private/no-store headers. `FIREBASE_STORAGE_BUCKET` is server-only; `npm run dev:local` supplies a demo-only bucket and starts the Storage emulator. Upload lifecycle status supports best-effort upload cleanup and retrying a deletion left in `DELETING`; there is not yet a scheduled cleanup worker for abandoned metadata/blob rows.
+
+The property/listing schema, connector operations and generated SDK must ship together after an approved hosted migration. This implementation was not deployed. External portal feeds/publishing, permit verification, project-wide managed brochure/document uploads, branch-scoped manager access and scheduled media cleanup remain future work. See [Property inventory](PROPERTY_INVENTORY.md) for setup, storage lifecycle, migration and manual checks.
+
+## Phase 5D: lead-to-property integration
+
+The lead detail route streams a property workspace through a separate Suspense boundary. `src/modules/leads/server/property-service.ts` uses generated SQL Connect operations and the existing session/company/CSRF helpers. A pure matching module explains rule-based suggestions; shortlist, viewing and primary-reference operations recheck both lead and inventory access. The dashboard streams exact inventory aggregates from `GetInventoryDashboardMetrics`. See [Lead-property integration](LEAD_PROPERTY_INTEGRATION.md) for rules, query limits and migration steps.
+
+## Phase 6A: AI Copilot (Anthropic Claude)
+
+`src/modules/ai` adds a read-only Copilot at `/ai-copilot`. Its design:
+
+- **Pure core:** `config`, `prompt`, `loop`, `tools/*`, `policy`, `protocol` and `markdown` have no I/O and are unit-tested with mocked Anthropic responses.
+- **Server adapters:** `server/anthropic` is the only Anthropic client, and the only place that reads the API key and checks the model. `server/tools` holds the tool handlers, `server/store` handles persistence, allowances and usage, `server/chat` orchestrates a turn and `server/http` holds the conversation and status routes.
+- **Request handling:** `POST /api/ai/chat` checks origin, CSRF, session, organization membership, input, rate limits, conversation ownership and the monthly allowance before streaming. It then runs Anthropic's manual tool-use loop with streaming (`client.beta.messages.stream` plus `finalMessage()`) and streams NDJSON events to the browser.
+- **Tools:** each tool calls an existing read service (`listInventory`, `getInventoryRecord`, `listLeads`, `getLead`, `getLeadPropertyData`) or a read-only stored query. Organization, role, assignee and map-privacy rules are therefore identical to the CRM screens, and are re-derived from the session on every call.
+- **Storage:** `AiConversation`/`AiMessage` (owner-private history), `AiUsageRecord`/`AiToolExecution` (token and tool metrics, no content) and `AiUsageCounter` (atomic monthly allowances). All are additive and tenant-keyed. Member reads and deletes run with impersonation. Exchange, usage and counter writes are NO_ACCESS operations run by the server after it has verified the session, following the existing rate-limit and invitation-delivery pattern.
+
+See [AI Copilot](AI_COPILOT.md), [AI tools](AI_TOOLS.md) and [AI security](AI_SECURITY.md).
+
+## Phase 6B: AI Content Studio
+
+`src/modules/ai/content` adds the Content Studio at `/ai-content`. It reuses the Phase 6A Anthropic client, configuration, error mapping, monthly allowances, rate limiter and `AiUsageRecord`; there is no second AI backend.
+
+- **Pure core:**
+  - `catalog` defines content types and their fields;
+  - `schemas` holds structured-output JSON and Zod schemas generated from the catalog;
+  - `facts` builds the allowlist fact sheet;
+  - `validate` runs the deterministic fact check;
+  - `prompt`, `generate`, `policy` and `ad-limits` complete the core.
+
+  All are unit-tested with mocked Claude.
+- **Server adapters:**
+  - `server/sources` re-reads every selected record through `getInventoryRecord`, `listInventory`, `getLead` and `getLeadPropertyData` as the member;
+  - `server/store` holds the SQL Connect operations;
+  - `server/generate` holds the streamed generation endpoints;
+  - `server/http` holds the draft, brand, template and picker endpoints.
+- **Generation:** one `client.beta.messages.stream` request with `output_config.format` (structured outputs), adaptive thinking and no tools. The response is validated with Zod and checked against the facts before the draft is saved. The browser receives NDJSON progress only.
+- **Storage:** `AiContentDraft` and `AiContentVersion` hold editable drafts with history and a compare-and-set `revision`. `AiBrandProfile` holds approved branding and reuses `Organization` contact fields through approval flags. `AiContentTemplate` holds company style templates.
+  - Generated writes are NO_ACCESS operations.
+  - Edits, status changes and deletes are member operations whose `@check` re-verifies draft scope: own drafts, or company-wide for owners and administrators.
+  - Draft source IDs have no foreign keys, so CRM records can still be archived or deleted.
+- **CRM integration:** property, project, listing and lead pages link to the studio with the record pre-selected. The ID is re-authorized before use, and nothing is generated automatically.
+
+See [AI Content Studio](AI_CONTENT_STUDIO.md), [templates and branding](AI_TEMPLATES.md) and [content security](AI_CONTENT_SECURITY.md).
+
+## Phase 6C: AI sales intelligence
+
+`src/modules/ai/sales` adds rule-based lead qualification, follow-up signals and dashboard counts. These are pure modules, unit-tested without I/O. It also adds Claude explanations through the shared `src/modules/ai/structured.ts` request, which the Content Studio now also uses, so there is one structured-output implementation.
+
+- **Data access:** server code reuses the lead, property-matching, inventory and Content Studio fact services as the member.
+- **Storage:** results are stored in separate AI tables, never on the lead.
+- **Copilot:** gains one read-only tool, `getLeadQualification`.
+
+See [AI sales intelligence](AI_SALES_INTELLIGENCE.md) and [lead qualification](AI_LEAD_QUALIFICATION.md).

@@ -104,6 +104,8 @@ export async function createLead(input: unknown, expectedOrganizationId: string 
   if (membership.role === "AGENT") assertCanWriteLead(membership, requestedMembershipId ?? membership.id);
   await ensureLeadConfiguration(context);
   const normalized = normalizePhone(variables.phone);
+  const normalizedAlternate = normalizePhone(variables.alternatePhone);
+  const warnings = [normalized.warning, normalizedAlternate.warning].filter((warning): warning is string => !!warning);
   const duplicates = contactId ? [] : await possibleDuplicates(context, variables);
   const leadId = randomUUID();
   const leadScope = { branchId: variables.branchId ?? null, projectId: variables.projectId ?? null };
@@ -129,15 +131,16 @@ export async function createLead(input: unknown, expectedOrganizationId: string 
       } else {
         data = await executeWorkspaceOperation(() => createLeadOperation(request.dc, {
           ...sqlCrmFields(variables), fullName: variables.fullName!, phone: normalized.phone,
-          normalizedPhone: normalized.normalizedPhone, ...assignment,
+          normalizedPhone: normalized.normalizedPhone, alternatePhone: normalizedAlternate.phone,
+          normalizedAlternatePhone: normalizedAlternate.normalizedPhone, ...assignment,
         }, request.options), "CreateLead");
       }
-      return {...data, possibleDuplicates: duplicates, warnings: normalized.warning ? [normalized.warning] : []};
+      return {...data, possibleDuplicates: duplicates, warnings};
     } catch (error) {
       // A committed transaction whose response was lost is safe to return by its
       // single request ID; cursor and lead writes always commit together.
       const committed = await executeWorkspaceOperation(() => getLeadOperation(request.dc, {organizationId, leadId}, request.options), "GetLead");
-      if (committed.lead) return {lead: committed.lead, possibleDuplicates: duplicates, warnings: normalized.warning ? [normalized.warning] : []};
+      if (committed.lead) return {lead: committed.lead, possibleDuplicates: duplicates, warnings};
       if (!distribution.hasAutoAssignment || attempt === 4) throw error;
 
       const refreshed = await refreshNewLeadAssignment(context, leadScope);
@@ -158,10 +161,13 @@ export async function updateLead(input: unknown, expectedOrganizationId: string 
   await ensureLeadConfiguration(context);
   const current = await executeWorkspaceOperation(() => getLeadOperation(request.dc, {organizationId, leadId: parsed.leadId}, request.options), "GetLead");
   const normalized = normalizePhone(parsed.phone);
+  const normalizedAlternate = normalizePhone(parsed.alternatePhone);
   // Explicit nulls give the full-record HTTP editor deterministic clearing
   // semantics; omitted GraphQL variables otherwise preserve existing columns.
   const variables = {
     ...sqlCrmFields(parsed), email: parsed.email ?? null, phone: normalized.phone, normalizedPhone: normalized.normalizedPhone,
+    alternatePhone: normalizedAlternate.phone, normalizedAlternatePhone: normalizedAlternate.normalizedPhone,
+    nationality: parsed.nationality ?? null,
     source: parsed.source ?? null, branchId: parsed.branchId ?? null,
     assignedMembershipId: parsed.assignedMembershipId ?? null,
     recordAssignment: (current.lead?.assignedMembershipId ? canonicalUuid(current.lead.assignedMembershipId) : null) !== (parsed.assignedMembershipId ?? null),

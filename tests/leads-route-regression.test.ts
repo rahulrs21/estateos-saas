@@ -35,8 +35,8 @@ test("lead sorting selects a stored operation and is excluded from SQL variables
 
 test("SQL Connect diagnostics render named safe fields in the Next.js error overlay", () => {
   const dataConnect = source("src/lib/firebase/dataconnect.ts");
-  assert.match(dataConnect, /console\.error\(`EstateOS SQL Connect operation failed: operation=\$\{safeOperationName\} code=\$\{providerCode\}`\)/);
-  assert.match(dataConnect, /const allowedCodes = new Set\(\[/);
+  assert.match(dataConnect, /console\.error\(`EstateOS SQL Connect operation failed: operation=\$\{safeOperationName\} backend=\$\{backend\} code=\$\{diagnostic\.code\} cause=\$\{diagnostic\.failureClass\} hint=\$\{diagnostic\.failureHint\} http=/);
+  assert.match(dataConnect, /getSafeDataConnectDiagnostics\(error\)/);
   assert.doesNotMatch(dataConnect, /console\.error\([^\n]*,\s*\{/);
 });
 
