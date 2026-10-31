@@ -224,6 +224,31 @@ Notes:
 
 See [AI sales intelligence](AI_SALES_INTELLIGENCE.md#database-additive).
 
+## Phase 6D: landing pages and websites
+
+Additive only:
+- **Tables:** `Website`, `WebsitePage`, `PageVersion` (append-only), `PagePublication`, `PageLeadFormBinding`, `WebsitePageEnquiry` and `PendingWebsiteEnquiry`.
+- **Enums:** `WebsiteStatus`, `WebsitePageType`, `WebsitePageStatus`, `PageVersionKind`, `PagePublicationStatus` and `PendingEnquiryStatus`.
+- **Enum values:** `AuditTargetType` gains `WEBSITE`, `WEBSITE_PAGE`, `PAGE_PUBLICATION` and `WEBSITE_ENQUIRY`; `ActivityKind` gains nine `WEBSITE_*` values.
+
+Notes:
+- **Page content:** structured JSON validated by the application's component registry on every read and write. It is never HTML.
+- **Source records:** pages store plain source IDs (no foreign keys), so CRM records can still be archived.
+- **Foreign keys:** `WebsitePageEnquiry` references `Lead`, and `PageLeadFormBinding` references `LeadCaptureForm`, with tenant-scoped keys.
+- **Local reset:** `ResetEstateOSWebsites` empties the new tables before `ResetEstateOS`, because one mutation can hold at most 50 deletes.
+- **Operations:** in [websites.gql](../dataconnect/connector/websites.gql).
+- **Hosted databases:** no hosted migration was performed.
+
+**Editor upgrade (additive):**
+- **Tables:** `WebsiteMedia` (the website image library; files in Storage under `organizations/{org}/websites/media/`) and `WebsiteSectionTemplate` (saved sections).
+- **Enums:** `WebsiteMediaStatus` (`PENDING`, `ACTIVE`, `ARCHIVED`, `DELETED`) and `WebsiteSectionTemplateStatus`.
+- **Columns:** `AiBrandProfile.officeAddress` and `officeHours`; `Membership.websiteTitle`, `websitePhone` and `websiteWhatsapp` (the public agent card).
+- **Enum values:** `AuditAction` gains `WEBSITE_AGENT_CARD_UPDATED`, `WEBSITE_MEDIA_UPLOADED`, `WEBSITE_MEDIA_UPDATED`, `WEBSITE_MEDIA_ARCHIVED`, `WEBSITE_SECTION_TEMPLATE_SAVED` and `WEBSITE_SECTION_TEMPLATE_DELETED`; `AuditTargetType` gains `WEBSITE_MEDIA` and `WEBSITE_SECTION_TEMPLATE`.
+- **Server-only writes:** media records are created and activated only by NO_ACCESS operations, so storage paths are always built by the server.
+- `ResetEstateOSWebsites` also empties the two new tables.
+
+See [AI page builder](AI_PAGE_BUILDER.md#database-additive).
+
 ## Local demo data: `DemoFixtureRecord`
 
 `DemoFixtureRecord` (additive) records which records `npm run seed:demo` created in a company.

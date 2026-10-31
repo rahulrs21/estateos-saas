@@ -285,6 +285,26 @@ try {
     try { await sdk.recordLeadQualificationAssessment(dc, { organizationId: demoOrg, id: randomUUID(), leadId: manualLead, evaluatedByUid: owner, ruleVersion: "lq-1", configHash: "00000000",
       score: 42, priority: sdk.AiLeadPriority.LOW, sufficientData: true, result: "{}" }); }
     finally { await deleteApp(app); } }
+  // Phase 6D: a landing page with an approved version, a live publication and a page enquiry must survive too.
+  const websiteId = randomUUID(), pageId = randomUUID(), publicationId = randomUUID();
+  const pageData = JSON.stringify({schemaVersion: 1, theme: {style: "CONTEMPORARY", accent: "TEAL", font: "SANS", scale: "COMFORTABLE", radius: "ROUND"}, sections: []});
+  const persistenceForm = (await asMember(owner, (dc, options) => sdk.createLeadCaptureForm(dc, { organizationId: demoOrg, publicId: randomUUID().replaceAll("-", "") + randomUUID().replaceAll("-", ""),
+    name: "Persistence landing form", status: sdk.LeadCaptureFormStatus.ACTIVE, sourceName: "Website - Persistence", branchId: null, projectId: null, consentText: "Persistence consent text.",
+    privacyPolicyUrl: "https://persistence.example/privacy", successMessage: "Thanks", fields: [{key: "FULL_NAME", label: "Name", enabled: true, required: true}, {key: "EMAIL", label: "Email", enabled: true, required: false}] }, options))).data.form.id;
+  { const { app, dc } = dataConnect();
+    try { await sdk.createDefaultWebsite(dc, { organizationId: demoOrg, id: websiteId, actorUid: owner, name: "Persistence site", slug: "main", designSettings: "{}" }); }
+    finally { await deleteApp(app); } }
+  await asMember(owner, (dc, options) => sdk.createWebsitePage(dc, { organizationId: demoOrg, id: pageId, websiteId, title: "Persistence page", slug: "persistence-page", designStyle: "CONTEMPORARY",
+    kind: sdk.PageVersionKind.CREATED, structuredPageData: pageData }, options));
+  await asMember(owner, (dc, options) => sdk.submitWebsitePageForReview(dc, { organizationId: demoOrg, id: pageId, expectedRevision: 1, nextRevision: 2 }, options));
+  await asMember(owner, (dc, options) => sdk.approveWebsitePage(dc, { organizationId: demoOrg, id: pageId, versionNumber: 1, expectedRevision: 2, nextRevision: 3 }, options));
+  const firstVersion = await asMember(owner, async (dc, options) => (await sdk.getPageVersion(dc, { organizationId: demoOrg, pageId, versionNumber: 1 }, options)).data.version.id);
+  { const { app, dc } = dataConnect();
+    try {
+      await sdk.publishWebsitePage(dc, { organizationId: demoOrg, pageId, actorUid: owner, publicationId, versionId: firstVersion, versionNumber: 1, pageSlug: "persistence-page", expectedRevision: 3,
+        nextRevision: 4, currentVersionNumber: 1, status: sdk.WebsitePageStatus.PUBLISHED, snapshot: JSON.stringify({schemaVersion: 1, title: "Persistence snapshot"}), sourceFingerprint: "0".repeat(64), checklist: "{}" });
+      await sdk.recordWebsitePageEnquiry(dc, { organizationId: demoOrg, pageId, publicationId, formId: persistenceForm, leadId: manualLead, utmSource: "persistence" });
+    } finally { await deleteApp(app); } }
   // 31 files plus the photos the conflict seed added to the other company's demo properties.
   const filesBeforeKill = (await listStorageObjects(storageHost, bucketName)).length;
   assert.ok(filesBeforeKill > 31);
@@ -300,6 +320,15 @@ try {
   const intelligence = await asMember(owner, async (dc, options) => (await sdk.getLeadSalesIntelligence(dc, { organizationId: demoOrg, leadId: manualLead }, options)).data);
   assert.equal(intelligence.details.timeline, "WITHIN_3_MONTHS", "qualification details survive an abrupt stop");
   assert.equal(intelligence.assessments[0].score, 42, "lead assessments survive an abrupt stop");
+  const pageAfterRestart = await asMember(owner, async (dc, options) => (await sdk.getWebsitePage(dc, { organizationId: demoOrg, id: pageId }, options)).data);
+  assert.equal(pageAfterRestart.page.status, "PUBLISHED", "landing pages survive an abrupt stop");
+  assert.equal(pageAfterRestart.versions[0].approvedAt != null, true, "the approved version survives");
+  assert.equal(pageAfterRestart.enquiries[0].count, 1, "page enquiries survive");
+  { const { app, dc } = dataConnect();
+    try {
+      const live = (await sdk.resolvePublishedPage(dc, { companySlug: pageAfterRestart.organization.slug, pageSlug: "persistence-page" })).data.publications;
+      assert.match(live[0]?.snapshot ?? "", /Persistence snapshot/, "the live publication survives an abrupt stop");
+    } finally { await deleteApp(app); } }
 
   log("seed:demo refuses production.");
   const production = seed([], { NODE_ENV: "production" });

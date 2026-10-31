@@ -67,7 +67,7 @@ export function ContentSettings({organizationId}: {organizationId: string}) {
         displayName: text("displayName"), logoReference: text("logoReference"), brandTone: text("brandTone"), preferredLanguage: text("preferredLanguage"),
         useCompanyPhone: form.get("useCompanyPhone") === "on", useCompanyEmail: form.get("useCompanyEmail") === "on",
         website: text("website"), whatsappNumber: text("whatsappNumber"), defaultCallToAction: text("defaultCallToAction"), tagline: text("tagline"),
-        marketingDisclaimer: text("marketingDisclaimer"),
+        marketingDisclaimer: text("marketingDisclaimer"), officeAddress: text("officeAddress"), officeHours: text("officeHours"),
       });
       setBrand(result);
       toast.success("Brand settings saved.");
@@ -131,7 +131,10 @@ export function ContentSettings({organizationId}: {organizationId: string}) {
             <div className="grid gap-3 pt-1 sm:grid-cols-2">
               <div className="space-y-1.5"><Label htmlFor="brand-whatsapp">WhatsApp number</Label><Input id="brand-whatsapp" name="whatsappNumber" inputMode="tel" maxLength={32} disabled={!canEdit} defaultValue={profile?.whatsappNumber ?? ""} placeholder="+971 50 000 0000" /></div>
               <div className="space-y-1.5"><Label htmlFor="brand-website">Website</Label><Input id="brand-website" name="website" type="url" maxLength={2048} disabled={!canEdit} defaultValue={profile?.website ?? ""} placeholder="https://" /></div>
+              <div className="space-y-1.5"><Label htmlFor="brand-office-address">Office address</Label><Input id="brand-office-address" name="officeAddress" maxLength={300} disabled={!canEdit} defaultValue={profile?.officeAddress ?? ""} placeholder="Office 1201, Example Tower, Dubai" /></div>
+              <div className="space-y-1.5"><Label htmlFor="brand-office-hours">Office hours</Label><Input id="brand-office-hours" name="officeHours" maxLength={200} disabled={!canEdit} defaultValue={profile?.officeHours ?? ""} placeholder="Mon–Sat, 9:00–18:00" /></div>
             </div>
+            <p className="text-xs text-muted-foreground">The office address and hours appear on website contact sections. They are not sent to Claude.</p>
           </fieldset>
           <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="brand-logo">Logo reference (https URL)</Label><Input id="brand-logo" name="logoReference" type="url" maxLength={2048} disabled={!canEdit} defaultValue={profile?.logoReference ?? ""} placeholder="https://" />
             <p className="text-xs text-muted-foreground">Stored for future branded exports. It is not sent to Claude.</p></div>

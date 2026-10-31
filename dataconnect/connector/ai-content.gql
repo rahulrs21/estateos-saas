@@ -192,31 +192,31 @@ query GetAiBrandProfile($organizationId: UUID!)
  ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
  organization: organization(id: $organizationId) {name contactPhone companyEmail}
  profile: aiBrandProfile(key: {organizationId: $organizationId}) {
-  displayName logoReference brandTone preferredLanguage useCompanyPhone useCompanyEmail website whatsappNumber defaultCallToAction tagline marketingDisclaimer revision updatedAt updatedBy {displayName}
+  displayName logoReference brandTone preferredLanguage useCompanyPhone useCompanyEmail website whatsappNumber defaultCallToAction tagline marketingDisclaimer officeAddress officeHours revision updatedAt updatedBy {displayName}
  }
 }
 
 mutation CreateAiBrandProfile($organizationId: UUID!, $displayName: String, $logoReference: String, $brandTone: String, $preferredLanguage: AiContentLanguage!, $useCompanyPhone: Boolean!, $useCompanyEmail: Boolean!,
- $website: String, $whatsappNumber: String, $defaultCallToAction: String, $tagline: String, $marketingDisclaimer: String)
+ $website: String, $whatsappNumber: String, $defaultCallToAction: String, $tagline: String, $marketingDisclaimer: String, $officeAddress: String, $officeHours: String)
  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
  before: query @redact {
   admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
  }
  profile: aiBrandProfile_insert(data: {organizationId: $organizationId, displayName: $displayName, logoReference: $logoReference, brandTone: $brandTone, preferredLanguage: $preferredLanguage,
   useCompanyPhone: $useCompanyPhone, useCompanyEmail: $useCompanyEmail, website: $website, whatsappNumber: $whatsappNumber, defaultCallToAction: $defaultCallToAction, tagline: $tagline,
-  marketingDisclaimer: $marketingDisclaimer, revision: 1, updatedByUid_expr: "auth.uid"})
+  marketingDisclaimer: $marketingDisclaimer, officeAddress: $officeAddress, officeHours: $officeHours, revision: 1, updatedByUid_expr: "auth.uid"})
  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AI_BRAND_PROFILE_UPDATED, targetType: AI_BRAND_PROFILE, targetId: $organizationId})
 }
 
 mutation UpdateAiBrandProfile($organizationId: UUID!, $expectedRevision: Int!, $nextRevision: Int!, $displayName: String, $logoReference: String, $brandTone: String, $preferredLanguage: AiContentLanguage!,
- $useCompanyPhone: Boolean!, $useCompanyEmail: Boolean!, $website: String, $whatsappNumber: String, $defaultCallToAction: String, $tagline: String, $marketingDisclaimer: String)
+ $useCompanyPhone: Boolean!, $useCompanyEmail: Boolean!, $website: String, $whatsappNumber: String, $defaultCallToAction: String, $tagline: String, $marketingDisclaimer: String, $officeAddress: String, $officeHours: String)
  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.nextRevision == vars.expectedRevision + 1") @transaction {
  before: query @redact {
   admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
  }
  profile: aiBrandProfile_update(first: {where: {organizationId: {eq: $organizationId}, revision: {eq: $expectedRevision}}},
   data: {displayName: $displayName, logoReference: $logoReference, brandTone: $brandTone, preferredLanguage: $preferredLanguage, useCompanyPhone: $useCompanyPhone, useCompanyEmail: $useCompanyEmail,
-   website: $website, whatsappNumber: $whatsappNumber, defaultCallToAction: $defaultCallToAction, tagline: $tagline, marketingDisclaimer: $marketingDisclaimer,
+   website: $website, whatsappNumber: $whatsappNumber, defaultCallToAction: $defaultCallToAction, tagline: $tagline, marketingDisclaimer: $marketingDisclaimer, officeAddress: $officeAddress, officeHours: $officeHours,
    revision: $nextRevision, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
   @check(expr: "this != null", message: "AI_CONTENT_RECORD_CHANGED")
  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AI_BRAND_PROFILE_UPDATED, targetType: AI_BRAND_PROFILE, targetId: $organizationId})

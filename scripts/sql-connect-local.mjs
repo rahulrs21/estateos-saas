@@ -40,6 +40,7 @@ export async function seedLocalDatabase(dc) {
     confirmation: process.env.ESTATEOS_CONFIRM_LOCAL_RESET,
   });
   const source = await readFile(new URL("../dataconnect/seed_data.gql", import.meta.url), "utf8");
+  await dc.executeGraphql(source, { operationName: "ResetEstateOSWebsites" });
   await dc.executeGraphql(source, { operationName: "ResetEstateOS" });
   await dc.executeGraphql(source, { operationName: "SeedEstateOS" });
 }

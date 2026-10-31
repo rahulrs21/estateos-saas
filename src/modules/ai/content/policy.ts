@@ -119,6 +119,8 @@ export const brandProfileSchema = z.strictObject({
   defaultCallToAction: optionalText(200),
   tagline: optionalText(160),
   marketingDisclaimer: optionalText(1000),
+  officeAddress: optionalText(300),
+  officeHours: optionalText(200),
 });
 
 export const templateInputSchema = z.strictObject({

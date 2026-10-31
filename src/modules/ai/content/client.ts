@@ -42,7 +42,7 @@ export interface SourceOption { id: string; label: string; detail: string | null
 export interface BrandSettings {
   organization: {name: string; contactPhone: string | null; companyEmail: string | null};
   profile: null | {displayName?: string | null; logoReference?: string | null; brandTone?: string | null; preferredLanguage: ContentLanguage; useCompanyPhone: boolean; useCompanyEmail: boolean;
-    website?: string | null; whatsappNumber?: string | null; defaultCallToAction?: string | null; tagline?: string | null; marketingDisclaimer?: string | null; revision: number; updatedAt: string; updatedBy: string | null};
+    website?: string | null; whatsappNumber?: string | null; defaultCallToAction?: string | null; tagline?: string | null; marketingDisclaimer?: string | null; officeAddress?: string | null; officeHours?: string | null; revision: number; updatedAt: string; updatedBy: string | null};
   canEdit: boolean;
 }
 

@@ -34,6 +34,7 @@ const MONTHLY_USER_LIMIT = 20;
 const {app: sqlApp, dc} = localDataConnect();
 const seed = readFileSync(join(root, "dataconnect", "seed_data.gql"), "utf8");
 if (process.env.DATA_CONNECT_EMULATOR_HOST !== "127.0.0.1:19999") throw new Error("Refusing to reset an unexpected SQL Connect emulator.");
+await dc.executeGraphql(seed, {operationName: "ResetEstateOSWebsites"});
 await dc.executeGraphql(seed, {operationName: "ResetEstateOS"});
 await dc.executeGraphql(seed, {operationName: "SeedEstateOS"});
 const ids = {marina1: randomUUID(), marina2: randomUUID(), jvc: randomUUID(), foreign: randomUUID()};

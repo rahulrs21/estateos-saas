@@ -2,7 +2,7 @@
 
 EstateOS is a multi-tenant, AI-ready real estate CRM SaaS for brokerages, starting with Dubai and the UAE. Each company has an isolated workspace, team and role-based permissions. Read [AGENTS.md](../AGENTS.md) first; it contains the binding development rules.
 
-_Last updated: 2026-10-28 (Phase 6B AI Content Studio)._
+_Last updated: 2026-10-29 (Phase 6D AI landing page and website builder)._
 
 ## Technology
 
@@ -25,8 +25,9 @@ Next.js App Router (Next 16, see the version notice in AGENTS.md), React 19, Typ
 | 6A | AI Copilot (Anthropic Claude): `/ai-copilot` chat with streaming, 8 read-only permission-aware CRM tools, persistent private history, token usage records, atomic monthly allowances and rate limits | **Implemented; see verification status below** — [details](AI_COPILOT.md), [tools](AI_TOOLS.md), [security](AI_SECURITY.md) |
 | 6B | AI Content Studio (Anthropic Claude): `/ai-content` drafts for property descriptions, project marketing, WhatsApp, email, social, ad copy and client proposals in English, Arabic or both; structured outputs, fact checking, editable drafts with versions and internal approval, brand settings and templates, contextual CRM buttons | **Implemented; see verification status below**. [Details](AI_CONTENT_STUDIO.md), [templates](AI_TEMPLATES.md), [security](AI_CONTENT_SECURITY.md) |
 | 6C | AI sales intelligence (Anthropic Claude): explainable rule-based lead qualification with history, review and override; follow-up assistant; property matching with Claude explanations; viewing preparation with editable follow-up drafts; `/ai-sales` dashboard of recorded metrics; property and Copilot shortcuts | **Implemented; see verification status below**. [Details](AI_SALES_INTELLIGENCE.md), [scoring](AI_LEAD_QUALIFICATION.md) |
-| 6D+ | AI write actions with user approval; usage dashboard | Not started |
-| 7 | Marketing and website builder | Not started |
+| 6D | AI landing page and website builder: single-page campaigns from CRM records; Claude generation, templates, blank and duplicate; validated component registry; Elementor-style full-screen editor (drag-and-drop elements, inline text editing, Content / Style / Advanced section settings, per-device spacing and visibility, background photos, videos and colours, navigator, context menu, shortcuts) with desktop, tablet and mobile previews; 25 section types, rich templates and curated stock photos and videos labelled as illustrative; self-hosted heading and body fonts; linked CRM data; lead form connection through the existing capture path; UAE checklist; review, approval, immutable publications, rollback; public pages with SEO; pending-enquiry recovery | **Implemented; see verification status below**. [Details](AI_PAGE_BUILDER.md), [registry](PAGE_COMPONENT_REGISTRY.md), [publishing](WEBSITE_PUBLISHING.md) |
+| 6E+ | AI write actions with user approval; organization AI usage dashboard; multi-page agency websites and custom domains | Not started |
+| 7 | Marketing campaigns and advertising integrations | Not started |
 | 8 | Communications (WhatsApp, email, calling) | Not started |
 | 9 | Deals and finance | Not started |
 | 10 | Subscriptions and platform administration | Not started |
@@ -48,6 +49,7 @@ Live publishing requires, per provider: partner/API approval, the official speci
 | `tests/`, `scripts/test-*.mjs` | Unit, emulator integration and browser tests |
 | `src/modules/ai/` | AI Copilot: pure core (config, prompt, loop, tools) and `server/` adapters |
 | `src/modules/ai/content/` | AI Content Studio: pure core (catalog, schemas, facts, validate, prompt, generate) with `server/` adapters and `components/` |
+| `src/modules/websites/` | Landing page builder: registry, linked data, templates, checklist, AI mapping and renderer (pure), `server/` services and `components/`; public pages at `src/app/site/`, real 404s in `src/proxy.ts` |
 | `docs/` | Architecture, database, permissions and per-phase documents |
 
 ## Working locally
@@ -87,6 +89,7 @@ Verified on 2026-10-28 (local emulators only; nothing deployed):
   - a prompt-injection attempt does not reach another company's or unassigned leads;
   - token usage is recorded.
 - The live run found a real-API constraint that mocked tests could not: strict tool mode allows at most 24 optional and 16 nullable parameters in total. The schemas were fixed and a unit test now pins both limits.
+- **Design upgrade screenshots** (desktop, mobile and editor) are written to `.tmp/ai-e2e/screens/` by the browser test.
 - **Not verified:** the Copilot in the user's own `npm run dev:local` database. Its persistent emulator needs a restart to apply the additive AI tables; take a backup first with `npm run db:backup`. Hosted SQL Connect and App Hosting were not changed. A dev-only Next.js log line ("Could not validate instant … NEXT_REDIRECT") appears for the legacy `/workspace/ai-copilot` redirect; the existing legacy redirects such as `/workspace/developers` use the same pattern.
 
 ## Phase 6B verification status
@@ -135,11 +138,90 @@ Verified on 2026-10-28 and 2026-10-29 (local and isolated emulators only; nothin
   - the feature in the user's own `dev:local` database, which needs a restart (after `npm run db:backup`) to apply the additive tables;
   - the hosted environment, which was not changed.
 
+## Phase 6D verification status
+
+Verified on 2026-10-29 (local and isolated emulators only; nothing deployed or published outside them):
+
+- **Unit tests:** `npm run test:websites` passes 32 tests (backward compatibility of pages saved before the design upgrade, stock media and colour validation, CRM-only key facts, rich templates with CRM or stock photos, generated navigation bar and video hero, plain-text inline editing, registry and HTML/script rejection, templates, Claude output mapping, fact check, linked data and map privacy, internal-field exclusion, missing images, permits and the UAE checklist, live eligibility, outdated-data detection, rendering, request schemas, slugs, snapshots). The full `npm test` passes.
+- **Emulator integration:** `npm run test:dataconnect` passes 337 tests, including 6 website cases on the real stored operations:
+  - roles and the agent-draft switch;
+  - compare-and-set and append-only versions;
+  - review, approval and server-only publishing;
+  - superseding and live-slug protection;
+  - public reads of live pages only, and the sitemap;
+  - same-company lead form binding, enquiry links and pending enquiries;
+  - cross-company isolation.
+- **End-to-end without Claude:** `npm run test:websites:e2e` passes 16 checks with an invalid key. They cover the full owner flow:
+  - create from an authorized project;
+  - the CRM cover photo, stock photos and a stock video in the editor;
+  - edit the headline inline on the canvas (real keyboard input), reorder from the section toolbar and save;
+  - mobile preview;
+  - connect a lead form, approve, and publish after the checklist and attestations;
+  - the public page without login;
+  - a mobile enquiry that becomes a lead with page attribution, visible in Leads;
+  - a server restart.
+
+  They also cover role and tenant rejections, HTML and stale-revision rejection, and a Claude failure that creates nothing and returns the allowance. Public page checks: no coordinate, address, note, storage path or cross-company leak; real 404s for wrong slugs and drafts; outdated CRM data flagged rather than republished; offline on an expired permit; and unpublish removing the page, images and sitemap entry.
+- **Persistence:** `npm run test:persistence` passes, including a published page, its approved version and a page enquiry surviving a hard kill.
+- **Lint, type check and build:** `npm run lint`, `npx tsc --noEmit` and `npm run build` pass.
+- **Regressions:** the Copilot (9), Content Studio (12), sales intelligence (12) and maps (29) browser suites still pass.
+- **Fixed during testing:**
+  - Website lead capture failed for forms without a transaction-type field (the default), because `null` overrode the column default. This affected Phase 4 hosted forms too.
+  - The local reset exceeded PostgreSQL's 100-argument limit.
+  - Republishing an approved version after editing the draft was refused.
+  - Public pages returned 200 with a not-found body for unknown addresses; `src/proxy.ts` now returns 404.
+  - The public media route rejected SQL Connect's 32-character IDs.
+  - Design upgrade: the editor showed no compliance disclaimer when the footer's own disclaimer was empty; it now shows the brand disclaimer, as public pages do.
+- **Not verified:**
+  - live Claude page generation (`AI_E2E_LIVE=1 npm run test:websites:e2e` was not run, to avoid API cost without your go-ahead);
+  - the builder in your own `dev:local` database, which needs a restart (after `npm run db:backup`) to apply the additive tables;
+  - hosted SQL Connect, App Hosting and real Google Maps keys, none of which were changed;
+  - drag and drop with a real mouse (the browser test uses the toolbar and keyboard-equivalent controls, so dragging is not exercised by any test).
+
+## Phase 6D editor upgrade (2026-10-30)
+
+**What was added** (details in [AI page builder](AI_PAGE_BUILDER.md#editor) and the [registry](PAGE_COMPONENT_REGISTRY.md)):
+- **Lead form and contacts in the editor:** connect or create a lead form from the enquiry form section; a `CONTACT` section with approved company contacts, office address and hours, and an optional agent card (consent attestation on publish).
+- **Website media library:** upload JPEG, PNG or WebP (10 MB, signature-checked, rate-limited) from the computer; images are stored by ID and served publicly only through a live publication's allowlist.
+- **Locations on any page:** a pin set on the page, exact or approximate; approximate pins are generalized before publishing.
+- **Custom sections:** rows, columns and 14 widgets, drag and drop into columns, and saved sections shared within the company.
+- **Per-element styling:** click a heading, eyebrow, paragraph, button, image or group to set its typography, colours, alignment, radius, width, opacity, spacing, position and device visibility (`style.elementStyles`). Widgets have the same typography controls.
+- **Publish fixes in place:** checklist items name their fix. Brand contacts and disclaimer are approved under the item, a lead form is connected under it, page and section items jump to the right panel, and CRM items open the record in a new tab, followed by **Re-check**.
+- **Polish:** global button shape, 75 % zoom, a shortcut sheet.
+- **Form panels and the new project showcase template:** the hero split form keeps the theme colours over photo, video and dark backgrounds and can be styled (background, text, button colour, radius); the enquiry form section and form widget too. A new default template, "New project showcase", follows the usual new-project page order with the form in the hero.
+
+- **Columns everywhere (Elementor-style):**
+  - **Rows:** editable column widths, up to 6 columns, phone and tablet behaviour (stack, side by side, reverse) and container styling.
+  - **Nesting and new sections:** inner sections, and a structure picker when adding a section.
+  - **Widgets:** dropped inside any built-in section, and placed widgets dragged between columns and sections.
+  - **Navigation bar:** logo, chosen menu links, phone, menu position and a phone menu.
+  - **Galleries:** a full-screen photo viewer.
+  - **On phones and tablets:** the editor uses a drawer and a bottom action bar.
+
+**Schema:** additive only. New tables `WebsiteMedia` and `WebsiteSectionTemplate`, brand office fields, agent-card fields on `Membership`, and new audit enum values (see [database](DATABASE.md)). Element styles live in the page JSON, which needs no schema change. Older pages validate unchanged.
+
+**Verified locally:**
+- `npm run test:websites` passes 64 tests.
+- `npm run test:dataconnect` passes 340 tests.
+- `npm run test:websites:e2e` passes 17 checks, including:
+  - an upload from disk;
+  - a custom section saved to the library;
+  - a headline styled and moved on its own;
+  - a lead form connected from the checklist.
+- Lint, the type check and the build pass. Persistence and the Copilot (9), Content Studio (12), sales (12) and maps (29) browser suites still pass.
+
+**Not verified:**
+- live Claude generation;
+- the hosted rollout;
+- your `dev:local` database, which needs `npm run db:backup` and then a restart of `npm run dev:local` to apply the additive tables;
+- dragging with a real mouse.
+
 ## Next recommended work
 
 1. Restart `npm run dev:local` (after `npm run db:backup`) to apply the AI Copilot and Content Studio tables locally. Then approve and run the hosted SQL Connect rollout for the additive AI schema and operations, and store `ANTHROPIC_API_KEY` in Secret Manager for App Hosting. See [AI Copilot](AI_COPILOT.md#local-and-hosted-environments).
 1. Before production, decide AI allowances, the retention period for usage records, Anthropic data-retention terms and staff disclosure. See [AI security](AI_SECURITY.md#anthropic-data-handling).
-1. Phase 6D (after approval): write actions with explicit user approval, an organization AI usage dashboard (Copilot, Content Studio and sales), feedback on individual suggestions, and an organization-wide retention job.
+1. Before the first real landing page goes live: have the agency's compliance owner review the [UAE advertising considerations](WEBSITE_PUBLISHING.md#uae-advertising-considerations), approve the hosted rollout of the additive website schema and operations, and set `APP_ORIGIN` to the public origin.
+1. Phase 6E (after approval): write actions with explicit user approval, an organization AI usage dashboard (Copilot, Content Studio, sales and pages), feedback on individual suggestions, and an organization-wide retention job. Multi-page agency websites and custom domains follow the [documented adapter](WEBSITE_PUBLISHING.md#custom-domains-future-adapter).
 1. Before using ad copy, verify the advertising limits and policies in `content/ad-limits.ts` against current provider documentation and set `AI_AD_LIMITS` if they differ.
 1. Approve and configure Google Maps keys (see [MAPS.md](MAPS.md#google-cloud-setup-requires-approval-may-incur-charges)), then verify live autocomplete, geocoding, pin dragging, clustering and viewport refresh on a real map, and set `RATE_LIMIT_KEY_SECRET` and `RATE_LIMIT_TRUSTED_PROXY_HOPS=1` for hosted environments.
 1. Obtain provider specifications and approvals for Phase 5E live integrations (business/legal task), then implement per-provider adapters, credential storage and the publishing worker as documented.

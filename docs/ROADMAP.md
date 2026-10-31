@@ -109,6 +109,7 @@ These capabilities are intentionally outside Phase 1. Publishing and externally 
 - Permission-aware record retrieval and summaries using Anthropic Claude (read-only foundation delivered in Phase 6A; see [AI Copilot](AI_COPILOT.md)).
 - Editable, fact-checked marketing and sales drafts from CRM records (delivered in Phase 6B; see [AI Content Studio](AI_CONTENT_STUDIO.md)). Sending, publishing and campaign creation remain later phases.
 - Explainable rule-based lead qualification, follow-up assistant, viewing preparation and an AI Sales dashboard (delivered in Phase 6C; see [AI sales intelligence](AI_SALES_INTELLIGENCE.md)).
+- Landing pages built from CRM records with Claude-assisted design, a visual editor, review, approval and publishing (single-page campaigns delivered in Phase 6D; see [AI page builder](AI_PAGE_BUILDER.md)). Multi-page agency websites and custom domains remain later work.
 - Assisted follow-up drafts, suggested next steps, and useful CRM explanations.
 - User review for consequential actions and server-enforced tool permissions.
 - Tenant-safe retrieval, prompt-injection defenses, privacy controls, evaluations, usage limits, auditability, and cost monitoring.

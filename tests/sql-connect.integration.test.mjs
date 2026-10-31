@@ -19,6 +19,7 @@ import {registerListingCases} from "./sql-connect-listings.cases.mjs";
 import {registerAiCases} from "./sql-connect-ai.cases.mjs";
 import {registerAiContentCases} from "./sql-connect-ai-content.cases.mjs";
 import {registerAiSalesCases} from "./sql-connect-ai-sales.cases.mjs";
+import {registerWebsiteCases} from "./sql-connect-websites.cases.mjs";
 
 // This harness refuses production, non-loopback hosts and non-demo project IDs.
 // Only fixture setup and deliberate FK-constraint probes use privileged access.
@@ -77,6 +78,7 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
   registerAiCases({sdk,run,forbidden,dc});
   registerAiContentCases({sdk,run,forbidden,dc});
   registerAiSalesCases({sdk,run,forbidden,dc});
+  registerWebsiteCases({sdk,run,forbidden,dc});
   before(async () => { await seedLocalDatabase(dc); });
   after(async () => { await deleteApp(app); });
 

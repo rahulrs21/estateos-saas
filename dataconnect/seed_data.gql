@@ -1,5 +1,20 @@
 # LOCAL ONLY: guarded demo-estateos seeder resets the CRM and inventory tables.
 # Synthetic fixtures. Outside connectorDirs; never deployed or generated.
+# Phase 6D tables reference leads and lead forms, so they are emptied first, in
+# their own step: one mutation can hold at most 50 deletes (PostgreSQL allows
+# 100 function arguments for the combined result).
+mutation ResetEstateOSWebsites @transaction {
+  websitePageEnquiry_deleteMany(all: true)
+  pendingWebsiteEnquiry_deleteMany(all: true)
+  pagePublication_deleteMany(all: true)
+  pageLeadFormBinding_deleteMany(all: true)
+  pageVersion_deleteMany(all: true)
+  websitePage_deleteMany(all: true)
+  websiteMedia_deleteMany(all: true)
+  websiteSectionTemplate_deleteMany(all: true)
+  website_deleteMany(all: true)
+}
+
 mutation ResetEstateOS @transaction {
   leadPriorityReview_deleteMany(all: true)
   aiSalesInsight_deleteMany(all: true)

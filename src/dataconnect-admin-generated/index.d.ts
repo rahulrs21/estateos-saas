@@ -81,6 +81,21 @@ export enum ActivityKind {
   AI_BRAND_PROFILE_UPDATED = "AI_BRAND_PROFILE_UPDATED",
   LEAD_QUALIFICATION_UPDATED = "LEAD_QUALIFICATION_UPDATED",
   AI_LEAD_PRIORITY_REVIEWED = "AI_LEAD_PRIORITY_REVIEWED",
+  WEBSITE_UPDATED = "WEBSITE_UPDATED",
+  WEBSITE_PAGE_CREATED = "WEBSITE_PAGE_CREATED",
+  WEBSITE_PAGE_STATUS_CHANGED = "WEBSITE_PAGE_STATUS_CHANGED",
+  WEBSITE_PAGE_PUBLISHED = "WEBSITE_PAGE_PUBLISHED",
+  WEBSITE_PAGE_UNPUBLISHED = "WEBSITE_PAGE_UNPUBLISHED",
+  WEBSITE_PAGE_FORM_CHANGED = "WEBSITE_PAGE_FORM_CHANGED",
+  WEBSITE_PAGE_ARCHIVED = "WEBSITE_PAGE_ARCHIVED",
+  WEBSITE_ENQUIRY_RECOVERED = "WEBSITE_ENQUIRY_RECOVERED",
+  WEBSITE_ENQUIRY_DISMISSED = "WEBSITE_ENQUIRY_DISMISSED",
+  WEBSITE_AGENT_CARD_UPDATED = "WEBSITE_AGENT_CARD_UPDATED",
+  WEBSITE_MEDIA_UPLOADED = "WEBSITE_MEDIA_UPLOADED",
+  WEBSITE_MEDIA_UPDATED = "WEBSITE_MEDIA_UPDATED",
+  WEBSITE_MEDIA_ARCHIVED = "WEBSITE_MEDIA_ARCHIVED",
+  WEBSITE_SECTION_TEMPLATE_SAVED = "WEBSITE_SECTION_TEMPLATE_SAVED",
+  WEBSITE_SECTION_TEMPLATE_DELETED = "WEBSITE_SECTION_TEMPLATE_DELETED",
 }
 export enum AgentAvailabilityStatus {
   AVAILABLE = "AVAILABLE",
@@ -174,6 +189,12 @@ export enum AuditTargetType {
   AI_BRAND_PROFILE = "AI_BRAND_PROFILE",
   LEAD_QUALIFICATION = "LEAD_QUALIFICATION",
   AI_LEAD_PRIORITY_REVIEW = "AI_LEAD_PRIORITY_REVIEW",
+  WEBSITE = "WEBSITE",
+  WEBSITE_PAGE = "WEBSITE_PAGE",
+  PAGE_PUBLICATION = "PAGE_PUBLICATION",
+  WEBSITE_ENQUIRY = "WEBSITE_ENQUIRY",
+  WEBSITE_MEDIA = "WEBSITE_MEDIA",
+  WEBSITE_SECTION_TEMPLATE = "WEBSITE_SECTION_TEMPLATE",
 }
 export enum BuildingType {
   RESIDENTIAL = "RESIDENTIAL",
@@ -423,10 +444,27 @@ export enum OwnershipType {
   LEASEHOLD = "LEASEHOLD",
   SHARED_OWNERSHIP = "SHARED_OWNERSHIP",
 }
+export enum PagePublicationStatus {
+  ACTIVE = "ACTIVE",
+  SUPERSEDED = "SUPERSEDED",
+  UNPUBLISHED = "UNPUBLISHED",
+}
+export enum PageVersionKind {
+  CREATED = "CREATED",
+  GENERATED = "GENERATED",
+  EDITED = "EDITED",
+  RESTORED = "RESTORED",
+  DUPLICATED = "DUPLICATED",
+}
 export enum PaymentDueTrigger {
   CONSTRUCTION_MILESTONE = "CONSTRUCTION_MILESTONE",
   HANDOVER = "HANDOVER",
   POST_HANDOVER = "POST_HANDOVER",
+}
+export enum PendingEnquiryStatus {
+  PENDING = "PENDING",
+  RECOVERED = "RECOVERED",
+  DISMISSED = "DISMISSED",
 }
 export enum PortalConnectionStatus {
   NOT_CONFIGURED = "NOT_CONFIGURED",
@@ -472,6 +510,27 @@ export enum TransactionType {
   RENT = "RENT",
   INVEST = "INVEST",
 }
+export enum WebsiteMediaStatus {
+  PENDING = "PENDING",
+  ACTIVE = "ACTIVE",
+  ARCHIVED = "ARCHIVED",
+  DELETED = "DELETED",
+}
+export enum WebsitePageStatus {
+  DRAFT = "DRAFT",
+  IN_REVIEW = "IN_REVIEW",
+  APPROVED = "APPROVED",
+  PUBLISHED = "PUBLISHED",
+  UNPUBLISHED = "UNPUBLISHED",
+  ARCHIVED = "ARCHIVED",
+}
+export enum WebsitePageType {
+  LANDING_PAGE = "LANDING_PAGE",
+}
+export enum WebsiteStatus {
+  ACTIVE = "ACTIVE",
+  ARCHIVED = "ARCHIVED",
+}
 
 export interface AcceptInvitationData {
   membership?: Membership_Key | null;
@@ -510,6 +569,28 @@ export interface AddAiContentAlternativeVariables {
   validation: string;
   model: string;
   generatedAt: TimestampString;
+}
+
+export interface AddGeneratedPageVersionData {
+  page?: WebsitePage_Key | null;
+  version: PageVersion_Key;
+}
+
+export interface AddGeneratedPageVersionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  createdByUid?: string | null;
+  expectedRevision: number;
+  nextRevision: number;
+  versionNumber: number;
+  title: string;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  designStyle: string;
+  structuredPageData: string;
+  validation?: string | null;
+  model: string;
 }
 
 export interface AddLeadNoteData {
@@ -638,6 +719,20 @@ export interface ApproveMembershipVariables {
   membershipId: UUIDString;
 }
 
+export interface ApproveWebsitePageData {
+  page?: WebsitePage_Key | null;
+  version?: PageVersion_Key | null;
+  audit: AuditLog_Key;
+}
+
+export interface ApproveWebsitePageVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  versionNumber: number;
+  expectedRevision: number;
+  nextRevision: number;
+}
+
 export interface ArchiveBuildingData {
   building_update?: Building_Key | null;
   activity_insert: Activity_Key;
@@ -750,6 +845,29 @@ export interface ArchivePropertyVariables {
   id: UUIDString;
 }
 
+export interface ArchiveWebsiteMediaData {
+  websiteMedia_update?: WebsiteMedia_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface ArchiveWebsiteMediaVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface ArchiveWebsitePageData {
+  page?: WebsitePage_Key | null;
+  audit: AuditLog_Key;
+}
+
+export interface ArchiveWebsitePageVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  createdByUid?: string | null;
+  expectedRevision: number;
+  nextRevision: number;
+}
+
 export interface AssignLeadData {
   lead?: Lead_Key | null;
   assignment: LeadAssignmentHistory_Key;
@@ -835,6 +953,38 @@ export interface ChangeLeadStatusVariables {
   status: LeadStatus;
 }
 
+export interface CheckPublishedSourcesEligibilityData {
+  listings: ({
+    id: UUIDString;
+    listingStatus: ListingStatus;
+    publicationStatus: ListingPublicationStatus;
+    advertisingPermitNumber?: string | null;
+    permitExpiryDate?: DateString | null;
+    archivedAt?: TimestampString | null;
+    property: {
+      archivedAt?: TimestampString | null;
+    };
+  })[];
+  projects: ({
+    id: UUIDString;
+    projectStatus: ProjectStatus;
+    archivedAt?: TimestampString | null;
+    permitExpiryDate?: DateString | null;
+  })[];
+  properties: ({
+    id: UUIDString;
+    inventoryStatus: InventoryStatus;
+    archivedAt?: TimestampString | null;
+  })[];
+}
+
+export interface CheckPublishedSourcesEligibilityVariables {
+  organizationId: UUIDString;
+  listingIds: UUIDString[];
+  projectIds: UUIDString[];
+  propertyIds: UUIDString[];
+}
+
 export interface CompleteLeadFollowUpData {
   lead?: Lead_Key | null;
   followUp?: LeadFollowUp_Key | null;
@@ -886,6 +1036,8 @@ export interface CreateAiBrandProfileVariables {
   defaultCallToAction?: string | null;
   tagline?: string | null;
   marketingDisclaimer?: string | null;
+  officeAddress?: string | null;
+  officeHours?: string | null;
 }
 
 export interface CreateAiContentDraftData {
@@ -995,6 +1147,19 @@ export interface CreateContactVariables {
   notes?: string | null;
 }
 
+export interface CreateDefaultWebsiteData {
+  website: Website_Key;
+}
+
+export interface CreateDefaultWebsiteVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  name: string;
+  slug: string;
+  designSettings: string;
+}
+
 export interface CreateDeveloperData {
   developer: Developer_Key;
   activity_insert: Activity_Key;
@@ -1036,6 +1201,31 @@ export interface CreateFloorPlanVariables {
   plotArea?: number | null;
   areaUnit: AreaUnit;
   mediaReference?: string | null;
+}
+
+export interface CreateGeneratedWebsitePageData {
+  page: WebsitePage_Key;
+  version: PageVersion_Key;
+  audit: AuditLog_Key;
+}
+
+export interface CreateGeneratedWebsitePageVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  websiteId: UUIDString;
+  title: string;
+  slug: string;
+  description?: string | null;
+  sourceProjectId?: UUIDString | null;
+  sourcePropertyId?: UUIDString | null;
+  sourceListingId?: UUIDString | null;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  designStyle: string;
+  structuredPageData: string;
+  validation?: string | null;
+  model: string;
 }
 
 export interface CreateInventoryAmenityData {
@@ -1379,6 +1569,62 @@ export interface CreatePropertyVariables {
   inventoryStatus: InventoryStatus;
 }
 
+export interface CreateWebsiteMediaData {
+  media: WebsiteMedia_Key;
+}
+
+export interface CreateWebsiteMediaVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  websiteId: UUIDString;
+  fileName: string;
+  contentType: string;
+  byteSize: number;
+  width?: number | null;
+  height?: number | null;
+  alt: string;
+  storagePath: string;
+  actorUid: string;
+}
+
+export interface CreateWebsitePageData {
+  page: WebsitePage_Key;
+  version: PageVersion_Key;
+  audit: AuditLog_Key;
+}
+
+export interface CreateWebsitePageVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  websiteId: UUIDString;
+  title: string;
+  slug: string;
+  description?: string | null;
+  sourceProjectId?: UUIDString | null;
+  sourcePropertyId?: UUIDString | null;
+  sourceListingId?: UUIDString | null;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  designStyle: string;
+  kind: PageVersionKind;
+  structuredPageData: string;
+  validation?: string | null;
+}
+
+export interface CreateWebsiteSectionTemplateData {
+  template: WebsiteSectionTemplate_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CreateWebsiteSectionTemplateVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  name: string;
+  category: string;
+  sectionType: string;
+  sectionData: string;
+}
+
 export interface DeleteAiContentDraftData {
   versions: number;
   draft: number;
@@ -1410,6 +1656,16 @@ export interface DeleteMyAiConversationData {
 export interface DeleteMyAiConversationVariables {
   organizationId: UUIDString;
   conversationId: UUIDString;
+}
+
+export interface DeleteWebsiteSectionTemplateData {
+  websiteSectionTemplate_update?: WebsiteSectionTemplate_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface DeleteWebsiteSectionTemplateVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
 }
 
 export interface DemoFixtureRecord_Key {
@@ -1448,6 +1704,16 @@ export interface Developer_Key {
   __typename?: 'Developer_Key';
 }
 
+export interface DismissPendingWebsiteEnquiryData {
+  pending?: PendingWebsiteEnquiry_Key | null;
+  audit: AuditLog_Key;
+}
+
+export interface DismissPendingWebsiteEnquiryVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
 export interface DistributionCursor_Key {
   organizationId: UUIDString;
   ruleId: UUIDString;
@@ -1475,6 +1741,20 @@ export interface FindDuplicateContactsVariables {
   email?: string | null;
   phone?: string | null;
   alternatePhone?: string | null;
+}
+
+export interface FindPendingWebsiteEnquiryData {
+  pending?: {
+    id: UUIDString;
+    status: PendingEnquiryStatus;
+    leadId?: UUIDString | null;
+  };
+}
+
+export interface FindPendingWebsiteEnquiryVariables {
+  organizationId: UUIDString;
+  formId: UUIDString;
+  idempotencyKeyHash: string;
 }
 
 export interface FindWebsiteLeadCaptureContactData {
@@ -1516,6 +1796,17 @@ export interface FindWebsiteLeadCaptureSubmissionVariables {
   idempotencyKeyHash: string;
 }
 
+export interface FindWebsitePageBySlugData {
+  page?: {
+    id: UUIDString;
+  };
+}
+
+export interface FindWebsitePageBySlugVariables {
+  organizationId: UUIDString;
+  slug: string;
+}
+
 export interface FloorPlan_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -1540,6 +1831,8 @@ export interface GetAiBrandProfileData {
     defaultCallToAction?: string | null;
     tagline?: string | null;
     marketingDisclaimer?: string | null;
+    officeAddress?: string | null;
+    officeHours?: string | null;
     revision: number;
     updatedAt: TimestampString;
     updatedBy: {
@@ -2672,6 +2965,27 @@ export interface GetOrganizationContextVariables {
   organizationId: UUIDString;
 }
 
+export interface GetPageVersionData {
+  version?: {
+    id: UUIDString;
+    versionNumber: number;
+    schemaVersion: number;
+    kind: PageVersionKind;
+    structuredPageData: string;
+    validation?: string | null;
+    model?: string | null;
+    approvedAt?: TimestampString | null;
+    createdAt: TimestampString;
+  };
+}
+
+export interface GetPageVersionVariables {
+  organizationId: UUIDString;
+  pageId: UUIDString;
+  versionNumber: number;
+  createdByUid?: string | null;
+}
+
 export interface GetPaymentPlanData {
   paymentPlan?: {
     id: UUIDString;
@@ -3130,6 +3444,44 @@ export interface GetPropertyVariables {
   id: UUIDString;
 }
 
+export interface GetPublishedPageAssetData {
+  publication?: {
+    id: UUIDString;
+    organizationId: UUIDString;
+    snapshot: string;
+  } & PagePublication_Key;
+}
+
+export interface GetPublishedPageAssetVariables {
+  publicationId: UUIDString;
+}
+
+export interface GetPublishedPageFormData {
+  binding?: {
+    formId: UUIDString;
+    form: {
+      id: UUIDString;
+      organizationId: UUIDString;
+      publicId: string;
+      name: string;
+      status: LeadCaptureFormStatus;
+      sourceId: UUIDString;
+      branchId?: UUIDString | null;
+      projectId?: UUIDString | null;
+      fields: unknown;
+      consentText: string;
+      privacyPolicyUrl: string;
+      successMessage: string;
+      createdByUid: string;
+    } & LeadCaptureForm_Key;
+  };
+}
+
+export interface GetPublishedPageFormVariables {
+  organizationId: UUIDString;
+  pageId: UUIDString;
+}
+
 export interface GetTeamMembershipByEmailData {
   membership?: {
     status: MembershipStatus;
@@ -3142,6 +3494,46 @@ export interface GetTeamMembershipByEmailData {
 export interface GetTeamMembershipByEmailVariables {
   organizationId: UUIDString;
   email: string;
+}
+
+export interface GetWebsiteAgentData {
+  agent?: {
+    id: UUIDString;
+    role: MembershipRole;
+    email: string;
+    websiteTitle?: string | null;
+    websitePhone?: string | null;
+    websiteWhatsapp?: string | null;
+    userProfile?: {
+      displayName: string;
+    };
+  };
+}
+
+export interface GetWebsiteAgentVariables {
+  organizationId: UUIDString;
+  membershipId: UUIDString;
+}
+
+export interface GetWebsiteLeadCaptureFormByIdData {
+  form?: {
+    id: UUIDString;
+    organizationId: UUIDString;
+    publicId: string;
+    name: string;
+    status: LeadCaptureFormStatus;
+    branchId?: UUIDString | null;
+    projectId?: UUIDString | null;
+    fields: unknown;
+    consentText: string;
+    privacyPolicyUrl: string;
+    successMessage: string;
+  } & LeadCaptureForm_Key;
+}
+
+export interface GetWebsiteLeadCaptureFormByIdVariables {
+  organizationId: UUIDString;
+  formId: UUIDString;
 }
 
 export interface GetWebsiteLeadCaptureRateWindowData {
@@ -3191,6 +3583,135 @@ export interface GetWebsiteLeadDistributionPlanData {
 
 export interface GetWebsiteLeadDistributionPlanVariables {
   organizationId: UUIDString;
+}
+
+export interface GetWebsiteMediaAccessData {
+  member?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  website?: {
+    id: UUIDString;
+    allowAgentDrafts: boolean;
+  };
+}
+
+export interface GetWebsiteMediaAccessVariables {
+  organizationId: UUIDString;
+}
+
+export interface GetWebsiteMediaByIdsData {
+  media: ({
+    id: UUIDString;
+    status: WebsiteMediaStatus;
+    contentType: string;
+    storagePath: string;
+    alt: string;
+    width?: number | null;
+    height?: number | null;
+  })[];
+}
+
+export interface GetWebsiteMediaByIdsVariables {
+  organizationId: UUIDString;
+  ids: UUIDString[];
+}
+
+export interface GetWebsitePageData {
+  organization?: {
+    name: string;
+    slug: string;
+  };
+  page?: {
+    id: UUIDString;
+    websiteId: UUIDString;
+    website: {
+      id: UUIDString;
+      name: string;
+      slug: string;
+      designSettings: string;
+      allowAgentDrafts: boolean;
+      status: WebsiteStatus;
+    };
+    title: string;
+    slug: string;
+    description?: string | null;
+    pageType: WebsitePageType;
+    status: WebsitePageStatus;
+    seoTitle?: string | null;
+    seoDescription?: string | null;
+    designStyle: string;
+    sourceProjectId?: UUIDString | null;
+    sourcePropertyId?: UUIDString | null;
+    sourceListingId?: UUIDString | null;
+    revision: number;
+    versionCount: number;
+    currentVersionNumber: number;
+    approvedVersionNumber?: number | null;
+    livePublicationId?: UUIDString | null;
+    reviewNote?: string | null;
+    createdAt: TimestampString;
+    updatedAt: TimestampString;
+    archivedAt?: TimestampString | null;
+    createdByUid: string;
+    createdBy: {
+      displayName: string;
+    };
+    updatedBy: {
+      displayName: string;
+    };
+  };
+  versions: ({
+    id: UUIDString;
+    versionNumber: number;
+    kind: PageVersionKind;
+    model?: string | null;
+    approvedAt?: TimestampString | null;
+    approvedBy?: {
+      displayName: string;
+    };
+    createdAt: TimestampString;
+    createdBy: {
+      displayName: string;
+    };
+  })[];
+  publications: ({
+    id: UUIDString;
+    versionNumber: number;
+    pageSlug: string;
+    status: PagePublicationStatus;
+    sourceFingerprint: string;
+    publishedAt: TimestampString;
+    publishedBy: {
+      displayName: string;
+    };
+    unpublishedAt?: TimestampString | null;
+    unpublishedBy?: {
+      displayName: string;
+    };
+  })[];
+  binding?: {
+    formId: UUIDString;
+    updatedAt: TimestampString;
+    form: {
+      id: UUIDString;
+      name: string;
+      status: LeadCaptureFormStatus;
+      consentText: string;
+      privacyPolicyUrl: string;
+      successMessage: string;
+      fields: unknown;
+    };
+  };
+  enquiries: ({
+    count: number;
+  })[];
+}
+
+export interface GetWebsitePageVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  createdByUid?: string | null;
 }
 
 export interface HitRateLimitCounterData {
@@ -4945,6 +5466,30 @@ export interface ListPaymentPlansVariables {
   offset?: number;
 }
 
+export interface ListPendingWebsiteEnquiriesData {
+  pending: ({
+    id: UUIDString;
+    pageId?: UUIDString | null;
+    publicationId?: UUIDString | null;
+    formId: UUIDString;
+    idempotencyKeyHash: string;
+    payload: string;
+    errorCode: string;
+    attempts: number;
+    createdAt: TimestampString;
+    updatedAt: TimestampString;
+  })[];
+  total: ({
+    count: number;
+  })[];
+}
+
+export interface ListPendingWebsiteEnquiriesVariables {
+  organizationId: UUIDString;
+  pageId?: UUIDString | null;
+  limit?: number;
+}
+
 export interface ListPortalExportListingsData {
   listings: ({
     id: UUIDString;
@@ -5067,6 +5612,29 @@ export interface ListProjectPhasesVariables {
   projectId: UUIDString;
   limit?: number;
   offset?: number;
+}
+
+export interface ListProjectWebsiteMediaData {
+  projectMedia: ({
+    id: UUIDString;
+    contentType: string;
+    mediaKind: InventoryMediaKind;
+    isCover: boolean;
+  })[];
+  unitMedia: ({
+    id: UUIDString;
+    contentType: string;
+    mediaKind: InventoryMediaKind;
+    isCover: boolean;
+  })[];
+}
+
+export interface ListProjectWebsiteMediaVariables {
+  organizationId: UUIDString;
+  projectId: UUIDString;
+  assignedMembershipId?: UUIDString | null;
+  includeProjectFiles: boolean;
+  limit?: number;
 }
 
 export interface ListProjectsData {
@@ -5622,6 +6190,20 @@ export interface ListPropertyMapPinsVariables {
   search?: string | null;
 }
 
+export interface ListPublishedPagesForSitemapData {
+  publications: ({
+    pageSlug: string;
+    publishedAt: TimestampString;
+    organization: {
+      slug: string;
+    };
+  })[];
+}
+
+export interface ListPublishedPagesForSitemapVariables {
+  limit: number;
+}
+
 export interface ListTeamMembersData {
   memberships: ({
     id: UUIDString;
@@ -5648,6 +6230,149 @@ export interface ListTeamMembersVariables {
   status?: MembershipStatus | null;
 }
 
+export interface ListWebsiteAgentsData {
+  agents: ({
+    id: UUIDString;
+    role: MembershipRole;
+    email: string;
+    websiteTitle?: string | null;
+    websitePhone?: string | null;
+    websiteWhatsapp?: string | null;
+    userProfile?: {
+      displayName: string;
+    };
+  })[];
+}
+
+export interface ListWebsiteAgentsVariables {
+  organizationId: UUIDString;
+}
+
+export interface ListWebsiteMediaData {
+  media: ({
+    id: UUIDString;
+    fileName: string;
+    contentType: string;
+    byteSize: number;
+    width?: number | null;
+    height?: number | null;
+    alt: string;
+    createdAt: TimestampString;
+    createdByUid: string;
+    createdBy: {
+      displayName: string;
+    };
+  })[];
+  total: ({
+    id: UUIDString;
+  })[];
+}
+
+export interface ListWebsiteMediaVariables {
+  organizationId: UUIDString;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListWebsitePageEnquiriesData {
+  enquiries: ({
+    id: UUIDString;
+    leadId: UUIDString;
+    publicationId?: UUIDString | null;
+    utmSource?: string | null;
+    utmMedium?: string | null;
+    utmCampaign?: string | null;
+    createdAt: TimestampString;
+    lead: {
+      id: UUIDString;
+      fullName: string;
+      status: LeadStatus;
+      archivedAt?: TimestampString | null;
+    };
+  })[];
+  total: ({
+    count: number;
+  })[];
+}
+
+export interface ListWebsitePageEnquiriesVariables {
+  organizationId: UUIDString;
+  pageId: UUIDString;
+  limit?: number;
+}
+
+export interface ListWebsitePagesData {
+  organization?: {
+    name: string;
+    slug: string;
+  };
+  websites: ({
+    id: UUIDString;
+    name: string;
+    slug: string;
+    designSettings: string;
+    allowAgentDrafts: boolean;
+    status: WebsiteStatus;
+    revision: number;
+    updatedAt: TimestampString;
+  })[];
+  pages: ({
+    id: UUIDString;
+    websiteId: UUIDString;
+    title: string;
+    slug: string;
+    pageType: WebsitePageType;
+    status: WebsitePageStatus;
+    designStyle: string;
+    sourceProjectId?: UUIDString | null;
+    sourcePropertyId?: UUIDString | null;
+    sourceListingId?: UUIDString | null;
+    revision: number;
+    currentVersionNumber: number;
+    approvedVersionNumber?: number | null;
+    livePublicationId?: UUIDString | null;
+    createdAt: TimestampString;
+    updatedAt: TimestampString;
+    createdByUid: string;
+    createdBy: {
+      displayName: string;
+    };
+    updatedBy: {
+      displayName: string;
+    };
+  })[];
+  total: ({
+    count: number;
+  })[];
+}
+
+export interface ListWebsitePagesVariables {
+  organizationId: UUIDString;
+  createdByUid?: string | null;
+  statuses: WebsitePageStatus[];
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListWebsiteSectionTemplatesData {
+  templates: ({
+    id: UUIDString;
+    name: string;
+    category: string;
+    sectionType: string;
+    sectionData: string;
+    createdByUid: string;
+    updatedAt: TimestampString;
+    createdBy: {
+      displayName: string;
+    };
+  })[];
+}
+
+export interface ListWebsiteSectionTemplatesVariables {
+  organizationId: UUIDString;
+}
+
 export interface ListingPublication_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -5672,6 +6397,18 @@ export interface MarkInAppNotificationReadData {
 export interface MarkInAppNotificationReadVariables {
   organizationId: UUIDString;
   notificationId: UUIDString;
+}
+
+export interface MarkPendingWebsiteEnquiryRecoveredData {
+  pending?: PendingWebsiteEnquiry_Key | null;
+  audit: AuditLog_Key;
+}
+
+export interface MarkPendingWebsiteEnquiryRecoveredVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  leadId: UUIDString;
 }
 
 export interface Membership_Key {
@@ -5703,6 +6440,24 @@ export interface Organization_Key {
   __typename?: 'Organization_Key';
 }
 
+export interface PageLeadFormBinding_Key {
+  organizationId: UUIDString;
+  pageId: UUIDString;
+  __typename?: 'PageLeadFormBinding_Key';
+}
+
+export interface PagePublication_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'PagePublication_Key';
+}
+
+export interface PageVersion_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'PageVersion_Key';
+}
+
 export interface PaymentPlanInstallment_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -5713,6 +6468,12 @@ export interface PaymentPlan_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'PaymentPlan_Key';
+}
+
+export interface PendingWebsiteEnquiry_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'PendingWebsiteEnquiry_Key';
 }
 
 export interface PipelineStage_Key {
@@ -5781,6 +6542,30 @@ export interface PublicationAttempt_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'PublicationAttempt_Key';
+}
+
+export interface PublishWebsitePageData {
+  superseded: number;
+  publication: PagePublication_Key;
+  page?: WebsitePage_Key | null;
+  audit: AuditLog_Key;
+}
+
+export interface PublishWebsitePageVariables {
+  organizationId: UUIDString;
+  pageId: UUIDString;
+  actorUid: string;
+  publicationId: UUIDString;
+  versionId: UUIDString;
+  versionNumber: number;
+  pageSlug: string;
+  expectedRevision: number;
+  nextRevision: number;
+  currentVersionNumber: number;
+  status: WebsitePageStatus;
+  snapshot: string;
+  sourceFingerprint: string;
+  checklist: string;
 }
 
 export interface PurgeExpiredRateLimitCountersData {
@@ -5942,6 +6727,45 @@ export interface RecordListingValidationVariables {
   errorSummary?: string | null;
 }
 
+export interface RecordPendingWebsiteEnquiryAttemptData {
+  pending?: PendingWebsiteEnquiry_Key | null;
+}
+
+export interface RecordPendingWebsiteEnquiryAttemptVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  errorCode: string;
+}
+
+export interface RecordPendingWebsiteEnquiryData {
+  pending: PendingWebsiteEnquiry_Key;
+}
+
+export interface RecordPendingWebsiteEnquiryVariables {
+  organizationId: UUIDString;
+  pageId?: UUIDString | null;
+  publicationId?: UUIDString | null;
+  formId: UUIDString;
+  idempotencyKeyHash: string;
+  payload: string;
+  errorCode: string;
+}
+
+export interface RecordWebsitePageEnquiryData {
+  enquiry: WebsitePageEnquiry_Key;
+}
+
+export interface RecordWebsitePageEnquiryVariables {
+  organizationId: UUIDString;
+  pageId: UUIDString;
+  publicationId?: UUIDString | null;
+  formId: UUIDString;
+  leadId: UUIDString;
+  utmSource?: string | null;
+  utmMedium?: string | null;
+  utmCampaign?: string | null;
+}
+
 export interface RegenerateAiContentDraftData {
   draft?: AiContentDraft_Key | null;
   version: AiContentVersion_Key;
@@ -5991,6 +6815,19 @@ export interface ReissueInvitationVariables {
   expiresAt: TimestampString;
 }
 
+export interface RejectWebsitePageData {
+  page?: WebsitePage_Key | null;
+  audit: AuditLog_Key;
+}
+
+export interface RejectWebsitePageVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  note: string;
+  expectedRevision: number;
+  nextRevision: number;
+}
+
 export interface ReleaseAiRequestData {
   counter?: unknown | null;
 }
@@ -5999,6 +6836,16 @@ export interface ReleaseAiRequestVariables {
   organizationId: UUIDString;
   periodKey: string;
   subjectKey: string;
+}
+
+export interface RemovePageLeadFormBindingData {
+  binding?: PageLeadFormBinding_Key | null;
+  audit: AuditLog_Key;
+}
+
+export interface RemovePageLeadFormBindingVariables {
+  organizationId: UUIDString;
+  pageId: UUIDString;
 }
 
 export interface RemovePaymentPlanInstallmentData {
@@ -6035,6 +6882,28 @@ export interface ReserveAiRequestVariables {
   periodKey: string;
   subjectKey: string;
   limit: number;
+}
+
+export interface ResolvePublishedPageData {
+  publications: ({
+    id: UUIDString;
+    organizationId: UUIDString;
+    pageId: UUIDString;
+    versionNumber: number;
+    pageSlug: string;
+    snapshot: string;
+    publishedAt: TimestampString;
+    organization: {
+      id: UUIDString;
+      name: string;
+      slug: string;
+    } & Organization_Key;
+  } & PagePublication_Key)[];
+}
+
+export interface ResolvePublishedPageVariables {
+  companySlug: string;
+  pageSlug: string;
 }
 
 export interface ResolveWebsiteLeadCaptureFormData {
@@ -6154,6 +7023,29 @@ export interface SavePortalConnectionVariables {
   accountReference?: string | null;
   notes?: string | null;
   expectedUpdatedAt?: TimestampString | null;
+}
+
+export interface SaveWebsitePageVersionData {
+  page?: WebsitePage_Key | null;
+  version: PageVersion_Key;
+}
+
+export interface SaveWebsitePageVersionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  createdByUid?: string | null;
+  expectedRevision: number;
+  nextRevision: number;
+  versionNumber: number;
+  kind: PageVersionKind;
+  title: string;
+  slug: string;
+  description?: string | null;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  designStyle: string;
+  structuredPageData: string;
+  validation?: string | null;
 }
 
 export interface ScheduleLeadFollowUpData {
@@ -6309,6 +7201,17 @@ export interface SetMembershipStatusVariables {
   status: MembershipStatus;
 }
 
+export interface SetPageLeadFormBindingData {
+  binding: PageLeadFormBinding_Key;
+  audit: AuditLog_Key;
+}
+
+export interface SetPageLeadFormBindingVariables {
+  organizationId: UUIDString;
+  pageId: UUIDString;
+  formId: UUIDString;
+}
+
 export interface SetPaymentPlanActiveData {
   paymentPlan_update?: PaymentPlan_Key | null;
   activity_insert: Activity_Key;
@@ -6361,6 +7264,18 @@ export interface SetPropertyMediaCoverVariables {
   sortOrder: number;
 }
 
+export interface SetWebsiteMediaUploadStatusData {
+  media?: WebsiteMedia_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SetWebsiteMediaUploadStatusVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  status: WebsiteMediaStatus;
+  actorUid: string;
+}
+
 export interface SubmitWebsiteLeadCaptureData {
   advanceCursor?: DistributionCursor_Key | null;
   contact: Contact_Key;
@@ -6409,6 +7324,19 @@ export interface SubmitWebsiteLeadCaptureVariables {
   hasDistributionAttempt: boolean;
 }
 
+export interface SubmitWebsitePageForReviewData {
+  page?: WebsitePage_Key | null;
+  audit: AuditLog_Key;
+}
+
+export interface SubmitWebsitePageForReviewVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  createdByUid?: string | null;
+  expectedRevision: number;
+  nextRevision: number;
+}
+
 export interface SwitchOrganizationData {
   userProfile_update?: UserProfile_Key | null;
   activity_insert: Activity_Key;
@@ -6437,6 +7365,20 @@ export interface UnassignLeadVariables {
   overrideClosed?: boolean;
 }
 
+export interface UnpublishWebsitePageData {
+  page?: WebsitePage_Key | null;
+  publication?: PagePublication_Key | null;
+  audit: AuditLog_Key;
+}
+
+export interface UnpublishWebsitePageVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  publicationId: UUIDString;
+  expectedRevision: number;
+  nextRevision: number;
+}
+
 export interface UpdateAiBrandProfileData {
   profile?: AiBrandProfile_Key | null;
   auditLog_insert: AuditLog_Key;
@@ -6457,6 +7399,8 @@ export interface UpdateAiBrandProfileVariables {
   defaultCallToAction?: string | null;
   tagline?: string | null;
   marketingDisclaimer?: string | null;
+  officeAddress?: string | null;
+  officeHours?: string | null;
 }
 
 export interface UpdateAiContentTemplateData {
@@ -6878,6 +7822,45 @@ export interface UpdatePropertyVariables {
   inventoryStatus: InventoryStatus;
 }
 
+export interface UpdateWebsiteAgentCardData {
+  membership_update?: Membership_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface UpdateWebsiteAgentCardVariables {
+  organizationId: UUIDString;
+  membershipId: UUIDString;
+  websiteTitle?: string | null;
+  websitePhone?: string | null;
+  websiteWhatsapp?: string | null;
+}
+
+export interface UpdateWebsiteMediaAltData {
+  websiteMedia_update?: WebsiteMedia_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface UpdateWebsiteMediaAltVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  alt: string;
+}
+
+export interface UpdateWebsiteSettingsData {
+  website?: Website_Key | null;
+  audit: AuditLog_Key;
+}
+
+export interface UpdateWebsiteSettingsVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  name: string;
+  designSettings: string;
+  allowAgentDrafts: boolean;
+  expectedRevision: number;
+  nextRevision: number;
+}
+
 export interface UpsertMyProfileData {
   userProfile_upsert: UserProfile_Key;
 }
@@ -6889,6 +7872,36 @@ export interface UpsertMyProfileVariables {
 export interface UserProfile_Key {
   uid: string;
   __typename?: 'UserProfile_Key';
+}
+
+export interface WebsiteMedia_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'WebsiteMedia_Key';
+}
+
+export interface WebsitePageEnquiry_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'WebsitePageEnquiry_Key';
+}
+
+export interface WebsitePage_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'WebsitePage_Key';
+}
+
+export interface WebsiteSectionTemplate_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'WebsiteSectionTemplate_Key';
+}
+
+export interface Website_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'Website_Key';
 }
 
 /** Generated Node Admin SDK operation action function for the 'ListAiContentDrafts' Query. Allow users to execute without passing in DataConnect. */
@@ -7925,4 +8938,234 @@ export function hitRateLimitCounter(vars: HitRateLimitCounterVariables, options?
 export function purgeExpiredRateLimitCounters(dc: DataConnect, vars: PurgeExpiredRateLimitCountersVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PurgeExpiredRateLimitCountersData>>;
 /** Generated Node Admin SDK operation action function for the 'PurgeExpiredRateLimitCounters' Mutation. Allow users to pass in custom DataConnect instances. */
 export function purgeExpiredRateLimitCounters(vars: PurgeExpiredRateLimitCountersVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PurgeExpiredRateLimitCountersData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListWebsitePages' Query. Allow users to execute without passing in DataConnect. */
+export function listWebsitePages(dc: DataConnect, vars: ListWebsitePagesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListWebsitePagesData>>;
+/** Generated Node Admin SDK operation action function for the 'ListWebsitePages' Query. Allow users to pass in custom DataConnect instances. */
+export function listWebsitePages(vars: ListWebsitePagesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListWebsitePagesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetWebsitePage' Query. Allow users to execute without passing in DataConnect. */
+export function getWebsitePage(dc: DataConnect, vars: GetWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetWebsitePageData>>;
+/** Generated Node Admin SDK operation action function for the 'GetWebsitePage' Query. Allow users to pass in custom DataConnect instances. */
+export function getWebsitePage(vars: GetWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetWebsitePageData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetPageVersion' Query. Allow users to execute without passing in DataConnect. */
+export function getPageVersion(dc: DataConnect, vars: GetPageVersionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetPageVersionData>>;
+/** Generated Node Admin SDK operation action function for the 'GetPageVersion' Query. Allow users to pass in custom DataConnect instances. */
+export function getPageVersion(vars: GetPageVersionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetPageVersionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListProjectWebsiteMedia' Query. Allow users to execute without passing in DataConnect. */
+export function listProjectWebsiteMedia(dc: DataConnect, vars: ListProjectWebsiteMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListProjectWebsiteMediaData>>;
+/** Generated Node Admin SDK operation action function for the 'ListProjectWebsiteMedia' Query. Allow users to pass in custom DataConnect instances. */
+export function listProjectWebsiteMedia(vars: ListProjectWebsiteMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListProjectWebsiteMediaData>>;
+
+/** Generated Node Admin SDK operation action function for the 'FindWebsitePageBySlug' Query. Allow users to execute without passing in DataConnect. */
+export function findWebsitePageBySlug(dc: DataConnect, vars: FindWebsitePageBySlugVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FindWebsitePageBySlugData>>;
+/** Generated Node Admin SDK operation action function for the 'FindWebsitePageBySlug' Query. Allow users to pass in custom DataConnect instances. */
+export function findWebsitePageBySlug(vars: FindWebsitePageBySlugVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FindWebsitePageBySlugData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateWebsitePage' Mutation. Allow users to execute without passing in DataConnect. */
+export function createWebsitePage(dc: DataConnect, vars: CreateWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateWebsitePageData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateWebsitePage' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createWebsitePage(vars: CreateWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateWebsitePageData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SaveWebsitePageVersion' Mutation. Allow users to execute without passing in DataConnect. */
+export function saveWebsitePageVersion(dc: DataConnect, vars: SaveWebsitePageVersionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveWebsitePageVersionData>>;
+/** Generated Node Admin SDK operation action function for the 'SaveWebsitePageVersion' Mutation. Allow users to pass in custom DataConnect instances. */
+export function saveWebsitePageVersion(vars: SaveWebsitePageVersionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveWebsitePageVersionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SubmitWebsitePageForReview' Mutation. Allow users to execute without passing in DataConnect. */
+export function submitWebsitePageForReview(dc: DataConnect, vars: SubmitWebsitePageForReviewVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SubmitWebsitePageForReviewData>>;
+/** Generated Node Admin SDK operation action function for the 'SubmitWebsitePageForReview' Mutation. Allow users to pass in custom DataConnect instances. */
+export function submitWebsitePageForReview(vars: SubmitWebsitePageForReviewVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SubmitWebsitePageForReviewData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ApproveWebsitePage' Mutation. Allow users to execute without passing in DataConnect. */
+export function approveWebsitePage(dc: DataConnect, vars: ApproveWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ApproveWebsitePageData>>;
+/** Generated Node Admin SDK operation action function for the 'ApproveWebsitePage' Mutation. Allow users to pass in custom DataConnect instances. */
+export function approveWebsitePage(vars: ApproveWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ApproveWebsitePageData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RejectWebsitePage' Mutation. Allow users to execute without passing in DataConnect. */
+export function rejectWebsitePage(dc: DataConnect, vars: RejectWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RejectWebsitePageData>>;
+/** Generated Node Admin SDK operation action function for the 'RejectWebsitePage' Mutation. Allow users to pass in custom DataConnect instances. */
+export function rejectWebsitePage(vars: RejectWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RejectWebsitePageData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UnpublishWebsitePage' Mutation. Allow users to execute without passing in DataConnect. */
+export function unpublishWebsitePage(dc: DataConnect, vars: UnpublishWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UnpublishWebsitePageData>>;
+/** Generated Node Admin SDK operation action function for the 'UnpublishWebsitePage' Mutation. Allow users to pass in custom DataConnect instances. */
+export function unpublishWebsitePage(vars: UnpublishWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UnpublishWebsitePageData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ArchiveWebsitePage' Mutation. Allow users to execute without passing in DataConnect. */
+export function archiveWebsitePage(dc: DataConnect, vars: ArchiveWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ArchiveWebsitePageData>>;
+/** Generated Node Admin SDK operation action function for the 'ArchiveWebsitePage' Mutation. Allow users to pass in custom DataConnect instances. */
+export function archiveWebsitePage(vars: ArchiveWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ArchiveWebsitePageData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SetPageLeadFormBinding' Mutation. Allow users to execute without passing in DataConnect. */
+export function setPageLeadFormBinding(dc: DataConnect, vars: SetPageLeadFormBindingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetPageLeadFormBindingData>>;
+/** Generated Node Admin SDK operation action function for the 'SetPageLeadFormBinding' Mutation. Allow users to pass in custom DataConnect instances. */
+export function setPageLeadFormBinding(vars: SetPageLeadFormBindingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetPageLeadFormBindingData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RemovePageLeadFormBinding' Mutation. Allow users to execute without passing in DataConnect. */
+export function removePageLeadFormBinding(dc: DataConnect, vars: RemovePageLeadFormBindingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RemovePageLeadFormBindingData>>;
+/** Generated Node Admin SDK operation action function for the 'RemovePageLeadFormBinding' Mutation. Allow users to pass in custom DataConnect instances. */
+export function removePageLeadFormBinding(vars: RemovePageLeadFormBindingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RemovePageLeadFormBindingData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateWebsiteSettings' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateWebsiteSettings(dc: DataConnect, vars: UpdateWebsiteSettingsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateWebsiteSettingsData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateWebsiteSettings' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateWebsiteSettings(vars: UpdateWebsiteSettingsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateWebsiteSettingsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListWebsitePageEnquiries' Query. Allow users to execute without passing in DataConnect. */
+export function listWebsitePageEnquiries(dc: DataConnect, vars: ListWebsitePageEnquiriesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListWebsitePageEnquiriesData>>;
+/** Generated Node Admin SDK operation action function for the 'ListWebsitePageEnquiries' Query. Allow users to pass in custom DataConnect instances. */
+export function listWebsitePageEnquiries(vars: ListWebsitePageEnquiriesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListWebsitePageEnquiriesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListPendingWebsiteEnquiries' Query. Allow users to execute without passing in DataConnect. */
+export function listPendingWebsiteEnquiries(dc: DataConnect, vars: ListPendingWebsiteEnquiriesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListPendingWebsiteEnquiriesData>>;
+/** Generated Node Admin SDK operation action function for the 'ListPendingWebsiteEnquiries' Query. Allow users to pass in custom DataConnect instances. */
+export function listPendingWebsiteEnquiries(vars: ListPendingWebsiteEnquiriesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListPendingWebsiteEnquiriesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DismissPendingWebsiteEnquiry' Mutation. Allow users to execute without passing in DataConnect. */
+export function dismissPendingWebsiteEnquiry(dc: DataConnect, vars: DismissPendingWebsiteEnquiryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DismissPendingWebsiteEnquiryData>>;
+/** Generated Node Admin SDK operation action function for the 'DismissPendingWebsiteEnquiry' Mutation. Allow users to pass in custom DataConnect instances. */
+export function dismissPendingWebsiteEnquiry(vars: DismissPendingWebsiteEnquiryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DismissPendingWebsiteEnquiryData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateDefaultWebsite' Mutation. Allow users to execute without passing in DataConnect. */
+export function createDefaultWebsite(dc: DataConnect, vars: CreateDefaultWebsiteVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateDefaultWebsiteData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateDefaultWebsite' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createDefaultWebsite(vars: CreateDefaultWebsiteVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateDefaultWebsiteData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateGeneratedWebsitePage' Mutation. Allow users to execute without passing in DataConnect. */
+export function createGeneratedWebsitePage(dc: DataConnect, vars: CreateGeneratedWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateGeneratedWebsitePageData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateGeneratedWebsitePage' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createGeneratedWebsitePage(vars: CreateGeneratedWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateGeneratedWebsitePageData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AddGeneratedPageVersion' Mutation. Allow users to execute without passing in DataConnect. */
+export function addGeneratedPageVersion(dc: DataConnect, vars: AddGeneratedPageVersionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AddGeneratedPageVersionData>>;
+/** Generated Node Admin SDK operation action function for the 'AddGeneratedPageVersion' Mutation. Allow users to pass in custom DataConnect instances. */
+export function addGeneratedPageVersion(vars: AddGeneratedPageVersionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AddGeneratedPageVersionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'PublishWebsitePage' Mutation. Allow users to execute without passing in DataConnect. */
+export function publishWebsitePage(dc: DataConnect, vars: PublishWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PublishWebsitePageData>>;
+/** Generated Node Admin SDK operation action function for the 'PublishWebsitePage' Mutation. Allow users to pass in custom DataConnect instances. */
+export function publishWebsitePage(vars: PublishWebsitePageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PublishWebsitePageData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MarkPendingWebsiteEnquiryRecovered' Mutation. Allow users to execute without passing in DataConnect. */
+export function markPendingWebsiteEnquiryRecovered(dc: DataConnect, vars: MarkPendingWebsiteEnquiryRecoveredVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkPendingWebsiteEnquiryRecoveredData>>;
+/** Generated Node Admin SDK operation action function for the 'MarkPendingWebsiteEnquiryRecovered' Mutation. Allow users to pass in custom DataConnect instances. */
+export function markPendingWebsiteEnquiryRecovered(vars: MarkPendingWebsiteEnquiryRecoveredVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkPendingWebsiteEnquiryRecoveredData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RecordPendingWebsiteEnquiryAttempt' Mutation. Allow users to execute without passing in DataConnect. */
+export function recordPendingWebsiteEnquiryAttempt(dc: DataConnect, vars: RecordPendingWebsiteEnquiryAttemptVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordPendingWebsiteEnquiryAttemptData>>;
+/** Generated Node Admin SDK operation action function for the 'RecordPendingWebsiteEnquiryAttempt' Mutation. Allow users to pass in custom DataConnect instances. */
+export function recordPendingWebsiteEnquiryAttempt(vars: RecordPendingWebsiteEnquiryAttemptVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordPendingWebsiteEnquiryAttemptData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ResolvePublishedPage' Query. Allow users to execute without passing in DataConnect. */
+export function resolvePublishedPage(dc: DataConnect, vars: ResolvePublishedPageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ResolvePublishedPageData>>;
+/** Generated Node Admin SDK operation action function for the 'ResolvePublishedPage' Query. Allow users to pass in custom DataConnect instances. */
+export function resolvePublishedPage(vars: ResolvePublishedPageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ResolvePublishedPageData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetPublishedPageAsset' Query. Allow users to execute without passing in DataConnect. */
+export function getPublishedPageAsset(dc: DataConnect, vars: GetPublishedPageAssetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetPublishedPageAssetData>>;
+/** Generated Node Admin SDK operation action function for the 'GetPublishedPageAsset' Query. Allow users to pass in custom DataConnect instances. */
+export function getPublishedPageAsset(vars: GetPublishedPageAssetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetPublishedPageAssetData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListPublishedPagesForSitemap' Query. Allow users to execute without passing in DataConnect. */
+export function listPublishedPagesForSitemap(dc: DataConnect, vars: ListPublishedPagesForSitemapVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListPublishedPagesForSitemapData>>;
+/** Generated Node Admin SDK operation action function for the 'ListPublishedPagesForSitemap' Query. Allow users to pass in custom DataConnect instances. */
+export function listPublishedPagesForSitemap(vars: ListPublishedPagesForSitemapVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListPublishedPagesForSitemapData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CheckPublishedSourcesEligibility' Query. Allow users to execute without passing in DataConnect. */
+export function checkPublishedSourcesEligibility(dc: DataConnect, vars: CheckPublishedSourcesEligibilityVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CheckPublishedSourcesEligibilityData>>;
+/** Generated Node Admin SDK operation action function for the 'CheckPublishedSourcesEligibility' Query. Allow users to pass in custom DataConnect instances. */
+export function checkPublishedSourcesEligibility(vars: CheckPublishedSourcesEligibilityVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CheckPublishedSourcesEligibilityData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetPublishedPageForm' Query. Allow users to execute without passing in DataConnect. */
+export function getPublishedPageForm(dc: DataConnect, vars: GetPublishedPageFormVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetPublishedPageFormData>>;
+/** Generated Node Admin SDK operation action function for the 'GetPublishedPageForm' Query. Allow users to pass in custom DataConnect instances. */
+export function getPublishedPageForm(vars: GetPublishedPageFormVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetPublishedPageFormData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetWebsiteLeadCaptureFormById' Query. Allow users to execute without passing in DataConnect. */
+export function getWebsiteLeadCaptureFormById(dc: DataConnect, vars: GetWebsiteLeadCaptureFormByIdVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetWebsiteLeadCaptureFormByIdData>>;
+/** Generated Node Admin SDK operation action function for the 'GetWebsiteLeadCaptureFormById' Query. Allow users to pass in custom DataConnect instances. */
+export function getWebsiteLeadCaptureFormById(vars: GetWebsiteLeadCaptureFormByIdVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetWebsiteLeadCaptureFormByIdData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RecordWebsitePageEnquiry' Mutation. Allow users to execute without passing in DataConnect. */
+export function recordWebsitePageEnquiry(dc: DataConnect, vars: RecordWebsitePageEnquiryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordWebsitePageEnquiryData>>;
+/** Generated Node Admin SDK operation action function for the 'RecordWebsitePageEnquiry' Mutation. Allow users to pass in custom DataConnect instances. */
+export function recordWebsitePageEnquiry(vars: RecordWebsitePageEnquiryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordWebsitePageEnquiryData>>;
+
+/** Generated Node Admin SDK operation action function for the 'FindPendingWebsiteEnquiry' Query. Allow users to execute without passing in DataConnect. */
+export function findPendingWebsiteEnquiry(dc: DataConnect, vars: FindPendingWebsiteEnquiryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FindPendingWebsiteEnquiryData>>;
+/** Generated Node Admin SDK operation action function for the 'FindPendingWebsiteEnquiry' Query. Allow users to pass in custom DataConnect instances. */
+export function findPendingWebsiteEnquiry(vars: FindPendingWebsiteEnquiryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FindPendingWebsiteEnquiryData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RecordPendingWebsiteEnquiry' Mutation. Allow users to execute without passing in DataConnect. */
+export function recordPendingWebsiteEnquiry(dc: DataConnect, vars: RecordPendingWebsiteEnquiryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordPendingWebsiteEnquiryData>>;
+/** Generated Node Admin SDK operation action function for the 'RecordPendingWebsiteEnquiry' Mutation. Allow users to pass in custom DataConnect instances. */
+export function recordPendingWebsiteEnquiry(vars: RecordPendingWebsiteEnquiryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordPendingWebsiteEnquiryData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListWebsiteAgents' Query. Allow users to execute without passing in DataConnect. */
+export function listWebsiteAgents(dc: DataConnect, vars: ListWebsiteAgentsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListWebsiteAgentsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListWebsiteAgents' Query. Allow users to pass in custom DataConnect instances. */
+export function listWebsiteAgents(vars: ListWebsiteAgentsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListWebsiteAgentsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetWebsiteAgent' Query. Allow users to execute without passing in DataConnect. */
+export function getWebsiteAgent(dc: DataConnect, vars: GetWebsiteAgentVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetWebsiteAgentData>>;
+/** Generated Node Admin SDK operation action function for the 'GetWebsiteAgent' Query. Allow users to pass in custom DataConnect instances. */
+export function getWebsiteAgent(vars: GetWebsiteAgentVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetWebsiteAgentData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateWebsiteAgentCard' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateWebsiteAgentCard(dc: DataConnect, vars: UpdateWebsiteAgentCardVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateWebsiteAgentCardData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateWebsiteAgentCard' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateWebsiteAgentCard(vars: UpdateWebsiteAgentCardVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateWebsiteAgentCardData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetWebsiteMediaAccess' Query. Allow users to execute without passing in DataConnect. */
+export function getWebsiteMediaAccess(dc: DataConnect, vars: GetWebsiteMediaAccessVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetWebsiteMediaAccessData>>;
+/** Generated Node Admin SDK operation action function for the 'GetWebsiteMediaAccess' Query. Allow users to pass in custom DataConnect instances. */
+export function getWebsiteMediaAccess(vars: GetWebsiteMediaAccessVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetWebsiteMediaAccessData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateWebsiteMedia' Mutation. Allow users to execute without passing in DataConnect. */
+export function createWebsiteMedia(dc: DataConnect, vars: CreateWebsiteMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateWebsiteMediaData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateWebsiteMedia' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createWebsiteMedia(vars: CreateWebsiteMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateWebsiteMediaData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SetWebsiteMediaUploadStatus' Mutation. Allow users to execute without passing in DataConnect. */
+export function setWebsiteMediaUploadStatus(dc: DataConnect, vars: SetWebsiteMediaUploadStatusVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetWebsiteMediaUploadStatusData>>;
+/** Generated Node Admin SDK operation action function for the 'SetWebsiteMediaUploadStatus' Mutation. Allow users to pass in custom DataConnect instances. */
+export function setWebsiteMediaUploadStatus(vars: SetWebsiteMediaUploadStatusVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetWebsiteMediaUploadStatusData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListWebsiteMedia' Query. Allow users to execute without passing in DataConnect. */
+export function listWebsiteMedia(dc: DataConnect, vars: ListWebsiteMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListWebsiteMediaData>>;
+/** Generated Node Admin SDK operation action function for the 'ListWebsiteMedia' Query. Allow users to pass in custom DataConnect instances. */
+export function listWebsiteMedia(vars: ListWebsiteMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListWebsiteMediaData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetWebsiteMediaByIds' Query. Allow users to execute without passing in DataConnect. */
+export function getWebsiteMediaByIds(dc: DataConnect, vars: GetWebsiteMediaByIdsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetWebsiteMediaByIdsData>>;
+/** Generated Node Admin SDK operation action function for the 'GetWebsiteMediaByIds' Query. Allow users to pass in custom DataConnect instances. */
+export function getWebsiteMediaByIds(vars: GetWebsiteMediaByIdsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetWebsiteMediaByIdsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateWebsiteMediaAlt' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateWebsiteMediaAlt(dc: DataConnect, vars: UpdateWebsiteMediaAltVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateWebsiteMediaAltData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateWebsiteMediaAlt' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateWebsiteMediaAlt(vars: UpdateWebsiteMediaAltVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateWebsiteMediaAltData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ArchiveWebsiteMedia' Mutation. Allow users to execute without passing in DataConnect. */
+export function archiveWebsiteMedia(dc: DataConnect, vars: ArchiveWebsiteMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ArchiveWebsiteMediaData>>;
+/** Generated Node Admin SDK operation action function for the 'ArchiveWebsiteMedia' Mutation. Allow users to pass in custom DataConnect instances. */
+export function archiveWebsiteMedia(vars: ArchiveWebsiteMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ArchiveWebsiteMediaData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateWebsiteSectionTemplate' Mutation. Allow users to execute without passing in DataConnect. */
+export function createWebsiteSectionTemplate(dc: DataConnect, vars: CreateWebsiteSectionTemplateVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateWebsiteSectionTemplateData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateWebsiteSectionTemplate' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createWebsiteSectionTemplate(vars: CreateWebsiteSectionTemplateVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateWebsiteSectionTemplateData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListWebsiteSectionTemplates' Query. Allow users to execute without passing in DataConnect. */
+export function listWebsiteSectionTemplates(dc: DataConnect, vars: ListWebsiteSectionTemplatesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListWebsiteSectionTemplatesData>>;
+/** Generated Node Admin SDK operation action function for the 'ListWebsiteSectionTemplates' Query. Allow users to pass in custom DataConnect instances. */
+export function listWebsiteSectionTemplates(vars: ListWebsiteSectionTemplatesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListWebsiteSectionTemplatesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DeleteWebsiteSectionTemplate' Mutation. Allow users to execute without passing in DataConnect. */
+export function deleteWebsiteSectionTemplate(dc: DataConnect, vars: DeleteWebsiteSectionTemplateVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeleteWebsiteSectionTemplateData>>;
+/** Generated Node Admin SDK operation action function for the 'DeleteWebsiteSectionTemplate' Mutation. Allow users to pass in custom DataConnect instances. */
+export function deleteWebsiteSectionTemplate(vars: DeleteWebsiteSectionTemplateVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeleteWebsiteSectionTemplateData>>;
 

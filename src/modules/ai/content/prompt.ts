@@ -92,9 +92,12 @@ const block = (tag: string, body: string) => `<${tag}>\n${body}\n</${tag}>`;
 
 /** The facts block; cached by Anthropic between regenerations of the same draft. */
 export function factsPrompt(facts: FactSheet, branding: ApprovedBranding) {
+  // Office details are for website contact sections only.
+  const {office: _office, ...approved} = branding;
+  void _office;
   return [
     block("verified_crm_facts", JSON.stringify(facts, null, 1)),
-    block("approved_branding", JSON.stringify(branding, null, 1)),
+    block("approved_branding", JSON.stringify(approved, null, 1)),
   ].join("\n\n");
 }
 

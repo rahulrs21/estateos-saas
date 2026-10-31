@@ -11,6 +11,8 @@ import { authServiceUnavailable, verifyAuthenticationSession } from "@/modules/a
 
 /** React cache only deduplicates within one server render, never across users. */
 export const getSession = cache(async () => {
+  // Verification checks expiry against the current time, so it can only run at request time, never while prerendering.
+  await connection();
   const cookie = (await cookies()).get(authCookies().session.name)?.value;
   if (!cookie) return null;
   try {

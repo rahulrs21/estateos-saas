@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 import { Bell, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatLeadDate } from "@/modules/leads/components/lead-ui";
 import { leadRequest } from "@/modules/leads/client";
 import type { InAppNotification } from "../types";
 
@@ -41,7 +42,7 @@ export function NotificationBell({ organizationId }: { organizationId: string })
       <div className="flex items-center justify-between border-b pb-2"><h2 className="text-sm font-semibold">Notifications</h2><Button type="button" variant="ghost" size="sm" disabled={loading} onClick={() => void load()}>{loading ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : "Refresh"}</Button></div>
       {error && <p role="alert" className="mt-3 text-xs text-destructive">{error}</p>}
       {loading && items.length === 0 ? <p role="status" className="py-5 text-center text-sm text-muted-foreground">Loading notifications…</p> : items.length === 0 ? <p className="py-5 text-center text-sm text-muted-foreground">You’re all caught up.</p> : <ul className="max-h-80 divide-y overflow-y-auto">{items.map(item => {
-        const content = <span className="block min-w-0"><span className="flex items-center gap-2 text-sm font-medium"><span className={`size-1.5 shrink-0 rounded-full ${item.readAt ? "bg-transparent" : "bg-primary"}`} aria-hidden="true" />{item.title}</span><span className="mt-1 block truncate pl-3.5 text-xs text-muted-foreground">{item.body}</span><time className="mt-1 block pl-3.5 text-[10px] text-muted-foreground" dateTime={item.createdAt}>{new Intl.DateTimeFormat(undefined, {dateStyle: "short", timeStyle: "short"}).format(new Date(item.createdAt))}</time></span>;
+        const content = <span className="block min-w-0"><span className="flex items-center gap-2 text-sm font-medium"><span className={`size-1.5 shrink-0 rounded-full ${item.readAt ? "bg-transparent" : "bg-primary"}`} aria-hidden="true" />{item.title}</span><span className="mt-1 block truncate pl-3.5 text-xs text-muted-foreground">{item.body}</span><time className="mt-1 block pl-3.5 text-[10px] text-muted-foreground" dateTime={item.createdAt}>{formatLeadDate(item.createdAt, true)}</time></span>;
         return <li key={item.id} className="py-1">{item.lead ? <Link href={`/leads/${item.lead.id}`} onClick={() => void markRead(item)} className="block rounded-lg p-2 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{content}</Link> : <button type="button" onClick={() => void markRead(item)} className="w-full rounded-lg p-2 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{content}</button>}</li>;
       })}</ul>}
     </section>}

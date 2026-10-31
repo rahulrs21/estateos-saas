@@ -1,0 +1,515 @@
+# Phase 6D landing page & website builder (docs/AI_PAGE_BUILDER.md,
+# docs/WEBSITE_PUBLISHING.md).
+#
+# Page scope: the server passes $createdByUid = the caller's uid when the
+# caller may only use their own pages (agents for reads; managers and agents
+# for writes) and omits it for wider roles. The membership @check re-verifies
+# that rule in the database, so a client cannot widen its scope by omitting
+# the variable. Agents can create and edit drafts only when the website allows
+# agent drafts. Only owners and administrators approve, publish, unpublish and
+# connect lead forms.
+#
+# Operations marked NO_ACCESS are server-only. Generated pages and
+# publications are written there because the server first authorizes every
+# source record and builds the public-safe snapshot; a client can never write
+# what the public sees. Public page, media, sitemap and enquiry operations read
+# only ACTIVE publications and the bound lead form.
+
+# --- Member reads ------------------------------------------------------------
+
+query ListWebsitePages($organizationId: UUID!, $createdByUid: String, $statuses: [WebsitePageStatus!]!, $limit: Int! = 50, $offset: Int! = 0)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact
+  @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN', 'MANAGER'] || (has(vars.createdByUid) && vars.createdByUid == this.userProfileUid))", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role userProfileUid}
+ organization: organization(key: {id: $organizationId}) {name slug}
+ websites: websites(where: {organizationId: {eq: $organizationId}}, limit: 5, orderBy: [{createdAt: ASC}]) {
+  id name slug designSettings allowAgentDrafts status revision updatedAt
+ }
+ pages: websitePages(where: {organizationId: {eq: $organizationId}, createdByUid: {eq: $createdByUid}, status: {in: $statuses}}, limit: $limit, offset: $offset, orderBy: [{updatedAt: DESC}, {id: ASC}]) {
+  id websiteId title slug pageType status designStyle sourceProjectId sourcePropertyId sourceListingId revision currentVersionNumber approvedVersionNumber
+  livePublicationId createdAt updatedAt createdByUid createdBy {displayName} updatedBy {displayName}
+ }
+ total: websitePages(where: {organizationId: {eq: $organizationId}, createdByUid: {eq: $createdByUid}, status: {in: $statuses}}) {count: _count}
+}
+
+query GetWebsitePage($organizationId: UUID!, $id: UUID!, $createdByUid: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact
+  @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN', 'MANAGER'] || (has(vars.createdByUid) && vars.createdByUid == this.userProfileUid))", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role userProfileUid}
+ organization: organization(key: {id: $organizationId}) {name slug}
+ page: websitePage(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}}}) {
+  id websiteId website {id name slug designSettings allowAgentDrafts status} title slug description pageType status seoTitle seoDescription designStyle
+  sourceProjectId sourcePropertyId sourceListingId revision versionCount currentVersionNumber approvedVersionNumber livePublicationId reviewNote
+  createdAt updatedAt archivedAt createdByUid createdBy {displayName} updatedBy {displayName}
+ }
+ versions: pageVersions(where: {organizationId: {eq: $organizationId}, pageId: {eq: $id}, page: {createdByUid: {eq: $createdByUid}}}, limit: 100, orderBy: [{versionNumber: DESC}]) {
+  id versionNumber kind model approvedAt approvedBy {displayName} createdAt createdBy {displayName}
+ }
+ publications: pagePublications(where: {organizationId: {eq: $organizationId}, pageId: {eq: $id}, page: {createdByUid: {eq: $createdByUid}}}, limit: 20, orderBy: [{publishedAt: DESC}]) {
+  id versionNumber pageSlug status sourceFingerprint publishedAt publishedBy {displayName} unpublishedAt unpublishedBy {displayName}
+ }
+ binding: pageLeadFormBinding(first: {where: {organizationId: {eq: $organizationId}, pageId: {eq: $id}, page: {createdByUid: {eq: $createdByUid}}}}) {
+  formId updatedAt form {id name status consentText privacyPolicyUrl successMessage fields}
+ }
+ enquiries: websitePageEnquiries(where: {organizationId: {eq: $organizationId}, pageId: {eq: $id}, page: {createdByUid: {eq: $createdByUid}}}) {count: _count}
+}
+
+query GetPageVersion($organizationId: UUID!, $pageId: UUID!, $versionNumber: Int!, $createdByUid: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.versionNumber >= 1") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact
+  @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN', 'MANAGER'] || (has(vars.createdByUid) && vars.createdByUid == this.userProfileUid))", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role userProfileUid}
+ version: pageVersion(first: {where: {organizationId: {eq: $organizationId}, pageId: {eq: $pageId}, versionNumber: {eq: $versionNumber}, page: {createdByUid: {eq: $createdByUid}}}}) {
+  id versionNumber schemaVersion kind structuredPageData validation model approvedAt createdAt
+ }
+}
+
+# Active images for a project page: files on the project itself (not for
+# agents, matching the media download rule) and photos of the project's
+# units; agents pass their membership ID and see only assigned units.
+query ListProjectWebsiteMedia($organizationId: UUID!, $projectId: UUID!, $assignedMembershipId: UUID, $includeProjectFiles: Boolean!, $limit: Int! = 40)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 60") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact
+  @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN'] || (this.role == 'AGENT' && has(vars.assignedMembershipId) && vars.assignedMembershipId == this.id && !vars.includeProjectFiles))", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+ projectMedia: inventoryMedias(where: {organizationId: {eq: $organizationId}, projectId: {eq: $projectId}, status: {eq: ACTIVE}, archivedAt: {isNull: true}, mediaKind: {in: [PROPERTY_PHOTO, FLOOR_PLAN]}}, limit: $limit, orderBy: [{isCover: DESC}, {sortOrder: ASC}, {createdAt: ASC}]) @include(if: $includeProjectFiles) {
+  id contentType mediaKind isCover
+ }
+ unitMedia: inventoryMedias(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}, archivedAt: {isNull: true}, mediaKind: {eq: PROPERTY_PHOTO}, property: {projectId: {eq: $projectId}, archivedAt: {isNull: true}, assignedMembershipId: {eq: $assignedMembershipId}}}, limit: $limit, orderBy: [{isCover: DESC}, {sortOrder: ASC}, {createdAt: ASC}]) {
+  id contentType mediaKind isCover
+ }
+}
+
+# Slug availability among the company's pages (any status, including archived).
+query FindWebsitePageBySlug($organizationId: UUID!, $slug: String!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.slug.size() <= 80") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ page: websitePage(first: {where: {organizationId: {eq: $organizationId}, slug: {eq: $slug}}}) {id}
+}
+
+# --- Member writes -----------------------------------------------------------
+
+# Blank, template and duplicated pages. The server validates the page data
+# against the component registry and re-authorizes any source record first.
+mutation CreateWebsitePage($organizationId: UUID!, $id: UUID!, $websiteId: UUID!, $title: String!, $slug: String!, $description: String, $sourceProjectId: UUID,
+ $sourcePropertyId: UUID, $sourceListingId: UUID, $seoTitle: String, $seoDescription: String, $designStyle: String!, $kind: PageVersionKind!, $structuredPageData: String!, $validation: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.kind in ['CREATED', 'DUPLICATED'] && vars.title.size() >= 1 && vars.title.size() <= 160 && vars.slug.size() >= 1 && vars.slug.size() <= 80 && vars.slug.matches('^[a-z0-9]+(-[a-z0-9]+)*$') && vars.designStyle.size() <= 40 && vars.structuredPageData.size() <= 200000") @transaction {
+ before: query @redact @check(expr: "this.member != null && this.website != null && (this.member.role in ['OWNER', 'ADMIN', 'MANAGER'] || (this.member.role == 'AGENT' && this.website.allowAgentDrafts))", message: "WEBSITE_PAGE_CREATE_FORBIDDEN") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {id role}
+  website: website(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $websiteId}, status: {eq: ACTIVE}}}) {id allowAgentDrafts}
+ }
+ page: websitePage_insert(data: {organizationId: $organizationId, id: $id, websiteId: $websiteId, title: $title, slug: $slug, description: $description, sourceProjectId: $sourceProjectId,
+  sourcePropertyId: $sourcePropertyId, sourceListingId: $sourceListingId, status: DRAFT, seoTitle: $seoTitle, seoDescription: $seoDescription, designStyle: $designStyle,
+  revision: 1, versionCount: 1, currentVersionNumber: 1, createdByUid_expr: "auth.uid", updatedByUid_expr: "auth.uid"})
+ version: pageVersion_insert(data: {organizationId: $organizationId, pageId: $id, versionNumber: 1, schemaVersion: 1, kind: $kind, structuredPageData: $structuredPageData, validation: $validation, createdByUid_expr: "auth.uid"})
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_PAGE_CREATED, targetType: WEBSITE_PAGE, targetId: $id, metadata_expr: "{'kind': vars.kind}"})
+}
+
+# Saves an edit or a restored version as a new version. The compare-and-set on
+# revision makes a concurrent change fail instead of being overwritten. Any
+# edit returns the page to DRAFT; a live publication is not affected.
+mutation SaveWebsitePageVersion($organizationId: UUID!, $id: UUID!, $createdByUid: String, $expectedRevision: Int!, $nextRevision: Int!, $versionNumber: Int!, $kind: PageVersionKind!,
+ $title: String!, $slug: String!, $description: String, $seoTitle: String, $seoDescription: String, $designStyle: String!, $structuredPageData: String!, $validation: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.kind in ['EDITED', 'RESTORED'] && vars.nextRevision == vars.expectedRevision + 1 && vars.versionNumber >= 2 && vars.title.size() >= 1 && vars.title.size() <= 160 && vars.slug.size() >= 1 && vars.slug.size() <= 80 && vars.slug.matches('^[a-z0-9]+(-[a-z0-9]+)*$') && vars.designStyle.size() <= 40 && vars.structuredPageData.size() <= 200000") @transaction {
+ before: query @redact @check(expr: "this.member != null && this.page != null && (this.member.role in ['OWNER', 'ADMIN'] || (has(vars.createdByUid) && vars.createdByUid == this.member.userProfileUid && (this.member.role == 'MANAGER' || this.page.website.allowAgentDrafts)))", message: "WEBSITE_PAGE_EDIT_FORBIDDEN") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {id role userProfileUid}
+  page: websitePage(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}}}) {id website {allowAgentDrafts}}
+ }
+ page: websitePage_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}, revision: {eq: $expectedRevision}, versionCount: {lt: $versionNumber}, status: {ne: ARCHIVED}}},
+  data: {title: $title, slug: $slug, description: $description, seoTitle: $seoTitle, seoDescription: $seoDescription, designStyle: $designStyle, status: DRAFT, reviewNote: null,
+   revision: $nextRevision, versionCount: $versionNumber, currentVersionNumber: $versionNumber, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "WEBSITE_PAGE_CHANGED")
+ version: pageVersion_insert(data: {organizationId: $organizationId, pageId: $id, versionNumber: $versionNumber, schemaVersion: 1, kind: $kind, structuredPageData: $structuredPageData, validation: $validation, createdByUid_expr: "auth.uid"})
+}
+
+mutation SubmitWebsitePageForReview($organizationId: UUID!, $id: UUID!, $createdByUid: String, $expectedRevision: Int!, $nextRevision: Int!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.nextRevision == vars.expectedRevision + 1") @transaction {
+ before: query @redact @check(expr: "this.member != null && this.page != null && (this.member.role in ['OWNER', 'ADMIN'] || (has(vars.createdByUid) && vars.createdByUid == this.member.userProfileUid && (this.member.role == 'MANAGER' || this.page.website.allowAgentDrafts)))", message: "WEBSITE_PAGE_EDIT_FORBIDDEN") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {id role userProfileUid}
+  page: websitePage(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}}}) {id website {allowAgentDrafts}}
+ }
+ page: websitePage_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}, revision: {eq: $expectedRevision}, status: {in: [DRAFT, UNPUBLISHED]}}},
+  data: {status: IN_REVIEW, reviewNote: null, revision: $nextRevision, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "WEBSITE_PAGE_CHANGED")
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_PAGE_STATUS_CHANGED, targetType: WEBSITE_PAGE, targetId: $id, metadata_expr: "{'status': 'IN_REVIEW'}"})
+}
+
+# Approval pins the version under review; the version's approval stamp is the
+# only change ever made to a stored version.
+mutation ApproveWebsitePage($organizationId: UUID!, $id: UUID!, $versionNumber: Int!, $expectedRevision: Int!, $nextRevision: Int!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.nextRevision == vars.expectedRevision + 1 && vars.versionNumber >= 1") @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "WEBSITE_PAGE_APPROVAL_FORBIDDEN") {id role}
+ }
+ page: websitePage_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {eq: IN_REVIEW}, currentVersionNumber: {eq: $versionNumber}}},
+  data: {status: APPROVED, approvedVersionNumber: $versionNumber, reviewNote: null, revision: $nextRevision, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "WEBSITE_PAGE_CHANGED")
+ version: pageVersion_update(first: {where: {organizationId: {eq: $organizationId}, pageId: {eq: $id}, versionNumber: {eq: $versionNumber}}},
+  data: {approvedAt_expr: "request.time", approvedByUid_expr: "auth.uid"})
+  @check(expr: "this != null", message: "PAGE_VERSION_NOT_FOUND")
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_PAGE_STATUS_CHANGED, targetType: WEBSITE_PAGE, targetId: $id, metadata_expr: "{'status': 'APPROVED', 'versionNumber': vars.versionNumber}"})
+}
+
+# Managers can review (return a page to draft with a note) but not approve.
+mutation RejectWebsitePage($organizationId: UUID!, $id: UUID!, $note: String!, $expectedRevision: Int!, $nextRevision: Int!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.nextRevision == vars.expectedRevision + 1 && vars.note.size() >= 3 && vars.note.size() <= 500") @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && this.role in ['OWNER', 'ADMIN', 'MANAGER']", message: "WEBSITE_PAGE_REVIEW_FORBIDDEN") {id role}
+ }
+ page: websitePage_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {eq: IN_REVIEW}}},
+  data: {status: DRAFT, reviewNote: $note, revision: $nextRevision, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "WEBSITE_PAGE_CHANGED")
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_PAGE_STATUS_CHANGED, targetType: WEBSITE_PAGE, targetId: $id, metadata_expr: "{'status': 'DRAFT', 'rejected': true}"})
+}
+
+mutation UnpublishWebsitePage($organizationId: UUID!, $id: UUID!, $publicationId: UUID!, $expectedRevision: Int!, $nextRevision: Int!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.nextRevision == vars.expectedRevision + 1") @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "WEBSITE_PUBLISH_FORBIDDEN") {id role}
+ }
+ page: websitePage_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, livePublicationId: {eq: $publicationId}}},
+  data: {status: UNPUBLISHED, livePublicationId: null, revision: $nextRevision, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "WEBSITE_PAGE_CHANGED")
+ publication: pagePublication_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $publicationId}, pageId: {eq: $id}, status: {eq: ACTIVE}}},
+  data: {status: UNPUBLISHED, unpublishedAt_expr: "request.time", unpublishedByUid_expr: "auth.uid"})
+  @check(expr: "this != null", message: "WEBSITE_PAGE_CHANGED")
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_PAGE_UNPUBLISHED, targetType: WEBSITE_PAGE, targetId: $id})
+}
+
+# A live page must be unpublished before it can be archived.
+mutation ArchiveWebsitePage($organizationId: UUID!, $id: UUID!, $createdByUid: String, $expectedRevision: Int!, $nextRevision: Int!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.nextRevision == vars.expectedRevision + 1") @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN'] || (has(vars.createdByUid) && vars.createdByUid == this.userProfileUid))", message: "WEBSITE_PAGE_EDIT_FORBIDDEN") {id role userProfileUid}
+ }
+ page: websitePage_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}, revision: {eq: $expectedRevision}, livePublicationId: {isNull: true}, status: {ne: ARCHIVED}}},
+  data: {status: ARCHIVED, archivedAt_expr: "request.time", revision: $nextRevision, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "WEBSITE_PAGE_LIVE_OR_CHANGED")
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_PAGE_ARCHIVED, targetType: WEBSITE_PAGE, targetId: $id})
+}
+
+# Lead forms are managed by owners and administrators (Phase 4), so only they connect them.
+mutation SetPageLeadFormBinding($organizationId: UUID!, $pageId: UUID!, $formId: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "WEBSITE_FORM_FORBIDDEN") {id role}
+  page: websitePage(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $pageId}, status: {ne: ARCHIVED}}}) @check(expr: "this != null", message: "WEBSITE_PAGE_NOT_FOUND") {id}
+  form: leadCaptureForm(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $formId}, status: {ne: DISABLED}}}) @check(expr: "this != null", message: "LEAD_FORM_UNAVAILABLE") {id}
+ }
+ binding: pageLeadFormBinding_upsert(data: {organizationId: $organizationId, pageId: $pageId, formId: $formId, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_PAGE_FORM_CHANGED, targetType: WEBSITE_PAGE, targetId: $pageId, metadata_expr: "{'formId': vars.formId}"})
+}
+
+mutation RemovePageLeadFormBinding($organizationId: UUID!, $pageId: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "WEBSITE_FORM_FORBIDDEN") {id role}
+ }
+ binding: pageLeadFormBinding_delete(key: {organizationId: $organizationId, pageId: $pageId})
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_PAGE_FORM_CHANGED, targetType: WEBSITE_PAGE, targetId: $pageId, metadata_expr: "{'formId': null}"})
+}
+
+mutation UpdateWebsiteSettings($organizationId: UUID!, $id: UUID!, $name: String!, $designSettings: String!, $allowAgentDrafts: Boolean!, $expectedRevision: Int!, $nextRevision: Int!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.nextRevision == vars.expectedRevision + 1 && vars.name.size() >= 2 && vars.name.size() <= 120 && vars.designSettings.size() <= 4000") @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "WEBSITE_SETTINGS_FORBIDDEN") {id role}
+ }
+ website: website_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+  data: {name: $name, designSettings: $designSettings, allowAgentDrafts: $allowAgentDrafts, revision: $nextRevision, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "WEBSITE_CHANGED")
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_UPDATED, targetType: WEBSITE, targetId: $id, metadata_expr: "{'allowAgentDrafts': vars.allowAgentDrafts}"})
+}
+
+# --- Enquiry tracking (owners and administrators) ----------------------------
+
+query ListWebsitePageEnquiries($organizationId: UUID!, $pageId: UUID!, $limit: Int! = 50)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact
+  @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "WEBSITE_ENQUIRIES_FORBIDDEN") {id role}
+ enquiries: websitePageEnquiries(where: {organizationId: {eq: $organizationId}, pageId: {eq: $pageId}}, limit: $limit, orderBy: [{createdAt: DESC}, {id: ASC}]) {
+  id leadId publicationId utmSource utmMedium utmCampaign createdAt lead {id fullName status archivedAt}
+ }
+ total: websitePageEnquiries(where: {organizationId: {eq: $organizationId}, pageId: {eq: $pageId}}) {count: _count}
+}
+
+# Enquiries the lead transaction could not save. They contain contact details,
+# so only owners and administrators read them.
+query ListPendingWebsiteEnquiries($organizationId: UUID!, $pageId: UUID, $limit: Int! = 50)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact
+  @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "WEBSITE_ENQUIRIES_FORBIDDEN") {id role}
+ pending: pendingWebsiteEnquiries(where: {organizationId: {eq: $organizationId}, pageId: {eq: $pageId}, status: {eq: PENDING}}, limit: $limit, orderBy: [{createdAt: DESC}, {id: ASC}]) {
+  id pageId publicationId formId idempotencyKeyHash payload errorCode attempts createdAt updatedAt
+ }
+ total: pendingWebsiteEnquiries(where: {organizationId: {eq: $organizationId}, pageId: {eq: $pageId}, status: {eq: PENDING}}) {count: _count}
+}
+
+mutation DismissPendingWebsiteEnquiry($organizationId: UUID!, $id: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}})
+   @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "WEBSITE_ENQUIRIES_FORBIDDEN") {id role}
+ }
+ pending: pendingWebsiteEnquiry_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: PENDING}}},
+  data: {status: DISMISSED, resolvedByUid_expr: "auth.uid", resolvedAt_expr: "request.time", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "PENDING_ENQUIRY_NOT_FOUND")
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_ENQUIRY_DISMISSED, targetType: WEBSITE_ENQUIRY, targetId: $id})
+}
+
+# --- Server-only writes ------------------------------------------------------
+
+mutation CreateDefaultWebsite($organizationId: UUID!, $id: UUID!, $actorUid: String!, $name: String!, $slug: String!, $designSettings: String!)
+ @auth(level: NO_ACCESS) @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ }
+ website: website_insert(data: {organizationId: $organizationId, id: $id, name: $name, slug: $slug, designSettings: $designSettings, allowAgentDrafts: false, status: ACTIVE, revision: 1, createdByUid: $actorUid, updatedByUid: $actorUid})
+}
+
+mutation CreateGeneratedWebsitePage($organizationId: UUID!, $id: UUID!, $actorUid: String!, $websiteId: UUID!, $title: String!, $slug: String!, $description: String, $sourceProjectId: UUID,
+ $sourcePropertyId: UUID, $sourceListingId: UUID, $seoTitle: String, $seoDescription: String, $designStyle: String!, $structuredPageData: String!, $validation: String, $model: String!)
+ @auth(level: NO_ACCESS) @transaction {
+ before: query @redact @check(expr: "this.member != null && this.website != null && (this.member.role in ['OWNER', 'ADMIN', 'MANAGER'] || (this.member.role == 'AGENT' && this.website.allowAgentDrafts))", message: "WEBSITE_PAGE_CREATE_FORBIDDEN") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) {id role}
+  website: website(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $websiteId}, status: {eq: ACTIVE}}}) {id allowAgentDrafts}
+ }
+ page: websitePage_insert(data: {organizationId: $organizationId, id: $id, websiteId: $websiteId, title: $title, slug: $slug, description: $description, sourceProjectId: $sourceProjectId,
+  sourcePropertyId: $sourcePropertyId, sourceListingId: $sourceListingId, status: DRAFT, seoTitle: $seoTitle, seoDescription: $seoDescription, designStyle: $designStyle,
+  revision: 1, versionCount: 1, currentVersionNumber: 1, createdByUid: $actorUid, updatedByUid: $actorUid})
+ version: pageVersion_insert(data: {organizationId: $organizationId, pageId: $id, versionNumber: 1, schemaVersion: 1, kind: GENERATED, structuredPageData: $structuredPageData, validation: $validation, model: $model, createdByUid: $actorUid})
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: WEBSITE_PAGE_CREATED, targetType: WEBSITE_PAGE, targetId: $id, metadata_expr: "{'kind': 'GENERATED'}"})
+}
+
+# A regenerated page becomes the current draft; earlier versions stay in history.
+mutation AddGeneratedPageVersion($organizationId: UUID!, $id: UUID!, $actorUid: String!, $createdByUid: String, $expectedRevision: Int!, $nextRevision: Int!, $versionNumber: Int!,
+ $title: String!, $seoTitle: String, $seoDescription: String, $designStyle: String!, $structuredPageData: String!, $validation: String, $model: String!)
+ @auth(level: NO_ACCESS) @transaction {
+ before: query @redact @check(expr: "this.member != null && this.page != null && (this.member.role in ['OWNER', 'ADMIN'] || (has(vars.createdByUid) && vars.createdByUid == vars.actorUid && (this.member.role == 'MANAGER' || this.page.website.allowAgentDrafts)))", message: "WEBSITE_PAGE_EDIT_FORBIDDEN") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) {id role}
+  page: websitePage(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}}}) {id website {allowAgentDrafts}}
+ }
+ page: websitePage_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}, revision: {eq: $expectedRevision}, versionCount: {lt: $versionNumber}, status: {ne: ARCHIVED}}},
+  data: {title: $title, seoTitle: $seoTitle, seoDescription: $seoDescription, designStyle: $designStyle, status: DRAFT, reviewNote: null, revision: $nextRevision, versionCount: $versionNumber,
+   currentVersionNumber: $versionNumber, updatedByUid: $actorUid, updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "WEBSITE_PAGE_CHANGED")
+ version: pageVersion_insert(data: {organizationId: $organizationId, pageId: $id, versionNumber: $versionNumber, schemaVersion: 1, kind: GENERATED, structuredPageData: $structuredPageData, validation: $validation, model: $model, createdByUid: $actorUid})
+}
+
+# Publishes an approved version with its public-safe snapshot. Any earlier
+# live publication of the page is superseded in the same transaction, and a
+# slug that another page is still live on cannot be reused.
+# $status is PUBLISHED when the published version is the current draft, and
+# the page keeps its draft status otherwise (a rollback or a republish while a
+# newer draft exists); the page update checks the current version either way.
+mutation PublishWebsitePage($organizationId: UUID!, $pageId: UUID!, $actorUid: String!, $publicationId: UUID!, $versionId: UUID!, $versionNumber: Int!, $pageSlug: String!,
+ $expectedRevision: Int!, $nextRevision: Int!, $currentVersionNumber: Int!, $status: WebsitePageStatus!, $snapshot: String!, $sourceFingerprint: String!, $checklist: String!)
+ @auth(level: NO_ACCESS) @transaction {
+ before: query @redact @check(expr: "vars.status in ['PUBLISHED', 'DRAFT', 'IN_REVIEW', 'APPROVED'] && ((vars.status == 'PUBLISHED') == (vars.versionNumber == vars.currentVersionNumber))", message: "WEBSITE_PAGE_CHANGED") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "WEBSITE_PUBLISH_FORBIDDEN") {id}
+  version: pageVersion(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $versionId}, pageId: {eq: $pageId}, versionNumber: {eq: $versionNumber}, approvedAt: {isNull: false}}}) @check(expr: "this != null", message: "PAGE_VERSION_NOT_APPROVED") {id}
+  slugTaken: pagePublication(first: {where: {organizationId: {eq: $organizationId}, pageSlug: {eq: $pageSlug}, status: {eq: ACTIVE}, pageId: {ne: $pageId}}}) @check(expr: "this == null", message: "WEBSITE_PAGE_SLUG_LIVE") {id}
+ }
+ superseded: pagePublication_updateMany(where: {organizationId: {eq: $organizationId}, pageId: {eq: $pageId}, status: {eq: ACTIVE}}, data: {status: SUPERSEDED})
+ publication: pagePublication_insert(data: {organizationId: $organizationId, id: $publicationId, pageId: $pageId, versionId: $versionId, versionNumber: $versionNumber, pageSlug: $pageSlug,
+  snapshot: $snapshot, sourceFingerprint: $sourceFingerprint, checklist: $checklist, status: ACTIVE, publishedByUid: $actorUid})
+ page: websitePage_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $pageId}, revision: {eq: $expectedRevision}, status: {ne: ARCHIVED}, slug: {eq: $pageSlug}, currentVersionNumber: {eq: $currentVersionNumber}}},
+  data: {status: $status, livePublicationId: $publicationId, revision: $nextRevision, updatedByUid: $actorUid, updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "WEBSITE_PAGE_CHANGED")
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: WEBSITE_PAGE_PUBLISHED, targetType: WEBSITE_PAGE, targetId: $pageId, metadata_expr: "{'versionNumber': vars.versionNumber, 'publicationId': vars.publicationId}"})
+}
+
+mutation MarkPendingWebsiteEnquiryRecovered($organizationId: UUID!, $id: UUID!, $actorUid: String!, $leadId: UUID!)
+ @auth(level: NO_ACCESS) @transaction {
+ before: query @redact {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "WEBSITE_ENQUIRIES_FORBIDDEN") {id}
+ }
+ pending: pendingWebsiteEnquiry_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: PENDING}}},
+  data: {status: RECOVERED, leadId: $leadId, resolvedByUid: $actorUid, resolvedAt_expr: "request.time", updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "PENDING_ENQUIRY_NOT_FOUND")
+ audit: auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: WEBSITE_ENQUIRY_RECOVERED, targetType: WEBSITE_ENQUIRY, targetId: $id, metadata_expr: "{'leadId': vars.leadId}"})
+}
+
+mutation RecordPendingWebsiteEnquiryAttempt($organizationId: UUID!, $id: UUID!, $errorCode: String!) @auth(level: NO_ACCESS) {
+ pending: pendingWebsiteEnquiry_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: PENDING}}},
+  data: {attempts_update: {inc: 1}, errorCode: $errorCode, updatedAt_expr: "request.time"})
+}
+
+# --- Public (server-only) ----------------------------------------------------
+
+query ResolvePublishedPage($companySlug: String!, $pageSlug: String!) @auth(level: NO_ACCESS) {
+ publications: pagePublications(where: {status: {eq: ACTIVE}, pageSlug: {eq: $pageSlug}, organization: {slug: {eq: $companySlug}}, page: {archivedAt: {isNull: true}}}, limit: 1, orderBy: [{publishedAt: DESC}]) {
+  id organizationId pageId versionNumber pageSlug snapshot publishedAt organization {id name slug}
+ }
+}
+
+query GetPublishedPageAsset($publicationId: UUID!) @auth(level: NO_ACCESS) {
+ publication: pagePublication(first: {where: {id: {eq: $publicationId}, status: {eq: ACTIVE}}}) {id organizationId snapshot}
+}
+
+query ListPublishedPagesForSitemap($limit: Int!) @auth(level: NO_ACCESS) {
+ publications: pagePublications(where: {status: {eq: ACTIVE}, page: {archivedAt: {isNull: true}}}, limit: $limit, orderBy: [{publishedAt: DESC}]) {
+  pageSlug publishedAt organization {slug}
+ }
+}
+
+# The live state of a published page's CRM sources: if a listing is withdrawn,
+# sold, unpermitted or its permit expires, the public page is taken offline
+# until it is reviewed and republished. Only status fields are read.
+query CheckPublishedSourcesEligibility($organizationId: UUID!, $listingIds: [UUID!]!, $projectIds: [UUID!]!, $propertyIds: [UUID!]!) @auth(level: NO_ACCESS) {
+ listings: propertyListings(where: {organizationId: {eq: $organizationId}, id: {in: $listingIds}}, limit: 20) {
+  id listingStatus publicationStatus advertisingPermitNumber permitExpiryDate archivedAt property {archivedAt}
+ }
+ projects: projects(where: {organizationId: {eq: $organizationId}, id: {in: $projectIds}}, limit: 5) {id projectStatus archivedAt permitExpiryDate}
+ properties: properties(where: {organizationId: {eq: $organizationId}, id: {in: $propertyIds}}, limit: 5) {id inventoryStatus archivedAt}
+}
+
+query GetPublishedPageForm($organizationId: UUID!, $pageId: UUID!) @auth(level: NO_ACCESS) {
+ binding: pageLeadFormBinding(key: {organizationId: $organizationId, pageId: $pageId}) {
+  formId form {id organizationId publicId name status sourceId branchId projectId fields consentText privacyPolicyUrl successMessage createdByUid}
+ }
+}
+
+# Pending-enquiry retries re-read the form by ID (it may have been renamed or rescoped since).
+query GetWebsiteLeadCaptureFormById($organizationId: UUID!, $formId: UUID!) @auth(level: NO_ACCESS) {
+ form: leadCaptureForm(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $formId}}}) {
+  id organizationId publicId name status branchId projectId fields consentText privacyPolicyUrl successMessage
+ }
+}
+
+mutation RecordWebsitePageEnquiry($organizationId: UUID!, $pageId: UUID!, $publicationId: UUID, $formId: UUID!, $leadId: UUID!, $utmSource: String, $utmMedium: String, $utmCampaign: String)
+ @auth(level: NO_ACCESS) {
+ enquiry: websitePageEnquiry_insert(data: {organizationId: $organizationId, pageId: $pageId, publicationId: $publicationId, formId: $formId, leadId: $leadId,
+  utmSource: $utmSource, utmMedium: $utmMedium, utmCampaign: $utmCampaign})
+}
+
+query FindPendingWebsiteEnquiry($organizationId: UUID!, $formId: UUID!, $idempotencyKeyHash: String!) @auth(level: NO_ACCESS) {
+ pending: pendingWebsiteEnquiry(first: {where: {organizationId: {eq: $organizationId}, formId: {eq: $formId}, idempotencyKeyHash: {eq: $idempotencyKeyHash}}}) {id status leadId}
+}
+
+mutation RecordPendingWebsiteEnquiry($organizationId: UUID!, $pageId: UUID, $publicationId: UUID, $formId: UUID!, $idempotencyKeyHash: String!, $payload: String!, $errorCode: String!)
+ @auth(level: NO_ACCESS) {
+ pending: pendingWebsiteEnquiry_insert(data: {organizationId: $organizationId, pageId: $pageId, publicationId: $publicationId, formId: $formId, idempotencyKeyHash: $idempotencyKeyHash,
+  payload: $payload, errorCode: $errorCode, status: PENDING, attempts: 1})
+}
+
+# --- Contact sections: company members shown as the page's agent ---------------
+
+# Owners and administrators choose the agent shown on a page.
+query ListWebsiteAgents($organizationId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
+ agents: memberships(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}, orderBy: [{createdAt: ASC}], limit: 200) {
+  id role email websiteTitle websitePhone websiteWhatsapp userProfile {displayName}
+ }
+}
+
+# Any active member reading a page resolves its agent; inactive members are never shown.
+query GetWebsiteAgent($organizationId: UUID!, $membershipId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ agent: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $membershipId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}}) {
+  id role email websiteTitle websitePhone websiteWhatsapp userProfile {displayName}
+ }
+}
+
+mutation UpdateWebsiteAgentCard($organizationId: UUID!, $membershipId: UUID!, $websiteTitle: String, $websitePhone: String, $websiteWhatsapp: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ before: query @redact {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") {id}
+  agent: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $membershipId}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "WEBSITE_AGENT_NOT_FOUND") {id}
+ }
+ membership_update(key: {organizationId: $organizationId, id: $membershipId}, data: {websiteTitle: $websiteTitle, websitePhone: $websitePhone, websiteWhatsapp: $websiteWhatsapp, updatedAt_expr: "request.time"})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_AGENT_CARD_UPDATED, targetType: MEMBERSHIP, targetId: $membershipId})
+}
+
+# --- Website media library (uploads) ------------------------------------------
+# Records are created and activated only by the server (NO_ACCESS), so storage
+# paths are always server-built. Uploading needs the same right as creating a
+# page: owners, administrators and managers, or agents when agent drafts are on.
+
+query GetWebsiteMediaAccess($organizationId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+ website: website(first: {where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}}}) {id allowAgentDrafts}
+}
+
+mutation CreateWebsiteMedia($organizationId: UUID!, $id: UUID!, $websiteId: UUID!, $fileName: String!, $contentType: String!, $byteSize: Int!, $width: Int, $height: Int, $alt: String!, $storagePath: String!, $actorUid: String!)
+ @auth(level: NO_ACCESS) @transaction {
+ media: websiteMedia_insert(data: {organizationId: $organizationId, id: $id, websiteId: $websiteId, fileName: $fileName, contentType: $contentType, byteSize: $byteSize, width: $width, height: $height,
+  alt: $alt, storagePath: $storagePath, status: PENDING, createdByUid: $actorUid})
+}
+
+mutation SetWebsiteMediaUploadStatus($organizationId: UUID!, $id: UUID!, $status: WebsiteMediaStatus!, $actorUid: String!) @auth(level: NO_ACCESS) @transaction {
+ media: websiteMedia_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: PENDING}}}, data: {status: $status, updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "WEBSITE_MEDIA_NOT_FOUND")
+ auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: WEBSITE_MEDIA_UPLOADED, targetType: WEBSITE_MEDIA, targetId: $id})
+}
+
+query ListWebsiteMedia($organizationId: UUID!, $limit: Int! = 60, $offset: Int! = 0)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 5000") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ media: websiteMedias(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}}, orderBy: [{createdAt: DESC}], limit: $limit, offset: $offset) {
+  id fileName contentType byteSize width height alt createdAt createdByUid createdBy {displayName}
+ }
+ total: websiteMedias(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}}) {id}
+}
+
+# Used to validate page saves, resolve editor previews and build publication assets.
+query GetWebsiteMediaByIds($organizationId: UUID!, $ids: [UUID!]!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.ids.size() <= 60") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ media: websiteMedias(where: {organizationId: {eq: $organizationId}, id: {in: $ids}, status: {in: [ACTIVE, ARCHIVED]}}, limit: 60) {
+  id status contentType storagePath alt width height
+ }
+}
+
+mutation UpdateWebsiteMediaAlt($organizationId: UUID!, $id: UUID!, $alt: String!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.alt.size() <= 160") @transaction {
+ before: query @redact @check(expr: "this.member != null && this.media != null && (this.member.role in ['OWNER', 'ADMIN'] || this.media.createdByUid == auth.uid)", message: "WEBSITE_MEDIA_FORBIDDEN") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {id role}
+  media: websiteMedia(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: ACTIVE}}}) {id createdByUid}
+ }
+ websiteMedia_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: ACTIVE}}}, data: {alt: $alt, updatedAt_expr: "request.time"})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_MEDIA_UPDATED, targetType: WEBSITE_MEDIA, targetId: $id})
+}
+
+mutation ArchiveWebsiteMedia($organizationId: UUID!, $id: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ before: query @redact @check(expr: "this.member != null && this.media != null && (this.member.role in ['OWNER', 'ADMIN'] || this.media.createdByUid == auth.uid)", message: "WEBSITE_MEDIA_FORBIDDEN") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {id role}
+  media: websiteMedia(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: ACTIVE}}}) {id createdByUid}
+ }
+ websiteMedia_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: ACTIVE}}}, data: {status: ARCHIVED, updatedAt_expr: "request.time"})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_MEDIA_ARCHIVED, targetType: WEBSITE_MEDIA, targetId: $id})
+}
+
+# --- Saved sections (company library) ------------------------------------------
+# Saving needs the same right as creating a page; deleting is for the author or
+# an owner or administrator. The section is validated page data (server-checked).
+
+mutation CreateWebsiteSectionTemplate($organizationId: UUID!, $id: UUID!, $name: String!, $category: String!, $sectionType: String!, $sectionData: String!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.name.size() >= 1 && vars.name.size() <= 120 && vars.category.size() <= 40 && vars.sectionType.size() <= 40 && vars.sectionData.size() <= 60000") @transaction {
+ before: query @redact @check(expr: "this.member != null && this.website != null && (this.member.role in ['OWNER', 'ADMIN', 'MANAGER'] || (this.member.role == 'AGENT' && this.website.allowAgentDrafts))", message: "WEBSITE_SECTION_TEMPLATE_FORBIDDEN") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {id role}
+  website: website(first: {where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}}}) {id allowAgentDrafts}
+ }
+ template: websiteSectionTemplate_insert(data: {organizationId: $organizationId, id: $id, name: $name, category: $category, sectionType: $sectionType, sectionData: $sectionData,
+  status: ACTIVE, createdByUid_expr: "auth.uid", updatedByUid_expr: "auth.uid"})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_SECTION_TEMPLATE_SAVED, targetType: WEBSITE_SECTION_TEMPLATE, targetId: $id})
+}
+
+query ListWebsiteSectionTemplates($organizationId: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+ templates: websiteSectionTemplates(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}}, orderBy: [{updatedAt: DESC}], limit: 100) {
+  id name category sectionType sectionData createdByUid updatedAt createdBy {displayName}
+ }
+}
+
+mutation DeleteWebsiteSectionTemplate($organizationId: UUID!, $id: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ before: query @redact @check(expr: "this.member != null && this.template != null && (this.member.role in ['OWNER', 'ADMIN'] || this.template.createdByUid == auth.uid)", message: "WEBSITE_SECTION_TEMPLATE_FORBIDDEN") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {id role}
+  template: websiteSectionTemplate(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: ACTIVE}}}) {id createdByUid}
+ }
+ websiteSectionTemplate_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: ACTIVE}}}, data: {status: DELETED, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WEBSITE_SECTION_TEMPLATE_DELETED, targetType: WEBSITE_SECTION_TEMPLATE, targetId: $id})
+}

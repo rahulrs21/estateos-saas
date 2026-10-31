@@ -87,6 +87,24 @@ Sales intelligence ([details](AI_SALES_INTELLIGENCE.md)) follows the same princi
 | **Automatic changes** | Nothing is sent, scheduled, reassigned or published. Suggestions are links to the Content Studio or page sections. Viewing outcomes, follow-ups and lead fields change only through the existing manual forms. |
 | **Spend** | The same monthly allowance and per-minute limits as the Copilot (`ai.sales.*` buckets). Rule-based scoring uses no allowance. `AiUsageRecord` rows carry `feature = SALES`. |
 
+## Phase 6D: landing page builder
+
+The page builder ([details](AI_PAGE_BUILDER.md), [publishing](WEBSITE_PUBLISHING.md)) adds the first AI-assisted content that can become public. The controls separate what Claude may write, what staff confirm, and what the public can read.
+
+| Threat | Control |
+| --- | --- |
+| **Executable or injected markup** | Claude returns only enum section types, variant names and plain text through structured outputs. The server maps that into the [component registry](PAGE_COMPONENT_REGISTRY.md), where every field is strict Zod: no HTML, angle brackets, control characters, script URLs, CSS, event handlers or unknown keys. Buttons name actions, not URLs; images are media IDs. React escapes all text. Unit and browser tests submit script text and unknown component types and expect 400. |
+| **Invented facts** | Prices, units, payment plans, floor plans, amenities, photos, map points and permits are linked data rendered from CRM records, not written by Claude. Claude is told not to invent figures, offers, returns, dates, distances, landmarks or testimonials. Testimonials, landmarks and comparisons are never AI-writable. Every text field is fact-checked against the linked data (Content Studio checker); warnings appear in the editor and checklist, and the publisher must confirm the wording. |
+| **Client-supplied tenant, role or published content** | Strict request schemas reject organization, role, status and snapshot fields. Generated pages and publications are written only by NO_ACCESS operations after server-side authorization, and each re-checks the actor's membership and role in the database. A client therefore cannot write what the public sees. |
+| **Reading records the member cannot access** | Linked records are always read through the existing inventory services as the member (agents: assigned inventory; managers: none). Page reads and writes repeat the role rules in every stored operation. Integration tests cover owner, admin, manager, agent and another company. |
+| **Private data on public pages** | Public routes read only ACTIVE publication snapshots, built from allowlist presenters. They contain no unit numbers, addresses, notes, internal references, member data, form IDs or storage paths, and no coordinates beyond the display mode. Images are served only from the publication's allowlist. The browser test checks the live HTML for each of these. |
+| **Prompt injection** | Record descriptions are sent as `<untrusted_record_text>` and the staff brief as `<staff_brief>`. No tools are offered and output is schema-constrained, so injected text cannot read data, change records or add markup. |
+| **Excess personal data** | Page generation reads no leads or contacts. Only project, listing and property facts and approved branding are sent. |
+| **Publishing without review** | Only OWNER and ADMIN approve and publish. A published page points to an immutable approved version. Publishing requires a checklist with no blocking item and the publisher's attestations (content reviewed; permits verified with the regulator; testimonial consent; landmark verification). CRM changes are never republished automatically. |
+| **Unlawful or outdated advertising** | Advertised listings must be published, active and permitted with an unexpired permit. Dubai projects need a recorded, unexpired permit. A page goes offline automatically when a source stops qualifying. EstateOS never generates permit numbers or QR codes and does not claim compliance. |
+| **Lost or forged enquiries** | Enquiries use the existing capture transaction (validation, consent, rate limit, idempotency, distribution). The company comes from the publication, never the request. Enquiries whose lead transaction fails are kept for owner/admin retry. |
+| **Spend** | The same monthly allowance and per-minute limits (`ai.pages.*`). `AiUsageRecord.feature = PAGES` with tokens, estimated cost, duration and failure status. A failed request that never reached Claude returns the allowance. |
+
 ## Reviewer checklist for future AI changes
 
 - [ ] No tool accepts organization, user, role, membership or raw query input.

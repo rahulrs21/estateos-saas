@@ -270,6 +270,16 @@ See [AI Copilot](AI_COPILOT.md), [AI tools](AI_TOOLS.md) and [AI security](AI_SE
 
 See [AI Content Studio](AI_CONTENT_STUDIO.md), [templates and branding](AI_TEMPLATES.md) and [content security](AI_CONTENT_SECURITY.md).
 
+## Phase 6D: landing page builder
+
+`src/modules/websites` holds a typed section registry, public-safe linked-data presenters, templates, the publication checklist and one renderer. These are pure modules, unit-tested without I/O. The renderer is used by the editor preview and the public page.
+
+- **Claude:** generation reuses `generateStructured`, quotas and usage records; Claude returns schema-constrained text only.
+- **Public pages:** `/site/{companySlug}/{pageSlug}` render immutable publication snapshots.
+- **Enquiries:** go through the shared Phase 4 capture path (`captureWebsiteSubmission`).
+
+See [AI page builder](AI_PAGE_BUILDER.md).
+
 ## Phase 6C: AI sales intelligence
 
 `src/modules/ai/sales` adds rule-based lead qualification, follow-up signals and dashboard counts. These are pure modules, unit-tested without I/O. It also adds Claude explanations through the shared `src/modules/ai/structured.ts` request, which the Content Studio now also uses, so there is one structured-output implementation.

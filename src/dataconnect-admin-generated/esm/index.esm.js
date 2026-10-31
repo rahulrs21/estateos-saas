@@ -74,6 +74,21 @@ export const ActivityKind = {
   AI_BRAND_PROFILE_UPDATED: "AI_BRAND_PROFILE_UPDATED",
   LEAD_QUALIFICATION_UPDATED: "LEAD_QUALIFICATION_UPDATED",
   AI_LEAD_PRIORITY_REVIEWED: "AI_LEAD_PRIORITY_REVIEWED",
+  WEBSITE_UPDATED: "WEBSITE_UPDATED",
+  WEBSITE_PAGE_CREATED: "WEBSITE_PAGE_CREATED",
+  WEBSITE_PAGE_STATUS_CHANGED: "WEBSITE_PAGE_STATUS_CHANGED",
+  WEBSITE_PAGE_PUBLISHED: "WEBSITE_PAGE_PUBLISHED",
+  WEBSITE_PAGE_UNPUBLISHED: "WEBSITE_PAGE_UNPUBLISHED",
+  WEBSITE_PAGE_FORM_CHANGED: "WEBSITE_PAGE_FORM_CHANGED",
+  WEBSITE_PAGE_ARCHIVED: "WEBSITE_PAGE_ARCHIVED",
+  WEBSITE_ENQUIRY_RECOVERED: "WEBSITE_ENQUIRY_RECOVERED",
+  WEBSITE_ENQUIRY_DISMISSED: "WEBSITE_ENQUIRY_DISMISSED",
+  WEBSITE_AGENT_CARD_UPDATED: "WEBSITE_AGENT_CARD_UPDATED",
+  WEBSITE_MEDIA_UPLOADED: "WEBSITE_MEDIA_UPLOADED",
+  WEBSITE_MEDIA_UPDATED: "WEBSITE_MEDIA_UPDATED",
+  WEBSITE_MEDIA_ARCHIVED: "WEBSITE_MEDIA_ARCHIVED",
+  WEBSITE_SECTION_TEMPLATE_SAVED: "WEBSITE_SECTION_TEMPLATE_SAVED",
+  WEBSITE_SECTION_TEMPLATE_DELETED: "WEBSITE_SECTION_TEMPLATE_DELETED",
 }
 
 export const AgentAvailabilityStatus = {
@@ -179,6 +194,12 @@ export const AuditTargetType = {
   AI_BRAND_PROFILE: "AI_BRAND_PROFILE",
   LEAD_QUALIFICATION: "LEAD_QUALIFICATION",
   AI_LEAD_PRIORITY_REVIEW: "AI_LEAD_PRIORITY_REVIEW",
+  WEBSITE: "WEBSITE",
+  WEBSITE_PAGE: "WEBSITE_PAGE",
+  PAGE_PUBLICATION: "PAGE_PUBLICATION",
+  WEBSITE_ENQUIRY: "WEBSITE_ENQUIRY",
+  WEBSITE_MEDIA: "WEBSITE_MEDIA",
+  WEBSITE_SECTION_TEMPLATE: "WEBSITE_SECTION_TEMPLATE",
 }
 
 export const BuildingType = {
@@ -469,10 +490,30 @@ export const OwnershipType = {
   SHARED_OWNERSHIP: "SHARED_OWNERSHIP",
 }
 
+export const PagePublicationStatus = {
+  ACTIVE: "ACTIVE",
+  SUPERSEDED: "SUPERSEDED",
+  UNPUBLISHED: "UNPUBLISHED",
+}
+
+export const PageVersionKind = {
+  CREATED: "CREATED",
+  GENERATED: "GENERATED",
+  EDITED: "EDITED",
+  RESTORED: "RESTORED",
+  DUPLICATED: "DUPLICATED",
+}
+
 export const PaymentDueTrigger = {
   CONSTRUCTION_MILESTONE: "CONSTRUCTION_MILESTONE",
   HANDOVER: "HANDOVER",
   POST_HANDOVER: "POST_HANDOVER",
+}
+
+export const PendingEnquiryStatus = {
+  PENDING: "PENDING",
+  RECOVERED: "RECOVERED",
+  DISMISSED: "DISMISSED",
 }
 
 export const PortalConnectionStatus = {
@@ -524,6 +565,31 @@ export const TransactionType = {
   BUY: "BUY",
   RENT: "RENT",
   INVEST: "INVEST",
+}
+
+export const WebsiteMediaStatus = {
+  PENDING: "PENDING",
+  ACTIVE: "ACTIVE",
+  ARCHIVED: "ARCHIVED",
+  DELETED: "DELETED",
+}
+
+export const WebsitePageStatus = {
+  DRAFT: "DRAFT",
+  IN_REVIEW: "IN_REVIEW",
+  APPROVED: "APPROVED",
+  PUBLISHED: "PUBLISHED",
+  UNPUBLISHED: "UNPUBLISHED",
+  ARCHIVED: "ARCHIVED",
+}
+
+export const WebsitePageType = {
+  LANDING_PAGE: "LANDING_PAGE",
+}
+
+export const WebsiteStatus = {
+  ACTIVE: "ACTIVE",
+  ARCHIVED: "ARCHIVED",
 }
 
 export const connectorConfig = {
@@ -1772,5 +1838,281 @@ export function purgeExpiredRateLimitCounters(dcOrVarsOrOptions, varsOrOptions, 
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeMutation('PurgeExpiredRateLimitCounters', inputVars, inputOpts);
+}
+
+export function listWebsitePages(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListWebsitePages', inputVars, inputOpts);
+}
+
+export function getWebsitePage(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetWebsitePage', inputVars, inputOpts);
+}
+
+export function getPageVersion(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetPageVersion', inputVars, inputOpts);
+}
+
+export function listProjectWebsiteMedia(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListProjectWebsiteMedia', inputVars, inputOpts);
+}
+
+export function findWebsitePageBySlug(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('FindWebsitePageBySlug', inputVars, inputOpts);
+}
+
+export function createWebsitePage(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateWebsitePage', inputVars, inputOpts);
+}
+
+export function saveWebsitePageVersion(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SaveWebsitePageVersion', inputVars, inputOpts);
+}
+
+export function submitWebsitePageForReview(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SubmitWebsitePageForReview', inputVars, inputOpts);
+}
+
+export function approveWebsitePage(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ApproveWebsitePage', inputVars, inputOpts);
+}
+
+export function rejectWebsitePage(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RejectWebsitePage', inputVars, inputOpts);
+}
+
+export function unpublishWebsitePage(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UnpublishWebsitePage', inputVars, inputOpts);
+}
+
+export function archiveWebsitePage(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ArchiveWebsitePage', inputVars, inputOpts);
+}
+
+export function setPageLeadFormBinding(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetPageLeadFormBinding', inputVars, inputOpts);
+}
+
+export function removePageLeadFormBinding(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RemovePageLeadFormBinding', inputVars, inputOpts);
+}
+
+export function updateWebsiteSettings(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateWebsiteSettings', inputVars, inputOpts);
+}
+
+export function listWebsitePageEnquiries(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListWebsitePageEnquiries', inputVars, inputOpts);
+}
+
+export function listPendingWebsiteEnquiries(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListPendingWebsiteEnquiries', inputVars, inputOpts);
+}
+
+export function dismissPendingWebsiteEnquiry(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DismissPendingWebsiteEnquiry', inputVars, inputOpts);
+}
+
+export function createDefaultWebsite(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateDefaultWebsite', inputVars, inputOpts);
+}
+
+export function createGeneratedWebsitePage(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateGeneratedWebsitePage', inputVars, inputOpts);
+}
+
+export function addGeneratedPageVersion(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AddGeneratedPageVersion', inputVars, inputOpts);
+}
+
+export function publishWebsitePage(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('PublishWebsitePage', inputVars, inputOpts);
+}
+
+export function markPendingWebsiteEnquiryRecovered(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('MarkPendingWebsiteEnquiryRecovered', inputVars, inputOpts);
+}
+
+export function recordPendingWebsiteEnquiryAttempt(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RecordPendingWebsiteEnquiryAttempt', inputVars, inputOpts);
+}
+
+export function resolvePublishedPage(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ResolvePublishedPage', inputVars, inputOpts);
+}
+
+export function getPublishedPageAsset(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetPublishedPageAsset', inputVars, inputOpts);
+}
+
+export function listPublishedPagesForSitemap(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListPublishedPagesForSitemap', inputVars, inputOpts);
+}
+
+export function checkPublishedSourcesEligibility(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('CheckPublishedSourcesEligibility', inputVars, inputOpts);
+}
+
+export function getPublishedPageForm(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetPublishedPageForm', inputVars, inputOpts);
+}
+
+export function getWebsiteLeadCaptureFormById(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetWebsiteLeadCaptureFormById', inputVars, inputOpts);
+}
+
+export function recordWebsitePageEnquiry(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RecordWebsitePageEnquiry', inputVars, inputOpts);
+}
+
+export function findPendingWebsiteEnquiry(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('FindPendingWebsiteEnquiry', inputVars, inputOpts);
+}
+
+export function recordPendingWebsiteEnquiry(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RecordPendingWebsiteEnquiry', inputVars, inputOpts);
+}
+
+export function listWebsiteAgents(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListWebsiteAgents', inputVars, inputOpts);
+}
+
+export function getWebsiteAgent(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetWebsiteAgent', inputVars, inputOpts);
+}
+
+export function updateWebsiteAgentCard(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateWebsiteAgentCard', inputVars, inputOpts);
+}
+
+export function getWebsiteMediaAccess(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetWebsiteMediaAccess', inputVars, inputOpts);
+}
+
+export function createWebsiteMedia(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateWebsiteMedia', inputVars, inputOpts);
+}
+
+export function setWebsiteMediaUploadStatus(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetWebsiteMediaUploadStatus', inputVars, inputOpts);
+}
+
+export function listWebsiteMedia(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListWebsiteMedia', inputVars, inputOpts);
+}
+
+export function getWebsiteMediaByIds(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetWebsiteMediaByIds', inputVars, inputOpts);
+}
+
+export function updateWebsiteMediaAlt(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateWebsiteMediaAlt', inputVars, inputOpts);
+}
+
+export function archiveWebsiteMedia(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ArchiveWebsiteMedia', inputVars, inputOpts);
+}
+
+export function createWebsiteSectionTemplate(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateWebsiteSectionTemplate', inputVars, inputOpts);
+}
+
+export function listWebsiteSectionTemplates(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListWebsiteSectionTemplates', inputVars, inputOpts);
+}
+
+export function deleteWebsiteSectionTemplate(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DeleteWebsiteSectionTemplate', inputVars, inputOpts);
 }
 

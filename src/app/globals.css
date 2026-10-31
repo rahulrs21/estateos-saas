@@ -147,3 +147,24 @@
   background-image: radial-gradient(var(--border) 1px, transparent 1px);
   background-size: 18px 18px;
 }
+
+/* Landing pages (src/modules/websites): entrance animations driven by scrolling.
+   Pure CSS, so pages need no animation script. Browsers without scroll-driven
+   animations, and visitors who prefer reduced motion, see the content at once. */
+@keyframes pg-fade-up { from { opacity: 0; transform: translateY(2.5rem); } to { opacity: 1; transform: none; } }
+@keyframes pg-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pg-zoom { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
+@keyframes pg-slide { from { opacity: 0; transform: translateX(-3rem); } to { opacity: 1; transform: none; } }
+@keyframes pg-ken-burns { from { transform: scale(1.08); } to { transform: scale(1); } }
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .pg-anim > * { animation-duration: 1ms; animation-timing-function: cubic-bezier(.2,.7,.2,1); animation-fill-mode: both; animation-timeline: view(); animation-range: entry 0% cover 28%; }
+    .pg-anim-fade-up > * { animation-name: pg-fade-up; }
+    .pg-anim-fade > * { animation-name: pg-fade; }
+    .pg-anim-zoom > * { animation-name: pg-zoom; }
+    .pg-anim-slide > * { animation-name: pg-slide; }
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pg-ken-burns { animation: pg-ken-burns 12s ease-out both; }
+}

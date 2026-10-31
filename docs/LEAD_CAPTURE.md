@@ -18,6 +18,17 @@ The browser sends a random idempotency key. Only its SHA-256 digest is stored, u
 
 A submission associates an exact normalized email/phone match only if exactly one company contact matches; ambiguous matches create a new contact rather than guessing. It creates a lead, links the trusted form source, stores consent/policy snapshots and sanitized attribution, applies the existing round-robin distribution rule when eligible, and records activity, audit, assignment history, and notifications in the same SQL Connect transaction. Multiple leads per contact are supported. If a form's company has no active default pipeline/stage, source inconsistency, or eligible selected agent/cursor becomes stale, the transaction fails without a partial lead.
 
+## Shared ingestion and pending enquiries (Phase 6D)
+
+Hosted forms (`/forms/{publicId}`) and landing pages (`/site/…`) use one ingestion function, `captureWebsiteSubmission` in `lead-capture/server/service.ts`. Landing pages add only the server-built page URL, the page's project or listing as the property interest, and a `WebsitePageEnquiry` link.
+
+**Pending enquiries:** if the lead transaction fails after an enquiry was validated (for example the company has no active default pipeline), the validated enquiry is stored as a `PendingWebsiteEnquiry` instead of being lost.
+- Owners and administrators see these on `/websites` and can retry or dismiss them.
+- A retry reuses the original idempotency hash, so it can never create a second lead.
+- The visitor sees an error only if that record also cannot be stored.
+
+**Fix found during testing:** a form without a transaction-type field (the default configuration) used to send `null`, which overrode the column's `BUY` default and failed the whole transaction. The value is now omitted when not provided.
+
 ## Reports
 
 Open `/workspace/reports` inside a selected company workspace. Filters include inclusive local calendar dates, timezone, day/week/month volume buckets, source, stage and agent. SQL receives a half-open UTC timestamp interval derived from the selected IANA timezone; date ranges are limited to 366 days. The default range is the most recent 30 local dates. Dashboard counts and charts use database aggregates.

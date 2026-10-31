@@ -69,6 +69,36 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (message.includes("ASSESSMENT_NOT_FOUND")) {
       return new WorkspaceError("CONFLICT", 409, "This assessment is no longer current for the lead. Reload the lead and review the latest assessment.");
     }
+    if (/\b(?:WEBSITE_PAGE_CHANGED|WEBSITE_CHANGED)\b/.test(message)) {
+      return new WorkspaceError("CONFLICT", 409, "This page was changed in another window or by a colleague. Reload it and try again.");
+    }
+    if (message.includes("WEBSITE_PAGE_LIVE_OR_CHANGED")) {
+      return new WorkspaceError("CONFLICT", 409, "Unpublish the page before archiving it, or reload it if it was changed by a colleague.");
+    }
+    if (message.includes("WEBSITE_PAGE_SLUG_LIVE")) {
+      return new WorkspaceError("CONFLICT", 409, "Another live page already uses this address. Change the page address or unpublish the other page.");
+    }
+    if (message.includes("PAGE_VERSION_NOT_APPROVED")) {
+      return new WorkspaceError("CONFLICT", 409, "Only an approved version can be published. Submit the page for review first.");
+    }
+    if (/\b(?:WEBSITE_PAGE_NOT_FOUND|PAGE_VERSION_NOT_FOUND|PENDING_ENQUIRY_NOT_FOUND|WEBSITE_AGENT_NOT_FOUND|WEBSITE_MEDIA_NOT_FOUND|WEBSITE_SECTION_TEMPLATE_NOT_FOUND)\b/.test(message)) {
+      return new WorkspaceError("NOT_FOUND", 404, "This record was not found or has already been handled.");
+    }
+    if (message.includes("LEAD_FORM_UNAVAILABLE")) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "Choose a lead form of this company that is not disabled.");
+    }
+    if (/\b(?:WEBSITE_PAGE_CREATE_FORBIDDEN|WEBSITE_PAGE_EDIT_FORBIDDEN)\b/.test(message)) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "You can create and edit only your own page drafts, and agents only when an owner or administrator allows agent drafts.");
+    }
+    if (/\b(?:WEBSITE_MEDIA_FORBIDDEN|WEBSITE_SECTION_TEMPLATE_FORBIDDEN)\b/.test(message)) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "You can change only items you added, unless you are a company owner or administrator.");
+    }
+    if (/\b(?:WEBSITE_PAGE_APPROVAL_FORBIDDEN|WEBSITE_PUBLISH_FORBIDDEN|WEBSITE_FORM_FORBIDDEN|WEBSITE_SETTINGS_FORBIDDEN|WEBSITE_ENQUIRIES_FORBIDDEN)\b/.test(message)) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "Only company owners and administrators can do this.");
+    }
+    if (message.includes("WEBSITE_PAGE_REVIEW_FORBIDDEN")) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "Only owners, administrators and managers can review pages.");
+    }
     if (message.includes("AI_CONVERSATION_CHANGED")) {
       return new WorkspaceError("CONFLICT", 409, "This conversation changed in another window. Reload it and try again.");
     }

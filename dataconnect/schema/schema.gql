@@ -7,7 +7,7 @@ enum CompanySize { SOLO TWO_TO_TEN ELEVEN_TO_FIFTY FIFTY_ONE_TO_TWO_HUNDRED TWO_
 enum MembershipStatus { INVITED PENDING ACTIVE SUSPENDED REVOKED REMOVED }
 enum InvitationStatus { PENDING ACCEPTED REVOKED }
 enum InvitationDeliveryStatus { NOT_SENT PREVIEW ACCEPTED FAILED }
-enum AuditTargetType { ORGANIZATION MEMBERSHIP BRANCH LEAD INVITATION CONTACT PIPELINE LEAD_DISTRIBUTION_RULE AGENT_AVAILABILITY LEAD_CAPTURE_FORM WEBSITE_SUBMISSION DEVELOPER PROJECT BUILDING PROPERTY PROPERTY_LISTING FLOOR_PLAN PAYMENT_PLAN PROPERTY_AMENITY PROPERTY_FEATURE INVENTORY_MEDIA PORTAL_CONNECTION PORTAL_FIELD_MAPPING LISTING_PUBLICATION FEED_GENERATION_JOB AI_CONVERSATION AI_CONTENT_DRAFT AI_CONTENT_TEMPLATE AI_BRAND_PROFILE LEAD_QUALIFICATION AI_LEAD_PRIORITY_REVIEW }
+enum AuditTargetType { ORGANIZATION MEMBERSHIP BRANCH LEAD INVITATION CONTACT PIPELINE LEAD_DISTRIBUTION_RULE AGENT_AVAILABILITY LEAD_CAPTURE_FORM WEBSITE_SUBMISSION DEVELOPER PROJECT BUILDING PROPERTY PROPERTY_LISTING FLOOR_PLAN PAYMENT_PLAN PROPERTY_AMENITY PROPERTY_FEATURE INVENTORY_MEDIA PORTAL_CONNECTION PORTAL_FIELD_MAPPING LISTING_PUBLICATION FEED_GENERATION_JOB AI_CONVERSATION AI_CONTENT_DRAFT AI_CONTENT_TEMPLATE AI_BRAND_PROFILE LEAD_QUALIFICATION AI_LEAD_PRIORITY_REVIEW WEBSITE WEBSITE_PAGE PAGE_PUBLICATION WEBSITE_ENQUIRY WEBSITE_MEDIA WEBSITE_SECTION_TEMPLATE }
 enum LeadStatus { NEW CONTACTED QUALIFIED LOST CONVERTED VIEWING_SCHEDULED VIEWING_COMPLETED NEGOTIATION WON }
 enum TransactionType { BUY RENT INVEST }
 enum LeadPriority { LOW NORMAL HIGH URGENT }
@@ -48,6 +48,9 @@ enum ActivityKind {
   AI_CONVERSATION_DELETED
   AI_CONTENT_DRAFT_CREATED AI_CONTENT_DRAFT_STATUS_CHANGED AI_CONTENT_DRAFT_DELETED AI_CONTENT_TEMPLATE_CHANGED AI_BRAND_PROFILE_UPDATED
   LEAD_QUALIFICATION_UPDATED AI_LEAD_PRIORITY_REVIEWED
+  WEBSITE_UPDATED WEBSITE_PAGE_CREATED WEBSITE_PAGE_STATUS_CHANGED WEBSITE_PAGE_PUBLISHED WEBSITE_PAGE_UNPUBLISHED WEBSITE_PAGE_FORM_CHANGED
+  WEBSITE_PAGE_ARCHIVED WEBSITE_ENQUIRY_RECOVERED WEBSITE_ENQUIRY_DISMISSED
+  WEBSITE_AGENT_CARD_UPDATED WEBSITE_MEDIA_UPLOADED WEBSITE_MEDIA_UPDATED WEBSITE_MEDIA_ARCHIVED WEBSITE_SECTION_TEMPLATE_SAVED WEBSITE_SECTION_TEMPLATE_DELETED
 }
 
 enum DeveloperStatus { ACTIVE INACTIVE }
@@ -121,6 +124,10 @@ type Membership @table(key: ["organization", "id"])
   acceptedAt: Timestamp
   approvedAt: Timestamp
   approvedBy: UserProfile
+  # Public "agent card" for website contact sections; set by an owner or administrator.
+  websiteTitle: String @col(dataType: "varchar(80)")
+  websitePhone: String @col(dataType: "varchar(32)")
+  websiteWhatsapp: String @col(dataType: "varchar(32)")
   createdAt: Timestamp! @default(expr: "request.time")
   updatedAt: Timestamp! @default(expr: "request.time")
 }
@@ -1200,6 +1207,9 @@ type AiBrandProfile @table(key: ["organization"]) {
   defaultCallToAction: String @col(dataType: "varchar(200)")
   tagline: String @col(dataType: "varchar(160)")
   marketingDisclaimer: String @col(dataType: "varchar(1000)")
+  # Optional office details shown on website contact sections (Phase 6D editor upgrade).
+  officeAddress: String @col(dataType: "varchar(300)")
+  officeHours: String @col(dataType: "varchar(200)")
   # Compare-and-set guard for concurrent edits.
   revision: Int! @default(value: 1)
   updatedBy: UserProfile!
@@ -1387,4 +1397,227 @@ type AiSalesInsight @table(key: ["organization", "id"])
   promptVersion: String! @col(dataType: "varchar(20)")
   createdBy: UserProfile!
   createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# --- Phase 6D: landing page & website builder (docs/AI_PAGE_BUILDER.md) ------
+# Page content is structured JSON validated by the application's component
+# registry on every read and write (src/modules/websites/registry.ts); it is
+# never HTML, CSS or code. Public routes read only ACTIVE publication
+# snapshots, which hold public-safe data resolved when the page was published.
+
+enum WebsiteStatus { ACTIVE ARCHIVED }
+enum WebsitePageType { LANDING_PAGE }
+enum WebsitePageStatus { DRAFT IN_REVIEW APPROVED PUBLISHED UNPUBLISHED ARCHIVED }
+enum PageVersionKind { CREATED GENERATED EDITED RESTORED DUPLICATED }
+enum PagePublicationStatus { ACTIVE SUPERSEDED UNPUBLISHED }
+enum WebsiteMediaStatus { PENDING ACTIVE ARCHIVED DELETED }
+enum WebsiteSectionTemplateStatus { ACTIVE DELETED }
+enum PendingEnquiryStatus { PENDING RECOVERED DISMISSED }
+
+# A company's site. The first release has one default site per company with
+# single-page campaigns; the table allows several sites later. Company name,
+# contacts and approved marketing details stay on Organization and
+# AiBrandProfile; designSettings holds only visual defaults.
+type Website @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "slug"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  name: String! @col(dataType: "varchar(120)")
+  slug: String! @col(dataType: "varchar(63)")
+  designSettings: String! @col(dataType: "varchar(4000)")
+  # Agents may create and edit their own drafts only when an owner or administrator allows it.
+  allowAgentDrafts: Boolean! @default(value: false)
+  status: WebsiteStatus! @default(value: ACTIVE)
+  revision: Int! @default(value: 1)
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Source record IDs are plain identifiers (no foreign keys) so pages never
+# block archiving CRM records; the server re-authorizes every source on use.
+# Page slugs are unique per company because public URLs are
+# /site/{companySlug}/{pageSlug}.
+type WebsitePage @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "slug"])
+  @index(fields: ["organizationId", "status", "updatedAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "createdByUid", "updatedAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  websiteId: UUID!
+  website: Website! @ref(fields: ["organizationId", "websiteId"], references: ["organizationId", "id"])
+  title: String! @col(dataType: "varchar(160)")
+  slug: String! @col(dataType: "varchar(80)")
+  description: String @col(dataType: "varchar(500)")
+  pageType: WebsitePageType! @default(value: LANDING_PAGE)
+  sourceProjectId: UUID
+  sourcePropertyId: UUID
+  sourceListingId: UUID
+  status: WebsitePageStatus! @default(value: DRAFT)
+  seoTitle: String @col(dataType: "varchar(120)")
+  seoDescription: String @col(dataType: "varchar(320)")
+  designStyle: String! @col(dataType: "varchar(40)")
+  # Compare-and-set guard: every save, status change and publication bumps it.
+  revision: Int! @default(value: 1)
+  versionCount: Int! @default(value: 1)
+  currentVersionNumber: Int! @default(value: 1)
+  approvedVersionNumber: Int
+  livePublicationId: UUID
+  reviewNote: String @col(dataType: "varchar(500)")
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+  archivedAt: Timestamp
+}
+
+# Append-only page content. Only the approval stamp is set afterwards, so an
+# approved or published version never changes.
+type PageVersion @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "pageId", "versionNumber"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  pageId: UUID!
+  page: WebsitePage! @ref(fields: ["organizationId", "pageId"], references: ["organizationId", "id"])
+  versionNumber: Int!
+  schemaVersion: Int!
+  kind: PageVersionKind!
+  structuredPageData: String! @col(dataType: "varchar(200000)")
+  validation: String @col(dataType: "varchar(20000)")
+  model: String @col(dataType: "varchar(80)")
+  approvedAt: Timestamp
+  approvedBy: UserProfile
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# What the public sees: an approved version plus the public-safe CRM values,
+# map points and media allowlist resolved at publication time. At most one
+# ACTIVE row per page, maintained transactionally.
+type PagePublication @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "pageId", "publishedAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["status", "publishedAt"], order: [ASC, DESC])
+  @index(fields: ["organizationId", "pageSlug", "status"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  pageId: UUID!
+  page: WebsitePage! @ref(fields: ["organizationId", "pageId"], references: ["organizationId", "id"])
+  versionId: UUID!
+  version: PageVersion! @ref(fields: ["organizationId", "versionId"], references: ["organizationId", "id"])
+  versionNumber: Int!
+  # The public URL slug at publication time; a later slug edit takes effect on the next publication.
+  pageSlug: String! @col(dataType: "varchar(80)")
+  snapshot: String! @col(dataType: "varchar(400000)")
+  sourceFingerprint: String! @col(dataType: "varchar(64)")
+  checklist: String! @col(dataType: "varchar(20000)")
+  status: PagePublicationStatus! @default(value: ACTIVE)
+  publishedBy: UserProfile!
+  publishedAt: Timestamp! @default(expr: "request.time")
+  unpublishedBy: UserProfile
+  unpublishedAt: Timestamp
+}
+
+# The existing Phase 4 lead form that receives a page's enquiries.
+type PageLeadFormBinding @table(key: ["organization", "pageId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  pageId: UUID!
+  page: WebsitePage! @ref(fields: ["organizationId", "pageId"], references: ["organizationId", "id"])
+  formId: UUID!
+  form: LeadCaptureForm! @ref(fields: ["organizationId", "formId"], references: ["organizationId", "id"])
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Links a lead created by the existing website capture transaction to the
+# landing page and publication it came from.
+# Images uploaded for websites (editor upgrade M2). Files live in Storage under
+# organizations/{org}/websites/media/; public pages serve only the files a live
+# publication lists in its snapshot. Archived files stay available to pages
+# already published with them but cannot be chosen again.
+type WebsiteMedia @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "status", "createdAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  websiteId: UUID!
+  website: Website! @ref(fields: ["organizationId", "websiteId"], references: ["organizationId", "id"])
+  fileName: String! @col(dataType: "varchar(200)")
+  contentType: String! @col(dataType: "varchar(40)")
+  byteSize: Int!
+  width: Int
+  height: Int
+  alt: String! @col(dataType: "varchar(160)") @default(value: "")
+  storagePath: String! @col(dataType: "varchar(400)")
+  status: WebsiteMediaStatus! @default(value: PENDING)
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Sections saved to the company library for reuse (editor upgrade M5). The
+# section is validated page data; CRM image references are removed on save.
+type WebsiteSectionTemplate @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "status", "updatedAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  name: String! @col(dataType: "varchar(120)")
+  category: String! @col(dataType: "varchar(40)")
+  sectionType: String! @col(dataType: "varchar(40)")
+  sectionData: String! @col(dataType: "varchar(60000)")
+  status: WebsiteSectionTemplateStatus! @default(value: ACTIVE)
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type WebsitePageEnquiry @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "leadId"])
+  @index(fields: ["organizationId", "pageId", "createdAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  pageId: UUID!
+  page: WebsitePage! @ref(fields: ["organizationId", "pageId"], references: ["organizationId", "id"])
+  publicationId: UUID
+  formId: UUID!
+  leadId: UUID!
+  lead: Lead! @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  utmSource: String @col(dataType: "varchar(200)")
+  utmMedium: String @col(dataType: "varchar(200)")
+  utmCampaign: String @col(dataType: "varchar(200)")
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# An enquiry whose lead transaction failed (for example when the company has
+# no active default pipeline). It is kept so it is never silently lost;
+# owners and administrators retry or dismiss it. payload is the validated
+# submission.
+type PendingWebsiteEnquiry @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "formId", "idempotencyKeyHash"])
+  @index(fields: ["organizationId", "status", "createdAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  pageId: UUID
+  publicationId: UUID
+  formId: UUID!
+  idempotencyKeyHash: String! @col(dataType: "varchar(64)")
+  payload: String! @col(dataType: "varchar(12000)")
+  errorCode: String! @col(dataType: "varchar(60)")
+  status: PendingEnquiryStatus! @default(value: PENDING)
+  attempts: Int! @default(value: 1)
+  leadId: UUID
+  resolvedBy: UserProfile
+  resolvedAt: Timestamp
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
 }

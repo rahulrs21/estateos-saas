@@ -53,6 +53,7 @@ export async function saveBrand(context: Context, input: z.infer<typeof brandPro
     preferredLanguage: sql.AiContentLanguage[input.preferredLanguage], useCompanyPhone: input.useCompanyPhone, useCompanyEmail: input.useCompanyEmail,
     website: input.website ?? null, whatsappNumber: input.whatsappNumber ?? null, defaultCallToAction: input.defaultCallToAction ?? null,
     tagline: input.tagline ?? null, marketingDisclaimer: input.marketingDisclaimer ?? null,
+    officeAddress: input.officeAddress ?? null, officeHours: input.officeHours ?? null,
   };
   if (input.expectedRevision === 0) {
     await executeWorkspaceOperation(() => sql.createAiBrandProfile(request.dc, {organizationId, ...fields}, request.options), "CreateAiBrandProfile")

@@ -152,28 +152,28 @@ export async function updateLeadCaptureForm(input: unknown, expectedOrganization
   }, context.request.options));
 }
 
-export async function submitPublicLead(input: {
-  publicId: string;
-  idempotencyKey: string;
-  rawBody: unknown;
-}) {
-  const { parsePublicSubmission } = await import("../validation");
-  const form = await resolvePublicFormRaw(input.publicId);
-  if (!form) throw new WorkspaceError("FORM_UNAVAILABLE", 404, "This form is unavailable.");
-  const parsed = parsePublicSubmission(form.fields, input.rawBody);
-  if (!parsed) throw new WorkspaceError("INVALID_SUBMISSION", 400, "Check the required fields and consent before submitting.");
-  if (!/^[A-Za-z0-9_-]{16,128}$/.test(input.idempotencyKey)) throw new WorkspaceError("INVALID_SUBMISSION", 400, "Please refresh the form and try again.");
+/** The stored form fields the ingestion path needs (from either public form lookup). */
+interface ResolvedForm { id: string; organizationId: string; publicId: string; fields: unknown; consentText: string; privacyPolicyUrl: string; successMessage: string; branchId?: string | null; projectId?: string | null }
+type ParsedSubmission = NonNullable<ReturnType<typeof import("../validation").parsePublicSubmission>>;
 
-  const dc = adminDataConnect();
+/** Where a submission came from when it was sent through a published landing page (Phase 6D). */
+export interface CapturePageContext { pageId: string; publicationId: string; landingPageUrl: string; propertyReference: string | null }
+
+export type CaptureResult =
+  | {accepted: true; duplicate: boolean; pending: false; message: string; leadId?: string}
+  | {accepted: true; duplicate: false; pending: true; message: string};
+
+const idempotencyHash = (key: string) => createHash("sha256").update(key).digest("hex");
+
+/**
+ * The one website lead ingestion path (Phase 4D), shared by hosted forms and
+ * landing pages: contact matching, the distribution plan and the single
+ * SubmitWebsiteLeadCapture transaction (lead, activity, audit, assignment
+ * history, notifications and consent evidence).
+ */
+async function ingestSubmission(dc: ReturnType<typeof adminDataConnect>, form: ResolvedForm, parsed: ParsedSubmission, idempotencyKeyHash: string, page?: CapturePageContext) {
   const organizationId = canonicalUuid(form.organizationId);
   const formId = canonicalUuid(form.id);
-  const idempotencyKeyHash = createHash("sha256").update(input.idempotencyKey).digest("hex");
-  const prior = await noAccessOperation(() => sdk.findWebsiteLeadCaptureSubmission(dc, { organizationId, formId, idempotencyKeyHash }));
-  if (prior.submission) return { accepted: true as const, duplicate: true as const, message: form.successMessage };
-
-  const windowStart = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString();
-  await consumeCaptureRateWindow(dc, organizationId, formId, windowStart);
-
   const phone = normalizePhone(parsed.phone);
   const normalizedEmail = parsed.email?.toLowerCase() ?? null;
   const contacts = await noAccessOperation(() => sdk.findWebsiteLeadCaptureContact(dc, {
@@ -212,31 +212,126 @@ export async function submitPublicLead(input: {
     }
   }
 
+  // A landing page records its own URL (server-built, never the browser's) and,
+  // when the visitor did not describe their interest, the page's property or project.
+  const propertyInterest = parsed.propertyInterest ?? (page?.propertyReference ? page.propertyReference.slice(0, 500) : null);
   const variables = {
-    organizationId, formId, publicId: input.publicId, idempotencyKeyHash,
+    organizationId, formId, publicId: form.publicId, idempotencyKeyHash,
     fullName: parsed.fullName, email: parsed.email, phone: phone.phone,
     normalizedEmail, normalizedPhone: phone.normalizedPhone,
     contactId: existingContactId, hasExistingContact: Boolean(existingContactId),
-    message: parsed.message, propertyInterest: parsed.propertyInterest, preferredLocation: parsed.preferredLocation,
+    message: parsed.message, propertyInterest, preferredLocation: parsed.preferredLocation,
     propertyType: parsed.propertyType,
-    transactionType: parsed.transactionType ? sdk.TransactionType[parsed.transactionType] : null,
+    // Omitted (not null) when the form has no transaction field, so the column default applies;
+    // an explicit null would violate the NOT NULL column and fail the whole transaction.
+    ...(parsed.transactionType ? {transactionType: sdk.TransactionType[parsed.transactionType]} : {}),
     budgetMin: parsed.budgetMin, budgetMax: parsed.budgetMax, currency: "AED",
-    bedroomPreference: parsed.bedroomPreference, landingPageUrl: parsed.attribution.landingPageUrl,
+    bedroomPreference: parsed.bedroomPreference, landingPageUrl: page?.landingPageUrl ?? parsed.attribution.landingPageUrl,
     utmSource: parsed.attribution.utmSource, utmMedium: parsed.attribution.utmMedium,
     utmCampaign: parsed.attribution.utmCampaign, utmContent: parsed.attribution.utmContent,
     utmTerm: parsed.attribution.utmTerm, consentTextSnapshot: form.consentText,
     privacyPolicyUrlSnapshot: form.privacyPolicyUrl, assignedMembershipId, distributionRuleId,
     expectedCursorVersion, hasAutoAssignment: assignedMembershipId !== null, hasDistributionAttempt,
   };
-
-  try {
-    const result = await noAccessOperation(() => sdk.submitWebsiteLeadCapture(dc, variables));
-    return { accepted: true as const, duplicate: false as const, message: form.successMessage, leadId: canonicalUuid(result.lead.id) };
-  } catch (error) {
-    // A retry with the same key may have committed while its response was lost.
-    const replay = await noAccessOperation(() => sdk.findWebsiteLeadCaptureSubmission(dc, { organizationId, formId, idempotencyKeyHash }));
-    if (replay.submission) return { accepted: true as const, duplicate: true as const, message: form.successMessage };
-    throw error;
-  }
+  const result = await noAccessOperation(() => sdk.submitWebsiteLeadCapture(dc, variables));
+  return canonicalUuid(result.lead.id);
 }
 
+/**
+ * Validates, deduplicates, rate-limits and records one website enquiry. If
+ * the lead transaction fails after the enquiry was validated (for example the
+ * company has no active default pipeline), the validated enquiry is stored as
+ * a pending enquiry for owners and administrators to retry, so it is never
+ * silently lost. Only if that also fails does the visitor see an error.
+ */
+export async function captureWebsiteSubmission(input: {form: ResolvedForm; idempotencyKey: string; rawBody: unknown; page?: CapturePageContext}): Promise<CaptureResult> {
+  const { parsePublicSubmission } = await import("../validation");
+  const {form} = input;
+  const parsed = parsePublicSubmission(form.fields, input.rawBody);
+  if (!parsed) throw new WorkspaceError("INVALID_SUBMISSION", 400, "Check the required fields and consent before submitting.");
+  if (!/^[A-Za-z0-9_-]{16,128}$/.test(input.idempotencyKey)) throw new WorkspaceError("INVALID_SUBMISSION", 400, "Please refresh the form and try again.");
+
+  const dc = adminDataConnect();
+  const organizationId = canonicalUuid(form.organizationId);
+  const formId = canonicalUuid(form.id);
+  const idempotencyKeyHash = idempotencyHash(input.idempotencyKey);
+  const prior = await noAccessOperation(() => sdk.findWebsiteLeadCaptureSubmission(dc, { organizationId, formId, idempotencyKeyHash }));
+  if (prior.submission) return { accepted: true, duplicate: true, pending: false, message: form.successMessage };
+  const priorPending = await noAccessOperation(() => sdk.findPendingWebsiteEnquiry(dc, { organizationId, formId, idempotencyKeyHash }));
+  if (priorPending.pending) return { accepted: true, duplicate: true, pending: false, message: form.successMessage };
+
+  const windowStart = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString();
+  await consumeCaptureRateWindow(dc, organizationId, formId, windowStart);
+
+  let failure: unknown = null;
+  // One retry covers a concurrent distribution-cursor change; the same idempotency key protects against duplicates.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const leadId = await ingestSubmission(dc, form, parsed, idempotencyKeyHash, input.page);
+      return { accepted: true, duplicate: false, pending: false, message: form.successMessage, leadId };
+    } catch (error) {
+      failure = error;
+      // A retry with the same key may have committed while its response was lost.
+      const replay = await noAccessOperation(() => sdk.findWebsiteLeadCaptureSubmission(dc, { organizationId, formId, idempotencyKeyHash })).catch(() => null);
+      if (replay?.submission) return { accepted: true, duplicate: true, pending: false, message: form.successMessage };
+    }
+  }
+  const errorCode = (failure instanceof WorkspaceError ? failure.code : "LEAD_TRANSACTION_FAILED").slice(0, 60);
+  try {
+    await noAccessOperation(() => sdk.recordPendingWebsiteEnquiry(dc, {
+      organizationId, formId, idempotencyKeyHash, errorCode, pageId: input.page?.pageId ?? null, publicationId: input.page?.publicationId ?? null,
+      payload: JSON.stringify({schemaVersion: 1, ...parsed, fields: undefined, page: input.page ?? null}).slice(0, 12_000),
+    }));
+  } catch {
+    throw failure;
+  }
+  console.error(JSON.stringify({event: "lead_capture.pending", organizationId, formId, errorCode}));
+  return { accepted: true, duplicate: false, pending: true, message: form.successMessage };
+}
+
+export async function submitPublicLead(input: {
+  publicId: string;
+  idempotencyKey: string;
+  rawBody: unknown;
+}) {
+  const form = await resolvePublicFormRaw(input.publicId);
+  if (!form) throw new WorkspaceError("FORM_UNAVAILABLE", 404, "This form is unavailable.");
+  return captureWebsiteSubmission({form, idempotencyKey: input.idempotencyKey, rawBody: input.rawBody});
+}
+
+/**
+ * Retries a pending enquiry with its stored, validated payload (owners and
+ * administrators). The idempotency key hash is the original one, so a retry
+ * can never create a second lead.
+ */
+export async function retryPendingEnquiry(input: {organizationId: string; actorUid: string; pending: {id: string; formId: string; idempotencyKeyHash: string; payload: string}}) {
+  const dc = adminDataConnect();
+  const organizationId = canonicalUuid(input.organizationId);
+  const formId = canonicalUuid(input.pending.formId);
+  const formData = await noAccessOperation(() => sdk.getWebsiteLeadCaptureFormById(dc, { organizationId, formId }));
+  const form = formData.form;
+  if (!form || form.status !== "ACTIVE") throw new WorkspaceError("FORM_UNAVAILABLE", 409, "The lead form for this enquiry is not active. Activate it in Settings → Website lead forms and retry.");
+  let stored: ParsedSubmission & {page?: CapturePageContext | null};
+  try { stored = JSON.parse(input.pending.payload); } catch { throw new WorkspaceError("INVALID_SUBMISSION", 409, "This pending enquiry cannot be read."); }
+  const prior = await noAccessOperation(() => sdk.findWebsiteLeadCaptureSubmission(dc, { organizationId, formId, idempotencyKeyHash: input.pending.idempotencyKeyHash }));
+  let leadId: string | null = null;
+  if (!prior.submission) {
+    try {
+      leadId = await ingestSubmission(dc, form, {...stored, fields: {} as ParsedSubmission["fields"]}, input.pending.idempotencyKeyHash, stored.page ?? undefined);
+    } catch (error) {
+      const code = (error instanceof WorkspaceError ? error.code : "LEAD_TRANSACTION_FAILED").slice(0, 60);
+      await noAccessOperation(() => sdk.recordPendingWebsiteEnquiryAttempt(dc, { organizationId, id: input.pending.id, errorCode: code })).catch(() => undefined);
+      throw new WorkspaceError("RETRY_FAILED", 409, "The enquiry still could not be saved as a lead. Check that the company has an active default pipeline, then retry.");
+    }
+  } else {
+    leadId = canonicalUuid(prior.submission.leadId);
+  }
+  await noAccessOperation(() => sdk.markPendingWebsiteEnquiryRecovered(dc, { organizationId, id: input.pending.id, actorUid: input.actorUid, leadId: leadId! }));
+  if (stored.page?.pageId) {
+    await noAccessOperation(() => sdk.recordWebsitePageEnquiry(dc, {
+      organizationId, pageId: stored.page!.pageId, publicationId: stored.page!.publicationId, formId, leadId: leadId!,
+      utmSource: stored.attribution?.utmSource ?? null, utmMedium: stored.attribution?.utmMedium ?? null, utmCampaign: stored.attribution?.utmCampaign ?? null,
+    })).catch(() => undefined);
+  }
+  return {leadId};
+}

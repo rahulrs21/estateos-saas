@@ -147,6 +147,34 @@ Generation re-reads every source record through the existing services as the mem
 
 Brand settings and templates are readable by every member and changeable by OWNER and ADMIN only. No new role was added. See [AI content security](AI_CONTENT_SECURITY.md).
 
+## Phase 6D: website builder access
+
+| Role | Pages | Linked inventory | Review | Approve and publish | Lead forms, enquiries, settings |
+| --- | --- | --- | --- | --- | --- |
+| OWNER, ADMIN | All company pages | Yes | Yes | Yes | Yes |
+| MANAGER | Read all; edit their own | No (no inventory scope) | Return to draft with a note | No | No |
+| AGENT | Their own, only when agent drafts are allowed | Assigned inventory | No | No | No |
+
+- **Enforcement:** these rules are enforced in every stored operation (`websites.gql`) and again in the services.
+- **Server-only writes:** generated pages and publications are NO_ACCESS.
+- **Public reads:** limited to ACTIVE publication snapshots.
+
+**Editor upgrade:**
+
+| Action | Who |
+| --- | --- |
+| Connect a lead form, create one from the editor | OWNER, ADMIN |
+| Edit company contacts (brand settings), choose an agent, edit agent cards | OWNER, ADMIN |
+| Upload website images | OWNER, ADMIN, MANAGER; AGENT when agent drafts are allowed |
+| Edit the alt text of, or remove, a library image | The uploader, OWNER, ADMIN |
+| Use library images and saved sections | Every active member who can edit the page |
+| Save a section to the library | Same as creating a page |
+| Delete a saved section | The author, OWNER, ADMIN |
+
+Uploaded images are served to editors only through an authenticated route that re-checks the company, and to the public only when a live publication lists them.
+
+See [AI page builder](AI_PAGE_BUILDER.md#permissions).
+
 ## Phase 6C: AI sales intelligence access
 
 | Role | Lead intelligence | Inventory-based features | Dashboard scope | Priority review |

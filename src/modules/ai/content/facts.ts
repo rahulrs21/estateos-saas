@@ -72,6 +72,7 @@ export interface BrandRecord {
   profile?: {
     displayName?: string | null; brandTone?: string | null; useCompanyPhone?: boolean; useCompanyEmail?: boolean; website?: string | null;
     whatsappNumber?: string | null; defaultCallToAction?: string | null; tagline?: string | null; marketingDisclaimer?: string | null;
+    officeAddress?: string | null; officeHours?: string | null;
   } | null;
 }
 
@@ -82,6 +83,8 @@ export interface ApprovedBranding {
   defaultCallToAction: string | null;
   marketingDisclaimer: string | null;
   approvedContacts: {phone: string | null; email: string | null; website: string | null; whatsapp: string | null};
+  /** Office details for website contact sections; never sent to Claude. */
+  office?: {address: string | null; hours: string | null};
 }
 
 export interface FactSheet {
@@ -115,6 +118,7 @@ export function presentBranding(record: BrandRecord): ApprovedBranding {
       website: cleanText(profile?.website, 300),
       whatsapp: cleanText(profile?.whatsappNumber, 32),
     },
+    office: {address: cleanText(profile?.officeAddress, 300), hours: cleanText(profile?.officeHours, 200)},
   };
 }
 

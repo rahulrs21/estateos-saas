@@ -1,5 +1,5 @@
 import {
-  Gauge,
+  Gauge, Globe,
   BarChart3, Bot, BriefcaseBusiness, Building2, CalendarCheck2, ContactRound,
   FolderKanban, Handshake, House, LayoutDashboard, Megaphone, MessagesSquare,
   Settings2, UsersRound, WalletCards, Wand2, Workflow, type LucideIcon,
@@ -41,6 +41,7 @@ export const navigationGroups: NavigationGroup[] = [
     label: "Operations",
     items: [
       { title: "Tasks", href: "/workspace/tasks", icon: CalendarCheck2, description: "Coordinate follow-ups, viewings, and your team's daily work." },
+      { title: "Websites", href: "/websites", icon: Globe, description: "Build landing pages from CRM records, with Claude, review and publishing." },
       { title: "Marketing", href: "/workspace/marketing", icon: Megaphone, description: "Plan campaigns and understand where your inquiries come from." },
       { title: "Communications", href: "/workspace/communications", icon: MessagesSquare, description: "Bring client conversations and communication history together." },
     ],
