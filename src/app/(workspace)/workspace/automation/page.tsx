@@ -1,8 +1,6 @@
-import type { Metadata } from "next";
-import { ModulePreview } from "@/modules/workspace/components/module-preview";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Automation" };
-
+/** The automation area moved to /automations. */
 export default function AutomationPage() {
-  return <ModulePreview slug="automation" />;
+  redirect("/automations");
 }

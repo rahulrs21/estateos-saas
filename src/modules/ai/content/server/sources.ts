@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getInventoryRecord, listInventory } from "@/modules/inventory/server/service";
-import { getLead } from "@/modules/leads/server/service";
+import { getLeadInContext } from "@/modules/leads/server/service";
 import { getLeadPropertyData } from "@/modules/leads/server/property-service";
 import type { requireActiveOrganizationRequest } from "@/modules/organizations/server/context";
 import { WorkspaceError } from "@/modules/organizations/server/errors";
@@ -90,14 +90,14 @@ async function loadProject(id: string, facts: FactSheet, sources: SourceRef[]) {
   }
 }
 
-async function loadLead(id: string, facts: FactSheet, sources: SourceRef[], useFirstName: boolean) {
+async function loadLead(context: Context, id: string, facts: FactSheet, sources: SourceRef[], useFirstName: boolean) {
   const {lead} = await required(async () => {
-    const data = await getLead({leadId: id}) as unknown as {lead: LeadRecord | null};
+    const data = await getLeadInContext(context, {leadId: id}) as unknown as {lead: LeadRecord | null};
     return data.lead ? data : null;
   });
   let properties: LeadPropertyRecord | null = null;
   try {
-    properties = await getLeadPropertyData({leadId: canonicalUuid(lead!.id), page: 1}) as unknown as LeadPropertyRecord;
+    properties = await getLeadPropertyData({leadId: canonicalUuid(lead!.id), page: 1}, context) as unknown as LeadPropertyRecord;
   } catch {
     facts.unavailable.push("Viewings and shortlisted properties for this lead are not available to this user.");
   }
@@ -118,6 +118,6 @@ export async function loadFacts(context: Context, selection: SourceSelection, op
   if (selection.listingId) await loadListing(selection.listingId, facts, sources, options.withPropertyDetail);
   for (const listingId of selection.listingIds ?? []) await loadListing(listingId, facts, sources, false);
   if (selection.projectId) await loadProject(selection.projectId, facts, sources);
-  if (selection.leadId) await loadLead(selection.leadId, facts, sources, options.useLeadFirstName);
+  if (selection.leadId) await loadLead(context, selection.leadId, facts, sources, options.useLeadFirstName);
   return {facts, sources};
 }

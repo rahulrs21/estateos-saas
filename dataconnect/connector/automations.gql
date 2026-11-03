@@ -1,0 +1,461 @@
+# Phase 6E: workflow automation (docs/AUTOMATION_ENGINE.md, docs/WORKFLOW_SECURITY.md).
+#
+# Three kinds of operations:
+# - Member operations impersonate the signed-in member; every one re-checks the
+#   member's company and role in the database.
+# - Worker bookkeeping (claims, executions, steps, jobs) is NO_ACCESS: only the
+#   EstateOS server can call it, and every write is fenced by a company lease
+#   token or a job claim token.
+# - Side effects (tasks, notifications, notes, assignment) impersonate the
+#   workflow's executor, the member who activated it, so the same role checks
+#   as a person's action apply. Their rows have deterministic IDs, so running
+#   a step twice cannot create a duplicate.
+
+# --- Member reads ------------------------------------------------------------------------------
+
+query ListAutomationWorkflows($organizationId: UUID!, $createdByUid: String, $status: AutomationWorkflowStatus, $limit: Int! = 50, $offset: Int! = 0)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 200 && vars.offset >= 0 && vars.offset <= 10000") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact
+    @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN', 'MANAGER'] || (has(vars.createdByUid) && vars.createdByUid == auth.uid))", message: "AUTOMATION_PERMISSION_DENIED") {id role}
+  workflows: automationWorkflows(where: {organizationId: {eq: $organizationId}, createdByUid: {eq: $createdByUid}, status: {eq: $status}}, orderBy: [{updatedAt: DESC}, {id: ASC}], limit: $limit, offset: $offset) {
+    id name description triggerType status revision currentVersionNumber approvedVersionNumber hasApprovalSteps timeZone nextRunAt
+    createdByUid createdBy {displayName} approvedByUid approvedAt executorUid executor {displayName} activatedAt createdAt updatedAt
+  }
+}
+
+query GetAutomationWorkflow($organizationId: UUID!, $id: UUID!, $createdByUid: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @redact
+    @check(expr: "this != null && (this.role in ['OWNER', 'ADMIN', 'MANAGER'] || (has(vars.createdByUid) && vars.createdByUid == auth.uid))", message: "AUTOMATION_PERMISSION_DENIED") {id role}
+  workflow: automationWorkflow(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $createdByUid}}}) {
+    id name description triggerType definitionJson definitionVersion status revision currentVersionNumber approvedVersionNumber approvedVersionId hasApprovalSteps timeZone nextRunAt
+    createdByUid createdBy {displayName} updatedByUid approvedByUid approvedBy {displayName} approvedAt executorUid executor {displayName} activatedAt createdAt updatedAt
+  }
+  versions: automationWorkflowVersions(where: {organizationId: {eq: $organizationId}, workflowId: {eq: $id}, workflow: {createdByUid: {eq: $createdByUid}}}, orderBy: [{versionNumber: DESC}], limit: 50) {
+    id versionNumber definitionHash authorUid author {displayName} createdAt
+  }
+}
+
+query ListAutomationExecutions($organizationId: UUID!, $workflowId: UUID, $status: AutomationExecutionStatus, $triggerType: String, $agentMembershipId: UUID, $from: Timestamp, $to: Timestamp, $limit: Int! = 30, $offset: Int! = 0)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}) @redact
+    @check(expr: "this != null", message: "AUTOMATION_PERMISSION_DENIED") {id}
+  executions: automationExecutions(where: {organizationId: {eq: $organizationId}, workflowId: {eq: $workflowId}, status: {eq: $status}, triggerType: {eq: $triggerType}, lead: {assignedMembershipId: {eq: $agentMembershipId}}, createdAt: {ge: $from, lt: $to}},
+    orderBy: [{createdAt: DESC}, {id: ASC}], limit: $limit, offset: $offset) {
+    id workflowId workflow {name} triggerType targetType targetId leadId lead {fullName assignedMembershipId} status nextStep attemptCount actionCount aiCalls durationMs errorCode chainDepth startedAt completedAt createdAt
+  }
+}
+
+query GetAutomationExecution($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}) @redact
+    @check(expr: "this != null", message: "AUTOMATION_PERMISSION_DENIED") {id}
+  execution: automationExecution(key: {organizationId: $organizationId, id: $id}) {
+    id workflowId workflow {name status} workflowVersion {versionNumber} triggerType targetType targetId leadId lead {fullName} status nextStep attemptCount actionCount aiCalls durationMs errorCode chainDepth
+    executorUid executor {displayName} startedAt completedAt createdAt
+    triggeringEvent {id triggerType origin chainDepth originalEventId parentExecutionId createdAt}
+  }
+  steps: automationExecutionSteps(where: {organizationId: {eq: $organizationId}, executionId: {eq: $id}}, orderBy: [{position: ASC}], limit: 60) {
+    id position actionId actionType status attemptCount resultType resultId resultSummary errorCode startedAt completedAt
+  }
+  job: scheduledAutomationJobs(where: {organizationId: {eq: $organizationId}, executionId: {eq: $id}}, limit: 1) {status runAt attemptCount errorCode}
+}
+
+query AutomationMetrics($organizationId: UUID!, $since: Timestamp!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}) @redact
+    @check(expr: "this != null", message: "AUTOMATION_PERMISSION_DENIED") {id}
+  workflows: automationWorkflows(where: {organizationId: {eq: $organizationId}}) {status count: _count}
+  executions: automationExecutions(where: {organizationId: {eq: $organizationId}, createdAt: {ge: $since}}) {status count: _count averageDurationMs: durationMs_avg}
+  byWorkflow: automationExecutions(where: {organizationId: {eq: $organizationId}, createdAt: {ge: $since}}) {workflowId count: _count}
+  pendingApprovals: automationApprovals(where: {organizationId: {eq: $organizationId}, status: {eq: PENDING}}) {count: _count}
+}
+
+# --- Member writes -----------------------------------------------------------------------------
+
+mutation CreateAutomationWorkflow($organizationId: UUID!, $id: UUID!, $versionId: UUID!, $name: String!, $description: String!, $triggerType: String!, $definitionJson: String!, $definitionHash: String!, $hasApprovalSteps: Boolean!, $timeZone: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.name.size() >= 3 && vars.name.size() <= 120 && vars.definitionJson.size() <= 40000 && vars.definitionHash.size() == 64") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "AUTOMATION_PERMISSION_DENIED")
+  query @redact {
+    workflows: automationWorkflows(where: {organizationId: {eq: $organizationId}, status: {ne: ARCHIVED}}, limit: 201) @check(expr: "this.size() < 200", message: "AUTOMATION_WORKFLOW_LIMIT") {id}
+  }
+  workflow: automationWorkflow_insert(data: {organizationId: $organizationId, id: $id, name: $name, description: $description, triggerType: $triggerType, definitionJson: $definitionJson, hasApprovalSteps: $hasApprovalSteps, timeZone: $timeZone,
+    createdByUid_expr: "auth.uid", updatedByUid_expr: "auth.uid"})
+  version: automationWorkflowVersion_insert(data: {organizationId: $organizationId, id: $versionId, workflowId: $id, versionNumber: 1, definitionJson: $definitionJson, definitionHash: $definitionHash, authorUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AUTOMATION_WORKFLOW_CHANGED, targetType: AUTOMATION_WORKFLOW, targetId: $id, metadata_expr: "{'event': 'CREATED', 'version': 1, 'trigger': vars.triggerType}"})
+}
+
+# Editing makes a new immutable version and returns the workflow to DRAFT: it needs a new review before it runs again.
+mutation SaveAutomationWorkflow($organizationId: UUID!, $id: UUID!, $versionId: UUID!, $expectedRevision: Int!, $versionNumber: Int!, $name: String!, $description: String!, $triggerType: String!, $definitionJson: String!, $definitionHash: String!, $hasApprovalSteps: Boolean!, $timeZone: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.name.size() >= 3 && vars.name.size() <= 120 && vars.definitionJson.size() <= 40000 && vars.definitionHash.size() == 64") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "AUTOMATION_PERMISSION_DENIED")
+  before: query @redact @check(expr: "this.actor != null && this.workflow != null && (this.actor.role in ['OWNER', 'ADMIN'] || (this.workflow.createdByUid == auth.uid && this.workflow.status in ['DRAFT', 'IN_REVIEW']))", message: "AUTOMATION_PERMISSION_DENIED") {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {role}
+    workflow: automationWorkflow(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, currentVersionNumber: {eq_expr: "vars.versionNumber - 1"}, status: {ne: ARCHIVED}}})
+      @check(expr: "this != null", message: "AUTOMATION_CHANGED_RELOAD") {status createdByUid}
+  }
+  workflow: automationWorkflow_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {
+    name: $name, description: $description, triggerType: $triggerType, definitionJson: $definitionJson, hasApprovalSteps: $hasApprovalSteps, timeZone: $timeZone,
+    revision_update: {inc: 1}, currentVersionNumber: $versionNumber, status: DRAFT, approvedVersionNumber: null, approvedVersionId: null, approvedByUid: null, approvedAt: null,
+    executorUid: null, activatedAt: null, nextRunAt: null, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "AUTOMATION_CHANGED_RELOAD")
+  version: automationWorkflowVersion_insert(data: {organizationId: $organizationId, id: $versionId, workflowId: $id, versionNumber: $versionNumber, definitionJson: $definitionJson, definitionHash: $definitionHash, authorUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AUTOMATION_WORKFLOW_CHANGED, targetType: AUTOMATION_WORKFLOW, targetId: $id, metadata_expr: "{'event': 'EDITED', 'version': vars.versionNumber, 'previousStatus': response.before.workflow.status}"})
+}
+
+mutation SubmitAutomationWorkflow($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "AUTOMATION_PERMISSION_DENIED")
+  before: query @redact @check(expr: "this.actor != null && this.workflow != null && (this.actor.role in ['OWNER', 'ADMIN'] || this.workflow.createdByUid == auth.uid)", message: "AUTOMATION_PERMISSION_DENIED") {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {role}
+    workflow: automationWorkflow(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {eq: DRAFT}}}) @check(expr: "this != null", message: "AUTOMATION_TRANSITION_DENIED") {createdByUid currentVersionNumber}
+  }
+  workflow: automationWorkflow_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {status: IN_REVIEW, revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AUTOMATION_WORKFLOW_CHANGED, targetType: AUTOMATION_WORKFLOW, targetId: $id, metadata_expr: "{'event': 'SUBMITTED', 'version': response.before.workflow.currentVersionNumber}"})
+}
+
+# Returns a workflow in review (or an approved one not yet active) to its author.
+mutation ReturnAutomationWorkflowToDraft($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $note: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.note.size() <= 500") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "AUTOMATION_PERMISSION_DENIED")
+  before: query @redact @check(expr: "this.actor != null && this.workflow != null && (this.actor.role in ['OWNER', 'ADMIN'] || (this.workflow.status == 'IN_REVIEW' && this.workflow.createdByUid == auth.uid))", message: "AUTOMATION_PERMISSION_DENIED") {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {role}
+    workflow: automationWorkflow(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {in: [IN_REVIEW, APPROVED]}}}) @check(expr: "this != null", message: "AUTOMATION_TRANSITION_DENIED") {status createdByUid}
+  }
+  workflow: automationWorkflow_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {status: DRAFT, revision_update: {inc: 1},
+    approvedVersionNumber: null, approvedVersionId: null, approvedByUid: null, approvedAt: null, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AUTOMATION_WORKFLOW_CHANGED, targetType: AUTOMATION_WORKFLOW, targetId: $id, metadata_expr: "{'event': 'RETURNED', 'note': vars.note}"})
+}
+
+# Approves the exact version in review. OWNER and ADMIN only.
+mutation ApproveAutomationWorkflow($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $versionNumber: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "AUTOMATION_APPROVER_REQUIRED")
+  before: query @redact {
+    workflow: automationWorkflow(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {eq: IN_REVIEW}, currentVersionNumber: {eq: $versionNumber}}}) @check(expr: "this != null", message: "AUTOMATION_TRANSITION_DENIED") {createdByUid}
+    version: automationWorkflowVersion(first: {where: {organizationId: {eq: $organizationId}, workflowId: {eq: $id}, versionNumber: {eq: $versionNumber}}}) @check(expr: "this != null", message: "AUTOMATION_CHANGED_RELOAD") {id}
+  }
+  workflow: automationWorkflow_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {status: APPROVED, revision_update: {inc: 1},
+    approvedVersionNumber: $versionNumber, approvedVersionId_expr: "response.before.version.id", approvedByUid_expr: "auth.uid", approvedAt_expr: "request.time", updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AUTOMATION_WORKFLOW_CHANGED, targetType: AUTOMATION_WORKFLOW, targetId: $id,
+    metadata_expr: "{'event': 'APPROVED', 'version': vars.versionNumber, 'selfApproved': response.before.workflow.createdByUid == auth.uid}"})
+}
+
+# Activates (or resumes) the approved version. The activating member becomes the executor whose permissions the engine uses.
+mutation ActivateAutomationWorkflow($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $nextRunAt: Timestamp)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "AUTOMATION_APPROVER_REQUIRED")
+  before: query @redact {
+    workflow: automationWorkflow(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {in: [APPROVED, PAUSED]}, approvedVersionId: {isNull: false}}})
+      @check(expr: "this != null && this.approvedVersionNumber == this.currentVersionNumber", message: "AUTOMATION_TRANSITION_DENIED") {approvedVersionNumber currentVersionNumber status}
+    active: automationWorkflows(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}}, limit: 51) @check(expr: "this.size() < 50", message: "AUTOMATION_ACTIVE_LIMIT") {id}
+  }
+  workflow: automationWorkflow_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {status: ACTIVE, revision_update: {inc: 1},
+    executorUid_expr: "auth.uid", activatedAt_expr: "request.time", nextRunAt: $nextRunAt, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AUTOMATION_WORKFLOW_CHANGED, targetType: AUTOMATION_WORKFLOW, targetId: $id,
+    metadata_expr: "{'event': response.before.workflow.status == 'PAUSED' ? 'RESUMED' : 'ACTIVATED', 'version': response.before.workflow.approvedVersionNumber}"})
+}
+
+mutation PauseAutomationWorkflow($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "AUTOMATION_APPROVER_REQUIRED")
+  workflow: automationWorkflow_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {eq: ACTIVE}}}, data: {status: PAUSED, revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+    @check(expr: "this != null", message: "AUTOMATION_TRANSITION_DENIED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AUTOMATION_WORKFLOW_CHANGED, targetType: AUTOMATION_WORKFLOW, targetId: $id, metadata_expr: "{'event': 'PAUSED'}"})
+}
+
+mutation ArchiveAutomationWorkflow($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "AUTOMATION_PERMISSION_DENIED")
+  before: query @redact @check(expr: "this.actor != null && this.workflow != null && (this.actor.role in ['OWNER', 'ADMIN'] || (this.workflow.status == 'DRAFT' && this.workflow.createdByUid == auth.uid))", message: "AUTOMATION_PERMISSION_DENIED") {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {role}
+    workflow: automationWorkflow(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {ne: ARCHIVED}}}) @check(expr: "this != null", message: "AUTOMATION_TRANSITION_DENIED") {status createdByUid}
+  }
+  workflow: automationWorkflow_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {status: ARCHIVED, revision_update: {inc: 1}, nextRunAt: null, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AUTOMATION_WORKFLOW_CHANGED, targetType: AUTOMATION_WORKFLOW, targetId: $id, metadata_expr: "{'event': 'ARCHIVED', 'previousStatus': response.before.workflow.status}"})
+}
+
+# "Run now" for an active manual workflow, optionally for one lead of the company. The event starts only this workflow.
+mutation QueueManualAutomationRun($organizationId: UUID!, $workflowId: UUID!, $eventId: UUID!, $leadId: UUID, $hasLead: Boolean!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "AUTOMATION_PERMISSION_DENIED")
+  before: query @redact @check(expr: "vars.hasLead == (has(vars.leadId) && vars.leadId != null) && (!vars.hasLead || this.lead != null)", message: "LEAD_NOT_FOUND") {
+    workflow: automationWorkflow(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $workflowId}, status: {eq: ACTIVE}, triggerType: {eq: "workflow.manual"}}}) @check(expr: "this != null", message: "AUTOMATION_NOT_RUNNABLE") {id}
+    lead: lead(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}}) {id}
+  }
+  event: automationEvent_insert(data: {organizationId: $organizationId, id: $eventId, deduplicationKey_expr: "'manual:' + vars.eventId", triggerType: "workflow.manual", targetType_expr: "vars.hasLead ? 'LEAD' : 'NONE'",
+    targetId: $leadId, actorUid_expr: "auth.uid", origin: "MANUAL", forWorkflowId: $workflowId})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AUTOMATION_EXECUTION_CHANGED, targetType: AUTOMATION_WORKFLOW, targetId: $workflowId, metadata_expr: "{'event': 'RUN_REQUESTED', 'eventId': vars.eventId}"})
+}
+
+# --- Worker bookkeeping (server only) -----------------------------------------------------------
+
+# Companies with work: pending events, due or abandoned jobs, due schedules.
+query ListAutomationWorkOrganizations($now: Timestamp!) @auth(level: NO_ACCESS) {
+  events: automationEvents(where: {status: {eq: PENDING}}, orderBy: [{createdAt: ASC}], limit: 50) {organizationId}
+  jobs: scheduledAutomationJobs(where: {_or: [{status: {eq: QUEUED}, runAt: {le: $now}}, {status: {eq: CLAIMED}, leaseUntil: {le: $now}}]}, orderBy: [{runAt: ASC}], limit: 50) {organizationId}
+  schedules: automationWorkflows(where: {status: {eq: ACTIVE}, nextRunAt: {le: $now}}, limit: 50) {organizationId}
+  # Companies with time-based triggers are scanned for due tasks (at most once a minute each, see MarkAutomationScan).
+  scans: automationWorkflows(where: {status: {eq: ACTIVE}, triggerType: {in: ["lead.followup_due", "task.overdue"]}}, limit: 50) {organizationId}
+}
+
+# Reserves one Claude call for a workflow step within the company's daily limit (server only), fenced by the job's claim.
+# Both daily counters start again when the UTC day changes.
+mutation ReserveAutomationAiCall($organizationId: UUID!, $jobId: UUID!, $jobToken: UUID!, $periodKey: String!, $dailyLimit: Int!) @auth(level: NO_ACCESS) @transaction {
+  query @redact { job: scheduledAutomationJob(key: {organizationId: $organizationId, id: $jobId}) @check(expr: "this != null && this.status == 'CLAIMED' && this.claimToken == vars.jobToken", message: "AUTOMATION_LEASE_LOST") {status claimToken} }
+  limit: query @redact @check(expr: "this.state != null && (this.state.periodKey != vars.periodKey || this.state.aiCallCount < vars.dailyLimit)", message: "AUTOMATION_AI_DAILY_LIMIT") {
+    state: automationOrgState(key: {organizationId: $organizationId}) {periodKey aiCallCount executionCount}
+  }
+  automationOrgState_update(key: {organizationId: $organizationId}, data: {periodKey: $periodKey,
+    aiCallCount_expr: "response.limit.state.periodKey == vars.periodKey ? response.limit.state.aiCallCount + 1 : 1",
+    executionCount_expr: "response.limit.state.periodKey == vars.periodKey ? response.limit.state.executionCount : 0", updatedAt_expr: "request.time"})
+}
+
+# Pending follow-ups and work tasks that became due in a window (server only), for lead.followup_due and task.overdue.
+query ListAutomationDueTasks($organizationId: UUID!, $since: Timestamp!, $now: Timestamp!) @auth(level: NO_ACCESS) {
+  followUps: leadFollowUps(where: {organizationId: {eq: $organizationId}, status: {eq: PENDING}, dueAt: {gt: $since, le: $now}, lead: {archivedAt: {isNull: true}}}, orderBy: [{dueAt: ASC}, {id: ASC}], limit: 50) {id leadId dueAt}
+  workTasks: workTasks(where: {organizationId: {eq: $organizationId}, status: {eq: PENDING}, dueAt: {gt: $since, le: $now}}, orderBy: [{dueAt: ASC}, {id: ASC}], limit: 50) {id leadId dueAt}
+}
+
+# Records a finished due-task scan, fenced by the company lease (server only).
+mutation MarkAutomationScan($organizationId: UUID!, $claimToken: UUID!, $scannedAt: Timestamp!) @auth(level: NO_ACCESS) @transaction {
+  query @redact { state: automationOrgState(key: {organizationId: $organizationId}) @check(expr: "this != null && this.claimToken == vars.claimToken", message: "AUTOMATION_LEASE_LOST") {claimToken} }
+  automationOrgState_update(key: {organizationId: $organizationId}, data: {lastScanAt: $scannedAt})
+}
+
+mutation EnsureAutomationOrgState($organizationId: UUID!) @auth(level: NO_ACCESS) {
+  automationOrgState_insert(data: {organizationId: $organizationId})
+}
+
+# A short company lease: one tick per company at a time. The token fences every bookkeeping write.
+mutation ClaimAutomationOrganization($organizationId: UUID!, $claimToken: UUID!, $now: Timestamp!, $leaseUntil: Timestamp!) @auth(level: NO_ACCESS) @transaction {
+  automationOrgState_update(first: {where: {_and: [{organizationId: {eq: $organizationId}}, {_or: [{leaseUntil: {isNull: true}}, {leaseUntil: {le: $now}}]}]}}, data: {claimToken: $claimToken, leaseUntil: $leaseUntil, updatedAt_expr: "request.time"})
+    @check(expr: "this != null", message: "AUTOMATION_ORGANIZATION_BUSY")
+}
+
+mutation ReleaseAutomationOrganization($organizationId: UUID!, $claimToken: UUID!) @auth(level: NO_ACCESS) {
+  automationOrgState_update(first: {where: {organizationId: {eq: $organizationId}, claimToken: {eq: $claimToken}}}, data: {claimToken: null, leaseUntil: null, updatedAt_expr: "request.time"})
+}
+
+query GetAutomationWork($organizationId: UUID!, $now: Timestamp!) @auth(level: NO_ACCESS) {
+  state: automationOrgState(key: {organizationId: $organizationId}) {claimToken periodKey executionCount aiCallCount lastScanAt}
+  events: automationEvents(where: {organizationId: {eq: $organizationId}, status: {eq: PENDING}}, orderBy: [{createdAt: ASC}], limit: 25) {
+    id triggerType targetType targetId actorUid origin originalEventId parentExecutionId originWorkflowId forWorkflowId chainDepth payload createdAt
+  }
+  workflows: automationWorkflows(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}}, limit: 60) {
+    id name triggerType approvedVersionId approvedVersionNumber executorUid timeZone nextRunAt activatedAt
+  }
+  jobs: scheduledAutomationJobs(where: {_and: [{organizationId: {eq: $organizationId}}, {_or: [{status: {eq: QUEUED}, runAt: {le: $now}}, {status: {eq: CLAIMED}, leaseUntil: {le: $now}}]}]}, orderBy: [{runAt: ASC}], limit: 25) {
+    id executionId status attemptCount runAt
+  }
+}
+
+query GetAutomationVersions($organizationId: UUID!, $ids: [UUID!]!) @auth(level: NO_ACCESS) {
+  versions: automationWorkflowVersions(where: {organizationId: {eq: $organizationId}, id: {in: $ids}}, limit: 60) {id workflowId versionNumber definitionJson definitionHash}
+}
+
+# Creates an execution and its job for one matched workflow, within the company's daily limit.
+# The unique (workflow, event) key makes a second attempt fail instead of starting twice.
+mutation StartAutomationExecution($organizationId: UUID!, $claimToken: UUID!, $executionId: UUID!, $jobId: UUID!, $workflowId: UUID!, $workflowVersionId: UUID!, $eventId: UUID!, $triggerType: String!, $targetType: String!,
+  $targetId: UUID, $leadId: UUID, $chainDepth: Int!, $executorUid: String!, $periodKey: String!, $dailyLimit: Int!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact @check(expr: "this.state != null && this.state.claimToken == vars.claimToken && (this.state.periodKey != vars.periodKey || this.state.executionCount < vars.dailyLimit)", message: "AUTOMATION_DAILY_LIMIT") {
+    state: automationOrgState(key: {organizationId: $organizationId}) {claimToken periodKey executionCount aiCallCount}
+    workflow: automationWorkflow(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $workflowId}, status: {eq: ACTIVE}, approvedVersionId: {eq: $workflowVersionId}, executorUid: {eq: $executorUid}}})
+      @check(expr: "this != null", message: "AUTOMATION_NOT_RUNNABLE") {id}
+  }
+  automationOrgState_update(key: {organizationId: $organizationId}, data: {periodKey: $periodKey,
+    executionCount_expr: "response.before.state.periodKey == vars.periodKey ? response.before.state.executionCount + 1 : 1",
+    aiCallCount_expr: "response.before.state.periodKey == vars.periodKey ? response.before.state.aiCallCount : 0", updatedAt_expr: "request.time"})
+  execution: automationExecution_insert(data: {organizationId: $organizationId, id: $executionId, workflowId: $workflowId, workflowVersionId: $workflowVersionId, triggeringEventId: $eventId, triggerType: $triggerType,
+    targetType: $targetType, targetId: $targetId, leadId: $leadId, chainDepth: $chainDepth, executorUid: $executorUid})
+  job: scheduledAutomationJob_insert(data: {organizationId: $organizationId, id: $jobId, executionId: $executionId, runAt_expr: "request.time"})
+}
+
+mutation FinishAutomationEvent($organizationId: UUID!, $claimToken: UUID!, $id: UUID!, $status: AutomationEventStatus!, $matchedCount: Int!, $errorCode: String) @auth(level: NO_ACCESS) @transaction {
+  query @redact { state: automationOrgState(key: {organizationId: $organizationId}) @check(expr: "this != null && this.claimToken == vars.claimToken", message: "AUTOMATION_LEASE_LOST") {claimToken} }
+  automationEvent_update(key: {organizationId: $organizationId, id: $id}, data: {status: $status, matchedCount: $matchedCount, errorCode: $errorCode, processedAt_expr: "request.time"})
+}
+
+# Events created by the engine or by scans (task created by a workflow, follow-up due, schedules). Duplicate keys are rejected.
+mutation InsertAutomationEvent($organizationId: UUID!, $id: UUID!, $deduplicationKey: String!, $triggerType: String!, $targetType: String!, $targetId: UUID, $actorUid: String, $origin: String!,
+  $originalEventId: UUID, $parentExecutionId: UUID, $originWorkflowId: UUID, $chainDepth: Int!, $payload: Any) @auth(level: NO_ACCESS) {
+  automationEvent_insert(data: {organizationId: $organizationId, id: $id, deduplicationKey: $deduplicationKey, triggerType: $triggerType, targetType: $targetType, targetId: $targetId, actorUid: $actorUid, origin: $origin,
+    originalEventId: $originalEventId, parentExecutionId: $parentExecutionId, originWorkflowId: $originWorkflowId, chainDepth: $chainDepth, payload: $payload})
+}
+
+# Claims one due (or abandoned) job with its own token and lease.
+mutation ClaimAutomationJob($organizationId: UUID!, $id: UUID!, $jobToken: UUID!, $now: Timestamp!, $leaseUntil: Timestamp!) @auth(level: NO_ACCESS) @transaction {
+  job: scheduledAutomationJob_update(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}}, {_or: [{status: {eq: QUEUED}, runAt: {le: $now}}, {status: {eq: CLAIMED}, leaseUntil: {le: $now}}]}]}},
+    data: {status: CLAIMED, claimToken: $jobToken, leaseUntil: $leaseUntil, attemptCount_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "AUTOMATION_JOB_TAKEN")
+}
+
+query GetAutomationExecutionRun($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  execution: automationExecution(key: {organizationId: $organizationId, id: $id}) {
+    id workflowId triggerType targetType targetId leadId chainDepth executorUid status nextStep actionCount aiCalls startedAt createdAt
+    workflow {status name executorUid approvedVersionId}
+    workflowVersion {id versionNumber definitionJson}
+    triggeringEvent {id triggerType targetType targetId origin originalEventId parentExecutionId originWorkflowId chainDepth payload createdAt actorUid}
+  }
+  steps: automationExecutionSteps(where: {organizationId: {eq: $organizationId}, executionId: {eq: $id}}, orderBy: [{position: ASC}], limit: 60) {id position actionType status attemptCount resultType resultId}
+}
+
+mutation BeginAutomationJob($organizationId: UUID!, $jobId: UUID!, $jobToken: UUID!, $executionId: UUID!, $now: Timestamp!) @auth(level: NO_ACCESS) @transaction {
+  query @redact { job: scheduledAutomationJob(key: {organizationId: $organizationId, id: $jobId}) @check(expr: "this != null && this.status == 'CLAIMED' && this.claimToken == vars.jobToken", message: "AUTOMATION_LEASE_LOST") {id status claimToken} }
+  started: automationExecution_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $executionId}, startedAt: {isNull: true}}}, data: {startedAt: $now})
+  execution: automationExecution_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $executionId}, status: {in: [QUEUED, RUNNING, WAITING]}}}, data: {status: RUNNING, attemptCount_update: {inc: 1}, updatedAt_expr: "request.time"})
+}
+
+mutation RecordAutomationStep($organizationId: UUID!, $jobId: UUID!, $jobToken: UUID!, $id: UUID!, $executionId: UUID!, $position: Int!, $actionId: String!, $actionType: String!, $actionSnapshot: String!, $idempotencyKey: String!) @auth(level: NO_ACCESS) @transaction {
+  query @redact { job: scheduledAutomationJob(key: {organizationId: $organizationId, id: $jobId}) @check(expr: "this != null && this.status == 'CLAIMED' && this.claimToken == vars.jobToken", message: "AUTOMATION_LEASE_LOST") {id status claimToken} }
+  step: automationExecutionStep_insert(data: {organizationId: $organizationId, id: $id, executionId: $executionId, position: $position, actionId: $actionId, actionType: $actionType, actionSnapshot: $actionSnapshot,
+    idempotencyKey: $idempotencyKey, status: RUNNING, attemptCount: 1, startedAt_expr: "request.time"})
+}
+
+mutation RetryAutomationStep($organizationId: UUID!, $jobId: UUID!, $jobToken: UUID!, $id: UUID!) @auth(level: NO_ACCESS) @transaction {
+  query @redact { job: scheduledAutomationJob(key: {organizationId: $organizationId, id: $jobId}) @check(expr: "this != null && this.status == 'CLAIMED' && this.claimToken == vars.jobToken", message: "AUTOMATION_LEASE_LOST") {id status claimToken} }
+  automationExecutionStep_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {in: [RUNNING, PENDING, WAITING, FAILED]}}}, data: {status: RUNNING, attemptCount_update: {inc: 1}, updatedAt_expr: "request.time"})
+}
+
+# Records a step's outcome and moves the execution and its job on, in one transaction fenced by the job token.
+mutation FinishAutomationStep($organizationId: UUID!, $jobId: UUID!, $jobToken: UUID!, $executionId: UUID!, $stepId: UUID!, $stepStatus: AutomationStepStatus!, $resultType: String, $resultId: UUID, $resultSummary: String, $errorCode: String,
+  $nextStep: Int!, $executionStatus: AutomationExecutionStatus!, $executionErrorCode: String, $jobStatus: AutomationJobStatus!, $runAt: Timestamp!, $actionIncrement: Int!, $aiIncrement: Int!, $completedAt: Timestamp, $durationMs: Int, $releaseJob: Boolean!)
+  @auth(level: NO_ACCESS) @transaction {
+  query @redact { job: scheduledAutomationJob(key: {organizationId: $organizationId, id: $jobId}) @check(expr: "this != null && this.status == 'CLAIMED' && this.claimToken == vars.jobToken", message: "AUTOMATION_LEASE_LOST") {id status claimToken} }
+  step: automationExecutionStep_update(key: {organizationId: $organizationId, id: $stepId}, data: {status: $stepStatus, resultType: $resultType, resultId: $resultId, resultSummary: $resultSummary, errorCode: $errorCode,
+    completedAt_expr: "request.time", updatedAt_expr: "request.time"})
+  execution: automationExecution_update(key: {organizationId: $organizationId, id: $executionId}, data: {status: $executionStatus, nextStep: $nextStep, errorCode: $executionErrorCode,
+    actionCount_update: {inc: $actionIncrement}, aiCalls_update: {inc: $aiIncrement}, completedAt: $completedAt, durationMs: $durationMs, updatedAt_expr: "request.time"})
+  # The job keeps its claim while the same run continues with the next step.
+  job: scheduledAutomationJob_update(key: {organizationId: $organizationId, id: $jobId}, data: {status: $jobStatus, runAt: $runAt, claimToken: null, leaseUntil: null, errorCode: $errorCode, updatedAt_expr: "request.time"}) @include(if: $releaseJob)
+}
+
+# Moves an execution on without a step (conditions not met, or nothing left), or ends it.
+mutation SettleAutomationExecution($organizationId: UUID!, $jobId: UUID!, $jobToken: UUID!, $executionId: UUID!, $nextStep: Int!, $executionStatus: AutomationExecutionStatus!, $executionErrorCode: String,
+  $jobStatus: AutomationJobStatus!, $runAt: Timestamp!, $completedAt: Timestamp, $durationMs: Int) @auth(level: NO_ACCESS) @transaction {
+  query @redact { job: scheduledAutomationJob(key: {organizationId: $organizationId, id: $jobId}) @check(expr: "this != null && this.status == 'CLAIMED' && this.claimToken == vars.jobToken", message: "AUTOMATION_LEASE_LOST") {id status claimToken} }
+  execution: automationExecution_update(key: {organizationId: $organizationId, id: $executionId}, data: {status: $executionStatus, nextStep: $nextStep, errorCode: $executionErrorCode, completedAt: $completedAt, durationMs: $durationMs, updatedAt_expr: "request.time"})
+  job: scheduledAutomationJob_update(key: {organizationId: $organizationId, id: $jobId}, data: {status: $jobStatus, runAt: $runAt, claimToken: null, leaseUntil: null, errorCode: $executionErrorCode, updatedAt_expr: "request.time"})
+}
+
+# The engine pauses a workflow (a pause step, or an executor who lost their permissions). Audited as the executor.
+mutation PauseAutomationWorkflowForSystem($organizationId: UUID!, $id: UUID!, $reason: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact { workflow: automationWorkflow(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "AUTOMATION_TRANSITION_DENIED") {executorUid} }
+  workflow: automationWorkflow_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: ACTIVE}}}, data: {status: PAUSED, revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "response.before.workflow.executorUid", action: AUTOMATION_WORKFLOW_CHANGED, targetType: AUTOMATION_WORKFLOW, targetId: $id, metadata_expr: "{'event': 'PAUSED_BY_ENGINE', 'reason': vars.reason}"})
+}
+
+mutation SetAutomationWorkflowNextRun($organizationId: UUID!, $claimToken: UUID!, $id: UUID!, $expectedNextRunAt: Timestamp!, $nextRunAt: Timestamp) @auth(level: NO_ACCESS) @transaction {
+  query @redact { state: automationOrgState(key: {organizationId: $organizationId}) @check(expr: "this != null && this.claimToken == vars.claimToken", message: "AUTOMATION_LEASE_LOST") {claimToken} }
+  automationWorkflow_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: ACTIVE}, nextRunAt: {eq: $expectedNextRunAt}}}, data: {nextRunAt: $nextRunAt}) @check(expr: "this != null", message: "AUTOMATION_SCHEDULE_TAKEN")
+}
+
+# --- Facts and side effects (impersonating the workflow's executor) -------------------------------
+
+# Facts for conditions, read fresh when a step runs. "Contacted" counts people's notes and status changes since the event, not automation notes.
+query AutomationFacts($organizationId: UUID!, $leadId: UUID, $hasLead: Boolean!, $listingId: UUID, $hasListing: Boolean!, $viewingId: UUID, $hasViewing: Boolean!, $followUpId: UUID, $hasFollowUp: Boolean!,
+  $workTaskId: UUID, $hasWorkTask: Boolean!, $contactId: UUID, $hasContact: Boolean!, $since: Timestamp!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  executor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}) @check(expr: "this != null", message: "EXECUTOR_NOT_AUTHORIZED") {id role}
+  lead: lead(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $leadId}}}) @include(if: $hasLead) {
+    id fullName status source priority assignedMembershipId projectId propertyId branchId budgetMax archivedAt createdAt updatedAt
+  }
+  contactActivity: activities(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, createdAt: {gt: $since}, kind: {in: [LEAD_NOTE_ADDED, LEAD_STATUS_CHANGED, FOLLOW_UP_COMPLETED]}}, limit: 1) @include(if: $hasLead) {id}
+  completedFollowUps: leadFollowUps(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, status: {eq: COMPLETED}, completedAt: {gt: $since}}, limit: 1) @include(if: $hasLead) {id}
+  listing: propertyListing(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $listingId}}}) @include(if: $hasListing) {id title listingStatus listingPurpose assignedMembershipId askingPriceMinor archivedAt}
+  viewing: leadPropertyViewing(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $viewingId}}}) @include(if: $hasViewing) {id leadId status outcome scheduledAt}
+  followUp: leadFollowUp(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $followUpId}}}) @include(if: $hasFollowUp) {id leadId title status dueAt assignedUserId}
+  workTask: workTask(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $workTaskId}}}) @include(if: $hasWorkTask) {id title status dueAt assignedMembershipId leadId listingId}
+  contact: contact(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $contactId}}}) @include(if: $hasContact) {id preferredLanguage email phone}
+}
+
+# Members a notification can reach.
+query AutomationRecipients($organizationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  executor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}) @check(expr: "this != null", message: "EXECUTOR_NOT_AUTHORIZED") {id role}
+  managers: memberships(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}, userProfileUid: {isNull: false}}, limit: 100) {id role}
+}
+
+mutation AutomationNotify($organizationId: UUID!, $id: UUID!, $audience: NotificationAudience!, $recipientMembershipId: UUID, $leadId: UUID, $title: String!, $body: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.title.size() >= 1 && vars.title.size() <= 160 && vars.body.size() <= 500 && (vars.audience == 'ADMIN') == (!has(vars.recipientMembershipId) || vars.recipientMembershipId == null)") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "EXECUTOR_NOT_AUTHORIZED")
+  recipientCheck: query @redact {
+    recipient: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $recipientMembershipId}, status: {eq: ACTIVE}}}) @check(expr: "vars.audience == 'ADMIN' || this != null", message: "AUTOMATION_RECIPIENT_INVALID") {id}
+  }
+  # The recipient comes from the checked lookup, so the check runs before the insert.
+  inAppNotification_insert(data: {organizationId: $organizationId, id: $id, audience: $audience, recipientMembershipId_expr: "vars.audience == 'ADMIN' ? dyn(null) : response.recipientCheck.recipient.id", leadId: $leadId, type: AUTOMATION, title: $title, body: $body, actorUid_expr: "auth.uid"})
+}
+
+# A follow-up on a lead, assigned to the lead's agent (or the executor when the lead is unassigned). Emits task.created one level deeper.
+mutation AutomationCreateLeadFollowUp($organizationId: UUID!, $id: UUID!, $leadId: UUID!, $title: String!, $dueAt: Timestamp!, $eventId: UUID!, $originalEventId: UUID!, $parentExecutionId: UUID!, $originWorkflowId: UUID!, $chainDepth: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.title.size() >= 1 && vars.title.size() <= 500") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "EXECUTOR_NOT_AUTHORIZED")
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {id}
+    lead: lead(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}}) @check(expr: "this != null", message: "LEAD_NOT_FOUND") {id assignedMembershipId}
+  }
+  followUp: leadFollowUp_insert(data: {organizationId: $organizationId, id: $id, leadId_expr: "response.before.lead.id", title: $title, dueAt: $dueAt, createdByUid_expr: "auth.uid",
+    assignedUserId_expr: "has(response.before.lead.assignedMembershipId) && response.before.lead.assignedMembershipId != null ? response.before.lead.assignedMembershipId : response.before.actor.id"})
+  activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: FOLLOW_UP_SCHEDULED, leadId_expr: "response.before.lead.id", targetId_expr: "response.before.lead.id", note: $title, metadata_expr: "{'automation': true, 'executionId': vars.parentExecutionId}"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: FOLLOW_UP_SCHEDULED, targetType: LEAD, targetId: $leadId, metadata_expr: "{'automation': true, 'executionId': vars.parentExecutionId, 'followUpId': vars.id}"})
+  automationEvent_insert(data: {organizationId: $organizationId, id: $eventId, deduplicationKey_expr: "'task.created:' + vars.id", triggerType: "task.created", targetType: "TASK", targetId: $id, actorUid_expr: "auth.uid", origin: "WORKFLOW",
+    originalEventId: $originalEventId, parentExecutionId: $parentExecutionId, originWorkflowId: $originWorkflowId, chainDepth: $chainDepth, payload_expr: "{'kind': 'FOLLOW_UP'}"})
+}
+
+# A task that does not belong to a lead (for example a listing review), for the record's agent or the team queue.
+mutation AutomationCreateWorkTask($organizationId: UUID!, $id: UUID!, $title: String!, $dueAt: Timestamp!, $assignedMembershipId: UUID, $listingId: UUID, $leadId: UUID, $eventId: UUID!, $originalEventId: UUID!, $parentExecutionId: UUID!, $originWorkflowId: UUID!, $chainDepth: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.title.size() >= 1 && vars.title.size() <= 500") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "EXECUTOR_NOT_AUTHORIZED")
+  targetCheck: query @redact {
+    assignee: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $assignedMembershipId}, status: {eq: ACTIVE}}}) @check(expr: "!has(vars.assignedMembershipId) || vars.assignedMembershipId == null || this != null", message: "AUTOMATION_TARGET_INVALID") {id}
+    listing: propertyListing(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $listingId}}}) @check(expr: "!has(vars.listingId) || vars.listingId == null || this != null", message: "AUTOMATION_TARGET_INVALID") {id}
+  }
+  task: workTask_insert(data: {organizationId: $organizationId, id: $id, title: $title, dueAt: $dueAt,
+    assignedMembershipId_expr: "has(vars.assignedMembershipId) && vars.assignedMembershipId != null ? response.targetCheck.assignee.id : dyn(null)",
+    listingId_expr: "has(vars.listingId) && vars.listingId != null ? response.targetCheck.listing.id : dyn(null)", leadId: $leadId, sourceExecutionId: $parentExecutionId, createdByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WORK_TASK_CHANGED, targetType: WORK_TASK, targetId: $id, metadata_expr: "{'event': 'CREATED', 'automation': true, 'executionId': vars.parentExecutionId}"})
+  automationEvent_insert(data: {organizationId: $organizationId, id: $eventId, deduplicationKey_expr: "'task.created:' + vars.id", triggerType: "task.created", targetType: "TASK", targetId: $id, actorUid_expr: "auth.uid", origin: "WORKFLOW",
+    originalEventId: $originalEventId, parentExecutionId: $parentExecutionId, originWorkflowId: $originWorkflowId, chainDepth: $chainDepth, payload_expr: "{'kind': 'WORK_TASK'}"})
+}
+
+# An internal automation note on the lead's timeline (its own kind, so it never counts as contact with the client).
+mutation AutomationAddLeadNote($organizationId: UUID!, $id: UUID!, $leadId: UUID!, $note: String!, $executionId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.note.size() >= 1 && vars.note.size() <= 1000") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "EXECUTOR_NOT_AUTHORIZED")
+  leadCheck: query @redact { lead: lead(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}}) @check(expr: "this != null", message: "LEAD_NOT_FOUND") {id} }
+  activity_insert(data: {organizationId: $organizationId, id: $id, actorUid_expr: "auth.uid", kind: AUTOMATION_EXECUTION_CHANGED, leadId_expr: "response.leadCheck.lead.id", targetId_expr: "response.leadCheck.lead.id", note: $note, metadata_expr: "{'automation': true, 'executionId': vars.executionId}"})
+}
+
+# Assigns an unassigned lead with the company's distribution rule: the same checks and cursor compare-and-set as lead creation.
+mutation AutomationDistributeLead($organizationId: UUID!, $leadId: UUID!, $assignedMembershipId: UUID!, $distributionRuleId: UUID!, $expectedCursorVersion: Int!, $executionId: UUID!,
+  $eventId: UUID!, $originalEventId: UUID!, $originWorkflowId: UUID!, $chainDepth: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "EXECUTOR_NOT_AUTHORIZED")
+  before: query @redact {
+    lead: lead(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}, assignedMembershipId: {isNull: true}}}) @check(expr: "this != null", message: "LEAD_ALREADY_ASSIGNED") {id fullName updatedAt}
+    rule: leadDistributionRule(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $distributionRuleId}, enabled: {eq: true}, mode: {eq: ROUND_ROBIN}}}) @check(expr: "this != null", message: "DISTRIBUTION_RULE_CHANGED") {id}
+    agent: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $assignedMembershipId}, status: {eq: ACTIVE}, role: {eq: AGENT}, distributionEligible: {eq: true}, userProfileUid: {isNull: false}}})
+      @check(expr: "this != null", message: "DISTRIBUTION_AGENT_UNAVAILABLE") {id}
+  }
+  cursor: distributionCursor_update(first: {where: {organizationId: {eq: $organizationId}, ruleId: {eq: $distributionRuleId}, version: {eq: $expectedCursorVersion}}}, data: {version_update: {inc: 1}, lastMembershipId: $assignedMembershipId, lastAssignedAt_expr: "request.time", updatedAt_expr: "request.time"})
+    @check(expr: "this != null", message: "DISTRIBUTION_RULE_CHANGED")
+  lead: lead_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $leadId}, assignedMembershipId: {isNull: true}, updatedAt: {eq_expr: "response.before.lead.updatedAt"}}}, data: {assignedMembershipId: $assignedMembershipId, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+    @check(expr: "this != null", message: "LEAD_CHANGED_RELOAD")
+  leadAssignmentHistory_insert(data: {organizationId: $organizationId, leadId: $leadId, previousAgentId: null, newAgentId: $assignedMembershipId, distributionRuleId: $distributionRuleId, assignedByUid_expr: "auth.uid", assignmentType: ROUND_ROBIN, reason: "Assigned by an approved workflow"})
+  leadFollowUp_updateMany(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, status: {eq: PENDING}}, data: {assignedUserId: $assignedMembershipId, updatedAt_expr: "request.time"})
+  activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: LEAD_ASSIGNED, leadId: $leadId, targetId: $leadId, metadata_expr: "{'assignedMembershipId': vars.assignedMembershipId, 'automation': true, 'executionId': vars.executionId}"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: LEAD_ASSIGNED, targetType: LEAD, targetId: $leadId, metadata_expr: "{'assignedMembershipId': vars.assignedMembershipId, 'automation': true, 'executionId': vars.executionId}"})
+  inAppNotification_insert(data: {organizationId: $organizationId, audience: MEMBER, recipientMembershipId: $assignedMembershipId, leadId: $leadId, type: LEAD_ASSIGNED, title: "New lead assigned", body_expr: "response.before.lead.fullName", actorUid_expr: "auth.uid"})
+  automationEvent_insert(data: {organizationId: $organizationId, id: $eventId, deduplicationKey_expr: "'lead.assigned:' + vars.executionId + ':' + vars.leadId", triggerType: "lead.assigned", targetType: "LEAD", targetId: $leadId, actorUid_expr: "auth.uid", origin: "WORKFLOW",
+    originalEventId: $originalEventId, parentExecutionId: $executionId, originWorkflowId: $originWorkflowId, chainDepth: $chainDepth})
+}
+
+# The executor's identity for impersonation (server only). Membership and role are re-checked by every operation the engine then runs as them.
+query AutomationExecutorProfile($uid: String!) @auth(level: NO_ACCESS) {
+  userProfile(key: {uid: $uid}) {uid email displayName}
+}
+
+# Diagnostics (server only): the outbox events of one record, newest first.
+query ListAutomationEventsForTarget($organizationId: UUID!, $targetId: UUID!) @auth(level: NO_ACCESS) {
+  events: automationEvents(where: {organizationId: {eq: $organizationId}, targetId: {eq: $targetId}}, orderBy: [{createdAt: DESC}], limit: 20) {
+    id triggerType targetType origin status chainDepth originalEventId parentExecutionId originWorkflowId deduplicationKey actorUid payload createdAt
+  }
+}

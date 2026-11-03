@@ -96,6 +96,10 @@ export enum ActivityKind {
   WEBSITE_MEDIA_ARCHIVED = "WEBSITE_MEDIA_ARCHIVED",
   WEBSITE_SECTION_TEMPLATE_SAVED = "WEBSITE_SECTION_TEMPLATE_SAVED",
   WEBSITE_SECTION_TEMPLATE_DELETED = "WEBSITE_SECTION_TEMPLATE_DELETED",
+  AUTOMATION_WORKFLOW_CHANGED = "AUTOMATION_WORKFLOW_CHANGED",
+  AUTOMATION_EXECUTION_CHANGED = "AUTOMATION_EXECUTION_CHANGED",
+  AUTOMATION_APPROVAL_CHANGED = "AUTOMATION_APPROVAL_CHANGED",
+  WORK_TASK_CHANGED = "WORK_TASK_CHANGED",
 }
 export enum AgentAvailabilityStatus {
   AVAILABLE = "AVAILABLE",
@@ -195,6 +199,61 @@ export enum AuditTargetType {
   WEBSITE_ENQUIRY = "WEBSITE_ENQUIRY",
   WEBSITE_MEDIA = "WEBSITE_MEDIA",
   WEBSITE_SECTION_TEMPLATE = "WEBSITE_SECTION_TEMPLATE",
+  AUTOMATION_WORKFLOW = "AUTOMATION_WORKFLOW",
+  AUTOMATION_EXECUTION = "AUTOMATION_EXECUTION",
+  AUTOMATION_APPROVAL = "AUTOMATION_APPROVAL",
+  WORK_TASK = "WORK_TASK",
+}
+export enum AutomationApprovalStatus {
+  PENDING = "PENDING",
+  APPROVED = "APPROVED",
+  REJECTED = "REJECTED",
+  EXPIRED = "EXPIRED",
+  CANCELLED = "CANCELLED",
+  EXECUTED = "EXECUTED",
+}
+export enum AutomationEventStatus {
+  PENDING = "PENDING",
+  PROCESSED = "PROCESSED",
+  SKIPPED = "SKIPPED",
+  FAILED = "FAILED",
+}
+export enum AutomationExecutionStatus {
+  QUEUED = "QUEUED",
+  RUNNING = "RUNNING",
+  WAITING = "WAITING",
+  APPROVAL_REQUIRED = "APPROVAL_REQUIRED",
+  PAUSED = "PAUSED",
+  SUCCEEDED = "SUCCEEDED",
+  SKIPPED = "SKIPPED",
+  FAILED = "FAILED",
+  CANCELLED = "CANCELLED",
+}
+export enum AutomationJobStatus {
+  QUEUED = "QUEUED",
+  CLAIMED = "CLAIMED",
+  SUCCEEDED = "SUCCEEDED",
+  FAILED = "FAILED",
+  DEAD = "DEAD",
+  CANCELLED = "CANCELLED",
+}
+export enum AutomationStepStatus {
+  PENDING = "PENDING",
+  RUNNING = "RUNNING",
+  WAITING = "WAITING",
+  APPROVAL_REQUIRED = "APPROVAL_REQUIRED",
+  SUCCEEDED = "SUCCEEDED",
+  SKIPPED = "SKIPPED",
+  FAILED = "FAILED",
+  CANCELLED = "CANCELLED",
+}
+export enum AutomationWorkflowStatus {
+  DRAFT = "DRAFT",
+  IN_REVIEW = "IN_REVIEW",
+  APPROVED = "APPROVED",
+  ACTIVE = "ACTIVE",
+  PAUSED = "PAUSED",
+  ARCHIVED = "ARCHIVED",
 }
 export enum BuildingType {
   RESIDENTIAL = "RESIDENTIAL",
@@ -261,6 +320,8 @@ export enum FurnishedStatus {
 export enum InAppNotificationType {
   LEAD_ASSIGNED = "LEAD_ASSIGNED",
   LEAD_UNASSIGNED = "LEAD_UNASSIGNED",
+  AUTOMATION = "AUTOMATION",
+  APPROVAL_REQUESTED = "APPROVAL_REQUESTED",
 }
 export enum InventoryMediaKind {
   PROPERTY_PHOTO = "PROPERTY_PHOTO",
@@ -531,6 +592,11 @@ export enum WebsiteStatus {
   ACTIVE = "ACTIVE",
   ARCHIVED = "ARCHIVED",
 }
+export enum WorkTaskStatus {
+  PENDING = "PENDING",
+  COMPLETED = "COMPLETED",
+  CANCELLED = "CANCELLED",
+}
 
 export interface AcceptInvitationData {
   membership?: Membership_Key | null;
@@ -543,6 +609,18 @@ export interface AcceptInvitationVariables {
   membershipId: UUIDString;
   tokenHash: string;
   displayName?: string;
+}
+
+export interface ActivateAutomationWorkflowData {
+  workflow?: AutomationWorkflow_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface ActivateAutomationWorkflowVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  nextRunAt?: TimestampString | null;
 }
 
 export interface Activity_Key {
@@ -708,6 +786,18 @@ export interface AppendAiExchangeVariables {
   assistantContent: string;
 }
 
+export interface ApproveAutomationWorkflowData {
+  workflow?: AutomationWorkflow_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface ApproveAutomationWorkflowVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  versionNumber: number;
+}
+
 export interface ApproveMembershipData {
   membership?: Membership_Key | null;
   activity_insert: Activity_Key;
@@ -731,6 +821,17 @@ export interface ApproveWebsitePageVariables {
   versionNumber: number;
   expectedRevision: number;
   nextRevision: number;
+}
+
+export interface ArchiveAutomationWorkflowData {
+  workflow?: AutomationWorkflow_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface ArchiveAutomationWorkflowVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
 }
 
 export interface ArchiveBuildingData {
@@ -875,6 +976,7 @@ export interface AssignLeadData {
   activity: Activity_Key;
   auditLog_insert: AuditLog_Key;
   assignedNotification: InAppNotification_Key;
+  leadAssignedEvent: AutomationEvent_Key;
 }
 
 export interface AssignLeadVariables {
@@ -929,6 +1031,310 @@ export interface AuditLog_Key {
   __typename?: 'AuditLog_Key';
 }
 
+export interface AutomationAddLeadNoteData {
+  activity_insert: Activity_Key;
+}
+
+export interface AutomationAddLeadNoteVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  leadId: UUIDString;
+  note: string;
+  executionId: UUIDString;
+}
+
+export interface AutomationApproval_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'AutomationApproval_Key';
+}
+
+export interface AutomationCreateLeadFollowUpData {
+  followUp: LeadFollowUp_Key;
+  activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
+  automationEvent_insert: AutomationEvent_Key;
+}
+
+export interface AutomationCreateLeadFollowUpVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  leadId: UUIDString;
+  title: string;
+  dueAt: TimestampString;
+  eventId: UUIDString;
+  originalEventId: UUIDString;
+  parentExecutionId: UUIDString;
+  originWorkflowId: UUIDString;
+  chainDepth: number;
+}
+
+export interface AutomationCreateWorkTaskData {
+  task: WorkTask_Key;
+  auditLog_insert: AuditLog_Key;
+  automationEvent_insert: AutomationEvent_Key;
+}
+
+export interface AutomationCreateWorkTaskVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  title: string;
+  dueAt: TimestampString;
+  assignedMembershipId?: UUIDString | null;
+  listingId?: UUIDString | null;
+  leadId?: UUIDString | null;
+  eventId: UUIDString;
+  originalEventId: UUIDString;
+  parentExecutionId: UUIDString;
+  originWorkflowId: UUIDString;
+  chainDepth: number;
+}
+
+export interface AutomationDistributeLeadData {
+  cursor?: DistributionCursor_Key | null;
+  lead?: Lead_Key | null;
+  leadAssignmentHistory_insert: LeadAssignmentHistory_Key;
+  leadFollowUp_updateMany: number;
+  activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
+  inAppNotification_insert: InAppNotification_Key;
+  automationEvent_insert: AutomationEvent_Key;
+}
+
+export interface AutomationDistributeLeadVariables {
+  organizationId: UUIDString;
+  leadId: UUIDString;
+  assignedMembershipId: UUIDString;
+  distributionRuleId: UUIDString;
+  expectedCursorVersion: number;
+  executionId: UUIDString;
+  eventId: UUIDString;
+  originalEventId: UUIDString;
+  originWorkflowId: UUIDString;
+  chainDepth: number;
+}
+
+export interface AutomationEvent_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'AutomationEvent_Key';
+}
+
+export interface AutomationExecutionStep_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'AutomationExecutionStep_Key';
+}
+
+export interface AutomationExecution_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'AutomationExecution_Key';
+}
+
+export interface AutomationExecutorProfileData {
+  userProfile?: {
+    uid: string;
+    email: string;
+    displayName: string;
+  } & UserProfile_Key;
+}
+
+export interface AutomationExecutorProfileVariables {
+  uid: string;
+}
+
+export interface AutomationFactsData {
+  executor?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  lead?: {
+    id: UUIDString;
+    fullName: string;
+    status: LeadStatus;
+    source?: string | null;
+    priority: LeadPriority;
+    assignedMembershipId?: UUIDString | null;
+    projectId?: UUIDString | null;
+    propertyId?: UUIDString | null;
+    branchId?: UUIDString | null;
+    budgetMax?: number | null;
+    archivedAt?: TimestampString | null;
+    createdAt: TimestampString;
+    updatedAt: TimestampString;
+  };
+  contactActivity: ({
+    id: UUIDString;
+  })[];
+  completedFollowUps: ({
+    id: UUIDString;
+  })[];
+  listing?: {
+    id: UUIDString;
+    title: string;
+    listingStatus: ListingStatus;
+    listingPurpose: ListingPurpose;
+    assignedMembershipId?: UUIDString | null;
+    askingPriceMinor: Int64String;
+    archivedAt?: TimestampString | null;
+  };
+  viewing?: {
+    id: UUIDString;
+    leadId: UUIDString;
+    status: LeadPropertyViewingStatus;
+    outcome?: LeadPropertyViewingOutcome | null;
+    scheduledAt: TimestampString;
+  };
+  followUp?: {
+    id: UUIDString;
+    leadId: UUIDString;
+    title: string;
+    status: LeadFollowUpStatus;
+    dueAt: TimestampString;
+    assignedUserId: UUIDString;
+  };
+  workTask?: {
+    id: UUIDString;
+    title: string;
+    status: WorkTaskStatus;
+    dueAt: TimestampString;
+    assignedMembershipId?: UUIDString | null;
+    leadId?: UUIDString | null;
+    listingId?: UUIDString | null;
+  };
+  contact?: {
+    id: UUIDString;
+    preferredLanguage: string;
+    email?: string | null;
+    phone?: string | null;
+  };
+}
+
+export interface AutomationFactsVariables {
+  organizationId: UUIDString;
+  leadId?: UUIDString | null;
+  hasLead: boolean;
+  listingId?: UUIDString | null;
+  hasListing: boolean;
+  viewingId?: UUIDString | null;
+  hasViewing: boolean;
+  followUpId?: UUIDString | null;
+  hasFollowUp: boolean;
+  workTaskId?: UUIDString | null;
+  hasWorkTask: boolean;
+  contactId?: UUIDString | null;
+  hasContact: boolean;
+  since: TimestampString;
+}
+
+export interface AutomationMetricsData {
+  workflows: ({
+    status: AutomationWorkflowStatus;
+    count: number;
+  })[];
+  executions: ({
+    status: AutomationExecutionStatus;
+    count: number;
+    averageDurationMs?: number | null;
+  })[];
+  byWorkflow: ({
+    workflowId: UUIDString;
+    count: number;
+  })[];
+  pendingApprovals: ({
+    count: number;
+  })[];
+}
+
+export interface AutomationMetricsVariables {
+  organizationId: UUIDString;
+  since: TimestampString;
+}
+
+export interface AutomationNotifyData {
+  inAppNotification_insert: InAppNotification_Key;
+}
+
+export interface AutomationNotifyVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  audience: NotificationAudience;
+  recipientMembershipId?: UUIDString | null;
+  leadId?: UUIDString | null;
+  title: string;
+  body: string;
+}
+
+export interface AutomationOrgState_Key {
+  organizationId: UUIDString;
+  __typename?: 'AutomationOrgState_Key';
+}
+
+export interface AutomationReassignLeadData {
+  lead?: Lead_Key | null;
+  executed?: AutomationApproval_Key | null;
+  leadAssignmentHistory_insert: LeadAssignmentHistory_Key;
+  leadFollowUp_updateMany: number;
+  activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
+  inAppNotification_insert: InAppNotification_Key;
+  automationEvent_insert: AutomationEvent_Key;
+}
+
+export interface AutomationReassignLeadVariables {
+  organizationId: UUIDString;
+  leadId: UUIDString;
+  expectedMembershipId?: UUIDString | null;
+  toMembershipId: UUIDString;
+  approvalId: UUIDString;
+  executionId: UUIDString;
+  eventId: UUIDString;
+  originalEventId: UUIDString;
+  originWorkflowId: UUIDString;
+  chainDepth: number;
+}
+
+export interface AutomationRecipientsData {
+  executor?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  managers: ({
+    id: UUIDString;
+    role: MembershipRole;
+  })[];
+}
+
+export interface AutomationRecipientsVariables {
+  organizationId: UUIDString;
+}
+
+export interface AutomationWorkflowVersion_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'AutomationWorkflowVersion_Key';
+}
+
+export interface AutomationWorkflow_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'AutomationWorkflow_Key';
+}
+
+export interface BeginAutomationJobData {
+  started?: AutomationExecution_Key | null;
+  execution?: AutomationExecution_Key | null;
+}
+
+export interface BeginAutomationJobVariables {
+  organizationId: UUIDString;
+  jobId: UUIDString;
+  jobToken: UUIDString;
+  executionId: UUIDString;
+  now: TimestampString;
+}
+
 export interface Branch_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -945,6 +1351,7 @@ export interface ChangeLeadStatusData {
   lead?: Lead_Key | null;
   activity: Activity_Key;
   auditLog_insert: AuditLog_Key;
+  statusEvent: AutomationEvent_Key;
 }
 
 export interface ChangeLeadStatusVariables {
@@ -985,17 +1392,68 @@ export interface CheckPublishedSourcesEligibilityVariables {
   propertyIds: UUIDString[];
 }
 
+export interface ClaimAutomationJobData {
+  job?: ScheduledAutomationJob_Key | null;
+}
+
+export interface ClaimAutomationJobVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  jobToken: UUIDString;
+  now: TimestampString;
+  leaseUntil: TimestampString;
+}
+
+export interface ClaimAutomationOrganizationData {
+  automationOrgState_update?: AutomationOrgState_Key | null;
+}
+
+export interface ClaimAutomationOrganizationVariables {
+  organizationId: UUIDString;
+  claimToken: UUIDString;
+  now: TimestampString;
+  leaseUntil: TimestampString;
+}
+
+export interface CloseAutomationApprovalData {
+  approval?: AutomationApproval_Key | null;
+  auditLog_insert: AuditLog_Key;
+  wake: number;
+}
+
+export interface CloseAutomationApprovalVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedStatus: AutomationApprovalStatus;
+  status: AutomationApprovalStatus;
+  resultStatus: string;
+  resultErrorCode?: string | null;
+  actorUid: string;
+}
+
 export interface CompleteLeadFollowUpData {
   lead?: Lead_Key | null;
   followUp?: LeadFollowUp_Key | null;
   activity: Activity_Key;
   auditLog_insert: AuditLog_Key;
+  taskEvent: AutomationEvent_Key;
 }
 
 export interface CompleteLeadFollowUpVariables {
   organizationId: UUIDString;
   leadId: UUIDString;
   followUpId?: UUIDString | null;
+}
+
+export interface CompleteWorkTaskData {
+  task?: WorkTask_Key | null;
+  auditLog_insert: AuditLog_Key;
+  automationEvent_insert: AutomationEvent_Key;
+}
+
+export interface CompleteWorkTaskVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
 }
 
 export interface ConsumeWebsiteLeadCaptureRateWindowData {
@@ -1098,6 +1556,25 @@ export interface CreateAiConversationWithExchangeVariables {
   assistantContent: string;
 }
 
+export interface CreateAutomationWorkflowData {
+  workflow: AutomationWorkflow_Key;
+  version: AutomationWorkflowVersion_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CreateAutomationWorkflowVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  versionId: UUIDString;
+  name: string;
+  description: string;
+  triggerType: string;
+  definitionJson: string;
+  definitionHash: string;
+  hasApprovalSteps: boolean;
+  timeZone: string;
+}
+
 export interface CreateBranchData {
   branch: Branch_Key;
   activity_insert: Activity_Key;
@@ -1132,6 +1609,7 @@ export interface CreateBuildingVariables {
 export interface CreateContactData {
   contact: Contact_Key;
   auditLog_insert: AuditLog_Key;
+  contactEvent: AutomationEvent_Key;
 }
 
 export interface CreateContactVariables {
@@ -1292,6 +1770,8 @@ export interface CreateLeadData {
   initialFollowUp: LeadFollowUp_Key;
   initialFollowUpActivity: Activity_Key;
   initialFollowUpAudit: AuditLog_Key;
+  leadCreatedEvent: AutomationEvent_Key;
+  leadAssignedEvent: AutomationEvent_Key;
 }
 
 export interface CreateLeadForContactData {
@@ -1307,6 +1787,8 @@ export interface CreateLeadForContactData {
   initialFollowUp: LeadFollowUp_Key;
   initialFollowUpActivity: Activity_Key;
   initialFollowUpAudit: AuditLog_Key;
+  leadCreatedEvent: AutomationEvent_Key;
+  leadAssignedEvent: AutomationEvent_Key;
 }
 
 export interface CreateLeadForContactVariables {
@@ -1513,6 +1995,7 @@ export interface CreatePropertyListingData {
   propertyListing: PropertyListing_Key;
   activity_insert: Activity_Key;
   auditLog_insert: AuditLog_Key;
+  listingEvent: AutomationEvent_Key;
 }
 
 export interface CreatePropertyListingVariables {
@@ -1625,6 +2108,21 @@ export interface CreateWebsiteSectionTemplateVariables {
   sectionData: string;
 }
 
+export interface DecideAutomationApprovalData {
+  decision?: AutomationApproval_Key | null;
+  wake: number;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface DecideAutomationApprovalVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  decision: AutomationApprovalStatus;
+  reason?: string | null;
+  expectedSnapshotHash: string;
+  currentTargetStateHash: string;
+}
+
 export interface DeleteAiContentDraftData {
   versions: number;
   draft: number;
@@ -1720,6 +2218,14 @@ export interface DistributionCursor_Key {
   __typename?: 'DistributionCursor_Key';
 }
 
+export interface EnsureAutomationOrgStateData {
+  automationOrgState_insert: AutomationOrgState_Key;
+}
+
+export interface EnsureAutomationOrgStateVariables {
+  organizationId: UUIDString;
+}
+
 export interface FeedGenerationJob_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -1805,6 +2311,48 @@ export interface FindWebsitePageBySlugData {
 export interface FindWebsitePageBySlugVariables {
   organizationId: UUIDString;
   slug: string;
+}
+
+export interface FinishAutomationEventData {
+  automationEvent_update?: AutomationEvent_Key | null;
+}
+
+export interface FinishAutomationEventVariables {
+  organizationId: UUIDString;
+  claimToken: UUIDString;
+  id: UUIDString;
+  status: AutomationEventStatus;
+  matchedCount: number;
+  errorCode?: string | null;
+}
+
+export interface FinishAutomationStepData {
+  step?: AutomationExecutionStep_Key | null;
+  execution?: AutomationExecution_Key | null;
+  job?: ScheduledAutomationJob_Key | null;
+}
+
+export interface FinishAutomationStepVariables {
+  organizationId: UUIDString;
+  jobId: UUIDString;
+  jobToken: UUIDString;
+  executionId: UUIDString;
+  stepId: UUIDString;
+  stepStatus: AutomationStepStatus;
+  resultType?: string | null;
+  resultId?: UUIDString | null;
+  resultSummary?: string | null;
+  errorCode?: string | null;
+  nextStep: number;
+  executionStatus: AutomationExecutionStatus;
+  executionErrorCode?: string | null;
+  jobStatus: AutomationJobStatus;
+  runAt: TimestampString;
+  actionIncrement: number;
+  aiIncrement: number;
+  completedAt?: TimestampString | null;
+  durationMs?: number | null;
+  releaseJob: boolean;
 }
 
 export interface FloorPlan_Key {
@@ -2162,6 +2710,297 @@ export interface GetAssignedPropertyVariables {
   organizationId: UUIDString;
   id: UUIDString;
   assignedMembershipId: UUIDString;
+}
+
+export interface GetAutomationApprovalTargetData {
+  approval?: {
+    id: UUIDString;
+    status: AutomationApprovalStatus;
+    actionType: string;
+    leadId?: UUIDString | null;
+    requestedByUid: string;
+    targetStateHash: string;
+    lead?: {
+      assignedMembershipId?: UUIDString | null;
+      status: LeadStatus;
+      archivedAt?: TimestampString | null;
+    };
+  };
+}
+
+export interface GetAutomationApprovalTargetVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface GetAutomationExecutionData {
+  execution?: {
+    id: UUIDString;
+    workflowId: UUIDString;
+    workflow: {
+      name: string;
+      status: AutomationWorkflowStatus;
+    };
+    workflowVersion: {
+      versionNumber: number;
+    };
+    triggerType: string;
+    targetType: string;
+    targetId?: UUIDString | null;
+    leadId?: UUIDString | null;
+    lead?: {
+      fullName: string;
+    };
+    status: AutomationExecutionStatus;
+    nextStep: number;
+    attemptCount: number;
+    actionCount: number;
+    aiCalls: number;
+    durationMs?: number | null;
+    errorCode?: string | null;
+    chainDepth: number;
+    executorUid: string;
+    executor: {
+      displayName: string;
+    };
+    startedAt?: TimestampString | null;
+    completedAt?: TimestampString | null;
+    createdAt: TimestampString;
+    triggeringEvent: {
+      id: UUIDString;
+      triggerType: string;
+      origin: string;
+      chainDepth: number;
+      originalEventId?: UUIDString | null;
+      parentExecutionId?: UUIDString | null;
+      createdAt: TimestampString;
+    };
+  };
+  steps: ({
+    id: UUIDString;
+    position: number;
+    actionId: string;
+    actionType: string;
+    status: AutomationStepStatus;
+    attemptCount: number;
+    resultType?: string | null;
+    resultId?: UUIDString | null;
+    resultSummary?: string | null;
+    errorCode?: string | null;
+    startedAt?: TimestampString | null;
+    completedAt?: TimestampString | null;
+  })[];
+  job: ({
+    status: AutomationJobStatus;
+    runAt: TimestampString;
+    attemptCount: number;
+    errorCode?: string | null;
+  })[];
+}
+
+export interface GetAutomationExecutionRunData {
+  execution?: {
+    id: UUIDString;
+    workflowId: UUIDString;
+    triggerType: string;
+    targetType: string;
+    targetId?: UUIDString | null;
+    leadId?: UUIDString | null;
+    chainDepth: number;
+    executorUid: string;
+    status: AutomationExecutionStatus;
+    nextStep: number;
+    actionCount: number;
+    aiCalls: number;
+    startedAt?: TimestampString | null;
+    createdAt: TimestampString;
+    workflow: {
+      status: AutomationWorkflowStatus;
+      name: string;
+      executorUid?: string | null;
+      approvedVersionId?: UUIDString | null;
+    };
+    workflowVersion: {
+      id: UUIDString;
+      versionNumber: number;
+      definitionJson: string;
+    };
+    triggeringEvent: {
+      id: UUIDString;
+      triggerType: string;
+      targetType: string;
+      targetId?: UUIDString | null;
+      origin: string;
+      originalEventId?: UUIDString | null;
+      parentExecutionId?: UUIDString | null;
+      originWorkflowId?: UUIDString | null;
+      chainDepth: number;
+      payload?: unknown | null;
+      createdAt: TimestampString;
+      actorUid?: string | null;
+    };
+  };
+  steps: ({
+    id: UUIDString;
+    position: number;
+    actionType: string;
+    status: AutomationStepStatus;
+    attemptCount: number;
+    resultType?: string | null;
+    resultId?: UUIDString | null;
+  })[];
+}
+
+export interface GetAutomationExecutionRunVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface GetAutomationExecutionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface GetAutomationStepApprovalsData {
+  approvals: ({
+    id: UUIDString;
+    status: AutomationApprovalStatus;
+    expiresAt: TimestampString;
+    approverUid?: string | null;
+    approver?: {
+      displayName: string;
+    };
+    decidedAt?: TimestampString | null;
+    decisionReason?: string | null;
+    snapshotHash: string;
+    targetStateHash: string;
+    leadId?: UUIDString | null;
+    fromMembershipId?: UUIDString | null;
+    toMembershipId?: UUIDString | null;
+    requestedByUid: string;
+    resultStatus?: string | null;
+    resultErrorCode?: string | null;
+  })[];
+}
+
+export interface GetAutomationStepApprovalsVariables {
+  organizationId: UUIDString;
+  stepId: UUIDString;
+}
+
+export interface GetAutomationVersionsData {
+  versions: ({
+    id: UUIDString;
+    workflowId: UUIDString;
+    versionNumber: number;
+    definitionJson: string;
+    definitionHash: string;
+  })[];
+}
+
+export interface GetAutomationVersionsVariables {
+  organizationId: UUIDString;
+  ids: UUIDString[];
+}
+
+export interface GetAutomationWorkData {
+  state?: {
+    claimToken?: UUIDString | null;
+    periodKey: string;
+    executionCount: number;
+    aiCallCount: number;
+    lastScanAt?: TimestampString | null;
+  };
+  events: ({
+    id: UUIDString;
+    triggerType: string;
+    targetType: string;
+    targetId?: UUIDString | null;
+    actorUid?: string | null;
+    origin: string;
+    originalEventId?: UUIDString | null;
+    parentExecutionId?: UUIDString | null;
+    originWorkflowId?: UUIDString | null;
+    forWorkflowId?: UUIDString | null;
+    chainDepth: number;
+    payload?: unknown | null;
+    createdAt: TimestampString;
+  })[];
+  workflows: ({
+    id: UUIDString;
+    name: string;
+    triggerType: string;
+    approvedVersionId?: UUIDString | null;
+    approvedVersionNumber?: number | null;
+    executorUid?: string | null;
+    timeZone: string;
+    nextRunAt?: TimestampString | null;
+    activatedAt?: TimestampString | null;
+  })[];
+  jobs: ({
+    id: UUIDString;
+    executionId: UUIDString;
+    status: AutomationJobStatus;
+    attemptCount: number;
+    runAt: TimestampString;
+  })[];
+}
+
+export interface GetAutomationWorkVariables {
+  organizationId: UUIDString;
+  now: TimestampString;
+}
+
+export interface GetAutomationWorkflowData {
+  workflow?: {
+    id: UUIDString;
+    name: string;
+    description: string;
+    triggerType: string;
+    definitionJson: string;
+    definitionVersion: number;
+    status: AutomationWorkflowStatus;
+    revision: number;
+    currentVersionNumber: number;
+    approvedVersionNumber?: number | null;
+    approvedVersionId?: UUIDString | null;
+    hasApprovalSteps: boolean;
+    timeZone: string;
+    nextRunAt?: TimestampString | null;
+    createdByUid: string;
+    createdBy: {
+      displayName: string;
+    };
+    updatedByUid: string;
+    approvedByUid?: string | null;
+    approvedBy?: {
+      displayName: string;
+    };
+    approvedAt?: TimestampString | null;
+    executorUid?: string | null;
+    executor?: {
+      displayName: string;
+    };
+    activatedAt?: TimestampString | null;
+    createdAt: TimestampString;
+    updatedAt: TimestampString;
+  };
+  versions: ({
+    id: UUIDString;
+    versionNumber: number;
+    definitionHash: string;
+    authorUid: string;
+    author: {
+      displayName: string;
+    };
+    createdAt: TimestampString;
+  })[];
+}
+
+export interface GetAutomationWorkflowVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  createdByUid?: string | null;
 }
 
 export interface GetBuildingData {
@@ -3741,6 +4580,26 @@ export interface InitializeLeadPipelineVariables {
   organizationId: UUIDString;
 }
 
+export interface InsertAutomationEventData {
+  automationEvent_insert: AutomationEvent_Key;
+}
+
+export interface InsertAutomationEventVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  deduplicationKey: string;
+  triggerType: string;
+  targetType: string;
+  targetId?: UUIDString | null;
+  actorUid?: string | null;
+  origin: string;
+  originalEventId?: UUIDString | null;
+  parentExecutionId?: UUIDString | null;
+  originWorkflowId?: UUIDString | null;
+  chainDepth: number;
+  payload?: unknown | null;
+}
+
 export interface InventoryAmenity_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -4322,6 +5181,219 @@ export interface ListAuditLogsData {
 
 export interface ListAuditLogsVariables {
   organizationId: UUIDString;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListAutomationApprovalsData {
+  member?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  approvals: ({
+    id: UUIDString;
+    status: AutomationApprovalStatus;
+    actionId: string;
+    actionType: string;
+    risk: string;
+    targetType: string;
+    targetId?: UUIDString | null;
+    requestedAt: TimestampString;
+    expiresAt: TimestampString;
+    decidedAt?: TimestampString | null;
+    decisionReason?: string | null;
+    resultStatus?: string | null;
+    resultErrorCode?: string | null;
+    snapshotHash: string;
+    approvedActionSnapshot: string;
+    requestedByUid: string;
+    requestedBy: {
+      displayName: string;
+    };
+    approverUid?: string | null;
+    approver?: {
+      displayName: string;
+    };
+    lead?: {
+      id: UUIDString;
+      fullName: string;
+      status: LeadStatus;
+    };
+    fromMembership?: {
+      id: UUIDString;
+      email: string;
+      userProfile?: {
+        displayName: string;
+      };
+    };
+    toMembership?: {
+      id: UUIDString;
+      email: string;
+      userProfile?: {
+        displayName: string;
+      };
+    };
+    workflow: {
+      id: UUIDString;
+      name: string;
+    };
+    execution: {
+      id: UUIDString;
+      triggerType: string;
+      workflowVersion: {
+        versionNumber: number;
+      };
+      triggeringEvent: {
+        triggerType: string;
+        origin: string;
+        createdAt: TimestampString;
+      };
+    };
+  })[];
+}
+
+export interface ListAutomationApprovalsVariables {
+  organizationId: UUIDString;
+  statuses: AutomationApprovalStatus[];
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListAutomationDueTasksData {
+  followUps: ({
+    id: UUIDString;
+    leadId: UUIDString;
+    dueAt: TimestampString;
+  })[];
+  workTasks: ({
+    id: UUIDString;
+    leadId?: UUIDString | null;
+    dueAt: TimestampString;
+  })[];
+}
+
+export interface ListAutomationDueTasksVariables {
+  organizationId: UUIDString;
+  since: TimestampString;
+  now: TimestampString;
+}
+
+export interface ListAutomationEventsForTargetData {
+  events: ({
+    id: UUIDString;
+    triggerType: string;
+    targetType: string;
+    origin: string;
+    status: AutomationEventStatus;
+    chainDepth: number;
+    originalEventId?: UUIDString | null;
+    parentExecutionId?: UUIDString | null;
+    originWorkflowId?: UUIDString | null;
+    deduplicationKey?: string | null;
+    actorUid?: string | null;
+    payload?: unknown | null;
+    createdAt: TimestampString;
+  })[];
+}
+
+export interface ListAutomationEventsForTargetVariables {
+  organizationId: UUIDString;
+  targetId: UUIDString;
+}
+
+export interface ListAutomationExecutionsData {
+  executions: ({
+    id: UUIDString;
+    workflowId: UUIDString;
+    workflow: {
+      name: string;
+    };
+    triggerType: string;
+    targetType: string;
+    targetId?: UUIDString | null;
+    leadId?: UUIDString | null;
+    lead?: {
+      fullName: string;
+      assignedMembershipId?: UUIDString | null;
+    };
+    status: AutomationExecutionStatus;
+    nextStep: number;
+    attemptCount: number;
+    actionCount: number;
+    aiCalls: number;
+    durationMs?: number | null;
+    errorCode?: string | null;
+    chainDepth: number;
+    startedAt?: TimestampString | null;
+    completedAt?: TimestampString | null;
+    createdAt: TimestampString;
+  })[];
+}
+
+export interface ListAutomationExecutionsVariables {
+  organizationId: UUIDString;
+  workflowId?: UUIDString | null;
+  status?: AutomationExecutionStatus | null;
+  triggerType?: string | null;
+  agentMembershipId?: UUIDString | null;
+  from?: TimestampString | null;
+  to?: TimestampString | null;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListAutomationWorkOrganizationsData {
+  events: ({
+    organizationId: UUIDString;
+  })[];
+  jobs: ({
+    organizationId: UUIDString;
+  })[];
+  schedules: ({
+    organizationId: UUIDString;
+  })[];
+  scans: ({
+    organizationId: UUIDString;
+  })[];
+}
+
+export interface ListAutomationWorkOrganizationsVariables {
+  now: TimestampString;
+}
+
+export interface ListAutomationWorkflowsData {
+  workflows: ({
+    id: UUIDString;
+    name: string;
+    description: string;
+    triggerType: string;
+    status: AutomationWorkflowStatus;
+    revision: number;
+    currentVersionNumber: number;
+    approvedVersionNumber?: number | null;
+    hasApprovalSteps: boolean;
+    timeZone: string;
+    nextRunAt?: TimestampString | null;
+    createdByUid: string;
+    createdBy: {
+      displayName: string;
+    };
+    approvedByUid?: string | null;
+    approvedAt?: TimestampString | null;
+    executorUid?: string | null;
+    executor?: {
+      displayName: string;
+    };
+    activatedAt?: TimestampString | null;
+    createdAt: TimestampString;
+    updatedAt: TimestampString;
+  })[];
+}
+
+export interface ListAutomationWorkflowsVariables {
+  organizationId: UUIDString;
+  createdByUid?: string | null;
+  status?: AutomationWorkflowStatus | null;
   limit?: number;
   offset?: number;
 }
@@ -5427,6 +6499,41 @@ export interface ListMyOrganizationsVariables {
   offset?: number;
 }
 
+export interface ListMyTasksData {
+  me?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  followUps: ({
+    id: UUIDString;
+    title: string;
+    dueAt: TimestampString;
+    leadId: UUIDString;
+    lead: {
+      fullName: string;
+      status: LeadStatus;
+    };
+  })[];
+  workTasks: ({
+    id: UUIDString;
+    title: string;
+    dueAt: TimestampString;
+    assignedMembershipId?: UUIDString | null;
+    listingId?: UUIDString | null;
+    listing?: {
+      title: string;
+      listingReference: string;
+    };
+    leadId?: UUIDString | null;
+    sourceExecutionId?: UUIDString | null;
+  })[];
+}
+
+export interface ListMyTasksVariables {
+  organizationId: UUIDString;
+  limit?: number;
+}
+
 export interface ListPaymentPlansData {
   paymentPlans: ({
     id: UUIDString;
@@ -6390,6 +7497,16 @@ export interface ListingStatusCountsVariables {
   organizationId: UUIDString;
 }
 
+export interface MarkAutomationScanData {
+  automationOrgState_update?: AutomationOrgState_Key | null;
+}
+
+export interface MarkAutomationScanVariables {
+  organizationId: UUIDString;
+  claimToken: UUIDString;
+  scannedAt: TimestampString;
+}
+
 export interface MarkInAppNotificationReadData {
   updated?: InAppNotification_Key | null;
 }
@@ -6456,6 +7573,28 @@ export interface PageVersion_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'PageVersion_Key';
+}
+
+export interface PauseAutomationWorkflowData {
+  workflow?: AutomationWorkflow_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface PauseAutomationWorkflowForSystemData {
+  workflow?: AutomationWorkflow_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface PauseAutomationWorkflowForSystemVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  reason: string;
+}
+
+export interface PauseAutomationWorkflowVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
 }
 
 export interface PaymentPlanInstallment_Key {
@@ -6586,6 +7725,19 @@ export interface PurgeMyExpiredAiConversationsVariables {
   before: TimestampString;
 }
 
+export interface QueueManualAutomationRunData {
+  event: AutomationEvent_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface QueueManualAutomationRunVariables {
+  organizationId: UUIDString;
+  workflowId: UUIDString;
+  eventId: UUIDString;
+  leadId?: UUIDString | null;
+  hasLead: boolean;
+}
+
 export interface RateLimitCounter_Key {
   bucketKey: string;
   __typename?: 'RateLimitCounter_Key';
@@ -6646,6 +7798,23 @@ export interface RecordAiUsageVariables {
   durationMs: number;
   feature?: string | null;
   contentType?: string | null;
+}
+
+export interface RecordAutomationStepData {
+  step: AutomationExecutionStep_Key;
+}
+
+export interface RecordAutomationStepVariables {
+  organizationId: UUIDString;
+  jobId: UUIDString;
+  jobToken: UUIDString;
+  id: UUIDString;
+  executionId: UUIDString;
+  position: number;
+  actionId: string;
+  actionType: string;
+  actionSnapshot: string;
+  idempotencyKey: string;
 }
 
 export interface RecordFeedGenerationJobData {
@@ -6838,6 +8007,15 @@ export interface ReleaseAiRequestVariables {
   subjectKey: string;
 }
 
+export interface ReleaseAutomationOrganizationData {
+  automationOrgState_update?: AutomationOrgState_Key | null;
+}
+
+export interface ReleaseAutomationOrganizationVariables {
+  organizationId: UUIDString;
+  claimToken: UUIDString;
+}
+
 export interface RemovePageLeadFormBindingData {
   binding?: PageLeadFormBinding_Key | null;
   audit: AuditLog_Key;
@@ -6873,6 +8051,41 @@ export interface RemovePortalFieldMappingVariables {
   id: UUIDString;
 }
 
+export interface RequestAutomationApprovalData {
+  approval: AutomationApproval_Key;
+  step?: AutomationExecutionStep_Key | null;
+  execution?: AutomationExecution_Key | null;
+  job?: ScheduledAutomationJob_Key | null;
+  inAppNotification_insert: InAppNotification_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface RequestAutomationApprovalVariables {
+  organizationId: UUIDString;
+  jobId: UUIDString;
+  jobToken: UUIDString;
+  executionId: UUIDString;
+  stepId: UUIDString;
+  approvalId: UUIDString;
+  notificationId: UUIDString;
+  workflowId: UUIDString;
+  actionId: string;
+  actionType: string;
+  risk: string;
+  targetType: string;
+  targetId?: UUIDString | null;
+  leadId?: UUIDString | null;
+  fromMembershipId?: UUIDString | null;
+  toMembershipId?: UUIDString | null;
+  requestedByUid: string;
+  snapshot: string;
+  snapshotHash: string;
+  targetStateHash: string;
+  expiresAt: TimestampString;
+  title: string;
+  body: string;
+}
+
 export interface ReserveAiRequestData {
   counter?: unknown | null;
 }
@@ -6882,6 +8095,18 @@ export interface ReserveAiRequestVariables {
   periodKey: string;
   subjectKey: string;
   limit: number;
+}
+
+export interface ReserveAutomationAiCallData {
+  automationOrgState_update?: AutomationOrgState_Key | null;
+}
+
+export interface ReserveAutomationAiCallVariables {
+  organizationId: UUIDString;
+  jobId: UUIDString;
+  jobToken: UUIDString;
+  periodKey: string;
+  dailyLimit: number;
 }
 
 export interface ResolvePublishedPageData {
@@ -6935,6 +8160,29 @@ export interface ResolveWebsiteLeadCaptureFormVariables {
   publicId: string;
 }
 
+export interface RetryAutomationStepData {
+  automationExecutionStep_update?: AutomationExecutionStep_Key | null;
+}
+
+export interface RetryAutomationStepVariables {
+  organizationId: UUIDString;
+  jobId: UUIDString;
+  jobToken: UUIDString;
+  id: UUIDString;
+}
+
+export interface ReturnAutomationWorkflowToDraftData {
+  workflow?: AutomationWorkflow_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface ReturnAutomationWorkflowToDraftVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  note: string;
+}
+
 export interface RevokeInvitationData {
   invitation?: Invitation_Key | null;
   membership_update?: Membership_Key | null;
@@ -6964,6 +8212,27 @@ export interface SaveAiContentDraftVariables {
   title: string;
   contentData: string;
   validation: string;
+}
+
+export interface SaveAutomationWorkflowData {
+  workflow?: AutomationWorkflow_Key | null;
+  version: AutomationWorkflowVersion_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SaveAutomationWorkflowVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  versionId: UUIDString;
+  expectedRevision: number;
+  versionNumber: number;
+  name: string;
+  description: string;
+  triggerType: string;
+  definitionJson: string;
+  definitionHash: string;
+  hasApprovalSteps: boolean;
+  timeZone: string;
 }
 
 export interface SaveLeadDistributionSettingsData {
@@ -7054,6 +8323,7 @@ export interface ScheduleLeadFollowUpData {
   followUp: LeadFollowUp_Key;
   activity: Activity_Key;
   auditLog_insert: AuditLog_Key;
+  taskEvent: AutomationEvent_Key;
 }
 
 export interface ScheduleLeadFollowUpVariables {
@@ -7071,6 +8341,7 @@ export interface ScheduleLeadPropertyViewingData {
   viewing: LeadPropertyViewing_Key;
   activity_insert: Activity_Key;
   auditLog_insert: AuditLog_Key;
+  viewingEvent: AutomationEvent_Key;
 }
 
 export interface ScheduleLeadPropertyViewingVariables {
@@ -7081,6 +8352,12 @@ export interface ScheduleLeadPropertyViewingVariables {
   notes?: string | null;
   assignedMembershipId: UUIDString;
   customerConfirmation?: LeadPropertyViewingConfirmation;
+}
+
+export interface ScheduledAutomationJob_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'ScheduledAutomationJob_Key';
 }
 
 export interface SearchContactsData {
@@ -7138,6 +8415,18 @@ export interface SetAiContentDraftStatusVariables {
   expectedRevision: number;
   nextRevision: number;
   status: AiContentDraftStatus;
+}
+
+export interface SetAutomationWorkflowNextRunData {
+  automationWorkflow_update?: AutomationWorkflow_Key | null;
+}
+
+export interface SetAutomationWorkflowNextRunVariables {
+  organizationId: UUIDString;
+  claimToken: UUIDString;
+  id: UUIDString;
+  expectedNextRunAt: TimestampString;
+  nextRunAt?: TimestampString | null;
 }
 
 export interface SetInventoryAmenityActiveData {
@@ -7242,6 +8531,7 @@ export interface SetPropertyListingStatusData {
   propertyListing_update?: PropertyListing_Key | null;
   activity_insert: Activity_Key;
   auditLog_insert: AuditLog_Key;
+  listingEvent: AutomationEvent_Key;
 }
 
 export interface SetPropertyListingStatusVariables {
@@ -7276,6 +8566,60 @@ export interface SetWebsiteMediaUploadStatusVariables {
   actorUid: string;
 }
 
+export interface SettleAutomationExecutionData {
+  execution?: AutomationExecution_Key | null;
+  job?: ScheduledAutomationJob_Key | null;
+}
+
+export interface SettleAutomationExecutionVariables {
+  organizationId: UUIDString;
+  jobId: UUIDString;
+  jobToken: UUIDString;
+  executionId: UUIDString;
+  nextStep: number;
+  executionStatus: AutomationExecutionStatus;
+  executionErrorCode?: string | null;
+  jobStatus: AutomationJobStatus;
+  runAt: TimestampString;
+  completedAt?: TimestampString | null;
+  durationMs?: number | null;
+}
+
+export interface StartAutomationExecutionData {
+  automationOrgState_update?: AutomationOrgState_Key | null;
+  execution: AutomationExecution_Key;
+  job: ScheduledAutomationJob_Key;
+}
+
+export interface StartAutomationExecutionVariables {
+  organizationId: UUIDString;
+  claimToken: UUIDString;
+  executionId: UUIDString;
+  jobId: UUIDString;
+  workflowId: UUIDString;
+  workflowVersionId: UUIDString;
+  eventId: UUIDString;
+  triggerType: string;
+  targetType: string;
+  targetId?: UUIDString | null;
+  leadId?: UUIDString | null;
+  chainDepth: number;
+  executorUid: string;
+  periodKey: string;
+  dailyLimit: number;
+}
+
+export interface SubmitAutomationWorkflowData {
+  workflow?: AutomationWorkflow_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SubmitAutomationWorkflowVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+}
+
 export interface SubmitWebsiteLeadCaptureData {
   advanceCursor?: DistributionCursor_Key | null;
   contact: Contact_Key;
@@ -7286,6 +8630,9 @@ export interface SubmitWebsiteLeadCaptureData {
   assignedNotification: InAppNotification_Key;
   unassignedNotification: InAppNotification_Key;
   submission: LeadCaptureSubmission_Key;
+  leadCreatedEvent: AutomationEvent_Key;
+  formEvent: AutomationEvent_Key;
+  leadAssignedEvent: AutomationEvent_Key;
 }
 
 export interface SubmitWebsiteLeadCaptureVariables {
@@ -7354,6 +8701,7 @@ export interface UnassignLeadData {
   activity: Activity_Key;
   audit: AuditLog_Key;
   notification: InAppNotification_Key;
+  leadUnassignedEvent: AutomationEvent_Key;
 }
 
 export interface UnassignLeadVariables {
@@ -7561,6 +8909,7 @@ export interface UpdateLeadPropertyViewingData {
   auditLog_insert: AuditLog_Key;
   followUpActivity: Activity_Key;
   followUpAudit: AuditLog_Key;
+  viewingEvent: AutomationEvent_Key;
 }
 
 export interface UpdateLeadPropertyViewingVariables {
@@ -7576,6 +8925,7 @@ export interface UpdateLeadPropertyViewingVariables {
   followUpAt?: TimestampString | null;
   followUpTitle?: string | null;
   hasFollowUp?: boolean;
+  completed?: boolean;
 }
 
 export interface UpdateLeadQualificationDetailsData {
@@ -7904,6 +9254,12 @@ export interface Website_Key {
   __typename?: 'Website_Key';
 }
 
+export interface WorkTask_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'WorkTask_Key';
+}
+
 /** Generated Node Admin SDK operation action function for the 'ListAiContentDrafts' Query. Allow users to execute without passing in DataConnect. */
 export function listAiContentDrafts(dc: DataConnect, vars: ListAiContentDraftsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAiContentDraftsData>>;
 /** Generated Node Admin SDK operation action function for the 'ListAiContentDrafts' Query. Allow users to pass in custom DataConnect instances. */
@@ -8098,6 +9454,261 @@ export function recordLeadQualificationAssessment(vars: RecordLeadQualificationA
 export function recordAiSalesInsight(dc: DataConnect, vars: RecordAiSalesInsightVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordAiSalesInsightData>>;
 /** Generated Node Admin SDK operation action function for the 'RecordAiSalesInsight' Mutation. Allow users to pass in custom DataConnect instances. */
 export function recordAiSalesInsight(vars: RecordAiSalesInsightVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordAiSalesInsightData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RequestAutomationApproval' Mutation. Allow users to execute without passing in DataConnect. */
+export function requestAutomationApproval(dc: DataConnect, vars: RequestAutomationApprovalVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RequestAutomationApprovalData>>;
+/** Generated Node Admin SDK operation action function for the 'RequestAutomationApproval' Mutation. Allow users to pass in custom DataConnect instances. */
+export function requestAutomationApproval(vars: RequestAutomationApprovalVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RequestAutomationApprovalData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetAutomationStepApprovals' Query. Allow users to execute without passing in DataConnect. */
+export function getAutomationStepApprovals(dc: DataConnect, vars: GetAutomationStepApprovalsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationStepApprovalsData>>;
+/** Generated Node Admin SDK operation action function for the 'GetAutomationStepApprovals' Query. Allow users to pass in custom DataConnect instances. */
+export function getAutomationStepApprovals(vars: GetAutomationStepApprovalsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationStepApprovalsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CloseAutomationApproval' Mutation. Allow users to execute without passing in DataConnect. */
+export function closeAutomationApproval(dc: DataConnect, vars: CloseAutomationApprovalVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CloseAutomationApprovalData>>;
+/** Generated Node Admin SDK operation action function for the 'CloseAutomationApproval' Mutation. Allow users to pass in custom DataConnect instances. */
+export function closeAutomationApproval(vars: CloseAutomationApprovalVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CloseAutomationApprovalData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListAutomationApprovals' Query. Allow users to execute without passing in DataConnect. */
+export function listAutomationApprovals(dc: DataConnect, vars: ListAutomationApprovalsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationApprovalsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListAutomationApprovals' Query. Allow users to pass in custom DataConnect instances. */
+export function listAutomationApprovals(vars: ListAutomationApprovalsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationApprovalsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DecideAutomationApproval' Mutation. Allow users to execute without passing in DataConnect. */
+export function decideAutomationApproval(dc: DataConnect, vars: DecideAutomationApprovalVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DecideAutomationApprovalData>>;
+/** Generated Node Admin SDK operation action function for the 'DecideAutomationApproval' Mutation. Allow users to pass in custom DataConnect instances. */
+export function decideAutomationApproval(vars: DecideAutomationApprovalVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DecideAutomationApprovalData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AutomationReassignLead' Mutation. Allow users to execute without passing in DataConnect. */
+export function automationReassignLead(dc: DataConnect, vars: AutomationReassignLeadVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationReassignLeadData>>;
+/** Generated Node Admin SDK operation action function for the 'AutomationReassignLead' Mutation. Allow users to pass in custom DataConnect instances. */
+export function automationReassignLead(vars: AutomationReassignLeadVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationReassignLeadData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetAutomationApprovalTarget' Query. Allow users to execute without passing in DataConnect. */
+export function getAutomationApprovalTarget(dc: DataConnect, vars: GetAutomationApprovalTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationApprovalTargetData>>;
+/** Generated Node Admin SDK operation action function for the 'GetAutomationApprovalTarget' Query. Allow users to pass in custom DataConnect instances. */
+export function getAutomationApprovalTarget(vars: GetAutomationApprovalTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationApprovalTargetData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListAutomationWorkflows' Query. Allow users to execute without passing in DataConnect. */
+export function listAutomationWorkflows(dc: DataConnect, vars: ListAutomationWorkflowsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationWorkflowsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListAutomationWorkflows' Query. Allow users to pass in custom DataConnect instances. */
+export function listAutomationWorkflows(vars: ListAutomationWorkflowsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationWorkflowsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetAutomationWorkflow' Query. Allow users to execute without passing in DataConnect. */
+export function getAutomationWorkflow(dc: DataConnect, vars: GetAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationWorkflowData>>;
+/** Generated Node Admin SDK operation action function for the 'GetAutomationWorkflow' Query. Allow users to pass in custom DataConnect instances. */
+export function getAutomationWorkflow(vars: GetAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationWorkflowData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListAutomationExecutions' Query. Allow users to execute without passing in DataConnect. */
+export function listAutomationExecutions(dc: DataConnect, vars: ListAutomationExecutionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationExecutionsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListAutomationExecutions' Query. Allow users to pass in custom DataConnect instances. */
+export function listAutomationExecutions(vars: ListAutomationExecutionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationExecutionsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetAutomationExecution' Query. Allow users to execute without passing in DataConnect. */
+export function getAutomationExecution(dc: DataConnect, vars: GetAutomationExecutionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationExecutionData>>;
+/** Generated Node Admin SDK operation action function for the 'GetAutomationExecution' Query. Allow users to pass in custom DataConnect instances. */
+export function getAutomationExecution(vars: GetAutomationExecutionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationExecutionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AutomationMetrics' Query. Allow users to execute without passing in DataConnect. */
+export function automationMetrics(dc: DataConnect, vars: AutomationMetricsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationMetricsData>>;
+/** Generated Node Admin SDK operation action function for the 'AutomationMetrics' Query. Allow users to pass in custom DataConnect instances. */
+export function automationMetrics(vars: AutomationMetricsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationMetricsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateAutomationWorkflow' Mutation. Allow users to execute without passing in DataConnect. */
+export function createAutomationWorkflow(dc: DataConnect, vars: CreateAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateAutomationWorkflowData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateAutomationWorkflow' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createAutomationWorkflow(vars: CreateAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateAutomationWorkflowData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SaveAutomationWorkflow' Mutation. Allow users to execute without passing in DataConnect. */
+export function saveAutomationWorkflow(dc: DataConnect, vars: SaveAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveAutomationWorkflowData>>;
+/** Generated Node Admin SDK operation action function for the 'SaveAutomationWorkflow' Mutation. Allow users to pass in custom DataConnect instances. */
+export function saveAutomationWorkflow(vars: SaveAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveAutomationWorkflowData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SubmitAutomationWorkflow' Mutation. Allow users to execute without passing in DataConnect. */
+export function submitAutomationWorkflow(dc: DataConnect, vars: SubmitAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SubmitAutomationWorkflowData>>;
+/** Generated Node Admin SDK operation action function for the 'SubmitAutomationWorkflow' Mutation. Allow users to pass in custom DataConnect instances. */
+export function submitAutomationWorkflow(vars: SubmitAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SubmitAutomationWorkflowData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ReturnAutomationWorkflowToDraft' Mutation. Allow users to execute without passing in DataConnect. */
+export function returnAutomationWorkflowToDraft(dc: DataConnect, vars: ReturnAutomationWorkflowToDraftVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReturnAutomationWorkflowToDraftData>>;
+/** Generated Node Admin SDK operation action function for the 'ReturnAutomationWorkflowToDraft' Mutation. Allow users to pass in custom DataConnect instances. */
+export function returnAutomationWorkflowToDraft(vars: ReturnAutomationWorkflowToDraftVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReturnAutomationWorkflowToDraftData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ApproveAutomationWorkflow' Mutation. Allow users to execute without passing in DataConnect. */
+export function approveAutomationWorkflow(dc: DataConnect, vars: ApproveAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ApproveAutomationWorkflowData>>;
+/** Generated Node Admin SDK operation action function for the 'ApproveAutomationWorkflow' Mutation. Allow users to pass in custom DataConnect instances. */
+export function approveAutomationWorkflow(vars: ApproveAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ApproveAutomationWorkflowData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ActivateAutomationWorkflow' Mutation. Allow users to execute without passing in DataConnect. */
+export function activateAutomationWorkflow(dc: DataConnect, vars: ActivateAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ActivateAutomationWorkflowData>>;
+/** Generated Node Admin SDK operation action function for the 'ActivateAutomationWorkflow' Mutation. Allow users to pass in custom DataConnect instances. */
+export function activateAutomationWorkflow(vars: ActivateAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ActivateAutomationWorkflowData>>;
+
+/** Generated Node Admin SDK operation action function for the 'PauseAutomationWorkflow' Mutation. Allow users to execute without passing in DataConnect. */
+export function pauseAutomationWorkflow(dc: DataConnect, vars: PauseAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PauseAutomationWorkflowData>>;
+/** Generated Node Admin SDK operation action function for the 'PauseAutomationWorkflow' Mutation. Allow users to pass in custom DataConnect instances. */
+export function pauseAutomationWorkflow(vars: PauseAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PauseAutomationWorkflowData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ArchiveAutomationWorkflow' Mutation. Allow users to execute without passing in DataConnect. */
+export function archiveAutomationWorkflow(dc: DataConnect, vars: ArchiveAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ArchiveAutomationWorkflowData>>;
+/** Generated Node Admin SDK operation action function for the 'ArchiveAutomationWorkflow' Mutation. Allow users to pass in custom DataConnect instances. */
+export function archiveAutomationWorkflow(vars: ArchiveAutomationWorkflowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ArchiveAutomationWorkflowData>>;
+
+/** Generated Node Admin SDK operation action function for the 'QueueManualAutomationRun' Mutation. Allow users to execute without passing in DataConnect. */
+export function queueManualAutomationRun(dc: DataConnect, vars: QueueManualAutomationRunVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<QueueManualAutomationRunData>>;
+/** Generated Node Admin SDK operation action function for the 'QueueManualAutomationRun' Mutation. Allow users to pass in custom DataConnect instances. */
+export function queueManualAutomationRun(vars: QueueManualAutomationRunVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<QueueManualAutomationRunData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListAutomationWorkOrganizations' Query. Allow users to execute without passing in DataConnect. */
+export function listAutomationWorkOrganizations(dc: DataConnect, vars: ListAutomationWorkOrganizationsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationWorkOrganizationsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListAutomationWorkOrganizations' Query. Allow users to pass in custom DataConnect instances. */
+export function listAutomationWorkOrganizations(vars: ListAutomationWorkOrganizationsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationWorkOrganizationsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ReserveAutomationAiCall' Mutation. Allow users to execute without passing in DataConnect. */
+export function reserveAutomationAiCall(dc: DataConnect, vars: ReserveAutomationAiCallVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReserveAutomationAiCallData>>;
+/** Generated Node Admin SDK operation action function for the 'ReserveAutomationAiCall' Mutation. Allow users to pass in custom DataConnect instances. */
+export function reserveAutomationAiCall(vars: ReserveAutomationAiCallVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReserveAutomationAiCallData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListAutomationDueTasks' Query. Allow users to execute without passing in DataConnect. */
+export function listAutomationDueTasks(dc: DataConnect, vars: ListAutomationDueTasksVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationDueTasksData>>;
+/** Generated Node Admin SDK operation action function for the 'ListAutomationDueTasks' Query. Allow users to pass in custom DataConnect instances. */
+export function listAutomationDueTasks(vars: ListAutomationDueTasksVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationDueTasksData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MarkAutomationScan' Mutation. Allow users to execute without passing in DataConnect. */
+export function markAutomationScan(dc: DataConnect, vars: MarkAutomationScanVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkAutomationScanData>>;
+/** Generated Node Admin SDK operation action function for the 'MarkAutomationScan' Mutation. Allow users to pass in custom DataConnect instances. */
+export function markAutomationScan(vars: MarkAutomationScanVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkAutomationScanData>>;
+
+/** Generated Node Admin SDK operation action function for the 'EnsureAutomationOrgState' Mutation. Allow users to execute without passing in DataConnect. */
+export function ensureAutomationOrgState(dc: DataConnect, vars: EnsureAutomationOrgStateVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<EnsureAutomationOrgStateData>>;
+/** Generated Node Admin SDK operation action function for the 'EnsureAutomationOrgState' Mutation. Allow users to pass in custom DataConnect instances. */
+export function ensureAutomationOrgState(vars: EnsureAutomationOrgStateVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<EnsureAutomationOrgStateData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ClaimAutomationOrganization' Mutation. Allow users to execute without passing in DataConnect. */
+export function claimAutomationOrganization(dc: DataConnect, vars: ClaimAutomationOrganizationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ClaimAutomationOrganizationData>>;
+/** Generated Node Admin SDK operation action function for the 'ClaimAutomationOrganization' Mutation. Allow users to pass in custom DataConnect instances. */
+export function claimAutomationOrganization(vars: ClaimAutomationOrganizationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ClaimAutomationOrganizationData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ReleaseAutomationOrganization' Mutation. Allow users to execute without passing in DataConnect. */
+export function releaseAutomationOrganization(dc: DataConnect, vars: ReleaseAutomationOrganizationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReleaseAutomationOrganizationData>>;
+/** Generated Node Admin SDK operation action function for the 'ReleaseAutomationOrganization' Mutation. Allow users to pass in custom DataConnect instances. */
+export function releaseAutomationOrganization(vars: ReleaseAutomationOrganizationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReleaseAutomationOrganizationData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetAutomationWork' Query. Allow users to execute without passing in DataConnect. */
+export function getAutomationWork(dc: DataConnect, vars: GetAutomationWorkVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationWorkData>>;
+/** Generated Node Admin SDK operation action function for the 'GetAutomationWork' Query. Allow users to pass in custom DataConnect instances. */
+export function getAutomationWork(vars: GetAutomationWorkVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationWorkData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetAutomationVersions' Query. Allow users to execute without passing in DataConnect. */
+export function getAutomationVersions(dc: DataConnect, vars: GetAutomationVersionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationVersionsData>>;
+/** Generated Node Admin SDK operation action function for the 'GetAutomationVersions' Query. Allow users to pass in custom DataConnect instances. */
+export function getAutomationVersions(vars: GetAutomationVersionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationVersionsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'StartAutomationExecution' Mutation. Allow users to execute without passing in DataConnect. */
+export function startAutomationExecution(dc: DataConnect, vars: StartAutomationExecutionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<StartAutomationExecutionData>>;
+/** Generated Node Admin SDK operation action function for the 'StartAutomationExecution' Mutation. Allow users to pass in custom DataConnect instances. */
+export function startAutomationExecution(vars: StartAutomationExecutionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<StartAutomationExecutionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'FinishAutomationEvent' Mutation. Allow users to execute without passing in DataConnect. */
+export function finishAutomationEvent(dc: DataConnect, vars: FinishAutomationEventVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FinishAutomationEventData>>;
+/** Generated Node Admin SDK operation action function for the 'FinishAutomationEvent' Mutation. Allow users to pass in custom DataConnect instances. */
+export function finishAutomationEvent(vars: FinishAutomationEventVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FinishAutomationEventData>>;
+
+/** Generated Node Admin SDK operation action function for the 'InsertAutomationEvent' Mutation. Allow users to execute without passing in DataConnect. */
+export function insertAutomationEvent(dc: DataConnect, vars: InsertAutomationEventVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InsertAutomationEventData>>;
+/** Generated Node Admin SDK operation action function for the 'InsertAutomationEvent' Mutation. Allow users to pass in custom DataConnect instances. */
+export function insertAutomationEvent(vars: InsertAutomationEventVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InsertAutomationEventData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ClaimAutomationJob' Mutation. Allow users to execute without passing in DataConnect. */
+export function claimAutomationJob(dc: DataConnect, vars: ClaimAutomationJobVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ClaimAutomationJobData>>;
+/** Generated Node Admin SDK operation action function for the 'ClaimAutomationJob' Mutation. Allow users to pass in custom DataConnect instances. */
+export function claimAutomationJob(vars: ClaimAutomationJobVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ClaimAutomationJobData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetAutomationExecutionRun' Query. Allow users to execute without passing in DataConnect. */
+export function getAutomationExecutionRun(dc: DataConnect, vars: GetAutomationExecutionRunVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationExecutionRunData>>;
+/** Generated Node Admin SDK operation action function for the 'GetAutomationExecutionRun' Query. Allow users to pass in custom DataConnect instances. */
+export function getAutomationExecutionRun(vars: GetAutomationExecutionRunVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationExecutionRunData>>;
+
+/** Generated Node Admin SDK operation action function for the 'BeginAutomationJob' Mutation. Allow users to execute without passing in DataConnect. */
+export function beginAutomationJob(dc: DataConnect, vars: BeginAutomationJobVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<BeginAutomationJobData>>;
+/** Generated Node Admin SDK operation action function for the 'BeginAutomationJob' Mutation. Allow users to pass in custom DataConnect instances. */
+export function beginAutomationJob(vars: BeginAutomationJobVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<BeginAutomationJobData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RecordAutomationStep' Mutation. Allow users to execute without passing in DataConnect. */
+export function recordAutomationStep(dc: DataConnect, vars: RecordAutomationStepVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordAutomationStepData>>;
+/** Generated Node Admin SDK operation action function for the 'RecordAutomationStep' Mutation. Allow users to pass in custom DataConnect instances. */
+export function recordAutomationStep(vars: RecordAutomationStepVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordAutomationStepData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RetryAutomationStep' Mutation. Allow users to execute without passing in DataConnect. */
+export function retryAutomationStep(dc: DataConnect, vars: RetryAutomationStepVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RetryAutomationStepData>>;
+/** Generated Node Admin SDK operation action function for the 'RetryAutomationStep' Mutation. Allow users to pass in custom DataConnect instances. */
+export function retryAutomationStep(vars: RetryAutomationStepVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RetryAutomationStepData>>;
+
+/** Generated Node Admin SDK operation action function for the 'FinishAutomationStep' Mutation. Allow users to execute without passing in DataConnect. */
+export function finishAutomationStep(dc: DataConnect, vars: FinishAutomationStepVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FinishAutomationStepData>>;
+/** Generated Node Admin SDK operation action function for the 'FinishAutomationStep' Mutation. Allow users to pass in custom DataConnect instances. */
+export function finishAutomationStep(vars: FinishAutomationStepVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FinishAutomationStepData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SettleAutomationExecution' Mutation. Allow users to execute without passing in DataConnect. */
+export function settleAutomationExecution(dc: DataConnect, vars: SettleAutomationExecutionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SettleAutomationExecutionData>>;
+/** Generated Node Admin SDK operation action function for the 'SettleAutomationExecution' Mutation. Allow users to pass in custom DataConnect instances. */
+export function settleAutomationExecution(vars: SettleAutomationExecutionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SettleAutomationExecutionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'PauseAutomationWorkflowForSystem' Mutation. Allow users to execute without passing in DataConnect. */
+export function pauseAutomationWorkflowForSystem(dc: DataConnect, vars: PauseAutomationWorkflowForSystemVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PauseAutomationWorkflowForSystemData>>;
+/** Generated Node Admin SDK operation action function for the 'PauseAutomationWorkflowForSystem' Mutation. Allow users to pass in custom DataConnect instances. */
+export function pauseAutomationWorkflowForSystem(vars: PauseAutomationWorkflowForSystemVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PauseAutomationWorkflowForSystemData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SetAutomationWorkflowNextRun' Mutation. Allow users to execute without passing in DataConnect. */
+export function setAutomationWorkflowNextRun(dc: DataConnect, vars: SetAutomationWorkflowNextRunVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetAutomationWorkflowNextRunData>>;
+/** Generated Node Admin SDK operation action function for the 'SetAutomationWorkflowNextRun' Mutation. Allow users to pass in custom DataConnect instances. */
+export function setAutomationWorkflowNextRun(vars: SetAutomationWorkflowNextRunVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetAutomationWorkflowNextRunData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AutomationFacts' Query. Allow users to execute without passing in DataConnect. */
+export function automationFacts(dc: DataConnect, vars: AutomationFactsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationFactsData>>;
+/** Generated Node Admin SDK operation action function for the 'AutomationFacts' Query. Allow users to pass in custom DataConnect instances. */
+export function automationFacts(vars: AutomationFactsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationFactsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AutomationRecipients' Query. Allow users to execute without passing in DataConnect. */
+export function automationRecipients(dc: DataConnect, vars: AutomationRecipientsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationRecipientsData>>;
+/** Generated Node Admin SDK operation action function for the 'AutomationRecipients' Query. Allow users to pass in custom DataConnect instances. */
+export function automationRecipients(vars: AutomationRecipientsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationRecipientsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AutomationNotify' Mutation. Allow users to execute without passing in DataConnect. */
+export function automationNotify(dc: DataConnect, vars: AutomationNotifyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationNotifyData>>;
+/** Generated Node Admin SDK operation action function for the 'AutomationNotify' Mutation. Allow users to pass in custom DataConnect instances. */
+export function automationNotify(vars: AutomationNotifyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationNotifyData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AutomationCreateLeadFollowUp' Mutation. Allow users to execute without passing in DataConnect. */
+export function automationCreateLeadFollowUp(dc: DataConnect, vars: AutomationCreateLeadFollowUpVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationCreateLeadFollowUpData>>;
+/** Generated Node Admin SDK operation action function for the 'AutomationCreateLeadFollowUp' Mutation. Allow users to pass in custom DataConnect instances. */
+export function automationCreateLeadFollowUp(vars: AutomationCreateLeadFollowUpVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationCreateLeadFollowUpData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AutomationCreateWorkTask' Mutation. Allow users to execute without passing in DataConnect. */
+export function automationCreateWorkTask(dc: DataConnect, vars: AutomationCreateWorkTaskVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationCreateWorkTaskData>>;
+/** Generated Node Admin SDK operation action function for the 'AutomationCreateWorkTask' Mutation. Allow users to pass in custom DataConnect instances. */
+export function automationCreateWorkTask(vars: AutomationCreateWorkTaskVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationCreateWorkTaskData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AutomationAddLeadNote' Mutation. Allow users to execute without passing in DataConnect. */
+export function automationAddLeadNote(dc: DataConnect, vars: AutomationAddLeadNoteVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationAddLeadNoteData>>;
+/** Generated Node Admin SDK operation action function for the 'AutomationAddLeadNote' Mutation. Allow users to pass in custom DataConnect instances. */
+export function automationAddLeadNote(vars: AutomationAddLeadNoteVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationAddLeadNoteData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AutomationDistributeLead' Mutation. Allow users to execute without passing in DataConnect. */
+export function automationDistributeLead(dc: DataConnect, vars: AutomationDistributeLeadVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationDistributeLeadData>>;
+/** Generated Node Admin SDK operation action function for the 'AutomationDistributeLead' Mutation. Allow users to pass in custom DataConnect instances. */
+export function automationDistributeLead(vars: AutomationDistributeLeadVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationDistributeLeadData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AutomationExecutorProfile' Query. Allow users to execute without passing in DataConnect. */
+export function automationExecutorProfile(dc: DataConnect, vars: AutomationExecutorProfileVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationExecutorProfileData>>;
+/** Generated Node Admin SDK operation action function for the 'AutomationExecutorProfile' Query. Allow users to pass in custom DataConnect instances. */
+export function automationExecutorProfile(vars: AutomationExecutorProfileVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationExecutorProfileData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListAutomationEventsForTarget' Query. Allow users to execute without passing in DataConnect. */
+export function listAutomationEventsForTarget(dc: DataConnect, vars: ListAutomationEventsForTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationEventsForTargetData>>;
+/** Generated Node Admin SDK operation action function for the 'ListAutomationEventsForTarget' Query. Allow users to pass in custom DataConnect instances. */
+export function listAutomationEventsForTarget(vars: ListAutomationEventsForTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationEventsForTargetData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListPropertyMapPins' Query. Allow users to execute without passing in DataConnect. */
 export function listPropertyMapPins(dc: DataConnect, vars: ListPropertyMapPinsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListPropertyMapPinsData>>;
@@ -8938,6 +10549,16 @@ export function hitRateLimitCounter(vars: HitRateLimitCounterVariables, options?
 export function purgeExpiredRateLimitCounters(dc: DataConnect, vars: PurgeExpiredRateLimitCountersVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PurgeExpiredRateLimitCountersData>>;
 /** Generated Node Admin SDK operation action function for the 'PurgeExpiredRateLimitCounters' Mutation. Allow users to pass in custom DataConnect instances. */
 export function purgeExpiredRateLimitCounters(vars: PurgeExpiredRateLimitCountersVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PurgeExpiredRateLimitCountersData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListMyTasks' Query. Allow users to execute without passing in DataConnect. */
+export function listMyTasks(dc: DataConnect, vars: ListMyTasksVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListMyTasksData>>;
+/** Generated Node Admin SDK operation action function for the 'ListMyTasks' Query. Allow users to pass in custom DataConnect instances. */
+export function listMyTasks(vars: ListMyTasksVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListMyTasksData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CompleteWorkTask' Mutation. Allow users to execute without passing in DataConnect. */
+export function completeWorkTask(dc: DataConnect, vars: CompleteWorkTaskVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CompleteWorkTaskData>>;
+/** Generated Node Admin SDK operation action function for the 'CompleteWorkTask' Mutation. Allow users to pass in custom DataConnect instances. */
+export function completeWorkTask(vars: CompleteWorkTaskVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CompleteWorkTaskData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListWebsitePages' Query. Allow users to execute without passing in DataConnect. */
 export function listWebsitePages(dc: DataConnect, vars: ListWebsitePagesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListWebsitePagesData>>;

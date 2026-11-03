@@ -89,6 +89,10 @@ const ActivityKind = {
   WEBSITE_MEDIA_ARCHIVED: "WEBSITE_MEDIA_ARCHIVED",
   WEBSITE_SECTION_TEMPLATE_SAVED: "WEBSITE_SECTION_TEMPLATE_SAVED",
   WEBSITE_SECTION_TEMPLATE_DELETED: "WEBSITE_SECTION_TEMPLATE_DELETED",
+  AUTOMATION_WORKFLOW_CHANGED: "AUTOMATION_WORKFLOW_CHANGED",
+  AUTOMATION_EXECUTION_CHANGED: "AUTOMATION_EXECUTION_CHANGED",
+  AUTOMATION_APPROVAL_CHANGED: "AUTOMATION_APPROVAL_CHANGED",
+  WORK_TASK_CHANGED: "WORK_TASK_CHANGED",
 }
 exports.ActivityKind = ActivityKind;
 
@@ -212,8 +216,75 @@ const AuditTargetType = {
   WEBSITE_ENQUIRY: "WEBSITE_ENQUIRY",
   WEBSITE_MEDIA: "WEBSITE_MEDIA",
   WEBSITE_SECTION_TEMPLATE: "WEBSITE_SECTION_TEMPLATE",
+  AUTOMATION_WORKFLOW: "AUTOMATION_WORKFLOW",
+  AUTOMATION_EXECUTION: "AUTOMATION_EXECUTION",
+  AUTOMATION_APPROVAL: "AUTOMATION_APPROVAL",
+  WORK_TASK: "WORK_TASK",
 }
 exports.AuditTargetType = AuditTargetType;
+
+const AutomationApprovalStatus = {
+  PENDING: "PENDING",
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED",
+  EXPIRED: "EXPIRED",
+  CANCELLED: "CANCELLED",
+  EXECUTED: "EXECUTED",
+}
+exports.AutomationApprovalStatus = AutomationApprovalStatus;
+
+const AutomationEventStatus = {
+  PENDING: "PENDING",
+  PROCESSED: "PROCESSED",
+  SKIPPED: "SKIPPED",
+  FAILED: "FAILED",
+}
+exports.AutomationEventStatus = AutomationEventStatus;
+
+const AutomationExecutionStatus = {
+  QUEUED: "QUEUED",
+  RUNNING: "RUNNING",
+  WAITING: "WAITING",
+  APPROVAL_REQUIRED: "APPROVAL_REQUIRED",
+  PAUSED: "PAUSED",
+  SUCCEEDED: "SUCCEEDED",
+  SKIPPED: "SKIPPED",
+  FAILED: "FAILED",
+  CANCELLED: "CANCELLED",
+}
+exports.AutomationExecutionStatus = AutomationExecutionStatus;
+
+const AutomationJobStatus = {
+  QUEUED: "QUEUED",
+  CLAIMED: "CLAIMED",
+  SUCCEEDED: "SUCCEEDED",
+  FAILED: "FAILED",
+  DEAD: "DEAD",
+  CANCELLED: "CANCELLED",
+}
+exports.AutomationJobStatus = AutomationJobStatus;
+
+const AutomationStepStatus = {
+  PENDING: "PENDING",
+  RUNNING: "RUNNING",
+  WAITING: "WAITING",
+  APPROVAL_REQUIRED: "APPROVAL_REQUIRED",
+  SUCCEEDED: "SUCCEEDED",
+  SKIPPED: "SKIPPED",
+  FAILED: "FAILED",
+  CANCELLED: "CANCELLED",
+}
+exports.AutomationStepStatus = AutomationStepStatus;
+
+const AutomationWorkflowStatus = {
+  DRAFT: "DRAFT",
+  IN_REVIEW: "IN_REVIEW",
+  APPROVED: "APPROVED",
+  ACTIVE: "ACTIVE",
+  PAUSED: "PAUSED",
+  ARCHIVED: "ARCHIVED",
+}
+exports.AutomationWorkflowStatus = AutomationWorkflowStatus;
 
 const BuildingType = {
   RESIDENTIAL: "RESIDENTIAL",
@@ -300,6 +371,8 @@ exports.FurnishedStatus = FurnishedStatus;
 const InAppNotificationType = {
   LEAD_ASSIGNED: "LEAD_ASSIGNED",
   LEAD_UNASSIGNED: "LEAD_UNASSIGNED",
+  AUTOMATION: "AUTOMATION",
+  APPROVAL_REQUESTED: "APPROVAL_REQUESTED",
 }
 exports.InAppNotificationType = InAppNotificationType;
 
@@ -660,6 +733,13 @@ const WebsiteStatus = {
 }
 exports.WebsiteStatus = WebsiteStatus;
 
+const WorkTaskStatus = {
+  PENDING: "PENDING",
+  COMPLETED: "COMPLETED",
+  CANCELLED: "CANCELLED",
+}
+exports.WorkTaskStatus = WorkTaskStatus;
+
 const connectorConfig = {
   connector: 'example',
   serviceId: 'estateos',
@@ -939,6 +1019,363 @@ function recordAiSalesInsight(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeMutation('RecordAiSalesInsight', inputVars, inputOpts);
 }
 exports.recordAiSalesInsight = recordAiSalesInsight;
+
+function requestAutomationApproval(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RequestAutomationApproval', inputVars, inputOpts);
+}
+exports.requestAutomationApproval = requestAutomationApproval;
+
+function getAutomationStepApprovals(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetAutomationStepApprovals', inputVars, inputOpts);
+}
+exports.getAutomationStepApprovals = getAutomationStepApprovals;
+
+function closeAutomationApproval(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CloseAutomationApproval', inputVars, inputOpts);
+}
+exports.closeAutomationApproval = closeAutomationApproval;
+
+function listAutomationApprovals(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListAutomationApprovals', inputVars, inputOpts);
+}
+exports.listAutomationApprovals = listAutomationApprovals;
+
+function decideAutomationApproval(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DecideAutomationApproval', inputVars, inputOpts);
+}
+exports.decideAutomationApproval = decideAutomationApproval;
+
+function automationReassignLead(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AutomationReassignLead', inputVars, inputOpts);
+}
+exports.automationReassignLead = automationReassignLead;
+
+function getAutomationApprovalTarget(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetAutomationApprovalTarget', inputVars, inputOpts);
+}
+exports.getAutomationApprovalTarget = getAutomationApprovalTarget;
+
+function listAutomationWorkflows(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListAutomationWorkflows', inputVars, inputOpts);
+}
+exports.listAutomationWorkflows = listAutomationWorkflows;
+
+function getAutomationWorkflow(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetAutomationWorkflow', inputVars, inputOpts);
+}
+exports.getAutomationWorkflow = getAutomationWorkflow;
+
+function listAutomationExecutions(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListAutomationExecutions', inputVars, inputOpts);
+}
+exports.listAutomationExecutions = listAutomationExecutions;
+
+function getAutomationExecution(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetAutomationExecution', inputVars, inputOpts);
+}
+exports.getAutomationExecution = getAutomationExecution;
+
+function automationMetrics(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('AutomationMetrics', inputVars, inputOpts);
+}
+exports.automationMetrics = automationMetrics;
+
+function createAutomationWorkflow(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateAutomationWorkflow', inputVars, inputOpts);
+}
+exports.createAutomationWorkflow = createAutomationWorkflow;
+
+function saveAutomationWorkflow(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SaveAutomationWorkflow', inputVars, inputOpts);
+}
+exports.saveAutomationWorkflow = saveAutomationWorkflow;
+
+function submitAutomationWorkflow(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SubmitAutomationWorkflow', inputVars, inputOpts);
+}
+exports.submitAutomationWorkflow = submitAutomationWorkflow;
+
+function returnAutomationWorkflowToDraft(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ReturnAutomationWorkflowToDraft', inputVars, inputOpts);
+}
+exports.returnAutomationWorkflowToDraft = returnAutomationWorkflowToDraft;
+
+function approveAutomationWorkflow(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ApproveAutomationWorkflow', inputVars, inputOpts);
+}
+exports.approveAutomationWorkflow = approveAutomationWorkflow;
+
+function activateAutomationWorkflow(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ActivateAutomationWorkflow', inputVars, inputOpts);
+}
+exports.activateAutomationWorkflow = activateAutomationWorkflow;
+
+function pauseAutomationWorkflow(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('PauseAutomationWorkflow', inputVars, inputOpts);
+}
+exports.pauseAutomationWorkflow = pauseAutomationWorkflow;
+
+function archiveAutomationWorkflow(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ArchiveAutomationWorkflow', inputVars, inputOpts);
+}
+exports.archiveAutomationWorkflow = archiveAutomationWorkflow;
+
+function queueManualAutomationRun(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('QueueManualAutomationRun', inputVars, inputOpts);
+}
+exports.queueManualAutomationRun = queueManualAutomationRun;
+
+function listAutomationWorkOrganizations(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListAutomationWorkOrganizations', inputVars, inputOpts);
+}
+exports.listAutomationWorkOrganizations = listAutomationWorkOrganizations;
+
+function reserveAutomationAiCall(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ReserveAutomationAiCall', inputVars, inputOpts);
+}
+exports.reserveAutomationAiCall = reserveAutomationAiCall;
+
+function listAutomationDueTasks(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListAutomationDueTasks', inputVars, inputOpts);
+}
+exports.listAutomationDueTasks = listAutomationDueTasks;
+
+function markAutomationScan(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('MarkAutomationScan', inputVars, inputOpts);
+}
+exports.markAutomationScan = markAutomationScan;
+
+function ensureAutomationOrgState(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('EnsureAutomationOrgState', inputVars, inputOpts);
+}
+exports.ensureAutomationOrgState = ensureAutomationOrgState;
+
+function claimAutomationOrganization(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ClaimAutomationOrganization', inputVars, inputOpts);
+}
+exports.claimAutomationOrganization = claimAutomationOrganization;
+
+function releaseAutomationOrganization(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ReleaseAutomationOrganization', inputVars, inputOpts);
+}
+exports.releaseAutomationOrganization = releaseAutomationOrganization;
+
+function getAutomationWork(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetAutomationWork', inputVars, inputOpts);
+}
+exports.getAutomationWork = getAutomationWork;
+
+function getAutomationVersions(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetAutomationVersions', inputVars, inputOpts);
+}
+exports.getAutomationVersions = getAutomationVersions;
+
+function startAutomationExecution(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('StartAutomationExecution', inputVars, inputOpts);
+}
+exports.startAutomationExecution = startAutomationExecution;
+
+function finishAutomationEvent(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('FinishAutomationEvent', inputVars, inputOpts);
+}
+exports.finishAutomationEvent = finishAutomationEvent;
+
+function insertAutomationEvent(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('InsertAutomationEvent', inputVars, inputOpts);
+}
+exports.insertAutomationEvent = insertAutomationEvent;
+
+function claimAutomationJob(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ClaimAutomationJob', inputVars, inputOpts);
+}
+exports.claimAutomationJob = claimAutomationJob;
+
+function getAutomationExecutionRun(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetAutomationExecutionRun', inputVars, inputOpts);
+}
+exports.getAutomationExecutionRun = getAutomationExecutionRun;
+
+function beginAutomationJob(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('BeginAutomationJob', inputVars, inputOpts);
+}
+exports.beginAutomationJob = beginAutomationJob;
+
+function recordAutomationStep(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RecordAutomationStep', inputVars, inputOpts);
+}
+exports.recordAutomationStep = recordAutomationStep;
+
+function retryAutomationStep(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RetryAutomationStep', inputVars, inputOpts);
+}
+exports.retryAutomationStep = retryAutomationStep;
+
+function finishAutomationStep(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('FinishAutomationStep', inputVars, inputOpts);
+}
+exports.finishAutomationStep = finishAutomationStep;
+
+function settleAutomationExecution(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SettleAutomationExecution', inputVars, inputOpts);
+}
+exports.settleAutomationExecution = settleAutomationExecution;
+
+function pauseAutomationWorkflowForSystem(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('PauseAutomationWorkflowForSystem', inputVars, inputOpts);
+}
+exports.pauseAutomationWorkflowForSystem = pauseAutomationWorkflowForSystem;
+
+function setAutomationWorkflowNextRun(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetAutomationWorkflowNextRun', inputVars, inputOpts);
+}
+exports.setAutomationWorkflowNextRun = setAutomationWorkflowNextRun;
+
+function automationFacts(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('AutomationFacts', inputVars, inputOpts);
+}
+exports.automationFacts = automationFacts;
+
+function automationRecipients(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('AutomationRecipients', inputVars, inputOpts);
+}
+exports.automationRecipients = automationRecipients;
+
+function automationNotify(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AutomationNotify', inputVars, inputOpts);
+}
+exports.automationNotify = automationNotify;
+
+function automationCreateLeadFollowUp(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AutomationCreateLeadFollowUp', inputVars, inputOpts);
+}
+exports.automationCreateLeadFollowUp = automationCreateLeadFollowUp;
+
+function automationCreateWorkTask(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AutomationCreateWorkTask', inputVars, inputOpts);
+}
+exports.automationCreateWorkTask = automationCreateWorkTask;
+
+function automationAddLeadNote(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AutomationAddLeadNote', inputVars, inputOpts);
+}
+exports.automationAddLeadNote = automationAddLeadNote;
+
+function automationDistributeLead(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AutomationDistributeLead', inputVars, inputOpts);
+}
+exports.automationDistributeLead = automationDistributeLead;
+
+function automationExecutorProfile(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('AutomationExecutorProfile', inputVars, inputOpts);
+}
+exports.automationExecutorProfile = automationExecutorProfile;
+
+function listAutomationEventsForTarget(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListAutomationEventsForTarget', inputVars, inputOpts);
+}
+exports.listAutomationEventsForTarget = listAutomationEventsForTarget;
 
 function listPropertyMapPins(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
@@ -2115,6 +2552,20 @@ function purgeExpiredRateLimitCounters(dcOrVarsOrOptions, varsOrOptions, options
   return dcInstance.executeMutation('PurgeExpiredRateLimitCounters', inputVars, inputOpts);
 }
 exports.purgeExpiredRateLimitCounters = purgeExpiredRateLimitCounters;
+
+function listMyTasks(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListMyTasks', inputVars, inputOpts);
+}
+exports.listMyTasks = listMyTasks;
+
+function completeWorkTask(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CompleteWorkTask', inputVars, inputOpts);
+}
+exports.completeWorkTask = completeWorkTask;
 
 function listWebsitePages(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);

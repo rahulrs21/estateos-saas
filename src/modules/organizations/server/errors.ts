@@ -99,6 +99,36 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (message.includes("WEBSITE_PAGE_REVIEW_FORBIDDEN")) {
       return new WorkspaceError("PERMISSION_DENIED", 403, "Only owners, administrators and managers can review pages.");
     }
+    if (message.includes("AUTOMATION_APPROVER_REQUIRED")) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "Only company owners and administrators can approve, activate or pause workflows.");
+    }
+    if (message.includes("AUTOMATION_PERMISSION_DENIED")) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "You can view and change only your own workflow drafts, unless you are a company owner, administrator or manager.");
+    }
+    if (/\b(?:AUTOMATION_CHANGED_RELOAD|AUTOMATION_TRANSITION_DENIED)\b/.test(message)) {
+      return new WorkspaceError("CONFLICT", 409, "This workflow was changed in another window or by a colleague, or is no longer in a state that allows this. Reload it and try again.");
+    }
+    if (message.includes("AUTOMATION_WORKFLOW_LIMIT")) {
+      return new WorkspaceError("CONFLICT", 409, "Your company has reached the limit of 200 workflows. Archive workflows you no longer need.");
+    }
+    if (message.includes("AUTOMATION_ACTIVE_LIMIT")) {
+      return new WorkspaceError("CONFLICT", 409, "Your company has 50 active workflows, the most allowed. Pause one before activating another.");
+    }
+    if (message.includes("AUTOMATION_NOT_RUNNABLE")) {
+      return new WorkspaceError("CONFLICT", 409, "Only an active workflow with the \"Run manually\" trigger can be run now.");
+    }
+    if (message.includes("AUTOMATION_APPROVAL_EXPIRED")) {
+      return new WorkspaceError("AUTOMATION_APPROVAL_EXPIRED", 409, "This approval has expired and can no longer be decided. The workflow will not make this change.");
+    }
+    if (message.includes("AUTOMATION_APPROVAL_CHANGED")) {
+      return new WorkspaceError("CONFLICT", 409, "This approval was already decided, cancelled or has expired. Reload the approvals list.");
+    }
+    if (message.includes("AUTOMATION_APPROVAL_FORBIDDEN")) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "You cannot decide this approval: it needs a member who is allowed to perform the action and did not request it.");
+    }
+    if (/\b(?:AUTOMATION_NOT_FOUND|WORK_TASK_NOT_FOUND)\b/.test(message)) {
+      return new WorkspaceError("NOT_FOUND", 404, "This record was not found in your company.");
+    }
     if (message.includes("AI_CONVERSATION_CHANGED")) {
       return new WorkspaceError("CONFLICT", 409, "This conversation changed in another window. Reload it and try again.");
     }

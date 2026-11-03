@@ -17,6 +17,7 @@ import {registerMapScaleCases} from "./sql-connect-map-scale.cases.mjs";
 import {registerRateLimitCases} from "./sql-connect-rate-limit.cases.mjs";
 import {registerListingCases} from "./sql-connect-listings.cases.mjs";
 import {registerAiCases} from "./sql-connect-ai.cases.mjs";
+import {registerAutomationCases} from "./sql-connect-automations.cases.mjs";
 import {registerAiContentCases} from "./sql-connect-ai-content.cases.mjs";
 import {registerAiSalesCases} from "./sql-connect-ai-sales.cases.mjs";
 import {registerWebsiteCases} from "./sql-connect-websites.cases.mjs";
@@ -40,6 +41,10 @@ async function run(operation, uid, variables, overrides) {
   // variables position; otherwise impersonation can be parsed as query input.
   if ((operation === sdk.createLead || operation === sdk.createLeadForContact) && variables && !Object.hasOwn(variables, "hasAssignedMember")) {
     variables = { ...variables, hasAssignedMember: variables.assignedMembershipId != null };
+  }
+  // Phase 6E: the server says whether a viewing update completes it (only completions emit an automation event).
+  if (operation === sdk.updateLeadPropertyViewing && variables && !Object.hasOwn(variables, "completed")) {
+    variables = { ...variables, completed: variables.status === sdk.LeadPropertyViewingStatus.COMPLETED || variables.status === "COMPLETED" };
   }
   if (operation === sdk.updateLead && variables && !Object.hasOwn(variables, "recordAssignment")) {
     const current = await sdk.getLead(dc, { organizationId: variables.organizationId, leadId: variables.leadId }, options(uid, overrides));
@@ -79,6 +84,7 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
   registerAiContentCases({sdk,run,forbidden,dc});
   registerAiSalesCases({sdk,run,forbidden,dc});
   registerWebsiteCases({sdk,run,forbidden,dc});
+  registerAutomationCases({sdk,run,forbidden,dc});
   before(async () => { await seedLocalDatabase(dc); });
   after(async () => { await deleteApp(app); });
 

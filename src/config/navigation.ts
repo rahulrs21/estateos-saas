@@ -2,7 +2,7 @@ import {
   Gauge, Globe,
   BarChart3, Bot, BriefcaseBusiness, Building2, CalendarCheck2, ContactRound,
   FolderKanban, Handshake, House, LayoutDashboard, Megaphone, MessagesSquare,
-  Settings2, UsersRound, WalletCards, Wand2, Workflow, type LucideIcon,
+  Settings2, ShieldCheck, UsersRound, WalletCards, Wand2, Workflow, type LucideIcon,
 } from "lucide-react";
 
 export interface NavigationItem {
@@ -10,6 +10,8 @@ export interface NavigationItem {
   href: string;
   icon: LucideIcon;
   description: string;
+  /** A live count shown next to the item (loaded on the client; hidden when the member cannot see it). */
+  badge?: "approvals";
 }
 
 export interface NavigationGroup {
@@ -40,7 +42,7 @@ export const navigationGroups: NavigationGroup[] = [
   {
     label: "Operations",
     items: [
-      { title: "Tasks", href: "/workspace/tasks", icon: CalendarCheck2, description: "Coordinate follow-ups, viewings, and your team's daily work." },
+      { title: "Tasks", href: "/workspace/tasks", icon: CalendarCheck2, description: "Your open follow-ups and work tasks, including those workflows create." },
       { title: "Websites", href: "/websites", icon: Globe, description: "Build landing pages from CRM records, with Claude, review and publishing." },
       { title: "Marketing", href: "/workspace/marketing", icon: Megaphone, description: "Plan campaigns and understand where your inquiries come from." },
       { title: "Communications", href: "/workspace/communications", icon: MessagesSquare, description: "Bring client conversations and communication history together." },
@@ -52,7 +54,8 @@ export const navigationGroups: NavigationGroup[] = [
       { title: "AI Copilot", href: "/ai-copilot", icon: Bot, description: "Ask permission-aware questions about your agency's CRM data." },
       { title: "AI Sales", href: "/ai-sales", icon: Gauge, description: "Lead priorities, follow-up gaps and pipeline metrics from your CRM records." },
       { title: "AI Content Studio", href: "/ai-content", icon: Wand2, description: "Draft marketing and sales content from verified CRM records." },
-      { title: "Automation", href: "/workspace/automation", icon: Workflow, description: "Coordinate repeatable workflows with explicit rules and oversight." },
+      { title: "Automation", href: "/automations", icon: Workflow, description: "Approved workflows for assignments, tasks and reminders, with human oversight." },
+      { title: "Approvals", href: "/approvals", icon: ShieldCheck, description: "Decide workflow steps that need a person's approval, such as lead reassignments.", badge: "approvals" },
     ],
   },
   {

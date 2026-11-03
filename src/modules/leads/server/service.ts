@@ -88,7 +88,12 @@ export async function listLeads(input: unknown = {}) {
 }
 
 export async function getLead(input: unknown) {
-  const { request, organizationId } = await requireActiveOrganizationRequest();
+  return getLeadInContext(await requireActiveOrganizationRequest(), input);
+}
+
+/** The same read for an already-resolved context (for example a workflow's executor). */
+export async function getLeadInContext(context: Awaited<ReturnType<typeof requireActiveOrganizationRequest>>, input: unknown) {
+  const { request, organizationId } = context;
   const variables = validateInput(leadIdInputSchema, input);
   return executeWorkspaceOperation(() => getLeadOperation(request.dc, { ...variables, organizationId }, request.options), "GetLead");
 }

@@ -3,9 +3,11 @@ import { cpSync, existsSync, mkdirSync, readdirSync, rmdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
   AUTO_SNAPSHOTS_KEPT, EXIT_SNAPSHOTS_KEPT, DEV_PROJECT_ID, LOCAL_CONFIG, LOCAL_CONFIG_DIR, backupRoot, busyPorts, copyDatabase, dataRoot, emulatorEnvironment,
-  exportedObjectCount, firebaseCliRoot, hasDatabase, legacySqlDataDir, listStorageObjects, localConfig, localStorageBucket, portOwners, prepareStorageImport,
+  exportedObjectCount, firebaseCliCommand, firebaseCliRoot, hasDatabase, legacySqlDataDir, listStorageObjects, localConfig, localStorageBucket, portOwners, prepareStorageImport,
   pruneSnapshots, root, saveStorageExport, sqlDataDir, storageExportDir, storageFingerprint, timestamp,
 } from "./local-db-lib.mjs";
+import { envValue, startAutomationWorker } from "./automation-worker.mjs";
+import { repairAutomationDraft } from "./repair-automation-draft.mjs";
 
 /*
  * Local development: persistent SQL Connect (PGlite) + Storage emulators and Next.js.
@@ -68,6 +70,18 @@ if (archivedDump) {
 }
 
 const cliRoot = firebaseCliRoot();
+// The database is closed here and the startup snapshot above holds a copy, so the
+// leftovers of the unfinished automation draft (see the script) can be repaired safely.
+if (existsSync(join(sqlDataDir, "pg17"))) {
+  try {
+    const repaired = await repairAutomationDraft({ cliRoot, dataDir: join(sqlDataDir, "pg17"), schemaPath: join(root, "dataconnect", "schema", "schema.gql") });
+    if (repaired === "repaired") console.log("Removed the empty tables and enum values left by the unfinished automation draft; SQL Connect will now create the automation tables.");
+  } catch (error) {
+    console.error(`The local database has leftovers of the unfinished automation draft that could not be repaired automatically (${error.message}).`);
+    console.error("Nothing was changed. SQL Connect cannot migrate this database to the current schema, so dev:local was not started.");
+    process.exit(1);
+  }
+}
 const cliConfig = join(root, ".tmp", "firebase-cli-local");
 mkdirSync(cliConfig, { recursive: true });
 const baseEnv = {
@@ -83,6 +97,7 @@ console.log("Firebase Authentication remains configured as before. Stop with ONE
 const STARTUP_ATTEMPTS = 5;
 let emulators = null;
 let next = null;
+let worker = null;
 let stopping = false;
 const bucket = localStorageBucket();
 const AUTOSAVE_INTERVAL_MS = 3000;
@@ -133,15 +148,17 @@ async function startStorageAutosave() {
 
 /**
  * Firebase CLI 15.x gives the SQL Connect binary about four seconds to listen,
- * but the binary regenerates the Admin SDK first; on a busy machine the start
- * fails with "/emulator/configure". The CLI has already shut down cleanly when
- * that happens, so the start is retried a bounded number of times.
+ * but the binary compiles the schema and regenerates the Admin SDK first, which
+ * now takes about five seconds; the start then fails with "/emulator/configure".
+ * firebase-cli-dataconnect-wait.mjs makes the CLI wait for the binary instead.
+ * The CLI has already shut down cleanly when a start fails, so the start is
+ * still retried a bounded number of times.
  */
 function startEmulators(attempt) {
   // Re-sanitize before every attempt: a failed attempt may have exported again.
   const { importDir: currentImport } = attempt === 1 ? { importDir } : prepareStorageImport();
   const child = spawn(process.execPath, [
-    join(cliRoot, "lib", "bin", "firebase.js"), "emulators:start", "--project", DEV_PROJECT_ID, "--config", LOCAL_CONFIG,
+    ...firebaseCliCommand(cliRoot), "emulators:start", "--project", DEV_PROJECT_ID, "--config", LOCAL_CONFIG,
     "--only", "dataconnect,storage", "--export-on-exit", storageExportDir, ...(currentImport ? ["--import", currentImport] : []),
   ], { cwd: LOCAL_CONFIG_DIR, stdio: ["inherit", "pipe", "pipe"], windowsHide: true, env: baseEnv });
   let recent = "";
@@ -180,6 +197,7 @@ async function emulatorsReady(timeoutMs = 300_000) {
 function requestStop(signal) {
   if (stopping) return;
   stopping = true;
+  worker?.stop();
   console.log(`
 Received ${signal}. Closing the local database cleanly; do not press Ctrl+C again.`);
   // Console signals reach every process in the terminal. Forward only where
@@ -204,6 +222,11 @@ if (!ready) {
     env: { ...baseEnv, ...emulatorEnvironment(config) },
   });
   next.on("exit", code => {
+    worker?.stop();
     if (!stopping) console.log(`Next.js stopped (code ${code}). Press Ctrl+C once to stop the emulators and save data.`);
   });
+  // Workflow automation: the worker ticks the app; all state is in the database (docs/AUTOMATION_OPERATIONS.md).
+  const secret = envValue("AUTOMATION_WORKER_SECRET");
+  if (secret.length >= 32) worker = startAutomationWorker({origin: "http://localhost:3000", secret});
+  else console.log("Automation worker: off (set AUTOMATION_WORKER_SECRET in .env.local to run approved workflows locally).");
 }

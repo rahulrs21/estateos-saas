@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { firebaseCliRoot, root } from "./local-db-lib.mjs";
+import { firebaseCliCommand, root } from "./local-db-lib.mjs";
 
 /*
  * End-to-end browser tests for Phase 5F maps against the real Next.js app,
@@ -66,7 +66,7 @@ const started = join(workspace, "tests-started");
 let status = 1;
 for (let attempt = 1; attempt <= 3; attempt++) {
   const result = spawnSync(process.execPath, [
-    join(firebaseCliRoot(), "lib", "bin", "firebase.js"), "emulators:exec", "--project", "demo-estateos-test",
+    ...firebaseCliCommand(), "emulators:exec", "--project", "demo-estateos-test",
     "--config", join(workspace, "firebase.json"), "--only", "auth,dataconnect,storage", `node "${join(root, "tests", "maps-e2e.browser.mjs")}"`,
   ], {cwd: workspace, stdio: "inherit", windowsHide: true, env});
   status = result.status ?? 1;

@@ -1,0 +1,32 @@
+# My tasks (docs/WORKFLOW_BUILDER.md#tasks): lead follow-ups and work tasks.
+# Lead follow-ups keep using the existing lead operations (ScheduleLeadFollowUp, CompleteLeadFollowUp);
+# work tasks are created by workflows (AutomationCreateWorkTask) and completed here.
+
+# The caller's pending follow-ups and work tasks. OWNERs, ADMINs and MANAGERs also see the team queue (unassigned work tasks).
+query ListMyTasks($organizationId: UUID!, $limit: Int! = 50)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  followUps: leadFollowUps(where: {organizationId: {eq: $organizationId}, status: {eq: PENDING}, assignedUser: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}, lead: {archivedAt: {isNull: true}}},
+    orderBy: [{dueAt: ASC}, {id: ASC}], limit: $limit) {id title dueAt leadId lead {fullName status}}
+  workTasks: workTasks(where: {_and: [{organizationId: {eq: $organizationId}, status: {eq: PENDING}}, {_or: [
+    {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {assignedMembershipId: {isNull: true}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}}}
+  ]}]}, orderBy: [{dueAt: ASC}, {id: ASC}], limit: $limit) {id title dueAt assignedMembershipId listingId listing {title listingReference} leadId sourceExecutionId}
+}
+
+# Completes a work task: its assignee, or an OWNER, ADMIN or MANAGER of the company. Emits task.completed in the same transaction.
+mutation CompleteWorkTask($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact {
+    task: workTask(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: PENDING}}, {_or: [
+      {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}}}
+    ]}]}}) @check(expr: "this != null", message: "WORK_TASK_NOT_FOUND") {id}
+  }
+  task: workTask_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq_expr: "response.before.task.id"}, status: {eq: PENDING}}}, data: {status: COMPLETED, completedAt_expr: "request.time", updatedAt_expr: "request.time"})
+    @check(expr: "this != null", message: "WORK_TASK_NOT_FOUND")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: WORK_TASK_CHANGED, targetType: WORK_TASK, targetId: $id, metadata_expr: "{'event': 'COMPLETED'}"})
+  # Phase 6E outbox: written in the same transaction as the change (docs/AUTOMATION_ENGINE.md#events).
+  automationEvent_insert(data: {organizationId: $organizationId, triggerType: "task.completed", targetType: "TASK", targetId_expr: "response.before.task.id", actorUid_expr: "auth.uid", origin: "CRM", payload_expr: "{'kind': 'WORK_TASK'}"})
+}

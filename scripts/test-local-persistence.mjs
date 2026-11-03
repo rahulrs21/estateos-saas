@@ -285,6 +285,19 @@ try {
     try { await sdk.recordLeadQualificationAssessment(dc, { organizationId: demoOrg, id: randomUUID(), leadId: manualLead, evaluatedByUid: owner, ruleVersion: "lq-1", configHash: "00000000",
       score: 42, priority: sdk.AiLeadPriority.LOW, sufficientData: true, result: "{}" }); }
     finally { await deleteApp(app); } }
+  // Phase 6E: an active workflow and the queued (pending) outbox event of the new lead must survive too.
+  const automationId = randomUUID();
+  const automationJson = JSON.stringify({schemaVersion: 1, name: "Persistence workflow", description: "", trigger: "lead.created", conditions: null,
+    steps: [{id: "note", type: "lead.activity", when: null, note: "Persistence note"}], timeZone: "Asia/Dubai", schedule: null, businessHours: null, quietHours: null, errorPolicy: "RETRY_THEN_FAIL"});
+  await asMember(owner, (dc, options) => sdk.createAutomationWorkflow(dc, {organizationId: demoOrg, id: automationId, versionId: randomUUID(), name: "Persistence workflow", description: "",
+    triggerType: "lead.created", definitionJson: automationJson, definitionHash: "0".repeat(64), hasApprovalSteps: false, timeZone: "Asia/Dubai"}, options));
+  const automationRevision = async () => asMember(owner, async (dc, options) => (await sdk.getAutomationWorkflow(dc, {organizationId: demoOrg, id: automationId}, options)).data.workflow);
+  { const expectedRevision = (await automationRevision()).revision;
+    await asMember(owner, (dc, options) => sdk.submitAutomationWorkflow(dc, {organizationId: demoOrg, id: automationId, expectedRevision}, options)); }
+  { const expectedRevision = (await automationRevision()).revision;
+    await asMember(owner, (dc, options) => sdk.approveAutomationWorkflow(dc, {organizationId: demoOrg, id: automationId, expectedRevision, versionNumber: 1}, options)); }
+  { const expectedRevision = (await automationRevision()).revision;
+    await asMember(owner, (dc, options) => sdk.activateAutomationWorkflow(dc, {organizationId: demoOrg, id: automationId, expectedRevision, nextRunAt: null}, options)); }
   // Phase 6D: a landing page with an approved version, a live publication and a page enquiry must survive too.
   const websiteId = randomUUID(), pageId = randomUUID(), publicationId = randomUUID();
   const pageData = JSON.stringify({schemaVersion: 1, theme: {style: "CONTEMPORARY", accent: "TEAL", font: "SANS", scale: "COMFORTABLE", radius: "ROUND"}, sections: []});
@@ -328,6 +341,15 @@ try {
     try {
       const live = (await sdk.resolvePublishedPage(dc, { companySlug: pageAfterRestart.organization.slug, pageSlug: "persistence-page" })).data.publications;
       assert.match(live[0]?.snapshot ?? "", /Persistence snapshot/, "the live publication survives an abrupt stop");
+    } finally { await deleteApp(app); } }
+
+  const workflowAfterRestart = await automationRevision();
+  assert.equal(workflowAfterRestart.status, "ACTIVE", "active workflows survive an abrupt stop");
+  assert.equal(workflowAfterRestart.executorUid, owner, "the workflow keeps its executor");
+  { const { app, dc } = dataConnect();
+    try {
+      const queued = (await sdk.listAutomationEventsForTarget(dc, { organizationId: demoOrg, targetId: manualLead })).data.events;
+      assert.ok(queued.some(event => event.triggerType === "lead.created" && event.status === "PENDING"), "queued outbox events survive an abrupt stop, still waiting for the worker");
     } finally { await deleteApp(app); } }
 
   log("seed:demo refuses production.");

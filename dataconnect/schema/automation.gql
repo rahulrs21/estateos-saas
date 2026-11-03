@@ -1,0 +1,264 @@
+# Phase 6E: workflow automation and approvals (docs/AUTOMATION_ENGINE.md).
+# Additive tables only. Workflow definitions are validated JSON (never code);
+# EstateOS validates them on the server before every save, and the engine runs
+# only allowlisted actions with the activating member's permissions.
+
+enum AutomationWorkflowStatus { DRAFT IN_REVIEW APPROVED ACTIVE PAUSED ARCHIVED }
+enum AutomationEventStatus { PENDING PROCESSED SKIPPED FAILED }
+enum AutomationExecutionStatus { QUEUED RUNNING WAITING APPROVAL_REQUIRED PAUSED SUCCEEDED SKIPPED FAILED CANCELLED }
+enum AutomationStepStatus { PENDING RUNNING WAITING APPROVAL_REQUIRED SUCCEEDED SKIPPED FAILED CANCELLED }
+enum AutomationApprovalStatus { PENDING APPROVED REJECTED EXPIRED CANCELLED EXECUTED }
+enum AutomationJobStatus { QUEUED CLAIMED SUCCEEDED FAILED DEAD CANCELLED }
+enum WorkTaskStatus { PENDING COMPLETED CANCELLED }
+
+# The current definition (the working copy) and its review state. Approving
+# fixes approvedVersionNumber; editing afterwards creates a new draft version
+# and needs a new review before the workflow runs again.
+type AutomationWorkflow @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "status", "triggerType"])
+  @index(fields: ["organizationId", "createdByUid", "updatedAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "status", "nextRunAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  name: String! @col(dataType: "varchar(120)")
+  description: String! @col(dataType: "varchar(2000)")
+  triggerType: String! @col(dataType: "varchar(60)")
+  definitionJson: String! @col(dataType: "varchar(40000)")
+  # The schemaVersion of the definition format.
+  definitionVersion: Int! @default(value: 1)
+  # Compare-and-set for every change.
+  revision: Int! @default(value: 1)
+  currentVersionNumber: Int! @default(value: 1)
+  approvedVersionNumber: Int
+  # Set by the approval transaction to the approved version row (no foreign key: versions refer back to the workflow).
+  approvedVersionId: UUID
+  status: AutomationWorkflowStatus! @default(value: DRAFT)
+  # True when the approved definition contains an action that needs a human decision.
+  hasApprovalSteps: Boolean! @default(value: false)
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  approvedBy: UserProfile
+  approvedAt: Timestamp
+  # The member whose permissions the engine uses; set on activation.
+  executor: UserProfile
+  activatedAt: Timestamp
+  timeZone: String! @default(value: "Asia/Dubai") @col(dataType: "varchar(64)")
+  nextRunAt: Timestamp
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Immutable snapshots: every saved definition, with its author and hash.
+type AutomationWorkflowVersion @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "workflowId", "versionNumber"])
+  @index(fields: ["organizationId", "workflowId", "createdAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  workflowId: UUID!
+  workflow: AutomationWorkflow! @ref(fields: ["organizationId", "workflowId"], references: ["organizationId", "id"])
+  versionNumber: Int!
+  definitionJson: String! @col(dataType: "varchar(40000)")
+  definitionHash: String! @col(dataType: "varchar(64)")
+  author: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# The outbox. CRM events are inserted in the same transaction as the business
+# change (no key needed: one transaction, one row); events created by the
+# engine or by scans carry a unique deduplication key.
+type AutomationEvent @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "deduplicationKey"])
+  @index(fields: ["organizationId", "status", "createdAt"])
+  @index(fields: ["organizationId", "triggerType", "createdAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  deduplicationKey: String @col(dataType: "varchar(200)")
+  triggerType: String! @col(dataType: "varchar(60)")
+  targetType: String! @col(dataType: "varchar(30)")
+  targetId: UUID
+  actor: UserProfile
+  # CRM, WEBSITE, WORKFLOW, SCHEDULE or MANUAL.
+  origin: String! @default(value: "CRM") @col(dataType: "varchar(20)")
+  originalEventId: UUID
+  parentExecutionId: UUID
+  originWorkflowId: UUID
+  # A manual run starts only this workflow.
+  forWorkflowId: UUID
+  chainDepth: Int! @default(value: 0)
+  # Small facts known only at the time of the event (for example the previous status).
+  payload: Any
+  status: AutomationEventStatus! @default(value: PENDING)
+  matchedCount: Int! @default(value: 0)
+  errorCode: String @col(dataType: "varchar(64)")
+  createdAt: Timestamp! @default(expr: "request.time")
+  processedAt: Timestamp
+}
+
+type AutomationExecution @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "workflowId", "triggeringEventId"])
+  @index(fields: ["organizationId", "status", "createdAt"])
+  @index(fields: ["organizationId", "workflowId", "createdAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "targetType", "targetId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  workflowId: UUID!
+  workflow: AutomationWorkflow! @ref(fields: ["organizationId", "workflowId"], references: ["organizationId", "id"])
+  workflowVersionId: UUID!
+  workflowVersion: AutomationWorkflowVersion! @ref(fields: ["organizationId", "workflowVersionId"], references: ["organizationId", "id"])
+  triggeringEventId: UUID!
+  triggeringEvent: AutomationEvent! @ref(fields: ["organizationId", "triggeringEventId"], references: ["organizationId", "id"])
+  triggerType: String! @col(dataType: "varchar(60)")
+  targetType: String! @col(dataType: "varchar(30)")
+  targetId: UUID
+  # The lead the execution concerns (directly, or through a viewing or task), for filters by agent.
+  leadId: UUID
+  lead: Lead @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  chainDepth: Int! @default(value: 0)
+  executor: UserProfile!
+  status: AutomationExecutionStatus! @default(value: QUEUED)
+  nextStep: Int! @default(value: 0)
+  attemptCount: Int! @default(value: 0)
+  actionCount: Int! @default(value: 0)
+  aiCalls: Int! @default(value: 0)
+  durationMs: Int
+  errorCode: String @col(dataType: "varchar(64)")
+  startedAt: Timestamp
+  completedAt: Timestamp
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# One row per step attempt position. The idempotency key is deterministic
+# (execution + position), so a step's side effect is recorded at most once.
+type AutomationExecutionStep @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "executionId", "position"])
+  @unique(fields: ["organizationId", "idempotencyKey"])
+  @index(fields: ["organizationId", "executionId", "status"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  executionId: UUID!
+  execution: AutomationExecution! @ref(fields: ["organizationId", "executionId"], references: ["organizationId", "id"])
+  position: Int!
+  actionId: String! @col(dataType: "varchar(40)")
+  actionType: String! @col(dataType: "varchar(60)")
+  actionSnapshot: String! @col(dataType: "varchar(5000)")
+  idempotencyKey: String! @col(dataType: "varchar(120)")
+  status: AutomationStepStatus! @default(value: PENDING)
+  attemptCount: Int! @default(value: 0)
+  resultType: String @col(dataType: "varchar(40)")
+  resultId: UUID
+  resultSummary: String @col(dataType: "varchar(500)")
+  errorCode: String @col(dataType: "varchar(64)")
+  startedAt: Timestamp
+  completedAt: Timestamp
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# A request for a human decision on one exact action. Approving authorizes only
+# this snapshot; if the target record has changed since (targetStateHash), the
+# approval is invalidated and a fresh one is needed.
+# A step can have more than one approval only when the record changed before a decision (a fresh round is requested).
+type AutomationApproval @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "stepId", "requestedAt"])
+  @index(fields: ["organizationId", "status", "expiresAt"])
+  @index(fields: ["organizationId", "executionId", "requestedAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  executionId: UUID!
+  execution: AutomationExecution! @ref(fields: ["organizationId", "executionId"], references: ["organizationId", "id"])
+  stepId: UUID!
+  step: AutomationExecutionStep! @ref(fields: ["organizationId", "stepId"], references: ["organizationId", "id"])
+  workflowId: UUID!
+  workflow: AutomationWorkflow! @ref(fields: ["organizationId", "workflowId"], references: ["organizationId", "id"])
+  actionId: String! @col(dataType: "varchar(40)")
+  actionType: String! @col(dataType: "varchar(60)")
+  risk: String! @col(dataType: "varchar(10)")
+  targetType: String! @col(dataType: "varchar(30)")
+  targetId: UUID
+  leadId: UUID
+  lead: Lead @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  # For lead.reassign: the agent when the approval was requested, and the exact agent approved.
+  fromMembershipId: UUID
+  fromMembership: Membership @ref(fields: ["organizationId", "fromMembershipId"], references: ["organizationId", "id"], constraintName: "automation_approval_from_fk")
+  toMembershipId: UUID
+  toMembership: Membership @ref(fields: ["organizationId", "toMembershipId"], references: ["organizationId", "id"], constraintName: "automation_approval_to_fk")
+  # The workflow's executor, on whose behalf the approval was requested.
+  requestedBy: UserProfile!
+  approver: UserProfile
+  status: AutomationApprovalStatus! @default(value: PENDING)
+  approvedActionSnapshot: String! @col(dataType: "varchar(8000)")
+  snapshotHash: String! @col(dataType: "varchar(64)")
+  targetStateHash: String! @col(dataType: "varchar(64)")
+  requestedAt: Timestamp! @default(expr: "request.time")
+  expiresAt: Timestamp!
+  decidedAt: Timestamp
+  decisionReason: String @col(dataType: "varchar(500)")
+  # Outcome after an approval: EXECUTED, FAILED or QUEUED (with a redacted error code).
+  resultStatus: String @col(dataType: "varchar(20)")
+  resultErrorCode: String @col(dataType: "varchar(64)")
+}
+
+# What runs next for an execution, and when (UTC). Claimed with a lease and a
+# claim token; a crashed worker's lease expires and the job is claimed again.
+type ScheduledAutomationJob @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "executionId"])
+  @index(fields: ["organizationId", "status", "runAt"])
+  @index(fields: ["status", "runAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  executionId: UUID!
+  execution: AutomationExecution! @ref(fields: ["organizationId", "executionId"], references: ["organizationId", "id"])
+  status: AutomationJobStatus! @default(value: QUEUED)
+  runAt: Timestamp! @default(expr: "request.time")
+  claimToken: UUID
+  leaseUntil: Timestamp
+  attemptCount: Int! @default(value: 0)
+  errorCode: String @col(dataType: "varchar(64)")
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Per-company worker state: a short lease so one tick per company runs at a
+# time (with a fencing token), and the daily execution and AI-call counters.
+type AutomationOrgState @table(key: ["organization"]) {
+  organizationId: UUID!
+  organization: Organization!
+  claimToken: UUID
+  leaseUntil: Timestamp
+  periodKey: String! @default(value: "") @col(dataType: "varchar(10)")
+  executionCount: Int! @default(value: 0)
+  aiCallCount: Int! @default(value: 0)
+  lastScanAt: Timestamp
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# General internal tasks that do not belong to a lead (lead tasks stay LeadFollowUp).
+type WorkTask @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "assignedMembershipId", "status", "dueAt"])
+  @index(fields: ["organizationId", "status", "dueAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  title: String! @col(dataType: "varchar(500)")
+  assignedMembershipId: UUID
+  assignedMembership: Membership @ref(fields: ["organizationId", "assignedMembershipId"], references: ["organizationId", "id"])
+  listingId: UUID
+  listing: PropertyListing @ref(fields: ["organizationId", "listingId"], references: ["organizationId", "id"])
+  leadId: UUID
+  lead: Lead @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  sourceExecutionId: UUID
+  status: WorkTaskStatus! @default(value: PENDING)
+  dueAt: Timestamp!
+  completedAt: Timestamp
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}

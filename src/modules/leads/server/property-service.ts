@@ -10,9 +10,15 @@ import { assertExpectedOrganization } from "./request-policy";
 import { matchProperty } from "../property-matching";
 import { leadPropertyReadSchema, leadPrimaryInterestSchema, leadPropertyInterestSchema, leadPropertyViewingSchema, updateLeadPropertyViewingSchema } from "../property-validation";
 
+type Context = Awaited<ReturnType<typeof requireActiveOrganizationRequest>>;
+
 async function propertyContext(expectedOrganizationId?: string | null) {
   const context = await requireActiveOrganizationRequest();
   if (expectedOrganizationId !== undefined) assertExpectedOrganization(expectedOrganizationId, context.organizationId);
+  return inventoryScope(context);
+}
+
+function inventoryScope(context: Context) {
   if (!["OWNER", "ADMIN", "AGENT"].includes(context.membership.role)) {
     throw new WorkspaceError("FORBIDDEN", 403, "Property matching requires an authorized inventory scope. Ask your company owner to review your access.");
   }
@@ -24,9 +30,10 @@ function propertyIds<T extends {id: string; projectId?: string | null; project?:
     project: row.project ? {...row.project, id: canonicalUuid(row.project.id)} : null};
 }
 
-export async function getLeadPropertyData(input: unknown) {
+/** Pass `resolved` when the context is already resolved (for example a workflow's executor); otherwise the request's is used. */
+export async function getLeadPropertyData(input: unknown, resolved?: Context) {
   const {leadId, page} = validateInput(leadPropertyReadSchema, input);
-  const {request, organizationId} = await propertyContext();
+  const {request, organizationId} = resolved ? inventoryScope(resolved) : await propertyContext();
   // Authorize the lead before returning candidate inventory or any relationship.
   const {lead} = await executeWorkspaceOperation(() => sql.getLead(request.dc, {organizationId, leadId}, request.options), "GetLead");
   if (!lead || lead.archivedAt) throw new WorkspaceError("NOT_FOUND", 404, "Property changes are unavailable for this lead.");
@@ -79,5 +86,5 @@ export async function updateLeadPropertyViewing(input: unknown, expectedOrganiza
   const {request, organizationId} = await propertyContext(expectedOrganizationId);
   return executeWorkspaceOperation(() => sql.updateLeadPropertyViewing(request.dc, {...data, organizationId, status: sql.LeadPropertyViewingStatus[data.status], notes: data.notes ?? null,
     customerConfirmation: sql.LeadPropertyViewingConfirmation[data.customerConfirmation], outcome: outcome ? sql.LeadPropertyViewingOutcome[outcome] : null,
-    hasFollowUp: !!followUp, followUpAt: followUp?.dueAt ?? null, followUpTitle: followUp?.title ?? null}, request.options), "UpdateLeadPropertyViewing");
+    hasFollowUp: !!followUp, followUpAt: followUp?.dueAt ?? null, followUpTitle: followUp?.title ?? null, completed: data.status === "COMPLETED"}, request.options), "UpdateLeadPropertyViewing");
 }

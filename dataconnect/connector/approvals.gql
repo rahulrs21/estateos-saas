@@ -1,0 +1,122 @@
+# Workflow approvals (docs/WORKFLOW_APPROVALS.md). A MEDIUM-risk step (lead.reassign) or an approval.request step
+# stops with an AutomationApproval holding the exact change. An authorized member decides it once (compare-and-set);
+# the worker then applies exactly that change, re-checking the record's state, or ends the execution.
+
+# --- Worker (server only) ----------------------------------------------------------------------
+
+# Parks a step for a human decision: the approval, the waiting step and execution, the job (woken at expiry or by a
+# decision) and the approvers' notification, in one transaction fenced by the job's claim token.
+mutation RequestAutomationApproval($organizationId: UUID!, $jobId: UUID!, $jobToken: UUID!, $executionId: UUID!, $stepId: UUID!, $approvalId: UUID!, $notificationId: UUID!, $workflowId: UUID!,
+  $actionId: String!, $actionType: String!, $risk: String!, $targetType: String!, $targetId: UUID, $leadId: UUID, $fromMembershipId: UUID, $toMembershipId: UUID, $requestedByUid: String!,
+  $snapshot: String!, $snapshotHash: String!, $targetStateHash: String!, $expiresAt: Timestamp!, $title: String!, $body: String!) @auth(level: NO_ACCESS) @transaction {
+  query @redact { job: scheduledAutomationJob(key: {organizationId: $organizationId, id: $jobId}) @check(expr: "this != null && this.status == 'CLAIMED' && this.claimToken == vars.jobToken", message: "AUTOMATION_LEASE_LOST") {id status claimToken} }
+  approval: automationApproval_insert(data: {organizationId: $organizationId, id: $approvalId, executionId: $executionId, stepId: $stepId, workflowId: $workflowId, actionId: $actionId, actionType: $actionType, risk: $risk,
+    targetType: $targetType, targetId: $targetId, leadId: $leadId, fromMembershipId: $fromMembershipId, toMembershipId: $toMembershipId, requestedByUid: $requestedByUid,
+    approvedActionSnapshot: $snapshot, snapshotHash: $snapshotHash, targetStateHash: $targetStateHash, expiresAt: $expiresAt})
+  step: automationExecutionStep_update(key: {organizationId: $organizationId, id: $stepId}, data: {status: APPROVAL_REQUIRED, resultType: "APPROVAL", resultId: $approvalId, resultSummary: "Waiting for approval.", updatedAt_expr: "request.time"})
+  execution: automationExecution_update(key: {organizationId: $organizationId, id: $executionId}, data: {status: APPROVAL_REQUIRED, updatedAt_expr: "request.time"})
+  job: scheduledAutomationJob_update(key: {organizationId: $organizationId, id: $jobId}, data: {status: QUEUED, runAt: $expiresAt, claimToken: null, leaseUntil: null, updatedAt_expr: "request.time"})
+  inAppNotification_insert(data: {organizationId: $organizationId, id: $notificationId, audience: ADMIN, leadId: $leadId, type: APPROVAL_REQUESTED, title: $title, body: $body, actorUid: $requestedByUid})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $requestedByUid, action: AUTOMATION_APPROVAL_CHANGED, targetType: AUTOMATION_APPROVAL, targetId: $approvalId,
+    metadata_expr: "{'event': 'REQUESTED', 'executionId': vars.executionId, 'actionType': vars.actionType, 'risk': vars.risk}"})
+}
+
+# The approvals of a step, newest first (server only).
+query GetAutomationStepApprovals($organizationId: UUID!, $stepId: UUID!) @auth(level: NO_ACCESS) {
+  approvals: automationApprovals(where: {organizationId: {eq: $organizationId}, stepId: {eq: $stepId}}, orderBy: [{requestedAt: DESC}, {id: ASC}], limit: 10) {
+    id status expiresAt approverUid approver {displayName} decidedAt decisionReason snapshotHash targetStateHash leadId fromMembershipId toMembershipId requestedByUid resultStatus resultErrorCode
+  }
+}
+
+# Records what happened after a decision or at expiry (server only), with compare-and-set on the approval's status. Audited as the executor.
+mutation CloseAutomationApproval($organizationId: UUID!, $id: UUID!, $expectedStatus: AutomationApprovalStatus!, $status: AutomationApprovalStatus!, $resultStatus: String!, $resultErrorCode: String, $actorUid: String!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact { approval: automationApproval(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null", message: "AUTOMATION_NOT_FOUND") {id executionId} }
+  approval: automationApproval_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq_expr: "response.before.approval.id"}, status: {eq: $expectedStatus}}},
+    data: {status: $status, resultStatus: $resultStatus, resultErrorCode: $resultErrorCode, decidedAt_expr: "request.time"}) @check(expr: "this != null", message: "AUTOMATION_APPROVAL_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: AUTOMATION_APPROVAL_CHANGED, targetType: AUTOMATION_APPROVAL, targetId: $id,
+    metadata_expr: "{'event': vars.resultStatus, 'errorCode': vars.resultErrorCode}"})
+  # The execution's job continues now (with a fresh approval round, or to its end).
+  wake: scheduledAutomationJob_updateMany(where: {organizationId: {eq: $organizationId}, executionId: {eq_expr: "response.before.approval.executionId"}, status: {eq: QUEUED}}, data: {runAt_expr: "request.time", updatedAt_expr: "request.time"})
+}
+
+# --- Members -----------------------------------------------------------------------------------
+
+# Pending or decided approvals. OWNERs and ADMINs see all; MANAGERs see approval.request steps only (reassignments need company-wide lead access).
+query ListAutomationApprovals($organizationId: UUID!, $statuses: [AutomationApprovalStatus!]!, $limit: Int! = 50, $offset: Int! = 0)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
+  member: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}})
+    @check(expr: "this != null", message: "AUTOMATION_PERMISSION_DENIED") {id role}
+  approvals: automationApprovals(where: {_and: [{organizationId: {eq: $organizationId}, status: {in: $statuses}}, {_or: [
+    {actionType: {eq: "approval.request"}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}, orderBy: [{requestedAt: DESC}, {id: ASC}], limit: $limit, offset: $offset) {
+    id status actionId actionType risk targetType targetId requestedAt expiresAt decidedAt decisionReason resultStatus resultErrorCode snapshotHash approvedActionSnapshot
+    requestedByUid requestedBy {displayName} approverUid approver {displayName}
+    lead {id fullName status} fromMembership {id email userProfile {displayName}} toMembership {id email userProfile {displayName}}
+    workflow {id name} execution {id triggerType workflowVersion {versionNumber} triggeringEvent {triggerType origin createdAt}}
+  }
+}
+
+# Decides a pending approval exactly once. Checks, in the same transaction: the approver's active role (reassignments
+# need OWNER or ADMIN), separation of duties (the executor who requested it may not approve it unless they are an
+# OWNER; recorded as a self-approval), that it is still pending and unexpired, that the approver saw the stored
+# snapshot, and that the record's state (read by the server just before) still matches. Then it wakes the job.
+mutation DecideAutomationApproval($organizationId: UUID!, $id: UUID!, $decision: AutomationApprovalStatus!, $reason: String, $expectedSnapshotHash: String!, $currentTargetStateHash: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && (vars.decision == 'APPROVED' || vars.decision == 'REJECTED') && (!has(vars.reason) || vars.reason == null || vars.reason.size() <= 500)")
+  @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}, data: {status: ACTIVE})
+    @redact @check(expr: "this != null", message: "AUTOMATION_APPROVAL_FORBIDDEN")
+  before: query @redact {
+    approver: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "AUTOMATION_APPROVAL_FORBIDDEN") {id role}
+    approval: automationApproval(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null", message: "AUTOMATION_NOT_FOUND") {id status expiresAt requestedByUid actionType executionId}
+    pending: automationApproval(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: PENDING}}}) @check(expr: "this != null", message: "AUTOMATION_APPROVAL_CHANGED") {id}
+    unexpired: automationApproval(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null && timestamp(this.expiresAt) > request.time", message: "AUTOMATION_APPROVAL_EXPIRED") {expiresAt}
+    unchanged: automationApproval(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, snapshotHash: {eq: $expectedSnapshotHash}, targetStateHash: {eq: $currentTargetStateHash}}})
+      @check(expr: "this != null", message: "AUTOMATION_APPROVAL_CHANGED") {id}
+  }
+  authority: query @redact @check(expr: "(response.before.approval.actionType != 'lead.reassign' || response.before.approver.role in ['OWNER', 'ADMIN']) && (response.before.approval.requestedByUid != auth.uid || response.before.approver.role == 'OWNER')", message: "AUTOMATION_APPROVAL_FORBIDDEN") {
+    approval: automationApproval(key: {organizationId: $organizationId, id: $id}) {id}
+  }
+  decision: automationApproval_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq_expr: "response.before.pending.id"}, status: {eq: PENDING}}},
+    data: {status: $decision, approverUid_expr: "auth.uid", decidedAt_expr: "request.time", decisionReason: $reason}) @check(expr: "this != null", message: "AUTOMATION_APPROVAL_CHANGED")
+  wake: scheduledAutomationJob_updateMany(where: {organizationId: {eq: $organizationId}, executionId: {eq_expr: "response.before.approval.executionId"}, status: {eq: QUEUED}}, data: {runAt_expr: "request.time", updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: AUTOMATION_APPROVAL_CHANGED, targetType: AUTOMATION_APPROVAL, targetId: $id,
+    metadata_expr: "{'event': vars.decision, 'selfApproved': response.before.approval.requestedByUid == auth.uid, 'role': response.before.approver.role}"})
+}
+
+# --- Executor side effect ------------------------------------------------------------------------
+
+# Applies an approved reassignment exactly as approved: the lead must still have the agent it had when approval was
+# requested, the approved agent must still be an active agent, and the approval must still be APPROVED for this lead
+# and agent. The approval is marked EXECUTED in the same transaction.
+mutation AutomationReassignLead($organizationId: UUID!, $leadId: UUID!, $expectedMembershipId: UUID, $toMembershipId: UUID!, $approvalId: UUID!, $executionId: UUID!,
+  $eventId: UUID!, $originalEventId: UUID!, $originWorkflowId: UUID!, $chainDepth: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "EXECUTOR_NOT_AUTHORIZED")
+  before: query @redact {
+    lead: lead(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}})
+      @check(expr: "this != null && ((!has(vars.expectedMembershipId) || vars.expectedMembershipId == null) ? this.assignedMembershipId == null : this.assignedMembershipId == vars.expectedMembershipId)", message: "AUTOMATION_TARGET_CHANGED")
+      {id fullName assignedMembershipId updatedAt}
+    agent: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $toMembershipId}, status: {eq: ACTIVE}, role: {eq: AGENT}, userProfileUid: {isNull: false}}})
+      @check(expr: "this != null", message: "DISTRIBUTION_AGENT_UNAVAILABLE") {id}
+    approval: automationApproval(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $approvalId}, status: {eq: APPROVED}, leadId: {eq: $leadId}, toMembershipId: {eq: $toMembershipId}}})
+      @check(expr: "this != null", message: "AUTOMATION_APPROVAL_CHANGED") {id}
+  }
+  lead: lead_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq_expr: "response.before.lead.id"}, updatedAt: {eq_expr: "response.before.lead.updatedAt"}}},
+    data: {assignedMembershipId_expr: "response.before.agent.id", updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "LEAD_CHANGED_RELOAD")
+  executed: automationApproval_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq_expr: "response.before.approval.id"}, status: {eq: APPROVED}}},
+    data: {status: EXECUTED, resultStatus: "EXECUTED"}) @check(expr: "this != null", message: "AUTOMATION_APPROVAL_CHANGED")
+  leadAssignmentHistory_insert(data: {organizationId: $organizationId, leadId: $leadId, previousAgentId: $expectedMembershipId, newAgentId: $toMembershipId, assignedByUid_expr: "auth.uid", assignmentType: REASSIGNMENT, reason: "Reassigned by an approved workflow step"})
+  leadFollowUp_updateMany(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, status: {eq: PENDING}}, data: {assignedUserId: $toMembershipId, updatedAt_expr: "request.time"})
+  activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: LEAD_ASSIGNED, leadId: $leadId, targetId: $leadId, metadata_expr: "{'assignedMembershipId': vars.toMembershipId, 'automation': true, 'executionId': vars.executionId, 'approvalId': vars.approvalId}"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: LEAD_ASSIGNED, targetType: LEAD, targetId: $leadId, metadata_expr: "{'assignedMembershipId': vars.toMembershipId, 'automation': true, 'executionId': vars.executionId, 'approvalId': vars.approvalId}"})
+  inAppNotification_insert(data: {organizationId: $organizationId, audience: MEMBER, recipientMembershipId: $toMembershipId, leadId: $leadId, type: LEAD_ASSIGNED, title: "Lead reassigned to you", body_expr: "response.before.lead.fullName", actorUid_expr: "auth.uid"})
+  automationEvent_insert(data: {organizationId: $organizationId, id: $eventId, deduplicationKey_expr: "'lead.assigned:' + vars.executionId + ':' + vars.approvalId", triggerType: "lead.assigned", targetType: "LEAD", targetId: $leadId, actorUid_expr: "auth.uid", origin: "WORKFLOW",
+    originalEventId: $originalEventId, parentExecutionId: $executionId, originWorkflowId: $originWorkflowId, chainDepth: $chainDepth})
+}
+
+# The current state of an approval's lead (server only), hashed by the server just before a decision is stored.
+query GetAutomationApprovalTarget($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  approval: automationApproval(key: {organizationId: $organizationId, id: $id}) {id status actionType leadId requestedByUid targetStateHash lead {assignedMembershipId status archivedAt}}
+}

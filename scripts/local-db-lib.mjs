@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, r
 import { createRequire } from "node:module";
 import net from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 /**
  * Local development database layout. Only these two git-ignored directories
@@ -75,6 +75,11 @@ export function firebaseCliRoot() {
     if (result.status !== 0) throw new Error("Install Firebase CLI before using local SQL Connect.");
     return join(result.stdout.trim(), "firebase-tools");
   }
+}
+
+/** Node arguments that run the Firebase CLI, waiting for a slow SQL Connect start (firebase-cli-dataconnect-wait.mjs). */
+export function firebaseCliCommand(cliRoot = firebaseCliRoot()) {
+  return ["--import", pathToFileURL(join(root, "scripts", "firebase-cli-dataconnect-wait.mjs")).href, join(cliRoot, "lib", "bin", "firebase.js")];
 }
 
 export function portInUse(port, host = "127.0.0.1") {

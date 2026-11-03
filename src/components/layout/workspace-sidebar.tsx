@@ -8,6 +8,7 @@ import { Brand } from "@/components/shared/brand";
 import { Button } from "@/components/ui/button";
 import type { CompanyWorkspace } from "@/modules/organizations/types";
 import { WorkspaceSwitcher } from "@/modules/organizations/components/workspace-switcher";
+import { PendingApprovalsBadge } from "@/modules/automations/components/pending-approvals-badge";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 
 export function WorkspaceSidebar({ workspace }: { workspace: CompanyWorkspace }) {
@@ -41,7 +42,7 @@ export function WorkspaceSidebar({ workspace }: { workspace: CompanyWorkspace })
                   {group.items.map((item) => (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton render={<Link href={item.href} />} isActive={isNavigationItemActive(pathname, item.href)} aria-current={isNavigationItemActive(pathname, item.href) ? "page" : undefined} aria-label={item.title} tooltip={item.title} onClick={() => setOpenMobile(false)} className="h-9 gap-3 rounded-lg text-[13px]">
-                        <item.icon aria-hidden="true" /><span>{item.title}</span>
+                        <item.icon aria-hidden="true" /><span>{item.title}</span>{item.badge === "approvals" && <PendingApprovalsBadge refreshKey={pathname} />}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}

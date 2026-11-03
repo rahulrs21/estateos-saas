@@ -21,7 +21,7 @@ import { contentStreamFactory, requireAiConfig } from "../../server/anthropic";
 import { logAndMapProviderError } from "../../server/chat";
 import { reserveQuota, type QuotaReservation } from "../../server/store";
 import { isAdPlatform } from "../ad-limits";
-import { CONTENT_CATALOG, localesFor, type ContentAudience, type ContentLanguage, type ContentLength, type ContentTone, type ContentType, type SourceSelection } from "../catalog";
+import { CONTENT_CATALOG, localesFor, sourceProblem, type ContentAudience, type ContentLanguage, type ContentLength, type ContentTone, type ContentType, type SourceSelection } from "../catalog";
 import type { ApprovedBranding, FactSheet, SourceRef } from "../facts";
 import { generateContent, type ContentGenerationResult } from "../generate";
 import { draftGenerateSchema, draftIdSchema, generateRequestSchema, logUnexpectedContentError, parseContentInput, type GenerationSettings } from "../policy";
@@ -87,6 +87,32 @@ interface Prepared {
   facts: FactSheet; sources: SourceRef[]; branding: ApprovedBranding; settings: GenerationSettings;
   templateId: string | null; template: string | null; userInstructions: string | null;
   mode: ContentTask["mode"]; draft: StoredDraft | null; expectedRevision: number;
+}
+
+/**
+ * A lead-sourced WhatsApp or email draft for a workflow step (docs/AUTOMATION_ENGINE.md#claude-steps), written as
+ * the workflow's executor with the same source checks, allowance, validation and storage as Content Studio. The
+ * draft stays in Content Studio for a person to edit; nothing is sent.
+ */
+export async function generateWorkflowDraft(context: Context, input: {contentType: "WHATSAPP_MESSAGE" | "EMAIL"; purpose: string; leadId: string; instructions: string}) {
+  const config = requireAiConfig();
+  assertRoleCanUse(context, input.contentType);
+  const selection: SourceSelection = {leadId: input.leadId};
+  const problem = sourceProblem(input.contentType, input.purpose, selection);
+  if (problem) throw new WorkspaceError("VALIDATION_ERROR", 400, problem);
+  const [{facts, sources}, brand] = await Promise.all([
+    loadFacts(context, selection, {useLeadFirstName: true, withPropertyDetail: true}),
+    getBrand(context),
+  ]);
+  const reservation = await reserveQuota(context, config);
+  const prepared: Prepared = {
+    context, config, reservation, type: input.contentType, purpose: input.purpose, language: "EN", tone: "PROFESSIONAL", audience: "GENERAL", length: "STANDARD",
+    facts, sources, branding: brand.approved, settings: {schemaVersion: 1, selection, useLeadFirstName: true, length: "STANDARD"},
+    templateId: null, template: null, userInstructions: input.instructions.slice(0, config.contentMaxInstructionsChars), mode: "GENERATE", draft: null, expectedRevision: 0,
+  };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new WorkspaceError("AI_TIMEOUT", 504, "Claude took too long to write this draft.")), config.contentRequestTimeoutMs + 5_000);
+  try { return await produceDraft(prepared, controller.signal); } finally { clearTimeout(timeout); }
 }
 
 /** POST /api/ai/content/generate: a new draft from selected records. */
@@ -157,9 +183,92 @@ function currentText(draft: StoredDraft) {
   }).join("\n\n").slice(0, 8000);
 }
 
-function streamGeneration(request: Request, prepared: Prepared): Response {
+/**
+ * Writes, checks and saves one draft (a new draft, a regeneration or an alternative). Shared by the streaming
+ * endpoint and by workflow steps (docs/AUTOMATION_ENGINE.md#claude-steps); it never sends anything anywhere.
+ * The caller has authorized the member, re-read the sources and reserved the allowance (`prepared`).
+ */
+export async function produceDraft(prepared: Prepared, signal: AbortSignal, send: (event: ContentStreamEvent) => void = () => undefined, requestId: string = randomUUID()) {
   const startedAt = Date.now();
   const {context, config} = prepared;
+  send({type: "stage", stage: "writing"});
+  const task: ContentTask = {
+    type: prepared.type, purpose: prepared.purpose, language: prepared.language, tone: prepared.tone, audience: prepared.audience, length: prepared.length,
+    adLimits: prepared.type === "ADVERTISING" && isAdPlatform(prepared.purpose) ? config.adLimits[prepared.purpose] : null,
+    mode: prepared.mode, currentText: prepared.mode === "ALTERNATIVE" && prepared.draft ? currentText(prepared.draft) : null,
+  };
+  let lastProgress = 0;
+  const result: ContentGenerationResult = await generateContent({
+    config, maxOutputTokens: config.contentMaxOutputTokens, type: prepared.type, language: prepared.language,
+    factsText: factsPrompt(prepared.facts, prepared.branding),
+    instructionsText: instructionsPrompt({task, templateInstructions: prepared.template, userInstructions: prepared.userInstructions}),
+    createStream: contentStreamFactory(config), signal, mapError: logAndMapProviderError,
+    onProgress: characters => {
+      const now = Date.now();
+      if (now - lastProgress < 300) return;
+      lastProgress = now;
+      send({type: "progress", characters});
+    },
+  });
+
+  let saved: {draftId: string; versionNumber: number; warnings: number} | null = null;
+  if (result.status === "SUCCEEDED" && result.output) {
+    send({type: "stage", stage: "checking"});
+    const model = result.servedModel ?? config.model;
+    const generatedAt = new Date().toISOString();
+    const validation = buildValidation({
+      type: prepared.type, purpose: prepared.purpose, language: prepared.language, content: result.output.content,
+      factIndex: buildFactIndex(prepared.facts, prepared.branding), adLimits: config.adLimits,
+      generatedAt, factsReadAt: prepared.facts.readAt, model, sources: prepared.sources,
+      missingInformation: [...result.output.missingInformation, ...prepared.facts.unavailable], claimsToReview: result.output.claimsToReview, editedAfterGeneration: false,
+    });
+    if (isEmptyContent(prepared.type, result.output.content)) {
+      result.status = "FAILED";
+      result.error = new WorkspaceError("AI_EMPTY_RESPONSE", 409, "Claude returned an empty draft, usually because the selected records lack the facts this content needs. Check the records and try again.");
+    } else {
+      send({type: "stage", stage: "saving"});
+      const contentData: ContentData = {schemaVersion: 1, content: result.output.content};
+      const stored = {
+        title: result.output.title.slice(0, 200), contentData: JSON.stringify(contentData), validation: serializeValidation(validation),
+        sourceRefs: JSON.stringify(prepared.settings), model: model.slice(0, 80), generatedAt,
+      };
+      try {
+        if (prepared.mode === "GENERATE") {
+          const id = randomUUID();
+          const selection = prepared.settings.selection;
+          await createGeneratedDraft(context, {
+            ...stored, id, contentType: prepared.type, purpose: prepared.purpose, language: prepared.language, tone: prepared.tone, audience: prepared.audience,
+            sourceProjectId: selection.projectId, sourcePropertyId: selection.propertyId, sourceListingId: selection.listingId ?? selection.listingIds?.[0],
+            sourceLeadId: selection.leadId, templateId: prepared.templateId ?? undefined,
+          });
+          saved = {draftId: id, versionNumber: 1, warnings: validation.warnings.length};
+        } else {
+          const version = await addGeneratedVersion(context, prepared.draft!, prepared.mode, prepared.expectedRevision, stored);
+          saved = {draftId: prepared.draft!.id, versionNumber: version.versionNumber, warnings: validation.warnings.length};
+        }
+      } catch (error) {
+        result.status = "FAILED";
+        const conflict = error instanceof WorkspaceError && error.code === "CONFLICT";
+        result.error = new WorkspaceError("AI_SAVE_FAILED", 503, conflict
+          ? "The draft changed while this version was being written, so it was not saved. Reload the draft and try again."
+          : "The draft was written but could not be saved. Try again.");
+      }
+    }
+  }
+  // A request that never reached Claude does not use the allowance.
+  if (result.usage.modelRequests === 0) await prepared.reservation.release();
+  const usage = await recordContentUsage(context, config, {usageId: requestId, type: prepared.type, result, status: saved ? "SUCCEEDED" : result.status === "CANCELLED" ? "CANCELLED" : "FAILED", durationMs: Date.now() - startedAt});
+  // Safe operational audit line: no facts, prompt, draft text or member identifiers.
+  console.info(JSON.stringify({event: "ai.content", requestId, mode: prepared.mode, contentType: prepared.type, purpose: prepared.purpose, language: prepared.language,
+    status: saved ? "SUCCEEDED" : result.status, errorCode: saved ? null : result.error?.code ?? null, model: usage.model, role: context.membership.role,
+    sources: prepared.sources.map(source => source.kind), inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens,
+    cacheReadInputTokens: result.usage.cacheReadInputTokens, estimatedCostUsd: usage.estimatedCostUsd, durationMs: Date.now() - startedAt}));
+  const error = saved ? null : result.error ?? new WorkspaceError("AI_ERROR", 503, "The draft could not be generated.");
+  return {saved, error};
+}
+
+function streamGeneration(request: Request, prepared: Prepared): Response {
+  const {config} = prepared;
   const requestId = randomUUID();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new WorkspaceError("AI_TIMEOUT", 504, "Claude took too long to write this draft. Try a shorter length or try again.")), config.contentRequestTimeoutMs + 5_000);
@@ -175,87 +284,12 @@ function streamGeneration(request: Request, prepared: Prepared): Response {
         try { stream.enqueue(encoder.encode(encodeContentEvent(event))); } catch { open = false; }
       };
       send({type: "start", requestId});
-      send({type: "stage", stage: "writing"});
-      const task: ContentTask = {
-        type: prepared.type, purpose: prepared.purpose, language: prepared.language, tone: prepared.tone, audience: prepared.audience, length: prepared.length,
-        adLimits: prepared.type === "ADVERTISING" && isAdPlatform(prepared.purpose) ? config.adLimits[prepared.purpose] : null,
-        mode: prepared.mode, currentText: prepared.mode === "ALTERNATIVE" && prepared.draft ? currentText(prepared.draft) : null,
-      };
-      let lastProgress = 0;
-      const result: ContentGenerationResult = await generateContent({
-        config, maxOutputTokens: config.contentMaxOutputTokens, type: prepared.type, language: prepared.language,
-        factsText: factsPrompt(prepared.facts, prepared.branding),
-        instructionsText: instructionsPrompt({task, templateInstructions: prepared.template, userInstructions: prepared.userInstructions}),
-        createStream: contentStreamFactory(config), signal: controller.signal, mapError: logAndMapProviderError,
-        onProgress: characters => {
-          const now = Date.now();
-          if (now - lastProgress < 300) return;
-          lastProgress = now;
-          send({type: "progress", characters});
-        },
+      const {saved, error} = await produceDraft(prepared, controller.signal, send, requestId).finally(() => {
+        clearTimeout(timeout);
+        request.signal.removeEventListener("abort", onClientAbort);
       });
-      clearTimeout(timeout);
-      request.signal.removeEventListener("abort", onClientAbort);
-
-      let saved: {draftId: string; versionNumber: number; warnings: number} | null = null;
-      if (result.status === "SUCCEEDED" && result.output) {
-        send({type: "stage", stage: "checking"});
-        const model = result.servedModel ?? config.model;
-        const generatedAt = new Date().toISOString();
-        const validation = buildValidation({
-          type: prepared.type, purpose: prepared.purpose, language: prepared.language, content: result.output.content,
-          factIndex: buildFactIndex(prepared.facts, prepared.branding), adLimits: config.adLimits,
-          generatedAt, factsReadAt: prepared.facts.readAt, model, sources: prepared.sources,
-          missingInformation: [...result.output.missingInformation, ...prepared.facts.unavailable], claimsToReview: result.output.claimsToReview, editedAfterGeneration: false,
-        });
-        if (isEmptyContent(prepared.type, result.output.content)) {
-          result.status = "FAILED";
-          result.error = new WorkspaceError("AI_EMPTY_RESPONSE", 409, "Claude returned an empty draft, usually because the selected records lack the facts this content needs. Check the records and try again.");
-        } else {
-          send({type: "stage", stage: "saving"});
-          const contentData: ContentData = {schemaVersion: 1, content: result.output.content};
-          const stored = {
-            title: result.output.title.slice(0, 200), contentData: JSON.stringify(contentData), validation: serializeValidation(validation),
-            sourceRefs: JSON.stringify(prepared.settings), model: model.slice(0, 80), generatedAt,
-          };
-          try {
-            if (prepared.mode === "GENERATE") {
-              const id = randomUUID();
-              const selection = prepared.settings.selection;
-              await createGeneratedDraft(context, {
-                ...stored, id, contentType: prepared.type, purpose: prepared.purpose, language: prepared.language, tone: prepared.tone, audience: prepared.audience,
-                sourceProjectId: selection.projectId, sourcePropertyId: selection.propertyId, sourceListingId: selection.listingId ?? selection.listingIds?.[0],
-                sourceLeadId: selection.leadId, templateId: prepared.templateId ?? undefined,
-              });
-              saved = {draftId: id, versionNumber: 1, warnings: validation.warnings.length};
-            } else {
-              const version = await addGeneratedVersion(context, prepared.draft!, prepared.mode, prepared.expectedRevision, stored);
-              saved = {draftId: prepared.draft!.id, versionNumber: version.versionNumber, warnings: validation.warnings.length};
-            }
-          } catch (error) {
-            result.status = "FAILED";
-            const conflict = error instanceof WorkspaceError && error.code === "CONFLICT";
-            result.error = new WorkspaceError("AI_SAVE_FAILED", 503, conflict
-              ? "The draft changed while this version was being written, so it was not saved. Reload the draft and try again."
-              : "The draft was written but could not be saved. Try again.");
-          }
-        }
-      }
-      if (saved) {
-        send({type: "done", draftId: saved.draftId, versionNumber: saved.versionNumber, mode: prepared.mode, warnings: saved.warnings});
-      } else {
-        const error = result.error ?? new WorkspaceError("AI_ERROR", 503, "The draft could not be generated.");
-        send({type: "error", code: error.code, message: error.message, retryable: isRetryableAiError(error.code) || error.code === "AI_EMPTY_RESPONSE"});
-      }
-
-      // A request that never reached Claude does not use the allowance.
-      if (result.usage.modelRequests === 0) await prepared.reservation.release();
-      const usage = await recordContentUsage(context, config, {usageId: requestId, type: prepared.type, result, status: saved ? "SUCCEEDED" : result.status === "CANCELLED" ? "CANCELLED" : "FAILED", durationMs: Date.now() - startedAt});
-      // Safe operational audit line: no facts, prompt, draft text or member identifiers.
-      console.info(JSON.stringify({event: "ai.content", requestId, mode: prepared.mode, contentType: prepared.type, purpose: prepared.purpose, language: prepared.language,
-        status: saved ? "SUCCEEDED" : result.status, errorCode: saved ? null : result.error?.code ?? null, model: usage.model, role: context.membership.role,
-        sources: prepared.sources.map(source => source.kind), inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens,
-        cacheReadInputTokens: result.usage.cacheReadInputTokens, estimatedCostUsd: usage.estimatedCostUsd, durationMs: Date.now() - startedAt}));
+      if (saved) send({type: "done", draftId: saved.draftId, versionNumber: saved.versionNumber, mode: prepared.mode, warnings: saved.warnings});
+      else if (error) send({type: "error", code: error.code, message: error.message, retryable: isRetryableAiError(error.code) || error.code === "AI_EMPTY_RESPONSE"});
       if (open) { try { stream.close(); } catch { /* client already gone */ } }
     },
     cancel() {

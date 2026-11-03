@@ -8,7 +8,7 @@ import { enforceRateLimit, requestClientIp } from "@/lib/rate-limit/server";
 import { getInventoryRecordRequired, listInventory } from "@/modules/inventory/server/service";
 import { matchProperty, type MatchingProperty } from "@/modules/leads/property-matching";
 import { getLeadPropertyData, type LeadPropertyData } from "@/modules/leads/server/property-service";
-import { getLead } from "@/modules/leads/server/service";
+import { getLeadInContext } from "@/modules/leads/server/service";
 import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import type { AiConfig } from "../../config";
@@ -69,7 +69,7 @@ export async function enforceSalesRateLimit(request: Request, context: Context, 
 async function inventoryData(context: Context, leadId: string, archived: boolean): Promise<LeadPropertyData | null> {
   if (archived || !hasInventoryScope(context)) return null;
   try {
-    return await getLeadPropertyData({leadId});
+    return await getLeadPropertyData({leadId}, context);
   } catch (error) {
     if (error instanceof WorkspaceError && ["FORBIDDEN", "PERMISSION_DENIED", "NOT_FOUND"].includes(error.code)) return null;
     throw error;
@@ -78,7 +78,7 @@ async function inventoryData(context: Context, leadId: string, archived: boolean
 
 /** Every read runs as the member: lead visibility, inventory scope and property assignment are enforced by the stored operations. */
 export async function loadLeadState(context: Context, rawLeadId: string) {
-  const {lead} = await getLead({leadId: rawLeadId});
+  const {lead} = await getLeadInContext(context, {leadId: rawLeadId});
   if (!lead) throw new WorkspaceError("NOT_FOUND", 404, "Lead not found.");
   const leadId = canonicalUuid(lead.id);
   const {request, organizationId} = context;
@@ -281,6 +281,14 @@ export function leadAnalysisFacts(state: LeadState, evaluation: ReturnType<typeo
 export async function analyzeLeadResponse(request: Request, context: Context, leadId: string) {
   const config = requireAiConfig();
   await enforceSalesRateLimit(request, context, "ai", config);
+  return analyzeLead(context, config, leadId);
+}
+
+/**
+ * The Claude lead analysis, stored as an internal insight. Shared by the AI Sales page and workflow steps
+ * (docs/AUTOMATION_ENGINE.md#claude-steps); callers authorize and rate-limit first.
+ */
+export async function analyzeLead(context: Context, config: AiConfig, leadId: string) {
   const state = await loadLeadState(context, leadId);
   if (state.lead.archivedAt) throw new WorkspaceError("VALIDATION_ERROR", 400, "Archived leads are not analysed.");
   // The analysis explains the current rule-based assessment. The latest stored one is reused when the rules

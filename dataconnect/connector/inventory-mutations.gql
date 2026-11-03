@@ -136,6 +136,8 @@ mutation CreatePropertyListing($organizationId: UUID!, $propertyId: UUID!, $list
   propertyListing: propertyListing_insert(data: {organizationId: $organizationId, propertyId: $propertyId, listingReference: $listingReference, listingPurpose: $listingPurpose, marketType: $marketType, title: $title, description: $description, askingPriceMinor: $askingPriceMinor, currency: $currency, rentalPeriod: $rentalPeriod, assignedMembershipId: $assignedMembershipId, listingStatus: $listingStatus, publicationStatus: $publicationStatus, advertisingPermitNumber: $advertisingPermitNumber, permitExpiryDate: $permitExpiryDate, permitVerificationUrl: $permitVerificationUrl, createdByUid_expr: "auth.uid", updatedByUid_expr: "auth.uid"})
   activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: PROPERTY_LISTING_CREATED, targetId_expr: "response.propertyListing.id", metadata_expr: "{'propertyId': vars.propertyId}"})
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: PROPERTY_LISTING_CREATED, targetType: PROPERTY_LISTING, targetId_expr: "response.propertyListing.id", metadata_expr: "{'propertyId': vars.propertyId}"})
+ # Phase 6E outbox: written in the same transaction as the change (docs/AUTOMATION_ENGINE.md#events).
+ listingEvent: automationEvent_insert(data: {organizationId: $organizationId, triggerType: "listing.created", targetType: "LISTING", targetId_expr: "response.propertyListing.id", actorUid_expr: "auth.uid", origin: "CRM"})
 }
 
 mutation UpdatePropertyListing($organizationId: UUID!, $id: UUID!, $expectedListingStatus: ListingStatus!, $propertyId: UUID!, $listingReference: String!, $listingPurpose: ListingPurpose!, $marketType: MarketType!, $title: String!, $description: String, $askingPriceMinor: Int64!, $currency: String!, $rentalPeriod: RentalPeriod, $assignedMembershipId: UUID, $listingStatus: ListingStatus!, $publicationStatus: ListingPublicationStatus!, $advertisingPermitNumber: String, $permitExpiryDate: Date, $permitVerificationUrl: String)
@@ -164,6 +166,8 @@ mutation SetPropertyListingStatus($organizationId: UUID!, $id: UUID!, $expectedS
   propertyListing_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, listingStatus: {eq: $expectedStatus}, archivedAt: {isNull: true}}}, data: {listingStatus: $status, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "LISTING_STATUS_CHANGED")
   activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: PROPERTY_LISTING_UPDATED, targetId: $id, metadata_expr: "{'from': vars.expectedStatus, 'to': vars.status}"})
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: PROPERTY_LISTING_UPDATED, targetType: PROPERTY_LISTING, targetId: $id, metadata_expr: "{'from': vars.expectedStatus, 'to': vars.status}"})
+ # Phase 6E outbox: written in the same transaction as the change (docs/AUTOMATION_ENGINE.md#events).
+ listingEvent: automationEvent_insert(data: {organizationId: $organizationId, triggerType: "listing.status_changed", targetType: "LISTING", targetId: $id, actorUid_expr: "auth.uid", origin: "CRM", payload_expr: "{'previousStatus': vars.expectedStatus, 'status': vars.status}"})
 }
 
 mutation ArchivePropertyListing($organizationId: UUID!, $id: UUID!) @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {

@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { firebaseCliRoot, root } from "./local-db-lib.mjs";
+import { firebaseCliCommand, root } from "./local-db-lib.mjs";
 
 /*
  * Runs the SQL Connect integration suite on the isolated demo-estateos-test
@@ -42,8 +42,10 @@ const compile = spawnSync(process.execPath, [
 if (compile.status !== 0) { process.exitCode = compile.status ?? 1; throw new Error("Could not compile the rate limiter for integration tests."); }
 
 const tests = ["tests/sql-connect.integration.test.mjs", "tests/storage-rules.integration.test.mjs"].map(file => `"${join(root, file)}"`).join(" ");
+// Optional: ESTATEOS_TEST_NAME_PATTERN="Phase 6E" runs only matching suites (for example while developing one module).
+const pattern = process.env.ESTATEOS_TEST_NAME_PATTERN && /^[w .:-]{1,80}$/.test(process.env.ESTATEOS_TEST_NAME_PATTERN) ? ` --test-name-pattern="${process.env.ESTATEOS_TEST_NAME_PATTERN}"` : "";
 const result = spawnSync(process.execPath, [
-  join(firebaseCliRoot(), "lib", "bin", "firebase.js"), "emulators:exec", "--project", "demo-estateos-test",
-  "--config", join(configDir, "firebase.json"), "--only", "dataconnect,storage", `node --test ${tests}`,
+  ...firebaseCliCommand(), "emulators:exec", "--project", "demo-estateos-test",
+  "--config", join(configDir, "firebase.json"), "--only", "dataconnect,storage", `node --test${pattern} ${tests}`,
 ], { cwd: configDir, stdio: "inherit", windowsHide: true, env: { ...process.env, FIREBASE_CLI_DISABLE_UPDATE_CHECK: "1", ESTATEOS_RATE_LIMIT_MODULES: compiledRateLimit } });
 process.exitCode = result.status ?? 1;
