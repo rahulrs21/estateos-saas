@@ -224,4 +224,159 @@ export function registerCommunicationCases({sdk, run, forbidden, dc}) {
       assert.equal(facts.settings.revision, 2, "the server reads the saved rules");
     });
   });
+
+  describe("Phase 6F.2 providers, lines, webhooks and live-call gate", {concurrency: false}, () => {
+    const key = value => String(value).replaceAll("-", "").toLowerCase();
+    const server = async (operation, variables) => (await operation(dc, variables)).data;
+    const rejectsWith = (promise, token) => assert.rejects(promise, error => String(error?.message ?? error).includes(token), token);
+    const ACCOUNT = "AC" + "b".repeat(32);
+    const providers = async uid => run(sdk.listCommunicationProviders, uid, {organizationId: f.orgA});
+    const connectionRow = async id => (await providers("owner-a")).connections.find(row => key(row.id) === key(id));
+    const lineRow = async id => (await providers("owner-a")).lines.find(row => key(row.id) === key(id));
+    let connectionId, lineId;
+
+    it("keeps provider connections to owners and administrators, stores only a secret name and resets verification on change", async () => {
+      await rejectsWith(run(sdk.listCommunicationProviders, "agent-a", {organizationId: f.orgA}), "COMMUNICATION_ADMIN_REQUIRED");
+      await rejectsWith(run(sdk.listCommunicationProviders, "manager-a", {organizationId: f.orgA}), "COMMUNICATION_ADMIN_REQUIRED");
+      await forbidden(sdk.listCommunicationProviders, "owner-b", {organizationId: f.orgA});
+      const create = (uid, extra = {}) => run(sdk.createCommunicationProvider, uid, {organizationId: f.orgA, id: randomUUID(), providerType: sdk.CommunicationProviderType.TWILIO, displayName: "Test Twilio", secretRef: "COMMS_TEST_TWILIO_TOKEN", externalAccountId: ACCOUNT, ...extra});
+      await rejectsWith(create("agent-a"), "COMMUNICATION_ADMIN_REQUIRED");
+      await forbidden(sdk.createCommunicationProvider, "owner-b", {organizationId: f.orgA, id: randomUUID(), providerType: sdk.CommunicationProviderType.TWILIO, displayName: "Intruder", secretRef: null, externalAccountId: null});
+      for (const secretRef of ["ANTHROPIC_API_KEY", "COMMS_", "comms_lower", "COMMS_X;Y"]) await forbidden(sdk.createCommunicationProvider, "admin-a", {organizationId: f.orgA, id: randomUUID(), providerType: sdk.CommunicationProviderType.TWILIO, displayName: "Bad secret name", secretRef, externalAccountId: null});
+      const incomplete = randomUUID();
+      await run(sdk.createCommunicationProvider, "admin-a", {organizationId: f.orgA, id: incomplete, providerType: sdk.CommunicationProviderType.PBX, displayName: "Future PBX", secretRef: null, externalAccountId: null});
+      assert.equal((await connectionRow(incomplete)).connectionStatus, "NOT_CONFIGURED");
+      connectionId = randomUUID();
+      await run(sdk.createCommunicationProvider, "admin-a", {organizationId: f.orgA, id: connectionId, providerType: sdk.CommunicationProviderType.TWILIO, displayName: "Test Twilio", secretRef: "COMMS_TEST_TWILIO_TOKEN", externalAccountId: ACCOUNT});
+      let row = await connectionRow(connectionId);
+      assert.equal(row.connectionStatus, "CONFIGURED", "saved details are not verified");
+      // Only the server can record a verification; a member calling the operation directly is refused.
+      await forbidden(sdk.recordCommunicationProviderVerification, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "owner-a", verified: true, note: "self-verified"});
+      await rejectsWith(server(sdk.recordCommunicationProviderVerification, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "agent-a", verified: true, note: "x"}), "COMMUNICATION_ADMIN_REQUIRED");
+      await server(sdk.recordCommunicationProviderVerification, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "admin-a", verified: true, note: "Synthetic verification"});
+      row = await connectionRow(connectionId);
+      assert.equal(row.connectionStatus, "VERIFIED");
+      await run(sdk.updateCommunicationProvider, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, displayName: "Renamed", secretRef: "COMMS_TEST_TWILIO_TOKEN", externalAccountId: ACCOUNT});
+      row = await connectionRow(connectionId);
+      assert.equal(row.connectionStatus, "CONFIGURED", "any change needs a new verification");
+      assert.equal(row.verifiedAt ?? null, null);
+      await rejectsWith(run(sdk.updateCommunicationProvider, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision - 1, displayName: "Stale", secretRef: null, externalAccountId: null}), "COMMUNICATION_PROVIDER_CHANGED");
+      await run(sdk.setCommunicationProviderEnabled, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, enabled: false});
+      row = await connectionRow(connectionId);
+      assert.equal(row.connectionStatus, "DISABLED");
+      await rejectsWith(server(sdk.recordCommunicationProviderVerification, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "admin-a", verified: true, note: "x"}), "COMMUNICATION_PROVIDER_CHANGED");
+      await run(sdk.setCommunicationProviderEnabled, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, enabled: true});
+      row = await connectionRow(connectionId);
+      assert.equal(row.connectionStatus, "CONFIGURED");
+      const found = (await server(sdk.providerConnectionForWebhook, {id: connectionId})).connections[0];
+      assert.equal(key(found.organizationId), key(f.orgA), "the webhook lookup takes the company from the connection");
+      await forbidden(sdk.providerConnectionForWebhook, "owner-a", {id: connectionId});
+    });
+
+    it("activates a line only when it is registered to the company and assigned to an active member", async () => {
+      const number = `+97143${String(Date.now() % 1_000_000).padStart(6, "0")}`;
+      lineId = randomUUID();
+      const create = (uid, extra = {}) => run(sdk.createCommunicationPhoneLine, uid, {organizationId: f.orgA, id: lineId, providerConnectionId: connectionId, phoneNumber: number, displayName: "Sales line",
+        hasAssignee: true, assignedMembershipId: f.memberAgentA, forwardToNumber: "+971509990000", linePurpose: sdk.PhoneLinePurpose.SALES, ...extra});
+      await rejectsWith(create("agent-a"), "COMMUNICATION_ADMIN_REQUIRED");
+      await rejectsWith(create("owner-a", {assignedMembershipId: f.memberSuspendedA}), "PHONE_LINE_INVALID");
+      await forbidden(sdk.createCommunicationPhoneLine, "owner-a", {organizationId: f.orgA, id: randomUUID(), providerConnectionId: connectionId, phoneNumber: "0501234567", displayName: null, hasAssignee: false, assignedMembershipId: null, forwardToNumber: null, linePurpose: sdk.PhoneLinePurpose.SALES});
+      await create("owner-a");
+      await assert.rejects(create("owner-a", {id: randomUUID()}), "a company number is added once");
+      let line = await lineRow(lineId);
+      assert.equal(line.status, "PENDING");
+      await rejectsWith(run(sdk.setPhoneLineActive, "owner-a", {organizationId: f.orgA, id: lineId, expectedRevision: line.revision, active: true}), "PHONE_LINE_NOT_READY");
+      await rejectsWith(run(sdk.confirmPhoneLineRegistration, "agent-a", {organizationId: f.orgA, id: lineId, expectedRevision: line.revision}), "COMMUNICATION_ADMIN_REQUIRED");
+      await run(sdk.confirmPhoneLineRegistration, "admin-a", {organizationId: f.orgA, id: lineId, expectedRevision: line.revision});
+      line = await lineRow(lineId);
+      await run(sdk.setPhoneLineActive, "owner-a", {organizationId: f.orgA, id: lineId, expectedRevision: line.revision, active: true});
+      line = await lineRow(lineId);
+      assert.equal(line.status, "ACTIVE");
+      await rejectsWith(run(sdk.updateCommunicationPhoneLine, "owner-a", {organizationId: f.orgA, id: lineId, expectedRevision: line.revision, displayName: null, hasAssignee: false, assignedMembershipId: null, forwardToNumber: null, linePurpose: sdk.PhoneLinePurpose.SALES}), "PHONE_LINE_INVALID");
+    });
+
+    it("lets only an owner or administrator confirm live calling, after the rules are saved", async () => {
+      await rejectsWith(run(sdk.attestLiveCalling, "agent-a", {organizationId: f.orgA, version: "2026-11-03"}), "COMMUNICATION_ADMIN_REQUIRED");
+      await rejectsWith(run(sdk.attestLiveCalling, "owner-b", {organizationId: f.orgB, version: "2026-11-03"}), "COMMUNICATION_SETTINGS_REQUIRED");
+      await forbidden(sdk.attestLiveCalling, "owner-a", {organizationId: f.orgA, version: "not-a-date"});
+      await run(sdk.attestLiveCalling, "admin-a", {organizationId: f.orgA, version: "2026-11-03"});
+      const {settings} = await run(sdk.getCommunicationSettings, "agent-a", {organizationId: f.orgA});
+      assert.ok(settings.liveCallingAttestedAt);
+      assert.equal(settings.liveCallingAttestationVersion, "2026-11-03");
+    });
+
+    it("lets the database refuse a live call unless the provider, line, attestation, lead and number all check out", async () => {
+      const number = `+97150${String(Date.now() % 10_000_000).padStart(7, "0")}`;
+      const created = await run(sdk.createLead, "owner-a", {organizationId: f.orgA, fullName: `Live call ${randomUUID().slice(0, 6)}`, phone: number, normalizedPhone: number, assignedMembershipId: f.memberAgentA});
+      const leadId = created.lead.id;
+      const start = (uid, extra = {}) => run(sdk.startLeadCall, uid, {organizationId: f.orgA, id: randomUUID(), leadId, phoneLineId: lineId, callType: sdk.CallType.FOLLOW_UP, counterpartyNumber: number, attestationVersion: "2026-11-03", ...extra});
+      await rejectsWith(start("agent-a"), "LIVE_CALL_LINE_UNAVAILABLE");
+      const row = await connectionRow(connectionId);
+      await server(sdk.recordCommunicationProviderVerification, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "owner-a", verified: true, note: "Synthetic"});
+      await rejectsWith(start("agent-a", {attestationVersion: "2020-01-01"}), "LIVE_CALLING_NOT_ATTESTED");
+      await rejectsWith(start("agent-a", {counterpartyNumber: "+971500000999"}), "CALL_NUMBER_NOT_ON_RECORD");
+      await rejectsWith(start("shared-agent"), "LEAD_NOT_FOUND_OR_FORBIDDEN");
+      await rejectsWith(start("owner-a"), "LIVE_CALL_LINE_UNAVAILABLE");
+      await forbidden(sdk.startLeadCall, "agent-a", {organizationId: f.orgA, id: randomUUID(), leadId, phoneLineId: lineId, callType: sdk.CallType.INBOUND_ENQUIRY, counterpartyNumber: number, attestationVersion: "2026-11-03"});
+      const id = randomUUID();
+      await start("agent-a", {id});
+      const {call} = await run(sdk.getCallRecord, "agent-a", {organizationId: f.orgA, id});
+      assert.equal(call.source, "PROVIDER");
+      assert.equal(call.callStatus, "INITIATED");
+      assert.equal(key(call.phoneLineId), key(lineId));
+      const facts = await server(sdk.dialFacts, {organizationId: f.orgA, agentMembershipId: f.memberAgentA, activeSince: new Date(Date.now() - 3_600_000).toISOString(), daySince: new Date(Date.now() - 3_600_000).toISOString()});
+      assert.equal(facts.activeAgent[0].count, 1, "the started call counts as the agent's active call");
+      // The provider's call ID is set once; status moves forward with compare-and-set only.
+      await server(sdk.setProviderCallId, {organizationId: f.orgA, id, providerCallId: "CA" + "c".repeat(32)});
+      await rejectsWith(server(sdk.setProviderCallId, {organizationId: f.orgA, id, providerCallId: "CA" + "d".repeat(32)}), "CALL_STATUS_CHANGED");
+      await rejectsWith(server(sdk.applyProviderCallStatus, {organizationId: f.orgA, id, expectedStatus: sdk.CallStatus.RINGING, callStatus: sdk.CallStatus.IN_PROGRESS, answeredAt: null, endedAt: null, durationSeconds: null}), "CALL_STATUS_CHANGED");
+      const answeredAt = new Date().toISOString();
+      await server(sdk.applyProviderCallStatus, {organizationId: f.orgA, id, expectedStatus: sdk.CallStatus.INITIATED, callStatus: sdk.CallStatus.IN_PROGRESS, answeredAt, endedAt: null, durationSeconds: null});
+      await server(sdk.applyProviderCallStatus, {organizationId: f.orgA, id, expectedStatus: sdk.CallStatus.IN_PROGRESS, callStatus: sdk.CallStatus.COMPLETED, answeredAt: null, endedAt: new Date().toISOString(), durationSeconds: 42});
+      const after = (await run(sdk.getCallRecord, "agent-a", {organizationId: f.orgA, id})).call;
+      assert.equal(after.callStatus, "COMPLETED");
+      assert.equal(after.answeredAt.slice(0, 19), answeredAt.slice(0, 19), "a later event keeps the answer time");
+      assert.equal(after.durationSeconds, 42);
+      await forbidden(sdk.applyProviderCallStatus, "owner-a", {organizationId: f.orgA, id, expectedStatus: sdk.CallStatus.COMPLETED, callStatus: sdk.CallStatus.FAILED, answeredAt: null, endedAt: null, durationSeconds: null});
+    });
+
+    it("records each provider event once and creates incoming calls only on active lines", async () => {
+      const eventKey = `CA${"e".repeat(32)}:ringing`;
+      const record = id => server(sdk.recordCallProviderEvent, {organizationId: f.orgA, id, providerConnectionId: connectionId, eventKey, eventType: "CALL_STATUS", providerCallId: "CA" + "e".repeat(32), callStatus: sdk.CallStatus.RINGING, occurredAt: new Date().toISOString()});
+      await record(randomUUID());
+      await assert.rejects(record(randomUUID()), "a repeated delivery is refused by the unique key");
+      await forbidden(sdk.recordCallProviderEvent, "owner-a", {organizationId: f.orgA, id: randomUUID(), providerConnectionId: connectionId, eventKey: "other", eventType: "CALL_STATUS", providerCallId: null, callStatus: null, occurredAt: null});
+      const line = await lineRow(lineId);
+      const resolved = await server(sdk.resolveProviderCall, {organizationId: f.orgA, providerConnectionId: connectionId, providerCallId: "CA" + "f".repeat(32), lineNumber: line.phoneNumber, customerNumber: "+971500000123"});
+      assert.equal(resolved.calls.length, 0);
+      assert.equal(key(resolved.lines[0].assignedMembershipId), key(f.memberAgentA));
+      const id = randomUUID();
+      await server(sdk.createIncomingProviderCall, {organizationId: f.orgA, id, providerConnectionId: connectionId, providerCallId: "CA" + "f".repeat(32), phoneLineId: lineId, agentMembershipId: f.memberAgentA, actorUid: "agent-a",
+        callStatus: sdk.CallStatus.INITIATED, callerNumber: "+971500000123", recipientNumber: line.phoneNumber, counterpartyNumber: "+971500000123", contactId: null, leadId: null, startedAt: new Date().toISOString()});
+      await assert.rejects(server(sdk.createIncomingProviderCall, {organizationId: f.orgA, id: randomUUID(), providerConnectionId: connectionId, providerCallId: "CA" + "f".repeat(32), phoneLineId: lineId, agentMembershipId: f.memberAgentA, actorUid: "agent-a",
+        callStatus: sdk.CallStatus.INITIATED, callerNumber: null, recipientNumber: line.phoneNumber, counterpartyNumber: null, contactId: null, leadId: null, startedAt: new Date().toISOString()}), "one record per provider call");
+      const {call} = await run(sdk.getCallRecord, "agent-a", {organizationId: f.orgA, id});
+      assert.equal(call.direction, "INBOUND");
+      await forbidden(sdk.getCallRecord, "shared-agent", {organizationId: f.orgA, id});
+    });
+
+    it("lists only the calls each member may read, with filters, and the dashboard follows the same rules", async () => {
+      const owner = await run(sdk.listCalls, "owner-a", {organizationId: f.orgA, limit: 100, offset: 0});
+      const agent = await run(sdk.listCalls, "agent-a", {organizationId: f.orgA, limit: 100, offset: 0});
+      const manager = await run(sdk.listCalls, "manager-a", {organizationId: f.orgA, limit: 100, offset: 0});
+      assert.ok(owner.total[0].count >= agent.total[0].count && agent.total[0].count > 0);
+      assert.equal(manager.total[0].count, 0, "a manager without leads or calls sees none");
+      assert.ok(owner.agents.length > 0, "owners get the agent filter");
+      assert.equal(agent.agents.length, 0, "agents do not get other members' names");
+      const inbound = await run(sdk.listCalls, "owner-a", {organizationId: f.orgA, limit: 100, offset: 0, direction: sdk.CallDirection.INBOUND});
+      assert.ok(inbound.calls.length > 0 && inbound.calls.every(call => call.direction === "INBOUND"));
+      const providerOnly = await run(sdk.listCalls, "owner-a", {organizationId: f.orgA, limit: 100, offset: 0, source: sdk.CallSource.PROVIDER});
+      assert.ok(providerOnly.calls.every(call => call.source === "PROVIDER"));
+      await forbidden(sdk.listCalls, "owner-b", {organizationId: f.orgA, limit: 10, offset: 0});
+      const now = new Date();
+      const dashboard = await run(sdk.communicationDashboard, "agent-a", {organizationId: f.orgA, since: new Date(now.getTime() - 30 * 86_400_000).toISOString(), now: now.toISOString(), until: new Date(now.getTime() + 7 * 86_400_000).toISOString()});
+      assert.equal(dashboard.calls.length, Math.min(agent.total[0].count, 1000));
+      await forbidden(sdk.communicationDashboard, "owner-b", {organizationId: f.orgA, since: now.toISOString(), now: now.toISOString(), until: now.toISOString()});
+    });
+  });
 }

@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 import { CalendarClock, Loader2, Pencil, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, RefreshCw, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -105,7 +106,41 @@ function LogCallDialog({subject, organizationId, view, onLogged}: {subject: Subj
   </Dialog>;
 }
 
-function EditCallDialog({call, organizationId, onSaved}: {call: CallView; organizationId: string; onSaved: () => void}) {
+type DialResult = {started: boolean; callId?: string; reasons?: Issue[]};
+
+/** Starts a live call through the company's verified provider: the agent's phone rings first, then the customer's. */
+function LiveCallDialog({leadId, organizationId, view, onStarted}: {leadId: string; organizationId: string; view: CallHistoryView; onStarted: () => void}) {
+  const prefix = useId();
+  const [open, setOpen] = useState(false);
+  const [requestId, setRequestId] = useState("");
+  const [reasons, setReasons] = useState<Issue[]>([]);
+  const [pending, setPending] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setReasons([]);
+    const form = new FormData(event.currentTarget);
+    setPending(true);
+    try {
+      const result = await communicationsSend<DialResult>("/api/communications/calls/dial", organizationId, "POST", {requestId, leadId, number: String(form.get("number") ?? "PRIMARY"), callType: String(form.get("callType") ?? "FOLLOW_UP")}, "The call could not be started.");
+      if (result.started) { setOpen(false); toast.success("Calling: your phone rings first, then the customer's."); onStarted(); }
+      else setReasons(result.reasons ?? []);
+    } catch (problem) { setReasons([{code: "ERROR", message: errorMessage(problem, "The call could not be started.")}]); }
+    finally { setPending(false); }
+  }
+  return <Dialog open={open} onOpenChange={value => { if (!pending) { setOpen(value); setReasons([]); if (value) setRequestId(crypto.randomUUID()); } }}>
+    <DialogTrigger render={<Button size="sm" />}><Phone aria-hidden="true" />Call</DialogTrigger>
+    <DialogContent><DialogHeader><DialogTitle>Call {view.subject.name}</DialogTitle><DialogDescription>EstateOS rings your phone from your company line, then connects the customer. The call is not recorded.</DialogDescription></DialogHeader>
+      <form onSubmit={submit} className="space-y-4"><fieldset disabled={pending} className="space-y-4">
+        <LeadField id={`${prefix}-number`} label="Number"><select id={`${prefix}-number`} name="number" className={selectClassName}>{view.numbers.filter(item => !item.doNotCall).map(item => <option key={item.choice} value={item.choice}>{item.number}</option>)}</select></LeadField>
+        <LeadField id={`${prefix}-type`} label="Purpose"><select id={`${prefix}-type`} name="callType" className={selectClassName} defaultValue="FOLLOW_UP">
+          {(["FOLLOW_UP", "SERVICE", "MARKETING"] as const).map(type => <option key={type} value={type}>{CALL_TYPE_LABELS[type]}</option>)}</select></LeadField>
+        <Button type="submit">{pending ? <><Loader2 className="animate-spin" aria-hidden="true" />Starting…</> : "Start call"}</Button>
+      </fieldset>
+      {reasons.length > 0 && <div role="alert" className="mt-3 space-y-1 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive"><p className="font-medium">The call was not started:</p><ul className="list-disc pl-5">{reasons.map(item => <li key={item.code}>{item.message}</li>)}</ul></div>}</form>
+    </DialogContent>
+  </Dialog>;
+}
+
+export function EditCallDialog({call, organizationId, onSaved}: {call: CallView; organizationId: string; onSaved: () => void}) {
   const prefix = useId();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
@@ -137,7 +172,7 @@ function EditCallDialog({call, organizationId, onSaved}: {call: CallView; organi
   </Dialog>;
 }
 
-function CallItem({call, organizationId, showLead, onChanged}: {call: CallView; organizationId: string; showLead: boolean; onChanged: () => void}) {
+export function CallItem({call, organizationId, showLead, onChanged}: {call: CallView; organizationId: string; showLead: boolean; onChanged: () => void}) {
   return <li className="flex gap-3 rounded-lg border p-4">
     <CallIcon call={call} />
     <div className="min-w-0 flex-1 space-y-1.5">
@@ -147,9 +182,10 @@ function CallItem({call, organizationId, showLead, onChanged}: {call: CallView; 
           {call.outcome && <Badge variant="secondary">{CALL_OUTCOME_LABELS[call.outcome]}</Badge>}
           {call.source === "MANUAL" && <Badge variant="outline">Logged manually</Badge>}
           {call.canEdit && <EditCallDialog call={call} organizationId={organizationId} onSaved={onChanged} />}
+          <Link href={`/communications/calls/${call.id}`} className={buttonVariants({variant: "ghost", size: "sm"})} aria-label={`Details of the call on ${formatLeadDate(call.startedAt, true)}`}>Details</Link>
         </div>
       </div>
-      <p className="text-xs text-muted-foreground"><time dateTime={call.startedAt}>{formatLeadDate(call.startedAt, true)}</time> · {call.agent} · {CALL_TYPE_LABELS[call.callType]}{call.number && <> · {call.number}</>}{showLead && call.lead && <> · Lead: {call.lead.fullName}</>}</p>
+      <p className="text-xs text-muted-foreground"><time dateTime={call.startedAt}>{formatLeadDate(call.startedAt, true)}</time> · {call.agent} · {CALL_TYPE_LABELS[call.callType]}{call.number && <> · {call.number}</>}{showLead && call.lead && <> · Lead: {call.lead.fullName}</>}{showLead && !call.lead && call.contact && <> · Contact: {call.contact.fullName}</>}</p>
       {call.notes && <p className="whitespace-pre-wrap break-words rounded-lg bg-muted/30 px-3 py-2 text-sm leading-6">{call.notes}</p>}
       {call.followUp ? <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarClock className="size-3.5" aria-hidden="true" />Follow-up: {call.followUp.title}, due {formatLeadDate(call.followUp.dueAt, true)} ({call.followUp.status.toLowerCase()})</p>
         : call.followUpRequired && <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Follow-up needed (not scheduled)</p>}
@@ -199,11 +235,14 @@ export function CallPanel({subject, organizationId}: {subject: Subject; organiza
           <p className="text-xs leading-5 text-muted-foreground">Last answered call: {view.lastAnsweredAt ? formatLeadDate(view.lastAnsweredAt, true) : "none yet"} · {view.total} {view.total === 1 ? "call" : "calls"} recorded</p>
         </div>
         <div className="flex flex-wrap gap-2 sm:justify-end">
-          <Button size="sm" disabled={!view.liveCalling.available} aria-describedby={descriptionId}><Phone aria-hidden="true" />Call</Button>
+          {view.liveCalling.available && subject.kind === "LEAD" ? <LiveCallDialog leadId={subject.id} organizationId={organizationId} view={view} onStarted={() => void load(0)} />
+            : <Button size="sm" disabled aria-describedby={descriptionId}><Phone aria-hidden="true" />Call</Button>}
           <LogCallDialog subject={subject} organizationId={organizationId} view={view} onLogged={logged} />
         </div>
       </div>
-      {!view.liveCalling.available && <p id={descriptionId} className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground"><ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />{view.liveCalling.reason}</p>}
+      {!view.liveCalling.available && <div id={descriptionId} className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground"><ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <div><p>{view.liveCalling.reason} Log calls you make through your company&apos;s approved phone service instead.</p>
+          {view.liveCalling.reasons.length > 1 && <ul className="mt-1 list-disc pl-4">{view.liveCalling.reasons.slice(1).map(item => <li key={item.code}>{item.message}</li>)}</ul>}</div></div>}
       <p className="text-xs leading-5 text-muted-foreground">Company calling hours {view.rules.callingHours} ({view.rules.timeZone}). Marketing calls: {view.rules.telemarketingEnabled ? `allowed ${view.rules.marketingHours}` : "not enabled for your company"}. Calls are not recorded.</p>
       {warnings.length > 0 && <div role="status" className="space-y-1 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs leading-5 text-amber-800 dark:text-amber-200">
         <p className="font-medium">The call you logged breaks company calling rules. It was saved, and administrators can review it:</p>

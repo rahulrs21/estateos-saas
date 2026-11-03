@@ -7,13 +7,13 @@ Calls with customers, recorded against leads and contacts, with the rules that a
 | Sub-phase | Scope | Status |
 | --- | --- | --- |
 | 6F.1 | Call records, manual call logging, the lead and contact call panel, settings and the do-not-call list (API) | Implemented and tested on emulators |
-| 6F.2 | Hub pages, provider connections and lines, signed webhooks, gated live dialling | Not started |
+| 6F.2 | Hub pages, provider connections and lines, signed webhooks, gated live dialling | Implemented and tested on emulators; no provider connected ([providers](TELEPHONY_PROVIDERS.md)) |
 | 6F.3 | Consent, recordings, transcripts | Not started |
 | 6F.4 | Claude call summaries and suggestions | Not started |
 | 6F.5 | Voice assistant configuration and test-mode simulator | Not started |
 | 6F.6 | Meetings, workflow triggers, reports | Not started |
 
-**No calling provider is connected, and EstateOS places no calls.** The Call button is disabled and explains why. Agents log calls they make or take through the company's approved phone service.
+**No calling provider is connected, and EstateOS places no calls.** The Call button stays disabled and lists the reasons until a verified provider, an active registered line and an owner's or administrator's confirmation are all in place ([live calling](TELEPHONY_PROVIDERS.md#live-calling)). Agents log calls they make or take through the company's approved phone service.
 
 ## Calls
 
@@ -40,6 +40,46 @@ Other fields:
 ### Call states
 
 `transition()` decides whether an incoming status changes a call. Calls only move forward (initiated, ringing, in progress, final); a final status never changes; a late or repeated status is ignored. An answered call can end only as completed or failed (dropped). Provider webhooks (6F.2) use this so retries and out-of-order deliveries cannot corrupt a call.
+
+## Hub
+
+`/communications` (navigation: Communications; `/workspace/communications` redirects there):
+
+- **Overview** (`/communications`): the last 30 days of calls the member may read, with:
+  - outgoing attempts, answered, missed incoming, conversations and the average answered call;
+  - recent, missed and lead calls;
+  - calls that need a follow-up that was not scheduled;
+  - recorded outcomes;
+  - pending follow-ups and scheduled viewings in the next 7 days;
+  - calls by agent (owners and administrators).
+
+  Only stored records are counted; with more than 1,000 calls in the period the page says the figures cover the latest 1,000.
+- **Calls** (`/communications/calls`): filter by direction, status, outcome, how the call was recorded, dates (Dubai) and, for owners and administrators, agent; 25 per page.
+- **Call page** (`/communications/calls/[id]`):
+  - customer, agent, purpose and timings;
+  - the company line and provider;
+  - notes, follow-up and related viewing;
+  - the calling-rule warnings that applied when the call was made;
+  - the provider's signed events, with what each changed;
+  - edit, and hang up for a provider call in progress.
+- **Settings** (`/communications/settings`):
+  - calling rules (read-only for managers and agents);
+  - for owners and administrators: live-calling conditions and the confirmation statement, provider connections, company lines and the do-not-call list.
+
+### Metrics
+
+`src/modules/communications/metrics.ts` keeps these apart:
+
+| Metric | Definition |
+| --- | --- |
+| Outgoing attempts | Finished outgoing calls |
+| Answered | Outgoing calls the customer picked up (connection status only) |
+| Missed | Incoming calls nobody answered |
+| Conversations | Answered calls, in either direction, with an outcome recorded (wrong numbers excluded) |
+| Outcomes | Counted for answered calls only |
+| Average answered call | Talk time of answered calls; labelled as not a quality measure |
+
+Calls still ringing are counted separately. Per-agent figures are counts only.
 
 ## Manual call logging
 
@@ -82,6 +122,14 @@ All routes use the verified session; the company is resolved on the server. Muta
 | `/api/communications/settings` | GET, PUT | Rules (all members read; owners and administrators change) |
 | `/api/communications/suppressions` | GET, POST | Do-not-call list (owners and administrators) |
 | `/api/communications/suppressions/[id]/withdraw` | POST | Withdraw with a reason |
+| `/api/communications/calls` | GET | Call list with filters (`direction`, `callStatus`, `outcome`, `source`, `agent`, `from`, `to`, `offset`) |
+| `/api/communications/calls/dial` | POST | Start a live call on a lead (refused with reasons unless every condition holds) |
+| `/api/communications/calls/[callId]/end` | POST | Hang up a provider call in progress |
+| `/api/communications/dashboard` | GET | Overview data |
+| `/api/communications/providers`, `/providers/[id]`, `/providers/[id]/enabled`, `/providers/[id]/verify` | GET, POST, PUT | Provider connections (owners and administrators) |
+| `/api/communications/lines`, `/lines/[id]`, `/lines/[id]/registration`, `/lines/[id]/active` | POST, PUT | Company lines (owners and administrators) |
+| `/api/communications/attestation`, `/attestation/revoke` | POST | The live-calling confirmation (owners and administrators) |
+| `/api/communications/webhooks/[provider]/[connectionId]` | POST | Signed provider webhooks; no session ([details](TELEPHONY_PROVIDERS.md#webhooks)) |
 
 ## Security
 
@@ -106,7 +154,7 @@ Guessed IDs from another company or outside the member's access return not-found
 
 ## Data model
 
-`dataconnect/schema/communications.gql`: `CommunicationSettings` (one per company), `CommunicationSuppression`, `CallRecord`. Every row is keyed by company with composite tenant foreign keys. Operations are in `dataconnect/connector/communications.gql`.
+`dataconnect/schema/communications.gql`: `CommunicationSettings` (one per company), `CommunicationSuppression`, `CallRecord`, and since 6F.2 `CommunicationProviderConnection`, `CommunicationPhoneLine` and `CallProviderEvent` (plus the provider connection, provider call ID and line on `CallRecord`, unique per provider call). Every row is keyed by company with composite tenant foreign keys. Operations are in `dataconnect/connector/communications.gql` and `communication-providers.gql`.
 
 Shared enums gained values at the end only (`ActivityKind`: `CALL_LOGGED`, `CALL_UPDATED`, `COMMUNICATION_SETTINGS_UPDATED`, `COMMUNICATION_SUPPRESSION_CHANGED`; `AuditTargetType`: `CALL`, `COMMUNICATION_SETTINGS`, `COMMUNICATION_SUPPRESSION`). SQL Connect cannot reorder enum values ([LOCAL_DATABASE.md](LOCAL_DATABASE.md#what-caused-data-loss-before), item 8).
 
@@ -121,8 +169,8 @@ Shared enums gained values at the end only (`ActivityKind`: `CALL_LOGGED`, `CALL
 
 | Command | What it covers |
 | --- | --- |
-| `npm run test:communications` | Call states, numbers and destination rules, suppressing outcomes, every compliance rule including timezones and frequency limits (10 tests) |
-| `npm run test:dataconnect` | The stored operations: record-level access, number on record, atomic suppressions, idempotent IDs, compare-and-set edits, follow-up links, contact calls, settings bounds and tenant isolation (8 cases) |
-| `npm run test:communications:e2e` | The real app in a browser: the panel, logging from the lead with a follow-up, persistence after reload, duplicates, warnings, opt-out, edits, manager, cross-company and forged-header denials, the contact page and the do-not-call list (9 checks) |
+| `npm run test:communications` | Call states, numbers and destination rules, suppressing outcomes, every compliance rule including timezones and frequency limits, metrics, provider signatures and the live-call blockers (16 tests) |
+| `npm run test:dataconnect` | The stored operations: record-level access, number on record, atomic suppressions, idempotent IDs, compare-and-set edits, follow-up links, contact calls, settings bounds and tenant isolation; providers, lines, the live-call gate, webhook operations and hub access (14 cases) |
+| `npm run test:communications:e2e` | The real app in a browser: the panel, logging from the lead with a follow-up, persistence after reload, duplicates, warnings, opt-out, edits, manager, cross-company and forged-header denials, the contact page and the do-not-call list; provider settings, signed and refused webhooks, refused live calls and the hub pages (15 checks) |
 
 All data is synthetic; no real number is called.

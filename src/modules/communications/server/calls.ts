@@ -7,6 +7,7 @@ import { COMPLIANCE_MESSAGES, evaluateCall, rulesFrom, type CommunicationRules, 
 import { suppresses, type CallDirection, type CallOutcome, type CallSource, type CallStatus, type CallType } from "../model";
 import { displayNumber, numbersOnRecord } from "../phone";
 import { asMember, asServer, isAdministrator, isDuplicate, sdk, type Context } from "./data";
+import { liveCallingStatus } from "./dial";
 import { callListSchema, idSchema, logCallSchema, parseInput, updateCallSchema } from "./validation";
 
 /*
@@ -21,12 +22,6 @@ import { callListSchema, idSchema, logCallSchema, parseInput, updateCallSchema }
 const PAGE_SIZE = 20;
 /** Enough history for the weekly marketing limit. */
 const FACT_WINDOW_MS = 8 * 24 * 60 * 60 * 1000;
-
-/** Live calling needs a verified provider, company lines and an administrator's attestation (Phase 6F.2). None is configured yet. */
-export const LIVE_CALLING_UNAVAILABLE = {
-  available: false as const,
-  reason: "No calling provider is connected for your company, so EstateOS cannot place calls. Log calls you make through your company's approved phone service instead.",
-};
 
 const text = <T extends string>(value: string) => value as T;
 
@@ -61,14 +56,15 @@ interface StoredCall {
   followUp?: {id: string; title: string; dueAt: string; status: string} | null;
   viewing?: {id: string; scheduledAt: string; status: string} | null;
   lead?: {id: string; fullName: string} | null;
+  contact?: {id: string; fullName: string} | null;
 }
 
-function presentCall(context: Context, call: StoredCall) {
+export function presentCall(context: Context, call: StoredCall) {
   const facts = {direction: text<CallDirection>(call.direction), callStatus: text<CallStatus>(call.callStatus), answeredAt: call.answeredAt ?? null, outcome: call.outcome ? text<CallOutcome>(call.outcome) : null};
   return {
     id: call.id, direction: facts.direction, source: text<CallSource>(call.source), callType: text<CallType>(call.callType), callStatus: facts.callStatus, outcome: facts.outcome,
     number: displayNumber(call.counterpartyNumber), startedAt: call.startedAt, answeredAt: facts.answeredAt, durationSeconds: call.durationSeconds,
-    notes: call.notes ?? null, followUpRequired: call.followUpRequired, followUp: call.followUp ?? null, viewing: call.viewing ?? null, lead: call.lead ?? null,
+    notes: call.notes ?? null, followUpRequired: call.followUpRequired, followUp: call.followUp ?? null, viewing: call.viewing ?? null, lead: call.lead ?? null, contact: call.contact ?? null,
     agent: call.agentMembership.userProfile?.displayName || call.agentMembership.email, revision: call.revision,
     answered: isAnswered(facts), conversation: isConversation(facts),
     canEdit: isAdministrator(context) || call.agentMembershipId === context.membership.id,
@@ -105,7 +101,7 @@ export async function leadCallsView(context: Context, rawLeadId: string, query: 
     total, offset, hasMore: offset + PAGE_SIZE < total,
     viewings: data.viewings,
     rules: rulesSummary(settings.rules),
-    liveCalling: LIVE_CALLING_UNAVAILABLE,
+    liveCalling: await liveCallingStatus(context, settings.rules),
   };
 }
 
@@ -125,16 +121,26 @@ export async function contactCallsView(context: Context, rawContactId: string, q
     total, offset, hasMore: offset + PAGE_SIZE < total,
     viewings: [] as Array<{id: string; scheduledAt: string; status: string}>,
     rules: rulesSummary(settings.rules),
-    liveCalling: LIVE_CALLING_UNAVAILABLE,
+    liveCalling: {available: false, reason: "Live calls start from one of the customer's leads, so the call is recorded against it.", reasons: [] as Array<{code: string; message: string}>},
   };
 }
 export type CallHistoryView = Awaited<ReturnType<typeof leadCallsView>>;
 
 export async function getCall(context: Context, rawId: string) {
   const id = parseInput(idSchema, rawId);
-  const {call} = await asMember(context, "GetCallRecord", (dc, options) => sdk.getCallRecord(dc, {organizationId: context.organizationId, id}, options));
+  const data = await asMember(context, "GetCallRecord", (dc, options) => sdk.getCallRecord(dc, {organizationId: context.organizationId, id}, options));
+  const call = data.call;
   if (!call) throw new WorkspaceError("NOT_FOUND", 404, "This call was not found.");
-  return {...presentCall(context, call), contact: call.contact ?? null, leadId: call.leadId ?? null, contactId: call.contactId ?? null};
+  const at = new Date(call.startedAt);
+  const number = call.counterpartyNumber ?? null;
+  const facts = await complianceFacts(context, number, at);
+  const issues = evaluateCall({direction: text<CallDirection>(call.direction), callType: text<CallType>(call.callType), at, number, callId: call.id, ...facts});
+  return {
+    ...presentCall(context, call), leadId: call.leadId ?? null, contactId: call.contactId ?? null, callerNumber: displayNumber(call.callerNumber), recipientNumber: displayNumber(call.recipientNumber),
+    endedAt: call.endedAt ?? null, provider: call.providerConnection ? {type: call.providerConnection.providerType, name: call.providerConnection.displayName} : null,
+    line: call.phoneLine ? {number: displayNumber(call.phoneLine.phoneNumber), name: call.phoneLine.displayName ?? null} : null,
+    events: data.events, issues: describeIssues(issues),
+  };
 }
 
 /**

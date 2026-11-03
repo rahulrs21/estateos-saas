@@ -1,8 +1,6 @@
-import type { Metadata } from "next";
-import { ModulePreview } from "@/modules/workspace/components/module-preview";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Communications" };
-
-export default function CommunicationsPage() {
-  return <ModulePreview slug="communications" />;
+/** The communication hub moved to /communications (Phase 6F). */
+export default function LegacyCommunicationsPage() {
+  redirect("/communications");
 }

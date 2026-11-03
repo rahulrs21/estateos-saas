@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import twilio from "twilio";
 import { localDataConnect } from "../scripts/sql-connect-local.mjs";
 import { fixture as f } from "./fixtures/sql-connect-fixtures.mjs";
 
@@ -26,6 +27,8 @@ mkdirSync(screens, {recursive: true});
 const pause = ms => new Promise(done => setTimeout(done, ms));
 const password = "e2e-only-" + randomUUID();
 let checks = 0;
+/** A test-only provider credential, generated per run and given to the isolated test server only. */
+const providerToken = randomBytes(24).toString("hex");
 const pass = message => { checks++; console.log(`✔ ${message}`); };
 
 // ---------------------------------------------------------------- fixtures
@@ -67,6 +70,7 @@ function startNext() {
       RATE_LIMIT_BACKEND: "sql-connect", ESTATEOS_AI_ENABLED: "true",
       // Well-formed but invalid, so Anthropic itself rejects any call.
       ANTHROPIC_API_KEY: `sk-ant-api03-e2e-invalid-${"x".repeat(40)}`, ANTHROPIC_MODEL: "claude-sonnet-5-5", AI_E2E_ANTHROPIC_API_KEY: "",
+      COMMS_E2E_TWILIO_TOKEN: providerToken,
     },
   });
   child.stdout.on("data", data => { serverLog = (serverLog + data).slice(-30000); });
@@ -331,6 +335,118 @@ try {
   await evaluate("document.querySelector('#calls').scrollIntoView({block: 'start'})"); await pause(300);
   await screenshot("lead-call-panel-mobile");
   pass("The contact page shows calls from its leads; an owner withdraws the opt-out with a reason and the badge disappears; the panel works on a phone");
+
+  // ------------------------------------------------------------ 6F.2: provider connection, line, signed webhooks, live-call gate, hub
+  const ACCOUNT = "AC" + "e".repeat(32);
+  await load("/communications/settings", "document.body.innerText.includes('Calling providers') && document.body.innerText.includes('No provider is connected')");
+  await clickText("Add connection", "button");
+  await waitFor("document.querySelector('[role=dialog]')?.innerText.includes('Add a provider connection')", "the connection dialog");
+  await setField("providerType", "TWILIO");
+  await setField("displayName", "E2E Twilio");
+  await setField("externalAccountId", ACCOUNT);
+  await setField("secretRef", "COMMS_E2E_TWILIO_TOKEN");
+  await clickText("Add connection", "[role=dialog] button");
+  await waitFor("!document.querySelector('[role=dialog]') && document.body.innerText.includes('E2E Twilio') && document.body.innerText.includes('Secret set on server')", "the saved connection");
+  assert.match(await evaluate("document.body.innerText"), /Not verified/);
+  assert.doesNotMatch(await evaluate("document.body.innerText"), new RegExp(providerToken), "the credential never reaches the page");
+  const providerView = (await api("/api/communications/providers")).body.data;
+  assert.ok(!JSON.stringify(providerView).includes(providerToken), "the credential is never returned by the API");
+  const connection = providerView.connections.find(row => row.displayName === "E2E Twilio");
+  assert.equal(connection.webhookUrl, `${origin}/api/communications/webhooks/twilio/${connection.id}`);
+  await screenshot("communication-settings");
+  const missing = await post("/api/communications/providers", {providerType: "TWILIO", displayName: "Not set yet", externalAccountId: ACCOUNT, secretRef: "COMMS_E2E_NOT_SET"});
+  assert.equal(missing.status, 201);
+  const check = await post(`/api/communications/providers/${missing.body.data.id}/verify`, {expectedRevision: 1});
+  assert.equal(check.status, 400);
+  assert.match(check.body.error.message, /COMMS_E2E_NOT_SET is not set/);
+  const pasted = await post("/api/communications/providers", {providerType: "TWILIO", displayName: "Pasted secret", externalAccountId: ACCOUNT, secretRef: providerToken});
+  assert.equal(pasted.status, 400, "a pasted credential is refused as a secret name");
+  pass("An owner adds a provider connection with a secret name only; the credential never reaches the browser; checking a connection without its server secret is refused without contacting the provider");
+
+  const LINE = "+97143330000";
+  const line = await post("/api/communications/lines", {providerConnectionId: connection.id, phoneNumber: "+971 4 333 0000", displayName: "Sales", linePurpose: "SALES", assignedMembershipId: f.memberAgentA, forwardToNumber: "+971 50 999 0000"});
+  assert.equal(line.status, 201, JSON.stringify(line.body));
+  const lineRevision = async () => (await api("/api/communications/providers")).body.data.lines.find(row => row.id === line.body.data.id || hexEq(row.id, line.body.data.id)).revision;
+  const hexEq = (a, b) => String(a).replaceAll("-", "").toLowerCase() === String(b).replaceAll("-", "").toLowerCase();
+  assert.equal((await post(`/api/communications/lines/${line.body.data.id}/active`, {expectedRevision: await lineRevision(), active: true})).status, 400, "an unconfirmed line cannot be activated");
+  assert.equal((await post(`/api/communications/lines/${line.body.data.id}/registration`, {expectedRevision: await lineRevision()})).status, 200);
+  assert.equal((await post(`/api/communications/lines/${line.body.data.id}/active`, {expectedRevision: await lineRevision(), active: true})).status, 200);
+  pass("A company line is activated only after an owner confirms it is registered to the company");
+
+  // Signed provider callbacks, exactly as Twilio sends them (form-encoded, X-Twilio-Signature).
+  const hook = `${origin}/api/communications/webhooks/twilio/${connection.id}`;
+  const deliver = async (params, {token = providerToken, url = hook, signature} = {}) => {
+    const body = new URLSearchParams(params).toString();
+    const response = await fetch(url, {method: "POST", body, headers: {"Content-Type": "application/x-www-form-urlencoded", "X-Twilio-Signature": signature ?? twilio.getExpectedTwilioSignature(token, url, params)}});
+    return {status: response.status, text: await response.text()};
+  };
+  const CALL = "CA" + "1".repeat(32);
+  const event = (CallStatus, extra = {}) => ({CallSid: CALL, AccountSid: ACCOUNT, From: NUMBER, To: LINE, Direction: "inbound", CallStatus, Timestamp: new Date().toUTCString(), ...extra});
+  const ringing = await deliver(event("ringing"));
+  assert.equal(ringing.status, 200, ringing.text);
+  assert.match(ringing.text, /<Response\/>/);
+  assert.equal((await deliver(event("ringing"))).status, 200, "a retried delivery is accepted");
+  assert.equal((await deliver(event("completed", {CallDuration: "75"}))).status, 200);
+  assert.equal((await deliver(event("in-progress"))).status, 200, "a late event is accepted but changes nothing");
+  const providerCalls = (await sql(`query P($org: UUID!) { callRecords(where: {organizationId: {eq: $org}, source: {eq: PROVIDER}}) { id leadId contactId callStatus durationSeconds answeredAt direction agentMembershipId } }`, {org: f.orgA})).callRecords;
+  assert.equal(providerCalls.length, 1);
+  const inboundCall = providerCalls[0];
+  assert.equal(inboundCall.callStatus, "COMPLETED");
+  assert.equal(inboundCall.durationSeconds, 75);
+  assert.ok(inboundCall.answeredAt);
+  assert.ok(hexEq(inboundCall.leadId, lead.id), "the caller was matched to the lead on record");
+  const events = (await sql(`query E($org: UUID!, $call: UUID!) { callProviderEvents(where: {organizationId: {eq: $org}, callId: {eq: $call}}, orderBy: [{receivedAt: ASC}]) { eventKey result } }`, {org: f.orgA, call: inboundCall.id})).callProviderEvents;
+  assert.deepEqual(events.map(row => row.result), ["APPLIED", "APPLIED", "FINAL"], "the duplicate was dropped before recording; the late event was ignored");
+  pass("Signed provider events create the incoming call on the lead, apply once each, and ignore retries and late events");
+
+  assert.equal((await deliver(event("completed"), {signature: "forged-signature"})).status, 401);
+  assert.equal((await deliver(event("busy", {CallSid: "CA" + "2".repeat(32)}), {token: "wrong-token-0000000000"})).status, 401);
+  const unsigned = await fetch(hook, {method: "POST", body: new URLSearchParams(event("busy")).toString(), headers: {"Content-Type": "application/x-www-form-urlencoded"}});
+  assert.equal(unsigned.status, 401);
+  assert.equal((await deliver(event("busy", {CallSid: "CA" + "3".repeat(32), AccountSid: "AC" + "f".repeat(32)}))).status, 403, "another provider account");
+  const elsewhere = `${origin}/api/communications/webhooks/twilio/${randomUUID()}`;
+  assert.equal((await deliver(event("busy"), {url: elsewhere})).status, 404, "an unknown connection");
+  assert.equal((await deliver(event("busy"), {url: `${origin}/api/communications/webhooks/pbx/${connection.id}`})).status, 404, "no webhooks for providers without a verified contract");
+  assert.equal((await sql(`query C($org: UUID!) { callRecords(where: {organizationId: {eq: $org}, source: {eq: PROVIDER}}) { id } }`, {org: f.orgA})).callRecords.length, 1, "refused requests changed nothing");
+  const MISSED = "CA" + "4".repeat(32);
+  await deliver({...event("ringing"), CallSid: MISSED});
+  await deliver({...event("no-answer"), CallSid: MISSED});
+  pass("Forged, unsigned, wrong-key, wrong-account and unknown-connection webhooks are refused and change nothing");
+
+  // Live calling is refused with every reason while the provider is unverified and nothing is confirmed.
+  await signIn("agent-a");
+  const dial = await post("/api/communications/calls/dial", {requestId: randomUUID(), leadId: lead.id, callType: "FOLLOW_UP"});
+  assert.equal(dial.status, 200, JSON.stringify(dial.body));
+  assert.equal(dial.body.data.started, false);
+  const codes = dial.body.data.reasons.map(reason => reason.code);
+  for (const code of ["NO_VERIFIED_PROVIDER", "NOT_ATTESTED", "PUBLIC_ORIGIN_MISSING"]) assert.ok(codes.includes(code), `${code} in ${codes}`);
+  await load(`/leads/${lead.id}`, "document.querySelector('#calls')?.innerText.includes('Incoming · Answered')");
+  assert.ok(await evaluate("[...document.querySelectorAll('#calls button')].find(b=>b.textContent.trim()==='Call').disabled"));
+  assert.match(await evaluate("document.querySelector('#calls').innerText"), /No calling provider is connected and verified/);
+  assert.equal((await api("/api/communications/providers")).status, 403, "agents cannot see provider connections");
+  await load("/communications/settings", "document.body.innerText.includes('Only owners and administrators can change them')");
+  assert.ok(await evaluate("[...document.querySelectorAll('input[name=timeZone]')].every(input => input.disabled)"));
+  pass("Live calling is refused with its reasons; the agent sees the provider call on the lead and the rules read-only");
+
+  // The hub, from stored records only.
+  await signIn("owner-a");
+  await load("/communications", "document.body.innerText.includes('Outgoing attempts') && document.body.innerText.includes('Missed calls')");
+  const dashboard = (await api("/api/communications/dashboard")).body.data;
+  assert.equal(dashboard.totals.missed, 1);
+  assert.equal(dashboard.totals.incomingAnswered, 2, "the provider call and the logged incoming call");
+  assert.ok(dashboard.byAgent.length >= 1);
+  await screenshot("communications-dashboard");
+  await load("/communications/calls", "document.body.innerText.includes('calls')");
+  await evaluate(`(()=>{const s=[...document.querySelectorAll('select')].find(s=>[...s.options].some(o=>o.value==='INBOUND'));Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,'INBOUND');s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await waitFor("document.body.innerText.includes('3 calls') && ![...document.querySelectorAll('ol[aria-label=Calls] h3')].some(h=>h.textContent.startsWith('Outgoing'))", "the incoming calls only");
+  await screenshot("communications-calls");
+  await load(`/communications/calls/${inboundCall.id}`, "document.body.innerText.includes('Provider events')");
+  const detailText = await evaluate("document.body.innerText");
+  assert.match(detailText, /Reported by E2E Twilio/);
+  assert.match(detailText, /Ignored: the call had already ended/);
+  assert.match(detailText, /\+971 4 333 0000|\+97143330000/);
+  await screenshot("communications-call-detail");
+  pass("The dashboard counts missed and answered calls from stored records; the list filters by direction; the call page shows the provider's events");
 
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");
   console.log(`\n${checks} communication end-to-end checks passed.`);

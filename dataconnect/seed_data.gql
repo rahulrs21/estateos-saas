@@ -5,7 +5,10 @@
 # 100 function arguments for the combined result).
 mutation ResetEstateOSWebsites @transaction {
   # Phase 6F communication records reference leads, contacts, follow-ups, viewings and memberships.
+  callProviderEvent_deleteMany(all: true)
   callRecord_deleteMany(all: true)
+  communicationPhoneLine_deleteMany(all: true)
+  communicationProviderConnection_deleteMany(all: true)
   communicationSuppression_deleteMany(all: true)
   communicationSettings_deleteMany(all: true)
   # Phase 6E automation records reference leads, listings and memberships.

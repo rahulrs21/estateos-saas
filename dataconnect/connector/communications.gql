@@ -117,7 +117,10 @@ query GetCallRecord($organizationId: UUID!, $id: UUID!)
     lead {id fullName status assignedMembershipId} contact {id fullName}
     agentMembership {id email userProfile {displayName}}
     followUp {id title dueAt status} viewing {id scheduledAt status}
+    providerConnectionId phoneLineId phoneLine {phoneNumber displayName} providerConnection {providerType displayName}
   }
+  # Signed provider events for the call (empty for manual calls). Returned only when the call check above passes.
+  events: callProviderEvents(where: {organizationId: {eq: $organizationId}, callId: {eq: $id}}, orderBy: [{receivedAt: ASC}, {id: ASC}], limit: 50) {id eventType callStatus result occurredAt receivedAt}
 }
 
 query ListLeadCalls($organizationId: UUID!, $leadId: UUID!, $limit: Int! = 20, $offset: Int! = 0)

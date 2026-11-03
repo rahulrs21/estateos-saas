@@ -97,6 +97,10 @@ export const ActivityKind = {
   CALL_UPDATED: "CALL_UPDATED",
   COMMUNICATION_SETTINGS_UPDATED: "COMMUNICATION_SETTINGS_UPDATED",
   COMMUNICATION_SUPPRESSION_CHANGED: "COMMUNICATION_SUPPRESSION_CHANGED",
+  COMMUNICATION_PROVIDER_CHANGED: "COMMUNICATION_PROVIDER_CHANGED",
+  PHONE_LINE_CHANGED: "PHONE_LINE_CHANGED",
+  LIVE_CALLING_ATTESTATION_CHANGED: "LIVE_CALLING_ATTESTATION_CHANGED",
+  CALL_STARTED: "CALL_STARTED",
 }
 
 export const AgentAvailabilityStatus = {
@@ -215,6 +219,8 @@ export const AuditTargetType = {
   CALL: "CALL",
   COMMUNICATION_SETTINGS: "COMMUNICATION_SETTINGS",
   COMMUNICATION_SUPPRESSION: "COMMUNICATION_SUPPRESSION",
+  COMMUNICATION_PROVIDER: "COMMUNICATION_PROVIDER",
+  PHONE_LINE: "PHONE_LINE",
 }
 
 export const AutomationApprovalStatus = {
@@ -320,6 +326,21 @@ export const CallType = {
   FOLLOW_UP: "FOLLOW_UP",
   MARKETING: "MARKETING",
   INBOUND_ENQUIRY: "INBOUND_ENQUIRY",
+}
+
+export const CommunicationConnectionStatus = {
+  NOT_CONFIGURED: "NOT_CONFIGURED",
+  CONFIGURED: "CONFIGURED",
+  VERIFIED: "VERIFIED",
+  DISABLED: "DISABLED",
+  ERROR: "ERROR",
+}
+
+export const CommunicationProviderType = {
+  TWILIO: "TWILIO",
+  RETELL: "RETELL",
+  PBX: "PBX",
+  OTHER_APPROVED_PROVIDER: "OTHER_APPROVED_PROVIDER",
 }
 
 export const CommunicationSuppressionReason = {
@@ -640,6 +661,19 @@ export const PendingEnquiryStatus = {
   PENDING: "PENDING",
   RECOVERED: "RECOVERED",
   DISMISSED: "DISMISSED",
+}
+
+export const PhoneLinePurpose = {
+  SALES: "SALES",
+  SUPPORT: "SUPPORT",
+  MARKETING: "MARKETING",
+  VOICE_ASSISTANT: "VOICE_ASSISTANT",
+}
+
+export const PhoneLineStatus = {
+  PENDING: "PENDING",
+  ACTIVE: "ACTIVE",
+  DISABLED: "DISABLED",
 }
 
 export const PortalConnectionStatus = {
@@ -1268,6 +1302,144 @@ export function listAutomationEventsForTarget(dcOrVarsOrOptions, varsOrOptions, 
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeQuery('ListAutomationEventsForTarget', inputVars, inputOpts);
+}
+
+export function listCommunicationProviders(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListCommunicationProviders', inputVars, inputOpts);
+}
+
+export function createCommunicationProvider(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateCommunicationProvider', inputVars, inputOpts);
+}
+
+export function updateCommunicationProvider(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateCommunicationProvider', inputVars, inputOpts);
+}
+
+export function setCommunicationProviderEnabled(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetCommunicationProviderEnabled', inputVars, inputOpts);
+}
+
+export function recordCommunicationProviderVerification(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RecordCommunicationProviderVerification', inputVars, inputOpts);
+}
+
+export function attestLiveCalling(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AttestLiveCalling', inputVars, inputOpts);
+}
+
+export function revokeLiveCallingAttestation(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RevokeLiveCallingAttestation', inputVars, inputOpts);
+}
+
+export function createCommunicationPhoneLine(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateCommunicationPhoneLine', inputVars, inputOpts);
+}
+
+export function updateCommunicationPhoneLine(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateCommunicationPhoneLine', inputVars, inputOpts);
+}
+
+export function confirmPhoneLineRegistration(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ConfirmPhoneLineRegistration', inputVars, inputOpts);
+}
+
+export function setPhoneLineActive(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetPhoneLineActive', inputVars, inputOpts);
+}
+
+export function providerConnectionForWebhook(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ProviderConnectionForWebhook', inputVars, inputOpts);
+}
+
+export function recordCallProviderEvent(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RecordCallProviderEvent', inputVars, inputOpts);
+}
+
+export function markCallProviderEvent(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('MarkCallProviderEvent', inputVars, inputOpts);
+}
+
+export function resolveProviderCall(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ResolveProviderCall', inputVars, inputOpts);
+}
+
+export function createIncomingProviderCall(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateIncomingProviderCall', inputVars, inputOpts);
+}
+
+export function applyProviderCallStatus(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ApplyProviderCallStatus', inputVars, inputOpts);
+}
+
+export function setProviderCallId(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetProviderCallId', inputVars, inputOpts);
+}
+
+export function providerCallForControl(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ProviderCallForControl', inputVars, inputOpts);
+}
+
+export function dialFacts(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('DialFacts', inputVars, inputOpts);
+}
+
+export function startLeadCall(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('StartLeadCall', inputVars, inputOpts);
+}
+
+export function listCalls(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListCalls', inputVars, inputOpts);
+}
+
+export function communicationDashboard(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('CommunicationDashboard', inputVars, inputOpts);
 }
 
 export function logLeadCall(dcOrVarsOrOptions, varsOrOptions, options) {

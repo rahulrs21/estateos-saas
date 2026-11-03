@@ -15,6 +15,12 @@ enum CallStatus { INITIATED RINGING IN_PROGRESS COMPLETED FAILED BUSY NO_ANSWER 
 enum CallOutcome { INTERESTED NOT_INTERESTED CALLBACK_REQUESTED VIEWING_REQUESTED NO_DECISION WRONG_NUMBER DO_NOT_CALL_REQUESTED OFFER_REJECTED }
 enum CommunicationSuppressionScope { ALL MARKETING }
 enum CommunicationSuppressionReason { OPT_OUT DNCR_LISTED OFFER_REJECTED WRONG_NUMBER OTHER }
+enum CommunicationProviderType { TWILIO RETELL PBX OTHER_APPROVED_PROVIDER }
+# NOT_CONFIGURED: details missing. CONFIGURED: details saved, not verified. VERIFIED: EstateOS checked the
+# credentials with the provider. Any change to the details returns it to CONFIGURED.
+enum CommunicationConnectionStatus { NOT_CONFIGURED CONFIGURED VERIFIED DISABLED ERROR }
+enum PhoneLinePurpose { SALES SUPPORT MARKETING VOICE_ASSISTANT }
+enum PhoneLineStatus { PENDING ACTIVE DISABLED }
 
 # One row per company; absent means the defaults below. Every switch that
 # widens what EstateOS may do (telemarketing, recording, AI analysis, live
@@ -81,6 +87,8 @@ type CommunicationSuppression @table(key: ["organization", "id"])
 }
 
 type CallRecord @table(key: ["organization", "id"])
+  # One record per provider call (manual calls have no provider call ID; NULLs never collide).
+  @unique(fields: ["organizationId", "providerConnectionId", "providerCallId"])
   @index(fields: ["organizationId", "leadId", "startedAt"], order: [ASC, ASC, DESC])
   @index(fields: ["organizationId", "contactId", "startedAt"], order: [ASC, ASC, DESC])
   @index(fields: ["organizationId", "agentMembershipId", "startedAt"], order: [ASC, ASC, DESC])
@@ -116,10 +124,96 @@ type CallRecord @table(key: ["organization", "id"])
   followUp: LeadFollowUp @ref(fields: ["organizationId", "followUpId"], references: ["organizationId", "id"])
   viewingId: UUID
   viewing: LeadPropertyViewing @ref(fields: ["organizationId", "viewingId"], references: ["organizationId", "id"])
+  # Provider calls (6F.2): the verified connection, the provider's call ID and the company line used.
+  providerConnectionId: UUID
+  providerConnection: CommunicationProviderConnection @ref(fields: ["organizationId", "providerConnectionId"], references: ["organizationId", "id"], constraintName: "call_record_provider_connection_fkey")
+  providerCallId: String @col(dataType: "varchar(80)")
+  phoneLineId: UUID
+  phoneLine: CommunicationPhoneLine @ref(fields: ["organizationId", "phoneLineId"], references: ["organizationId", "id"])
   # Compare-and-set for edits.
   revision: Int! @default(value: 1)
   createdBy: UserProfile!
   updatedBy: UserProfile!
   createdAt: Timestamp! @default(expr: "request.time")
   updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# A company's account with an approved communications provider. Credentials are
+# never stored here: secretRef names a server-side secret (an environment
+# variable locally, Secret Manager when hosted) that only EstateOS's server
+# reads. Webhooks are mapped to the company by this row's ID, then checked with
+# its secret and its provider account ID.
+type CommunicationProviderConnection @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "connectionStatus"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  providerType: CommunicationProviderType!
+  displayName: String! @col(dataType: "varchar(80)")
+  connectionStatus: CommunicationConnectionStatus! @default(value: NOT_CONFIGURED)
+  # The name of the server secret holding the credential (never the credential).
+  secretRef: String @col(dataType: "varchar(80)")
+  # Non-secret provider account identifier (for example a Twilio Account SID or a Retell agent ID).
+  externalAccountId: String @col(dataType: "varchar(80)")
+  verificationNote: String @col(dataType: "varchar(300)")
+  verifiedBy: UserProfile
+  verifiedAt: Timestamp
+  lastWebhookAt: Timestamp
+  revision: Int! @default(value: 1)
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# A company number on a provider. ACTIVE needs an assigned active member and an
+# OWNER or ADMIN's confirmation that the number is registered to the company's
+# commercial licence (UAE marketing calls must use such numbers).
+type CommunicationPhoneLine @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "phoneNumber"])
+  @index(fields: ["organizationId", "assignedMembershipId", "status"])
+  @index(fields: ["organizationId", "providerConnectionId", "status"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  providerConnectionId: UUID!
+  providerConnection: CommunicationProviderConnection! @ref(fields: ["organizationId", "providerConnectionId"], references: ["organizationId", "id"], constraintName: "phone_line_provider_connection_fkey")
+  phoneNumber: String! @col(dataType: "varchar(16)")
+  displayName: String @col(dataType: "varchar(80)")
+  assignedMembershipId: UUID
+  assignedMembership: Membership @ref(fields: ["organizationId", "assignedMembershipId"], references: ["organizationId", "id"], constraintName: "phone_line_assigned_membership_fkey")
+  # Click-to-call rings the assigned agent here first, then connects the customer (E.164).
+  forwardToNumber: String @col(dataType: "varchar(16)")
+  linePurpose: PhoneLinePurpose! @default(value: SALES)
+  status: PhoneLineStatus! @default(value: PENDING)
+  registrationConfirmedBy: UserProfile
+  registrationConfirmedAt: Timestamp
+  revision: Int! @default(value: 1)
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Every signed provider event EstateOS accepted, once: the unique key turns a
+# retried or replayed delivery into a no-op. No raw payload is stored.
+type CallProviderEvent @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "providerConnectionId", "eventKey"])
+  @index(fields: ["organizationId", "callId", "receivedAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  providerConnectionId: UUID!
+  providerConnection: CommunicationProviderConnection! @ref(fields: ["organizationId", "providerConnectionId"], references: ["organizationId", "id"], constraintName: "call_provider_event_connection_fkey")
+  eventKey: String! @col(dataType: "varchar(200)")
+  # CALL_STATUS, RECORDING, TRANSCRIPT or ANALYSIS.
+  eventType: String! @col(dataType: "varchar(20)")
+  providerCallId: String @col(dataType: "varchar(80)")
+  callId: UUID
+  call: CallRecord @ref(fields: ["organizationId", "callId"], references: ["organizationId", "id"])
+  callStatus: CallStatus
+  # APPLIED, NO_CHANGE, FINAL, OUT_OF_ORDER, UNMATCHED, DEFERRED or IGNORED.
+  result: String! @default(value: "RECEIVED") @col(dataType: "varchar(20)")
+  occurredAt: Timestamp
+  receivedAt: Timestamp! @default(expr: "request.time")
 }

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { isAnswered, isConversation, isMissed, transition } from "../src/modules/communications/call-state";
 import { DEFAULT_RULES, evaluateCall, localMoment, rulesFrom, type CallCheck, type PriorCall } from "../src/modules/communications/compliance";
 import { CALL_OUTCOMES, SUPPRESSING_OUTCOMES, parseCallingCodes, suppresses } from "../src/modules/communications/model";
+import { callTotals, outcomeCounts, totalsByAgent, type MetricCall } from "../src/modules/communications/metrics";
 import { destinationProblems, displayNumber, normalizeCallNumber, numbersOnRecord } from "../src/modules/communications/phone";
 
 // Synthetic numbers and times only (no real customer data).
@@ -56,6 +57,8 @@ test("numbers come from the record, normalized to E.164 with allowed calling cod
   assert.deepEqual(destinationProblems(null, ["971"]), ["INVALID_NUMBER"]);
   assert.deepEqual(parseCallingCodes("971, 44,+1,abc"), ["971", "44"]);
   assert.equal(displayNumber(NUMBER), "+971 50 123 4567");
+  assert.equal(displayNumber("+97143330000"), "+971 4 333 0000");
+  assert.equal(displayNumber("+447700900123"), "+447700900123", "other countries are shown as stored");
 });
 
 test("do-not-call, rejected offer and wrong number outcomes suppress the number with the documented scope", () => {
@@ -120,4 +123,24 @@ test("stored settings fill gaps with the safe defaults", () => {
   assert.equal(DEFAULT_RULES.aiAnalysisEnabled, false);
   assert.equal(DEFAULT_RULES.telemarketingEnabled, false);
   assert.equal(DEFAULT_RULES.liveCallingAttestedAt, null);
+});
+
+test("metrics keep attempts, answered calls, missed calls, conversations and outcomes apart", () => {
+  const call = (extra: Partial<MetricCall>): MetricCall => ({direction: "OUTBOUND", callStatus: "COMPLETED", answeredAt: "2026-11-03T06:00:00Z", outcome: null, durationSeconds: 60, agentId: "a", agentName: "Agent A", ...extra});
+  const calls = [
+    call({outcome: "INTERESTED", durationSeconds: 120}),
+    call({outcome: null, durationSeconds: 60}),
+    call({callStatus: "NO_ANSWER", answeredAt: null, durationSeconds: 0}),
+    call({callStatus: "BUSY", answeredAt: null, durationSeconds: 0, agentId: "b", agentName: "Agent B"}),
+    call({direction: "INBOUND", callStatus: "NO_ANSWER", answeredAt: null, durationSeconds: 0}),
+    call({direction: "INBOUND", outcome: "WRONG_NUMBER", durationSeconds: 30}),
+    call({callStatus: "RINGING", answeredAt: null, durationSeconds: 0}),
+  ];
+  const totals = callTotals(calls);
+  assert.deepEqual({...totals}, {attempts: 4, answered: 2, unanswered: 2, incoming: 2, incomingAnswered: 1, missed: 1, conversations: 1, averageAnsweredSeconds: 70, inProgress: 1});
+  assert.equal(outcomeCounts(calls).find(item => item.outcome === "INTERESTED")?.count, 1);
+  assert.equal(outcomeCounts([call({callStatus: "NO_ANSWER", answeredAt: null, outcome: "INTERESTED"})]).find(item => item.outcome === "INTERESTED")?.count, 0, "an outcome on an unanswered call is not counted");
+  const agents = totalsByAgent(calls);
+  assert.deepEqual(agents.map(row => [row.agentName, row.attempts, row.answered]), [["Agent A", 3, 2], ["Agent B", 1, 0]]);
+  assert.equal(callTotals([]).averageAnsweredSeconds, null);
 });

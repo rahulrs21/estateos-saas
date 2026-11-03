@@ -13,6 +13,12 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { contactCallsView, getCall, leadCallsView, logCall, updateCall } from "./calls";
 import { addSuppression, getCommunicationSettings, listSuppressions, saveCommunicationSettings, withdrawSuppression } from "./settings";
 import type { Context } from "./data";
+import { endLiveCall, startLiveCall } from "./dial";
+import { communicationDashboard, listCalls } from "./hub";
+import {
+  attestLiveCalling, confirmLineRegistration, createLine, createProvider, providerSettings, revokeLiveCalling, setLineActive, setProviderEnabled, updateLine, updateProvider, verifyProvider,
+} from "./providers";
+import { providerWebhookResponse } from "./webhooks";
 
 /*
  * Communication endpoints (docs/COMMUNICATION_HUB.md#api). Reads need a
@@ -73,3 +79,29 @@ export const saveSettingsResponse = (request: Request) => write(request, "settin
 export const suppressionsResponse = (request: Request) => read(request, "suppressions.list", context => listSuppressions(context));
 export const addSuppressionResponse = (request: Request) => write(request, "suppressions.add", addSuppression, 201);
 export const withdrawSuppressionResponse = (request: Request, id: string) => write(request, "suppressions.withdraw", (context, body) => withdrawSuppression(context, id, body));
+export const listCallsResponse = (request: Request) => read(request, "calls.list", listCalls);
+export const dashboardResponse = (request: Request) => read(request, "dashboard", context => communicationDashboard(context));
+export const dialResponse = (request: Request) => write(request, "call.dial", startLiveCall);
+export const endCallResponse = (request: Request, id: string) => write(request, "call.end", context => endLiveCall(context, id));
+export const providersResponse = (request: Request) => read(request, "providers.get", context => providerSettings(context));
+export const createProviderResponse = (request: Request) => write(request, "providers.create", createProvider, 201);
+export const updateProviderResponse = (request: Request, id: string) => write(request, "providers.update", (context, body) => updateProvider(context, id, body));
+export const providerEnabledResponse = (request: Request, id: string) => write(request, "providers.enabled", (context, body) => setProviderEnabled(context, id, body));
+export const verifyProviderResponse = (request: Request, id: string) => write(request, "providers.verify", (context, body) => verifyProvider(context, id, body));
+export const createLineResponse = (request: Request) => write(request, "lines.create", createLine, 201);
+export const updateLineResponse = (request: Request, id: string) => write(request, "lines.update", (context, body) => updateLine(context, id, body));
+export const lineRegistrationResponse = (request: Request, id: string) => write(request, "lines.registration", (context, body) => confirmLineRegistration(context, id, body));
+export const lineActiveResponse = (request: Request, id: string) => write(request, "lines.active", (context, body) => setLineActive(context, id, body));
+export const attestResponse = (request: Request) => write(request, "attestation.confirm", attestLiveCalling);
+export const revokeAttestationResponse = (request: Request) => write(request, "attestation.revoke", context => revokeLiveCalling(context));
+
+/** Provider webhooks: no session; authenticated by the provider's signature (see webhooks.ts). */
+export async function webhookResponse(request: Request, provider: string, connectionId: string) {
+  await connection();
+  try { return await providerWebhookResponse(request, provider, connectionId); }
+  catch (error) {
+    console.error(JSON.stringify({event: "communications.webhook.failed", name: error instanceof Error ? error.name : typeof error, detail: process.env.NODE_ENV !== "production" && error instanceof Error ? error.message.slice(0, 300) : undefined}));
+    // A 5xx asks the provider to retry; the event key keeps a retry from applying twice.
+    return new Response(null, {status: 500, headers: {"Cache-Control": "no-store"}});
+  }
+}

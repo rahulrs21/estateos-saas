@@ -1,0 +1,289 @@
+# Phase 6F.2: provider connections, company lines, signed provider webhooks and
+# live calling (docs/TELEPHONY_PROVIDERS.md). Credentials never pass through
+# these operations: secretRef is only the name of a server-side secret
+# (COMMS_...). Changing a connection's details or enabling it again always
+# returns it to unverified. Operations marked NO_ACCESS are server-only.
+
+# --- Connections and lines (OWNER or ADMIN) -------------------------------------------------
+
+query ListCommunicationProviders($organizationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED") {id}
+  connections: communicationProviderConnections(where: {organizationId: {eq: $organizationId}}, orderBy: [{createdAt: ASC}, {id: ASC}], limit: 20) {
+    id providerType displayName connectionStatus secretRef externalAccountId verificationNote verifiedAt verifiedBy {displayName} lastWebhookAt revision createdAt updatedAt
+  }
+  lines: communicationPhoneLines(where: {organizationId: {eq: $organizationId}}, orderBy: [{createdAt: ASC}, {id: ASC}], limit: 100) {
+    id providerConnectionId phoneNumber displayName assignedMembershipId assignedMembership {id email status userProfile {displayName}} forwardToNumber linePurpose status
+    registrationConfirmedAt registrationConfirmedBy {displayName} revision
+  }
+  members: memberships(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}, orderBy: [{email: ASC}], limit: 200) {id email role userProfile {displayName}}
+}
+
+mutation CreateCommunicationProvider($organizationId: UUID!, $id: UUID!, $providerType: CommunicationProviderType!, $displayName: String!, $secretRef: String, $externalAccountId: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.displayName.size() >= 2 && vars.displayName.size() <= 80 && (!has(vars.secretRef) || vars.secretRef == null || vars.secretRef.matches('^COMMS_[A-Z0-9_]{3,60}$')) && (!has(vars.externalAccountId) || vars.externalAccountId == null || vars.externalAccountId.matches('^[A-Za-z0-9_-]{2,80}$'))") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  limit: query @redact @check(expr: "this.existing.size() < 10", message: "COMMUNICATION_PROVIDER_LIMIT") {
+    existing: communicationProviderConnections(where: {organizationId: {eq: $organizationId}}, limit: 10) {id}
+  }
+  connection: communicationProviderConnection_insert(data: {organizationId: $organizationId, id: $id, providerType: $providerType, displayName: $displayName, secretRef: $secretRef, externalAccountId: $externalAccountId,
+    connectionStatus_expr: "has(vars.secretRef) && vars.secretRef != null && has(vars.externalAccountId) && vars.externalAccountId != null ? 'CONFIGURED' : 'NOT_CONFIGURED'",
+    createdByUid_expr: "auth.uid", updatedByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: COMMUNICATION_PROVIDER_CHANGED, targetType: COMMUNICATION_PROVIDER, targetId: $id, metadata_expr: "{'event': 'CREATED', 'providerType': vars.providerType}"})
+}
+
+# New details always need a new verification. A disabled connection stays disabled.
+mutation UpdateCommunicationProvider($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $displayName: String!, $secretRef: String, $externalAccountId: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.displayName.size() >= 2 && vars.displayName.size() <= 80 && (!has(vars.secretRef) || vars.secretRef == null || vars.secretRef.matches('^COMMS_[A-Z0-9_]{3,60}$')) && (!has(vars.externalAccountId) || vars.externalAccountId == null || vars.externalAccountId.matches('^[A-Za-z0-9_-]{2,80}$'))") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  before: query @redact {
+    connection: communicationProviderConnection(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null && this.revision == vars.expectedRevision", message: "COMMUNICATION_PROVIDER_CHANGED") {revision connectionStatus}
+  }
+  connection: communicationProviderConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {displayName: $displayName, secretRef: $secretRef, externalAccountId: $externalAccountId,
+    connectionStatus_expr: "response.before.connection.connectionStatus == 'DISABLED' ? 'DISABLED' : (has(vars.secretRef) && vars.secretRef != null && has(vars.externalAccountId) && vars.externalAccountId != null ? 'CONFIGURED' : 'NOT_CONFIGURED')",
+    verifiedAt: null, verifiedByUid: null, verificationNote: null, revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "COMMUNICATION_PROVIDER_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: COMMUNICATION_PROVIDER_CHANGED, targetType: COMMUNICATION_PROVIDER, targetId: $id, metadata_expr: "{'event': 'UPDATED'}"})
+}
+
+mutation SetCommunicationProviderEnabled($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $enabled: Boolean!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  before: query @redact {
+    connection: communicationProviderConnection(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null && this.revision == vars.expectedRevision", message: "COMMUNICATION_PROVIDER_CHANGED") {revision secretRef externalAccountId}
+  }
+  connection: communicationProviderConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {
+    connectionStatus_expr: "!vars.enabled ? 'DISABLED' : (response.before.connection.secretRef != null && response.before.connection.externalAccountId != null ? 'CONFIGURED' : 'NOT_CONFIGURED')",
+    verifiedAt: null, verifiedByUid: null, revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "COMMUNICATION_PROVIDER_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: COMMUNICATION_PROVIDER_CHANGED, targetType: COMMUNICATION_PROVIDER, targetId: $id, metadata_expr: "{'event': vars.enabled ? 'ENABLED' : 'DISABLED'}"})
+}
+
+# Server only: the result of EstateOS checking the credentials with the
+# provider, requested by an OWNER or ADMIN (actorUid, re-checked here). A
+# member cannot mark a connection verified through the database directly.
+mutation RecordCommunicationProviderVerification($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $actorUid: String!, $verified: Boolean!, $note: String!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED") {id}
+  }
+  connection: communicationProviderConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, connectionStatus: {in: [CONFIGURED, VERIFIED, ERROR]}}}, data: {
+    connectionStatus_expr: "vars.verified ? 'VERIFIED' : 'ERROR'", verifiedAt_expr: "request.time", verifiedByUid: $actorUid, verificationNote: $note,
+    revision_update: {inc: 1}, updatedByUid: $actorUid, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "COMMUNICATION_PROVIDER_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: COMMUNICATION_PROVIDER_CHANGED, targetType: COMMUNICATION_PROVIDER, targetId: $id, metadata_expr: "{'event': vars.verified ? 'VERIFIED' : 'VERIFICATION_FAILED'}"})
+}
+
+# An OWNER or ADMIN confirms the provider and UAE operating arrangements (versioned statement). Needs saved settings.
+mutation AttestLiveCalling($organizationId: UUID!, $version: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.version.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  settings: communicationSettings_update(first: {where: {organizationId: {eq: $organizationId}}}, data: {liveCallingAttestedByUid_expr: "auth.uid", liveCallingAttestedAt_expr: "request.time", liveCallingAttestationVersion: $version,
+    revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "COMMUNICATION_SETTINGS_REQUIRED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: LIVE_CALLING_ATTESTATION_CHANGED, targetType: COMMUNICATION_SETTINGS, targetId: $organizationId, metadata_expr: "{'event': 'CONFIRMED', 'version': vars.version}"})
+}
+
+mutation RevokeLiveCallingAttestation($organizationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  settings: communicationSettings_update(first: {where: {organizationId: {eq: $organizationId}}}, data: {liveCallingAttestedByUid: null, liveCallingAttestedAt: null, liveCallingAttestationVersion: null,
+    revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "COMMUNICATION_SETTINGS_REQUIRED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: LIVE_CALLING_ATTESTATION_CHANGED, targetType: COMMUNICATION_SETTINGS, targetId: $organizationId, metadata_expr: "{'event': 'REVOKED'}"})
+}
+
+# A company line. The number and the connection are fixed once created (disable it and add a new line instead).
+mutation CreateCommunicationPhoneLine($organizationId: UUID!, $id: UUID!, $providerConnectionId: UUID!, $phoneNumber: String!, $displayName: String, $hasAssignee: Boolean!, $assignedMembershipId: UUID,
+  $forwardToNumber: String, $linePurpose: PhoneLinePurpose!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.phoneNumber.matches('^[+][1-9][0-9]{6,14}$') && (!has(vars.forwardToNumber) || vars.forwardToNumber == null || vars.forwardToNumber.matches('^[+][1-9][0-9]{6,14}$')) && (!has(vars.displayName) || vars.displayName == null || vars.displayName.size() <= 80) && vars.hasAssignee == (has(vars.assignedMembershipId) && vars.assignedMembershipId != null)") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  # Checked on the block: a check on a field skipped by @include is never invoked and would deny.
+  before: query @redact @check(expr: "this.connection != null && (!vars.hasAssignee || (has(this.assignee) && this.assignee != null))", message: "PHONE_LINE_INVALID") {
+    connection: communicationProviderConnection(key: {organizationId: $organizationId, id: $providerConnectionId}) {id}
+    assignee: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $assignedMembershipId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}}) @include(if: $hasAssignee) {id}
+  }
+  line: communicationPhoneLine_insert(data: {organizationId: $organizationId, id: $id, providerConnectionId: $providerConnectionId, phoneNumber: $phoneNumber, displayName: $displayName,
+    assignedMembershipId: $assignedMembershipId, forwardToNumber: $forwardToNumber, linePurpose: $linePurpose, createdByUid_expr: "auth.uid", updatedByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: PHONE_LINE_CHANGED, targetType: PHONE_LINE, targetId: $id, metadata_expr: "{'event': 'CREATED', 'purpose': vars.linePurpose}"})
+}
+
+# An ACTIVE line keeps an assigned member.
+mutation UpdateCommunicationPhoneLine($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $displayName: String, $hasAssignee: Boolean!, $assignedMembershipId: UUID, $forwardToNumber: String, $linePurpose: PhoneLinePurpose!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && (!has(vars.forwardToNumber) || vars.forwardToNumber == null || vars.forwardToNumber.matches('^[+][1-9][0-9]{6,14}$')) && (!has(vars.displayName) || vars.displayName == null || vars.displayName.size() <= 80) && vars.hasAssignee == (has(vars.assignedMembershipId) && vars.assignedMembershipId != null)") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  before: query @redact @check(expr: "this.line != null && this.line.revision == vars.expectedRevision && (vars.hasAssignee ? (has(this.assignee) && this.assignee != null) : this.line.status != 'ACTIVE')", message: "PHONE_LINE_INVALID") {
+    line: communicationPhoneLine(key: {organizationId: $organizationId, id: $id}) {revision status}
+    assignee: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $assignedMembershipId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}}) @include(if: $hasAssignee) {id}
+  }
+  line: communicationPhoneLine_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {displayName: $displayName, assignedMembershipId: $assignedMembershipId,
+    forwardToNumber: $forwardToNumber, linePurpose: $linePurpose, revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "PHONE_LINE_INVALID")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: PHONE_LINE_CHANGED, targetType: PHONE_LINE, targetId: $id, metadata_expr: "{'event': 'UPDATED'}"})
+}
+
+# The OWNER or ADMIN confirms the number is registered to the company's commercial licence.
+mutation ConfirmPhoneLineRegistration($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  line: communicationPhoneLine_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {registrationConfirmedByUid_expr: "auth.uid", registrationConfirmedAt_expr: "request.time",
+    revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "PHONE_LINE_INVALID")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: PHONE_LINE_CHANGED, targetType: PHONE_LINE, targetId: $id, metadata_expr: "{'event': 'REGISTRATION_CONFIRMED'}"})
+}
+
+# ACTIVE needs the registration confirmation and an active assigned member.
+mutation SetPhoneLineActive($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $active: Boolean!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  before: query @redact {
+    line: communicationPhoneLine(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null && this.revision == vars.expectedRevision && (!vars.active || (this.registrationConfirmedAt != null && this.assignedMembership != null && this.assignedMembership.status == 'ACTIVE'))", message: "PHONE_LINE_NOT_READY") {
+      revision registrationConfirmedAt assignedMembership {status}
+    }
+  }
+  line: communicationPhoneLine_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {status_expr: "vars.active ? 'ACTIVE' : 'DISABLED'",
+    revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "PHONE_LINE_INVALID")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: PHONE_LINE_CHANGED, targetType: PHONE_LINE, targetId: $id, metadata_expr: "{'event': vars.active ? 'ACTIVATED' : 'DISABLED'}"})
+}
+
+# --- Provider webhooks (server only) ------------------------------------------------------
+# The webhook route finds the connection by the ID in its URL, verifies the
+# signature with that connection's secret and checks the provider account
+# before any of these run. The organization always comes from the connection row.
+
+query ProviderConnectionForWebhook($id: UUID!) @auth(level: NO_ACCESS) {
+  connections: communicationProviderConnections(where: {id: {eq: $id}}, limit: 1) {organizationId id providerType connectionStatus secretRef externalAccountId}
+}
+
+# The unique key makes a repeated delivery fail here (a duplicate), before anything changes.
+mutation RecordCallProviderEvent($organizationId: UUID!, $id: UUID!, $providerConnectionId: UUID!, $eventKey: String!, $eventType: String!, $providerCallId: String, $callStatus: CallStatus, $occurredAt: Timestamp)
+  @auth(level: NO_ACCESS) @transaction {
+  event: callProviderEvent_insert(data: {organizationId: $organizationId, id: $id, providerConnectionId: $providerConnectionId, eventKey: $eventKey, eventType: $eventType, providerCallId: $providerCallId, callStatus: $callStatus, occurredAt: $occurredAt})
+  connection: communicationProviderConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $providerConnectionId}}}, data: {lastWebhookAt_expr: "request.time"})
+}
+
+mutation MarkCallProviderEvent($organizationId: UUID!, $id: UUID!, $result: String!, $callId: UUID) @auth(level: NO_ACCESS) {
+  callProviderEvent_update(key: {organizationId: $organizationId, id: $id}, data: {result: $result, callId: $callId})
+}
+
+query ResolveProviderCall($organizationId: UUID!, $providerConnectionId: UUID!, $providerCallId: String!, $lineNumber: String!, $customerNumber: String!) @auth(level: NO_ACCESS) {
+  calls: callRecords(where: {organizationId: {eq: $organizationId}, providerConnectionId: {eq: $providerConnectionId}, providerCallId: {eq: $providerCallId}}, limit: 1) {
+    id callStatus startedAt answeredAt revision direction leadId agentMembershipId
+  }
+  lines: communicationPhoneLines(where: {organizationId: {eq: $organizationId}, providerConnectionId: {eq: $providerConnectionId}, phoneNumber: {eq: $lineNumber}, status: {eq: ACTIVE}}, limit: 1) {
+    id phoneNumber assignedMembershipId assignedMembership {status userProfileUid}
+  }
+  contacts: contacts(where: {_and: [{organizationId: {eq: $organizationId}}, {_or: [{normalizedPhone: {eq: $customerNumber}}, {normalizedAlternatePhone: {eq: $customerNumber}}]}]}, limit: 2) {
+    id leads_on_contact(where: {archivedAt: {isNull: true}}, limit: 2) {id}
+  }
+}
+
+# An incoming call reported by a verified provider, attributed to the line's assigned member.
+mutation CreateIncomingProviderCall($organizationId: UUID!, $id: UUID!, $providerConnectionId: UUID!, $providerCallId: String!, $phoneLineId: UUID!, $agentMembershipId: UUID!, $actorUid: String!,
+  $callStatus: CallStatus!, $callerNumber: String, $recipientNumber: String!, $counterpartyNumber: String, $contactId: UUID, $leadId: UUID, $startedAt: Timestamp!)
+  @auth(level: NO_ACCESS) @transaction {
+  call: callRecord_insert(data: {organizationId: $organizationId, id: $id, providerConnectionId: $providerConnectionId, providerCallId: $providerCallId, phoneLineId: $phoneLineId, agentMembershipId: $agentMembershipId,
+    direction: INBOUND, source: PROVIDER, callType: INBOUND_ENQUIRY, callStatus: $callStatus, callerNumber: $callerNumber, recipientNumber: $recipientNumber, counterpartyNumber: $counterpartyNumber,
+    contactId: $contactId, leadId: $leadId, startedAt: $startedAt, createdByUid: $actorUid, updatedByUid: $actorUid})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CALL_STARTED, targetType: CALL, targetId: $id, metadata_expr: "{'direction': 'INBOUND', 'source': 'PROVIDER'}"})
+}
+
+# Moves a provider call from the status EstateOS last saw (compare-and-set) to a later one.
+mutation ApplyProviderCallStatus($organizationId: UUID!, $id: UUID!, $expectedStatus: CallStatus!, $callStatus: CallStatus!, $answeredAt: Timestamp, $endedAt: Timestamp, $durationSeconds: Int)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    call: callRecord(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null", message: "CALL_NOT_FOUND") {answeredAt endedAt durationSeconds}
+  }
+  call: callRecord_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, callStatus: {eq: $expectedStatus}}}, data: {callStatus: $callStatus,
+    answeredAt_expr: "has(vars.answeredAt) && vars.answeredAt != null ? vars.answeredAt : response.before.call.answeredAt",
+    endedAt_expr: "has(vars.endedAt) && vars.endedAt != null ? vars.endedAt : response.before.call.endedAt",
+    durationSeconds_expr: "has(vars.durationSeconds) && vars.durationSeconds != null ? vars.durationSeconds : response.before.call.durationSeconds",
+    revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "CALL_STATUS_CHANGED")
+}
+
+mutation SetProviderCallId($organizationId: UUID!, $id: UUID!, $providerCallId: String!) @auth(level: NO_ACCESS) @transaction {
+  callRecord_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, providerCallId: {isNull: true}}}, data: {providerCallId: $providerCallId, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "CALL_STATUS_CHANGED")
+}
+
+# Server only: what EstateOS needs to control a provider call (after the member's access was checked).
+query ProviderCallForControl($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  call: callRecord(key: {organizationId: $organizationId, id: $id}) {providerCallId callStatus providerConnection {providerType secretRef externalAccountId connectionStatus}}
+}
+
+# --- Live calling ----------------------------------------------------------------------------
+
+# Server only: the facts the live-call checks need for one agent.
+query DialFacts($organizationId: UUID!, $agentMembershipId: UUID!, $activeSince: Timestamp!, $daySince: Timestamp!) @auth(level: NO_ACCESS) {
+  lines: communicationPhoneLines(where: {organizationId: {eq: $organizationId}, assignedMembershipId: {eq: $agentMembershipId}, linePurpose: {ne: VOICE_ASSISTANT}}, orderBy: [{createdAt: ASC}], limit: 5) {
+    id phoneNumber status registrationConfirmedAt forwardToNumber linePurpose providerConnection {id providerType connectionStatus secretRef externalAccountId}
+  }
+  activeCompany: callRecords(where: {organizationId: {eq: $organizationId}, source: {eq: PROVIDER}, callStatus: {in: [INITIATED, RINGING, IN_PROGRESS]}, startedAt: {ge: $activeSince}}) {count: _count}
+  activeAgent: callRecords(where: {organizationId: {eq: $organizationId}, agentMembershipId: {eq: $agentMembershipId}, source: {eq: PROVIDER}, callStatus: {in: [INITIATED, RINGING, IN_PROGRESS]}, startedAt: {ge: $activeSince}}) {count: _count}
+  agentToday: callRecords(where: {organizationId: {eq: $organizationId}, agentMembershipId: {eq: $agentMembershipId}, source: {eq: PROVIDER}, direction: {eq: OUTBOUND}, startedAt: {ge: $daySince}}) {count: _count}
+}
+
+# The agent starts a live call on a lead. The database repeats the gate: the
+# line is ACTIVE, registered, has a forwarding number, is assigned to the
+# caller and is on a VERIFIED connection; live calling is attested for the
+# current statement; the lead and the number are the caller's to call.
+mutation StartLeadCall($organizationId: UUID!, $id: UUID!, $leadId: UUID!, $phoneLineId: UUID!, $callType: CallType!, $counterpartyNumber: String!, $attestationVersion: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.callType in ['SERVICE', 'FOLLOW_UP', 'MARKETING'] && vars.counterpartyNumber.matches('^[+][1-9][0-9]{6,14}$')") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact @check(expr: "this.lead == null || (this.lead.contact != null && (this.lead.contact.normalizedPhone == vars.counterpartyNumber || this.lead.contact.normalizedAlternatePhone == vars.counterpartyNumber))", message: "CALL_NUMBER_NOT_ON_RECORD") {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+    lead: lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}, {_or: [
+      {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN") {id contactId contact {normalizedPhone normalizedAlternatePhone}}
+    line: communicationPhoneLine(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $phoneLineId}, status: {eq: ACTIVE}, registrationConfirmedAt: {isNull: false}, forwardToNumber: {isNull: false},
+      assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}, providerConnection: {connectionStatus: {eq: VERIFIED}}}}) @check(expr: "this != null", message: "LIVE_CALL_LINE_UNAVAILABLE") {id phoneNumber providerConnectionId}
+    settings: communicationSettings(key: {organizationId: $organizationId}) @check(expr: "this != null && this.liveCallingAttestedAt != null && this.liveCallingAttestationVersion == vars.attestationVersion", message: "LIVE_CALLING_NOT_ATTESTED") {liveCallingAttestedAt liveCallingAttestationVersion}
+  }
+  call: callRecord_insert(data: {organizationId: $organizationId, id: $id, leadId: $leadId, contactId_expr: "response.before.lead.contactId", agentMembershipId_expr: "response.before.actor.id",
+    providerConnectionId_expr: "response.before.line.providerConnectionId", phoneLineId: $phoneLineId, direction: OUTBOUND, source: PROVIDER, callType: $callType, callStatus: INITIATED,
+    callerNumber_expr: "response.before.line.phoneNumber", recipientNumber: $counterpartyNumber, counterpartyNumber: $counterpartyNumber, startedAt_expr: "request.time", createdByUid_expr: "auth.uid", updatedByUid_expr: "auth.uid"})
+  activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: CALL_STARTED, leadId: $leadId, targetId: $id, metadata_expr: "{'callId': vars.id, 'direction': 'OUTBOUND', 'callType': vars.callType, 'source': 'PROVIDER'}"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_STARTED, targetType: CALL, targetId: $id, metadata_expr: "{'leadId': vars.leadId, 'callType': vars.callType, 'source': 'PROVIDER'}"})
+}
+
+# --- Hub ------------------------------------------------------------------------------------
+
+# Calls the caller may read, newest first. Absent filters are ignored.
+query ListCalls($organizationId: UUID!, $limit: Int! = 25, $offset: Int! = 0, $direction: CallDirection, $callStatus: CallStatus, $outcome: CallOutcome, $source: CallSource,
+  $agentMembershipId: UUID, $startedFrom: Timestamp, $startedBefore: Timestamp)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  calls: callRecords(where: {_and: [{organizationId: {eq: $organizationId}, direction: {eq: $direction}, callStatus: {eq: $callStatus}, outcome: {eq: $outcome}, source: {eq: $source},
+    agentMembershipId: {eq: $agentMembershipId}, startedAt: {ge: $startedFrom, lt: $startedBefore}}, {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}, orderBy: [{startedAt: DESC}, {id: ASC}], limit: $limit, offset: $offset) {
+    id leadId contactId direction source callType callStatus outcome counterpartyNumber startedAt answeredAt durationSeconds notes followUpRequired followUpId viewingId revision agentMembershipId
+    agentMembership {id email userProfile {displayName}} lead {id fullName} contact {id fullName} followUp {id title dueAt status} viewing {id scheduledAt status}
+  }
+  total: callRecords(where: {_and: [{organizationId: {eq: $organizationId}, direction: {eq: $direction}, callStatus: {eq: $callStatus}, outcome: {eq: $outcome}, source: {eq: $source},
+    agentMembershipId: {eq: $agentMembershipId}, startedAt: {ge: $startedFrom, lt: $startedBefore}}, {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}) {count: _count}
+  # Only owners and administrators get the agent filter (company-wide access).
+  agents: memberships(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}, orderBy: [{email: ASC}], limit: 200) {id email userProfile {displayName}}
+}
+
+# The dashboard: the caller's readable calls in the period (metrics are computed
+# from these rows on the server) and upcoming viewings and follow-ups they may see.
+query CommunicationDashboard($organizationId: UUID!, $since: Timestamp!, $now: Timestamp!, $until: Timestamp!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  calls: callRecords(where: {_and: [{organizationId: {eq: $organizationId}, startedAt: {ge: $since}}, {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}, orderBy: [{startedAt: DESC}, {id: ASC}], limit: 1000) {
+    id leadId direction source callType callStatus outcome counterpartyNumber startedAt answeredAt durationSeconds followUpRequired followUpId agentMembershipId
+    agentMembership {id email userProfile {displayName}} lead {id fullName} contact {id fullName}
+  }
+  viewings: leadPropertyViewings(where: {_and: [{organizationId: {eq: $organizationId}, status: {eq: SCHEDULED}, scheduledAt: {ge: $now, lt: $until}}, {_or: [
+    {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}, orderBy: [{scheduledAt: ASC}], limit: 10) {id scheduledAt leadId lead {fullName}}
+  followUps: leadFollowUps(where: {_and: [{organizationId: {eq: $organizationId}, status: {eq: PENDING}, dueAt: {lt: $until}, lead: {archivedAt: {isNull: true}}}, {_or: [
+    {assignedUser: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}, orderBy: [{dueAt: ASC}], limit: 10) {id title dueAt leadId lead {fullName} assignedUser {email userProfile {displayName}}}
+}

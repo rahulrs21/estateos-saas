@@ -144,6 +144,24 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (message.includes("COMMUNICATION_SETTINGS_CHANGED")) {
       return new WorkspaceError("CONFLICT", 409, "These settings were changed by a colleague. Reload and try again.");
     }
+    if (/\b(?:COMMUNICATION_PROVIDER_CHANGED|CALL_STATUS_CHANGED)\b/.test(message)) {
+      return new WorkspaceError("CONFLICT", 409, "This record was changed in another window or by a colleague. Reload and try again.");
+    }
+    if (message.includes("COMMUNICATION_PROVIDER_LIMIT")) {
+      return new WorkspaceError("CONFLICT", 409, "Your company already has 10 provider connections. Disable or reuse one instead.");
+    }
+    if (message.includes("COMMUNICATION_SETTINGS_REQUIRED")) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "Save the company's calling rules before confirming live calling.");
+    }
+    if (message.includes("PHONE_LINE_NOT_READY")) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "Confirm the number is registered to the company and assign an active member before activating the line.");
+    }
+    if (message.includes("PHONE_LINE_INVALID")) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "Choose a provider connection of this company and an active member, or reload if the line was changed. An active line must stay assigned.");
+    }
+    if (/\b(?:LIVE_CALL_LINE_UNAVAILABLE|LIVE_CALLING_NOT_ATTESTED)\b/.test(message)) {
+      return new WorkspaceError("LIVE_CALLING_UNAVAILABLE", 409, "Live calling is not available: it needs a verified provider, an active registered line assigned to you and an administrator's confirmation.");
+    }
     if (/\b(?:CALL_NOT_FOUND|COMMUNICATION_SUPPRESSION_NOT_FOUND)\b/.test(message)) {
       return new WorkspaceError("NOT_FOUND", 404, "This record was not found in your company.");
     }

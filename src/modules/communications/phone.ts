@@ -37,6 +37,8 @@ export function numbersOnRecord(record: {phone?: string | null; normalizedPhone?
 /** "+971 50 123 4567"-style display without changing the stored value. */
 export function displayNumber(number: string | null | undefined) {
   if (!number) return "";
-  const uae = /^\+971(5\d)(\d{3})(\d{4})$/.exec(number);
-  return uae ? `+971 ${uae[1]} ${uae[2]} ${uae[3]}` : number;
+  const mobile = /^\+971(5\d)(\d{3})(\d{4})$/.exec(number);
+  if (mobile) return `+971 ${mobile[1]} ${mobile[2]} ${mobile[3]}`;
+  const landline = /^\+971([2-9])(\d{3})(\d{4})$/.exec(number);
+  return landline ? `+971 ${landline[1]} ${landline[2]} ${landline[3]}` : number;
 }

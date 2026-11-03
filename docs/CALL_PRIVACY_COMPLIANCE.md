@@ -31,7 +31,9 @@ The rules are checked on the server (`src/modules/communications/compliance.ts`)
 | Number is valid E.164, in an allowed calling code (default +971), not premium-rate | Refused | Saved with a warning |
 | Incoming calls | Not checked (the customer called) | Not checked |
 
-Why manual logs are not blocked: the call already took place, and refusing to record it would only hide it. The warnings are shown to the agent when they log the call.
+Why manual logs are not blocked: the call already took place, and refusing to record it would only hide it. The warnings are shown to the agent when they log the call, and on the call's page.
+
+Live calls also need a verified provider, an active line confirmed as registered to the company, and an owner's or administrator's confirmation of the provider and UAE operating arrangements. That confirmation is a versioned statement; EstateOS does not verify the arrangements itself ([live calling](TELEPHONY_PROVIDERS.md#live-calling)).
 
 Local days and times use the company timezone (default Asia/Dubai). An opt-out applies from the moment it was recorded; it does not flag calls made before it.
 
@@ -52,7 +54,7 @@ Local days and times use the company timezone (default Asia/Dubai). An opt-out a
 | Recording | Off | Needs a notice of at least 20 characters and a legal basis |
 | Retention | 90 days | 1-3650 days |
 | Claude analysis | Off | — |
-| Live calling attestation | None | Changed only by its own operation (6F.2), never by saving settings |
+| Live calling confirmation | None | Given or withdrawn only by its own operations (owners and administrators, audited), never by saving settings |
 
 ## Do-not-call list
 

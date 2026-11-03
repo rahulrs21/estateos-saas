@@ -45,7 +45,7 @@ export const navigationGroups: NavigationGroup[] = [
       { title: "Tasks", href: "/workspace/tasks", icon: CalendarCheck2, description: "Your open follow-ups and work tasks, including those workflows create." },
       { title: "Websites", href: "/websites", icon: Globe, description: "Build landing pages from CRM records, with Claude, review and publishing." },
       { title: "Marketing", href: "/workspace/marketing", icon: Megaphone, description: "Plan campaigns and understand where your inquiries come from." },
-      { title: "Communications", href: "/workspace/communications", icon: MessagesSquare, description: "Bring client conversations and communication history together." },
+      { title: "Communications", href: "/communications", icon: MessagesSquare, description: "Calls with customers, call history and the calling rules your company follows." },
     ],
   },
   {
