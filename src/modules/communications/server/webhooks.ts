@@ -31,7 +31,7 @@ const WEBHOOK_RULES = {
 const SLUGS: Record<string, ProviderType> = {twilio: "TWILIO", retell: "RETELL"};
 
 type Connection = {organizationId: string; id: string; providerType: string; connectionStatus: string; secretRef?: string | null; externalAccountId?: string | null};
-export type EventResult = "APPLIED" | "DUPLICATE" | "NO_CHANGE" | "FINAL" | "OUT_OF_ORDER" | "NOT_ALLOWED" | "UNMATCHED" | "DEFERRED" | "IGNORED";
+export type EventResult = "APPLIED" | "DUPLICATE" | "NO_CHANGE" | "FINAL" | "OUT_OF_ORDER" | "NOT_ALLOWED" | "UNMATCHED" | "NOT_ELIGIBLE" | "IGNORED";
 
 const reject = (status: number) => new Response(null, {status, headers: {"Cache-Control": "no-store"}});
 const log = (event: string, detail: Record<string, unknown>) => console.warn(JSON.stringify({event: `communications.webhook.${event}`, ...detail}));
@@ -105,8 +105,8 @@ export async function processProviderEvent(connection: Connection, event: Provid
     await sdk.markCallProviderEvent(dc, {organizationId, id: eventId, result, callId});
     return result;
   };
-  // Recordings, transcripts and analysis are handled in Phase 6F.3; they are kept as received events only.
-  if (event.kind !== "CALL_STATUS") return mark("DEFERRED");
+  // EstateOS does not ingest provider recordings, transcripts or analysis (docs/CALL_PRIVACY_COMPLIANCE.md#provider-recordings-and-transcripts).
+  if (event.kind !== "CALL_STATUS") return mark("NOT_ELIGIBLE");
   if (!event.status) return mark("IGNORED");
 
   const inbound = event.direction === "INBOUND";

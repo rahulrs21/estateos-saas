@@ -379,4 +379,93 @@ export function registerCommunicationCases({sdk, run, forbidden, dc}) {
       await forbidden(sdk.communicationDashboard, "owner-b", {organizationId: f.orgA, since: now.toISOString(), now: now.toISOString(), until: now.toISOString()});
     });
   });
+
+  describe("Phase 6F.3 consent, recordings and transcripts", {concurrency: false}, () => {
+    const key = value => String(value).replaceAll("-", "").toLowerCase();
+    const server = async (operation, variables) => (await operation(dc, variables)).data;
+    const rejectsWith = (promise, token) => assert.rejects(promise, error => String(error?.message ?? error).includes(token), token);
+    let callId, unansweredId, consentId;
+
+    it("records consent only for answered calls, by the call's agent or an administrator, while recording is enabled", async () => {
+      const number = `+97150${String(Date.now() % 10_000_000).padStart(7, "0")}`;
+      const created = await run(sdk.createLead, "owner-a", {organizationId: f.orgA, fullName: `Recorded call ${randomUUID().slice(0, 6)}`, phone: number, normalizedPhone: number, assignedMembershipId: f.memberAgentA});
+      const base = {organizationId: f.orgA, leadId: created.lead.id, direction: sdk.CallDirection.OUTBOUND, callType: sdk.CallType.FOLLOW_UP, outcome: null, startedAt: new Date(Date.now() - 600_000).toISOString(),
+        notes: null, counterpartyNumber: number, followUpRequired: false, hasViewing: false, viewingId: null, suppress: false, suppressionId: randomUUID()};
+      callId = randomUUID(); unansweredId = randomUUID();
+      await run(sdk.logLeadCall, "agent-a", {...base, id: callId, callStatus: sdk.CallStatus.COMPLETED, durationSeconds: 300});
+      await run(sdk.logLeadCall, "agent-a", {...base, id: unansweredId, callStatus: sdk.CallStatus.NO_ANSWER, durationSeconds: 0});
+      const consent = (uid, extra = {}) => run(sdk.recordCallConsent, uid, {organizationId: f.orgA, id: randomUUID(), callId, status: sdk.CallConsentStatus.GIVEN, method: "VERBAL_ON_CALL", note: null, ...extra});
+      await rejectsWith(consent("agent-a", {callId: unansweredId}), "CALL_CHANGED_OR_FORBIDDEN");
+      await rejectsWith(consent("shared-agent"), "CALL_CHANGED_OR_FORBIDDEN");
+      await rejectsWith(consent("manager-a"), "CALL_CHANGED_OR_FORBIDDEN");
+      await forbidden(sdk.recordCallConsent, "owner-b", {organizationId: f.orgA, id: randomUUID(), callId, status: sdk.CallConsentStatus.GIVEN, method: "VERBAL_ON_CALL", note: null});
+      await forbidden(sdk.recordCallConsent, "agent-a", {organizationId: f.orgA, id: randomUUID(), callId, status: sdk.CallConsentStatus.WITHDRAWN, method: "VERBAL_ON_CALL", note: null});
+      await forbidden(sdk.recordCallConsent, "agent-a", {organizationId: f.orgA, id: randomUUID(), callId, status: sdk.CallConsentStatus.GIVEN, method: "GUESSED", note: null});
+      consentId = randomUUID();
+      await consent("agent-a", {id: consentId});
+      const media = await run(sdk.getCallMedia, "agent-a", {organizationId: f.orgA, callId});
+      const row = media.consents.find(item => key(item.id) === key(consentId));
+      assert.equal(row.status, "GIVEN");
+      assert.ok(row.noticeText.length >= 20 && row.legalBasis.length >= 5, "the company's notice and legal basis are copied into the evidence");
+      await forbidden(sdk.getCallMedia, "shared-agent", {organizationId: f.orgA, callId});
+    });
+
+    it("lets only the server create recordings and transcripts, for the right call, consent and member", async () => {
+      const recording = (extra = {}) => ({organizationId: f.orgA, id: randomUUID(), callId, consentEvidenceId: consentId, actorUid: "agent-a", source: "UPLOAD",
+        storagePath: `organizations/${f.orgA}/communications/calls/${callId}/recordings/x.wav`, contentType: "audio/wav", byteSize: 1000, durationSeconds: 60, recordedAt: new Date().toISOString(), ...extra});
+      await forbidden(sdk.createCallRecording, "agent-a", recording());
+      await rejectsWith(server(sdk.createCallRecording, recording({actorUid: "manager-a"})), "CALL_CHANGED_OR_FORBIDDEN");
+      await rejectsWith(server(sdk.createCallRecording, recording({callId: unansweredId})), "CALL_CHANGED_OR_FORBIDDEN");
+      const otherConsent = randomUUID();
+      await rejectsWith(server(sdk.createCallRecording, recording({consentEvidenceId: otherConsent})), "CALL_CONSENT_REQUIRED");
+      const stored = recording();
+      await server(sdk.createCallRecording, stored);
+      const transcriptId = randomUUID();
+      await server(sdk.createCallTranscript, {organizationId: f.orgA, id: transcriptId, callId, consentEvidenceId: consentId, actorUid: "admin-a", source: sdk.TranscriptSource.UPLOAD, sourceName: "Synthetic service",
+        language: "en", transcriptReference: `organizations/${f.orgA}/communications/calls/${callId}/transcripts/t.json`, segmentCount: 3, hasTimestamps: true, generatedAt: new Date().toISOString()});
+      const media = await run(sdk.getCallMedia, "owner-a", {organizationId: f.orgA, callId});
+      assert.equal(media.recordings.length, 1);
+      assert.equal(media.transcripts.length, 1);
+      assert.ok(Date.parse(media.recordings[0].retentionUntil) > Date.now() + 80 * 86_400_000, "retention follows the company setting");
+      assert.equal((await run(sdk.getCallRecordingFile, "agent-a", {organizationId: f.orgA, id: stored.id})).recording.storagePath, stored.storagePath);
+      await rejectsWith(run(sdk.getCallRecordingFile, "shared-agent", {organizationId: f.orgA, id: stored.id}), "CALL_MEDIA_NOT_FOUND");
+      await rejectsWith(run(sdk.getCallRecordingFile, "manager-a", {organizationId: f.orgA, id: stored.id}), "CALL_MEDIA_NOT_FOUND");
+      await forbidden(sdk.getCallRecordingFile, "owner-b", {organizationId: f.orgA, id: stored.id});
+      await forbidden(sdk.getCallTranscriptFile, "owner-b", {organizationId: f.orgA, id: transcriptId});
+      await forbidden(sdk.recordCallMediaAccess, "agent-a", {organizationId: f.orgA, actorUid: "agent-a", targetType: sdk.AuditTargetType.CALL_RECORDING, targetId: stored.id});
+    });
+
+    it("deletes a consent's recordings and transcripts when it is withdrawn, and keeps the withdrawn evidence", async () => {
+      await rejectsWith(run(sdk.withdrawCallConsent, "shared-agent", {organizationId: f.orgA, id: consentId, note: "Not mine"}), "CALL_CONSENT_NOT_FOUND");
+      await run(sdk.withdrawCallConsent, "agent-a", {organizationId: f.orgA, id: consentId, note: "Customer asked to delete the recording"});
+      const media = await run(sdk.getCallMedia, "owner-a", {organizationId: f.orgA, callId});
+      assert.equal(media.recordings.length + media.transcripts.length, 0);
+      assert.equal(media.consents.find(item => key(item.id) === key(consentId)).status, "WITHDRAWN");
+      await rejectsWith(run(sdk.withdrawCallConsent, "agent-a", {organizationId: f.orgA, id: consentId, note: "Twice"}), "CALL_CONSENT_NOT_FOUND");
+      await rejectsWith(server(sdk.createCallRecording, {organizationId: f.orgA, id: randomUUID(), callId, consentEvidenceId: consentId, actorUid: "agent-a", source: "UPLOAD", storagePath: "x", contentType: "audio/wav", byteSize: 1, durationSeconds: 1, recordedAt: new Date().toISOString()}), "CALL_CONSENT_REQUIRED");
+      const due = await server(sdk.callMediaToRemove, {now: new Date().toISOString(), limit: 100});
+      assert.ok(due.deletedRecordings.some(item => key(item.organizationId) === key(f.orgA)), "the server is told which files to remove");
+    });
+
+    it("lets only owners and administrators delete, and expires media after the retention date", async () => {
+      const consent = randomUUID();
+      await run(sdk.recordCallConsent, "admin-a", {organizationId: f.orgA, id: consent, callId, status: sdk.CallConsentStatus.NOTICE_GIVEN, method: "ANNOUNCEMENT", note: null});
+      const first = randomUUID(), second = randomUUID();
+      for (const id of [first, second]) await server(sdk.createCallRecording, {organizationId: f.orgA, id, callId, consentEvidenceId: consent, actorUid: "admin-a", source: "UPLOAD",
+        storagePath: `organizations/${f.orgA}/communications/calls/${callId}/recordings/${id}.wav`, contentType: "audio/wav", byteSize: 1, durationSeconds: 30, recordedAt: new Date().toISOString()});
+      await rejectsWith(run(sdk.deleteCallRecording, "agent-a", {organizationId: f.orgA, id: first}), "COMMUNICATION_ADMIN_REQUIRED");
+      await run(sdk.deleteCallRecording, "owner-a", {organizationId: f.orgA, id: first});
+      await rejectsWith(run(sdk.deleteCallRecording, "owner-a", {organizationId: f.orgA, id: first}), "CALL_MEDIA_NOT_FOUND");
+      await rejectsWith(server(sdk.expireCallRecording, {organizationId: f.orgA, id: second}), "CALL_MEDIA_NOT_FOUND");
+      await dc.executeGraphql(`mutation Past($org: UUID!, $id: UUID!) { callRecording_update(key: {organizationId: $org, id: $id}, data: {retentionUntil_expr: "request.time - duration('60s')"}) }`, {variables: {org: f.orgA, id: second}});
+      const due = await server(sdk.callMediaToRemove, {now: new Date().toISOString(), limit: 100});
+      assert.ok(due.expiredRecordings.some(item => key(item.id) === key(second)));
+      await server(sdk.expireCallRecording, {organizationId: f.orgA, id: second});
+      const files = await server(sdk.deletedCallMediaFile, {organizationId: f.orgA, id: second});
+      assert.equal(files.recording.status, "DELETED");
+      await server(sdk.markCallMediaFileDeleted, {organizationId: f.orgA, recordingId: second, transcriptId: null, isRecording: true});
+      const after = await server(sdk.callMediaToRemove, {now: new Date().toISOString(), limit: 100});
+      assert.ok(!after.deletedRecordings.some(item => key(item.id) === key(second)), "a removed file is not removed again");
+    });
+  });
 }

@@ -162,6 +162,15 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (/\b(?:LIVE_CALL_LINE_UNAVAILABLE|LIVE_CALLING_NOT_ATTESTED)\b/.test(message)) {
       return new WorkspaceError("LIVE_CALLING_UNAVAILABLE", 409, "Live calling is not available: it needs a verified provider, an active registered line assigned to you and an administrator's confirmation.");
     }
+    if (message.includes("RECORDING_NOT_ENABLED")) {
+      return new WorkspaceError("RECORDING_NOT_ENABLED", 409, "Recording is not enabled for your company. An owner or administrator can enable it with the notice and legal basis in Calling settings.");
+    }
+    if (message.includes("CALL_CONSENT_REQUIRED")) {
+      return new WorkspaceError("CALL_CONSENT_REQUIRED", 409, "Record the customer's notice or consent for this answered call before adding a recording or transcript.");
+    }
+    if (/\b(?:CALL_CONSENT_NOT_FOUND|CALL_MEDIA_NOT_FOUND)\b/.test(message)) {
+      return new WorkspaceError("NOT_FOUND", 404, "This record was not found, was already withdrawn or deleted, or you cannot change it.");
+    }
     if (/\b(?:CALL_NOT_FOUND|COMMUNICATION_SUPPRESSION_NOT_FOUND)\b/.test(message)) {
       return new WorkspaceError("NOT_FOUND", 404, "This record was not found in your company.");
     }

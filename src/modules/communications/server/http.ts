@@ -18,7 +18,9 @@ import { communicationDashboard, listCalls } from "./hub";
 import {
   attestLiveCalling, confirmLineRegistration, createLine, createProvider, providerSettings, revokeLiveCalling, setLineActive, setProviderEnabled, updateLine, updateProvider, verifyProvider,
 } from "./providers";
+import { callMedia, deleteRecording, deleteTranscript, recordConsent, recordingFile, transcriptFile, uploadRecording, uploadTranscript, withdrawConsent } from "./media";
 import { providerWebhookResponse } from "./webhooks";
+import { MAX_RECORDING_BYTES } from "../media";
 
 /*
  * Communication endpoints (docs/COMMUNICATION_HUB.md#api). Reads need a
@@ -42,10 +44,10 @@ async function readContext(request: Request) {
   return requireActiveOrganizationRequest();
 }
 
-async function mutationContext(request: Request) {
+async function mutationContext(request: Request, maxBytes = BODY_BYTES) {
   validateMutationRequest(request, {origin: getAppOrigin(), csrfToken: (await cookies()).get(authCookies().csrf.name)?.value});
   if (!await getSession()) throw new WorkspaceError("UNAUTHENTICATED", 401, "Sign in to continue.");
-  const body = await parseWorkspaceJsonRequest(request, BODY_BYTES);
+  const body = await parseWorkspaceJsonRequest(request, maxBytes);
   const context = await requireActiveOrganizationRequest();
   assertExpectedOrganization(request.headers.get("x-estateos-organization"), context.organizationId);
   return {body, context};
@@ -65,8 +67,8 @@ async function read(request: Request, endpoint: string, work: (context: Context,
   try { return authJson({data: await work(await readContext(request), searchParams(request))}); } catch (error) { return errorResponse(endpoint, error); }
 }
 
-async function write(request: Request, endpoint: string, work: (context: Context, body: unknown) => Promise<unknown>, status = 200) {
-  try { const {body, context} = await mutationContext(request); return authJson({data: await work(context, body)}, status); } catch (error) { return errorResponse(endpoint, error); }
+async function write(request: Request, endpoint: string, work: (context: Context, body: unknown) => Promise<unknown>, status = 200, maxBytes = BODY_BYTES) {
+  try { const {body, context} = await mutationContext(request, maxBytes); return authJson({data: await work(context, body)}, status); } catch (error) { return errorResponse(endpoint, error); }
 }
 
 export const leadCallsResponse = (request: Request, leadId: string) => read(request, "lead.calls", (context, query) => leadCallsView(context, leadId, query));
@@ -104,4 +106,61 @@ export async function webhookResponse(request: Request, provider: string, connec
     // A 5xx asks the provider to retry; the event key keeps a retry from applying twice.
     return new Response(null, {status: 500, headers: {"Cache-Control": "no-store"}});
   }
+}
+// --- Consent, recordings and transcripts (6F.3) ---------------------------------------------
+
+export const callMediaResponse = (request: Request, callId: string) => read(request, "media.get", context => callMedia(context, callId));
+export const recordConsentResponse = (request: Request, callId: string) => write(request, "consent.record", (context, body) => recordConsent(context, callId, body), 201);
+export const withdrawConsentResponse = (request: Request, id: string) => write(request, "consent.withdraw", (context, body) => withdrawConsent(context, id, body));
+export const uploadTranscriptResponse = (request: Request, callId: string) => write(request, "transcript.upload", (context, body) => uploadTranscript(context, callId, body), 201, 1_200_000);
+export const deleteRecordingResponse = (request: Request, id: string) => write(request, "recording.delete", context => deleteRecording(context, id));
+export const deleteTranscriptResponse = (request: Request, id: string) => write(request, "transcript.delete", context => deleteTranscript(context, id));
+export const transcriptContentResponse = (request: Request, id: string) => read(request, "transcript.content", context => transcriptFile(context, id));
+
+/** Reads an upload with a running size cap (the declared length is not trusted). */
+async function readBinary(request: Request, maxBytes: number) {
+  const tooLarge = () => new WorkspaceError("VALIDATION_ERROR", 413, "Recordings can be at most 30 MB.");
+  const declared = request.headers.get("content-length");
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) throw tooLarge();
+  const reader = request.body?.getReader();
+  if (!reader) throw new WorkspaceError("VALIDATION_ERROR", 400, "Choose a recording to upload.");
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) { await reader.cancel().catch(() => undefined); throw tooLarge(); }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return bytes;
+}
+
+/** A recording upload: the raw audio as the body, the consent it relies on in X-Consent-Evidence. */
+export async function uploadRecordingResponse(request: Request, callId: string) {
+  try {
+    validateMutationRequest(request, {origin: getAppOrigin(), csrfToken: (await cookies()).get(authCookies().csrf.name)?.value});
+    if (!await getSession()) throw new WorkspaceError("UNAUTHENTICATED", 401, "Sign in to continue.");
+    const context = await requireActiveOrganizationRequest();
+    assertExpectedOrganization(request.headers.get("x-estateos-organization"), context.organizationId);
+    const bytes = await readBinary(request, MAX_RECORDING_BYTES);
+    return authJson({data: await uploadRecording(context, callId, request.headers.get("x-consent-evidence"), bytes)}, 201);
+  } catch (error) { return errorResponse("recording.upload", error); }
+}
+
+/** Streams a recording to a member who may read the call. Never cached publicly; every access is audited. */
+export async function recordingContentResponse(request: Request, id: string) {
+  await connection();
+  try {
+    const file = await recordingFile(await readContext(request), id);
+    const body = new Uint8Array(file.bytes.byteLength);
+    body.set(file.bytes);
+    return new Response(body, {headers: {
+      "Content-Type": file.contentType, "Content-Length": String(body.byteLength), "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": "inline",
+    }});
+  } catch (error) { return errorResponse("recording.content", error); }
 }

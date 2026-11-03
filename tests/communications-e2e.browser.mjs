@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import { getStorage } from "firebase-admin/storage";
 import twilio from "twilio";
 import { localDataConnect } from "../scripts/sql-connect-local.mjs";
 import { fixture as f } from "./fixtures/sql-connect-fixtures.mjs";
@@ -29,6 +30,9 @@ const password = "e2e-only-" + randomUUID();
 let checks = 0;
 /** A test-only provider credential, generated per run and given to the isolated test server only. */
 const providerToken = randomBytes(24).toString("hex");
+/** A test-only worker secret and bucket for the isolated test server (recordings and the retention sweep). */
+const workerSecret = randomBytes(36).toString("base64url");
+const BUCKET = "demo-estateos-test.appspot.com";
 const pass = message => { checks++; console.log(`✔ ${message}`); };
 
 // ---------------------------------------------------------------- fixtures
@@ -70,7 +74,7 @@ function startNext() {
       RATE_LIMIT_BACKEND: "sql-connect", ESTATEOS_AI_ENABLED: "true",
       // Well-formed but invalid, so Anthropic itself rejects any call.
       ANTHROPIC_API_KEY: `sk-ant-api03-e2e-invalid-${"x".repeat(40)}`, ANTHROPIC_MODEL: "claude-sonnet-5-5", AI_E2E_ANTHROPIC_API_KEY: "",
-      COMMS_E2E_TWILIO_TOKEN: providerToken,
+      COMMS_E2E_TWILIO_TOKEN: providerToken, AUTOMATION_WORKER_SECRET: workerSecret, FIREBASE_STORAGE_BUCKET: BUCKET,
     },
   });
   child.stdout.on("data", data => { serverLog = (serverLog + data).slice(-30000); });
@@ -447,6 +451,96 @@ try {
   assert.match(detailText, /\+971 4 333 0000|\+97143330000/);
   await screenshot("communications-call-detail");
   pass("The dashboard counts missed and answered calls from stored records; the list filters by direction; the call page shows the provider's events");
+
+  // ------------------------------------------------------------ 6F.3: consent, recordings and transcripts
+  await load("/communications/settings", "!!document.querySelector('input[name=recordingEnabled]')");
+  await evaluate(`(()=>{const set=(name,value)=>{const e=document.querySelector('[name='+name+']');if(e.type==='checkbox'){if(e.checked!==value)e.click();return;}
+    const proto=e instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));};
+    set('recordingEnabled',true);set('recordingNoticeText','This call may be recorded and transcribed for quality and record keeping (synthetic).');set('recordingLegalBasis','Customer consent (synthetic test)');})()`);
+  await clickText("Save calling rules", "button");
+  await waitFor("document.body.innerText.includes('Last saved') && document.querySelector('input[name=recordingEnabled]')?.checked", "the saved rules");
+  assert.equal((await api("/api/communications/settings")).body.data.rules.recordingEnabled, true);
+  pass("An owner enables recordings with the notice read to callers and the legal basis");
+
+  const recordedCall = rows[0].id;
+  await signIn("agent-a");
+  await load(`/communications/calls/${recordedCall}`, "document.body.innerText.includes('Notice and consent')");
+  assert.match(await evaluate("document.body.innerText"), /No notice or consent recorded for this call/);
+  assert.ok(!await evaluate("[...document.querySelectorAll('button')].some(b=>b.textContent.includes('Add recording'))"), "no upload before consent");
+  await clickText("Record notice or consent", "button");
+  await waitFor("document.querySelector('[role=dialog]')?.innerText.includes('Record notice or consent')", "the consent dialog");
+  await setField("status", "GIVEN");
+  await clickText("Save", "[role=dialog] button");
+  await waitFor("document.body.innerText.includes('Agreed to recording') && [...document.querySelectorAll('button')].some(b=>b.textContent.includes('Add recording'))", "the saved consent");
+  const consentId = (await api(`/api/communications/calls/${recordedCall}/media`)).body.data.consents[0].id;
+
+  // Synthetic recordings, built in the page and sent the way the panel sends files.
+  const uploadAudio = (kind, seconds, consent = consentId, callId = recordedCall) => evaluate(`(async()=>{
+    let bytes;
+    if (${JSON.stringify(kind)} === 'png') bytes = new Uint8Array([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,...new Array(200).fill(0)]);
+    else { const rate=8000, size=${seconds}*rate*2; bytes=new Uint8Array(44+size); const v=new DataView(bytes.buffer); const t=(a,s)=>[...s].forEach((c,i)=>v.setUint8(a+i,c.charCodeAt(0)));
+      t(0,'RIFF');v.setUint32(4,36+size,true);t(8,'WAVE');t(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);t(36,'data');v.setUint32(40,size,true); }
+    const c=await (await fetch('/api/auth/csrf')).json();
+    const r=await fetch('/api/communications/calls/${callId}/recordings',{method:'POST',body:bytes,headers:{'X-CSRF-Token':c.csrfToken,'X-EstateOS-Organization':'${f.orgA}','X-Consent-Evidence':'${consent}','Content-Type':'audio/wav'}});
+    return {status:r.status,body:await r.json().catch(()=>null)};})()`, 120000);
+  assert.equal((await uploadAudio("png", 0)).status, 415, "a file that is not audio is refused by its contents");
+  const tooLong = await uploadAudio("wav", 400);
+  assert.equal(tooLong.status, 400, "a recording much longer than the call is refused");
+  const uploaded = await uploadAudio("wav", 120);
+  assert.equal(uploaded.status, 201, JSON.stringify(uploaded.body));
+  assert.equal(uploaded.body.data.durationSeconds, 120);
+  const recordingId = uploaded.body.data.id;
+  const vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:04.000\n<v Agent>Good morning, this is a synthetic call.\n\n00:00:05.000 --> 00:00:09.000\n<v Customer>I would like a two-bedroom apartment near the marina.\n";
+  const transcript = await post(`/api/communications/calls/${recordedCall}/transcripts`, {consentEvidenceId: consentId, sourceName: "Synthetic transcription service", content: vtt});
+  assert.equal(transcript.status, 201, JSON.stringify(transcript.body));
+  assert.equal(transcript.body.data.language, "en");
+  await load(`/communications/calls/${recordedCall}`, "!!document.querySelector('audio') && document.body.innerText.includes('English (detected)')");
+  const audio = await evaluate(`(async()=>{const r=await fetch(document.querySelector('audio').src);const b=await r.arrayBuffer();return {status:r.status,type:r.headers.get('content-type'),cache:r.headers.get('cache-control'),bytes:b.byteLength};})()`);
+  assert.deepEqual(audio, {status: 200, type: "audio/wav", cache: "private, no-store", bytes: 44 + 120 * 8000 * 2});
+  await clickText("Read", "button");
+  await waitFor("document.querySelector('[aria-label=Transcript]')?.innerText.includes('two-bedroom apartment near the marina')", "the transcript");
+  assert.match(await evaluate("document.querySelector('[aria-label=Transcript]').innerText"), /0:05\s*Customer:/);
+  await screenshot("call-recording-transcript");
+  const accessAudit = (await sql(`query A($org: UUID!, $id: UUID!) { auditLogs(where: {organizationId: {eq: $org}, targetId: {eq: $id}, action: {eq: CALL_MEDIA_ACCESSED}}) { actorUid } }`, {org: f.orgA, id: recordingId})).auditLogs;
+  assert.ok(accessAudit.some(row => row.actorUid === "agent-a"), "listening to the recording is audited");
+  pass("With consent recorded, the agent adds a recording (checked by content and length) and a transcript; both are served privately, and access is audited");
+
+  await signIn("manager-a");
+  assert.equal((await api(`/api/communications/recordings/${recordingId}/content`)).status, 404);
+  assert.equal((await api(`/api/communications/calls/${recordedCall}/media`)).status, 404);
+  await signIn("owner-b");
+  assert.equal((await api(`/api/communications/recordings/${recordingId}/content`)).status, 404, "another company cannot fetch the recording by its ID");
+  assert.equal((await api(`/api/communications/transcripts/${transcript.body.data.id}/content`)).status, 404);
+  pass("Managers without the lead and other companies cannot open recordings or transcripts, even with their IDs");
+
+  // Withdrawal deletes the recording, the transcript and their files.
+  await signIn("agent-a");
+  const stored = (await sql(`query R($org: UUID!, $id: UUID!) { callRecording(key: {organizationId: $org, id: $id}) { storagePath } }`, {org: f.orgA, id: recordingId})).callRecording.storagePath;
+  const bucket = getStorage(authApp).bucket(BUCKET);
+  assert.equal((await bucket.file(stored).exists())[0], true);
+  const consentWithdrawal = await post(`/api/communications/consents/${consentId}/withdraw`, {note: "Customer asked to delete the recording (synthetic)"});
+  assert.equal(consentWithdrawal.status, 200, JSON.stringify(consentWithdrawal.body));
+  assert.equal((await api(`/api/communications/recordings/${recordingId}/content`)).status, 404);
+  assert.equal((await bucket.file(stored).exists())[0], false, "the file is removed from storage");
+  const afterWithdrawal = (await api(`/api/communications/calls/${recordedCall}/media`)).body.data;
+  assert.equal(afterWithdrawal.recordings.length + afterWithdrawal.transcripts.length, 0);
+  assert.equal(afterWithdrawal.canUpload, false, "no new uploads without current consent");
+  pass("Withdrawing consent deletes the call's recording and transcript and removes the files");
+
+  // Retention: the worker tick removes media past its retention date.
+  await post(`/api/communications/calls/${recordedCall}/consents`, {status: "NOTICE_GIVEN", method: "ANNOUNCEMENT", note: null});
+  const nextConsent = (await api(`/api/communications/calls/${recordedCall}/media`)).body.data.consents.find(item => item.status === "NOTICE_GIVEN").id;
+  const short = await uploadAudio("wav", 5, nextConsent);
+  assert.equal(short.status, 201);
+  const shortPath = (await sql(`query R($org: UUID!, $id: UUID!) { callRecording(key: {organizationId: $org, id: $id}) { storagePath } }`, {org: f.orgA, id: short.body.data.id})).callRecording.storagePath;
+  await dc.executeGraphql(`mutation Past($org: UUID!, $id: UUID!) { callRecording_update(key: {organizationId: $org, id: $id}, data: {retentionUntil_expr: "request.time - duration('60s')"}) }`, {variables: {org: f.orgA, id: short.body.data.id}});
+  const tick = await fetch(origin + "/api/internal/automations/tick", {method: "POST", headers: {Authorization: `Bearer ${workerSecret}`}, signal: AbortSignal.timeout(120000)});
+  const tickBody = await tick.json();
+  assert.equal(tick.status, 200, JSON.stringify(tickBody));
+  assert.ok(tickBody.data.communications.expired >= 1 && tickBody.data.communications.filesRemoved >= 1, JSON.stringify(tickBody.data.communications));
+  assert.equal((await api(`/api/communications/recordings/${short.body.data.id}/content`)).status, 404);
+  assert.equal((await bucket.file(shortPath).exists())[0], false);
+  pass("The worker removes recordings past the company's retention period, with their files");
 
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");
   console.log(`\n${checks} communication end-to-end checks passed.`);

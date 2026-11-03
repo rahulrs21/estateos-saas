@@ -21,6 +21,10 @@ enum CommunicationProviderType { TWILIO RETELL PBX OTHER_APPROVED_PROVIDER }
 enum CommunicationConnectionStatus { NOT_CONFIGURED CONFIGURED VERIFIED DISABLED ERROR }
 enum PhoneLinePurpose { SALES SUPPORT MARKETING VOICE_ASSISTANT }
 enum PhoneLineStatus { PENDING ACTIVE DISABLED }
+# Consent evidence for recording a call and keeping its transcript (6F.3).
+enum CallConsentStatus { NOTICE_GIVEN GIVEN DECLINED WITHDRAWN }
+enum CallMediaStatus { STORED DELETED }
+enum TranscriptSource { UPLOAD PROVIDER }
 
 # One row per company; absent means the defaults below. Every switch that
 # widens what EstateOS may do (telemarketing, recording, AI analysis, live
@@ -212,8 +216,93 @@ type CallProviderEvent @table(key: ["organization", "id"])
   callId: UUID
   call: CallRecord @ref(fields: ["organizationId", "callId"], references: ["organizationId", "id"])
   callStatus: CallStatus
-  # APPLIED, NO_CHANGE, FINAL, OUT_OF_ORDER, UNMATCHED, DEFERRED or IGNORED.
+  # APPLIED, NO_CHANGE, FINAL, OUT_OF_ORDER, UNMATCHED, NOT_ELIGIBLE or IGNORED.
   result: String! @default(value: "RECEIVED") @col(dataType: "varchar(20)")
   occurredAt: Timestamp
   receivedAt: Timestamp! @default(expr: "request.time")
+}
+# Evidence that the customer was told about recording (and agreed, where the
+# company's legal basis is consent), captured by the agent for one call. Never
+# deleted; withdrawing it deletes the call's recordings and transcripts that
+# relied on it. The notice text and legal basis are copied from the company
+# settings at the time, so later changes do not rewrite the evidence.
+type CallConsentEvidence @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "callId", "capturedAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  callId: UUID!
+  call: CallRecord! @ref(fields: ["organizationId", "callId"], references: ["organizationId", "id"])
+  status: CallConsentStatus!
+  # VERBAL_ON_CALL, ANNOUNCEMENT or WRITTEN.
+  method: String! @col(dataType: "varchar(20)")
+  purpose: String! @col(dataType: "varchar(200)")
+  legalBasis: String! @col(dataType: "varchar(500)")
+  noticeText: String! @col(dataType: "varchar(1000)")
+  note: String @col(dataType: "varchar(500)")
+  capturedBy: UserProfile!
+  capturedAt: Timestamp! @default(expr: "request.time")
+  withdrawnAt: Timestamp
+  withdrawnBy: UserProfile
+  withdrawalNote: String @col(dataType: "varchar(500)")
+}
+
+# A call recording in private storage (organizations/{company}/communications/...),
+# served only through an authorized route; never a public URL.
+type CallRecording @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "callId", "status"])
+  @index(fields: ["status", "retentionUntil"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  callId: UUID!
+  call: CallRecord! @ref(fields: ["organizationId", "callId"], references: ["organizationId", "id"])
+  consentEvidenceId: UUID!
+  consentEvidence: CallConsentEvidence! @ref(fields: ["organizationId", "consentEvidenceId"], references: ["organizationId", "id"], constraintName: "call_recording_consent_fkey")
+  # UPLOAD (from the company's approved phone service) or PROVIDER.
+  source: String! @col(dataType: "varchar(20)")
+  storagePath: String! @col(dataType: "varchar(300)")
+  contentType: String! @col(dataType: "varchar(40)")
+  byteSize: Int!
+  durationSeconds: Int!
+  status: CallMediaStatus! @default(value: STORED)
+  recordedAt: Timestamp!
+  retentionUntil: Timestamp!
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  deletedAt: Timestamp
+  deletedBy: UserProfile
+  # OWNER_OR_ADMIN, CONSENT_WITHDRAWN or RETENTION.
+  deletionReason: String @col(dataType: "varchar(30)")
+  fileDeletedAt: Timestamp
+}
+
+# A transcript (segments with timestamps, stored privately as JSON). It may contain errors.
+type CallTranscript @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "callId", "status"])
+  @index(fields: ["status", "retentionUntil"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  callId: UUID!
+  call: CallRecord! @ref(fields: ["organizationId", "callId"], references: ["organizationId", "id"])
+  consentEvidenceId: UUID!
+  consentEvidence: CallConsentEvidence! @ref(fields: ["organizationId", "consentEvidenceId"], references: ["organizationId", "id"], constraintName: "call_transcript_consent_fkey")
+  source: TranscriptSource!
+  # The service that produced it (for example the phone system's name).
+  sourceName: String @col(dataType: "varchar(80)")
+  # en, ar, mixed or unknown, detected from the text (an estimate).
+  language: String! @col(dataType: "varchar(10)")
+  transcriptReference: String! @col(dataType: "varchar(300)")
+  segmentCount: Int!
+  hasTimestamps: Boolean!
+  status: CallMediaStatus! @default(value: STORED)
+  generatedAt: Timestamp!
+  retentionUntil: Timestamp!
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  deletedAt: Timestamp
+  deletedBy: UserProfile
+  deletionReason: String @col(dataType: "varchar(30)")
+  fileDeletedAt: Timestamp
 }

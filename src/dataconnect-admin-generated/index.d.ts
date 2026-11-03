@@ -108,6 +108,11 @@ export enum ActivityKind {
   PHONE_LINE_CHANGED = "PHONE_LINE_CHANGED",
   LIVE_CALLING_ATTESTATION_CHANGED = "LIVE_CALLING_ATTESTATION_CHANGED",
   CALL_STARTED = "CALL_STARTED",
+  CALL_CONSENT_CHANGED = "CALL_CONSENT_CHANGED",
+  CALL_RECORDING_CHANGED = "CALL_RECORDING_CHANGED",
+  CALL_TRANSCRIPT_CHANGED = "CALL_TRANSCRIPT_CHANGED",
+  CALL_MEDIA_ACCESSED = "CALL_MEDIA_ACCESSED",
+  CALL_AI_SUMMARY_CHANGED = "CALL_AI_SUMMARY_CHANGED",
 }
 export enum AgentAvailabilityStatus {
   AVAILABLE = "AVAILABLE",
@@ -216,6 +221,10 @@ export enum AuditTargetType {
   COMMUNICATION_SUPPRESSION = "COMMUNICATION_SUPPRESSION",
   COMMUNICATION_PROVIDER = "COMMUNICATION_PROVIDER",
   PHONE_LINE = "PHONE_LINE",
+  CALL_CONSENT = "CALL_CONSENT",
+  CALL_RECORDING = "CALL_RECORDING",
+  CALL_TRANSCRIPT = "CALL_TRANSCRIPT",
+  CALL_AI_SUMMARY = "CALL_AI_SUMMARY",
 }
 export enum AutomationApprovalStatus {
   PENDING = "PENDING",
@@ -276,9 +285,19 @@ export enum BuildingType {
   VILLA = "VILLA",
   OTHER = "OTHER",
 }
+export enum CallConsentStatus {
+  NOTICE_GIVEN = "NOTICE_GIVEN",
+  GIVEN = "GIVEN",
+  DECLINED = "DECLINED",
+  WITHDRAWN = "WITHDRAWN",
+}
 export enum CallDirection {
   OUTBOUND = "OUTBOUND",
   INBOUND = "INBOUND",
+}
+export enum CallMediaStatus {
+  STORED = "STORED",
+  DELETED = "DELETED",
 }
 export enum CallOutcome {
   INTERESTED = "INTERESTED",
@@ -652,6 +671,10 @@ export enum TransactionType {
   BUY = "BUY",
   RENT = "RENT",
   INVEST = "INVEST",
+}
+export enum TranscriptSource {
+  UPLOAD = "UPLOAD",
+  PROVIDER = "PROVIDER",
 }
 export enum WebsiteMediaStatus {
   PENDING = "PENDING",
@@ -1467,6 +1490,18 @@ export interface Building_Key {
   __typename?: 'Building_Key';
 }
 
+export interface CallAiSuggestion_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'CallAiSuggestion_Key';
+}
+
+export interface CallAiSummary_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'CallAiSummary_Key';
+}
+
 export interface CallComplianceFactsData {
   settings?: {
     revision: number;
@@ -1511,6 +1546,40 @@ export interface CallComplianceFactsVariables {
   since: TimestampString;
 }
 
+export interface CallConsentEvidence_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'CallConsentEvidence_Key';
+}
+
+export interface CallMediaToRemoveData {
+  expiredRecordings: ({
+    organizationId: UUIDString;
+    id: UUIDString;
+    storagePath: string;
+  } & CallRecording_Key)[];
+  expiredTranscripts: ({
+    organizationId: UUIDString;
+    id: UUIDString;
+    transcriptReference: string;
+  } & CallTranscript_Key)[];
+  deletedRecordings: ({
+    organizationId: UUIDString;
+    id: UUIDString;
+    storagePath: string;
+  } & CallRecording_Key)[];
+  deletedTranscripts: ({
+    organizationId: UUIDString;
+    id: UUIDString;
+    transcriptReference: string;
+  } & CallTranscript_Key)[];
+}
+
+export interface CallMediaToRemoveVariables {
+  now: TimestampString;
+  limit: number;
+}
+
 export interface CallProviderEvent_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -1521,6 +1590,18 @@ export interface CallRecord_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'CallRecord_Key';
+}
+
+export interface CallRecording_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'CallRecording_Key';
+}
+
+export interface CallTranscript_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'CallTranscript_Key';
 }
 
 export interface ChangeLeadStatusData {
@@ -1882,6 +1963,45 @@ export interface CreateBuildingVariables {
   handoverDate?: DateString | null;
   latitude?: number | null;
   longitude?: number | null;
+}
+
+export interface CreateCallRecordingData {
+  recording: CallRecording_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CreateCallRecordingVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  callId: UUIDString;
+  consentEvidenceId: UUIDString;
+  actorUid: string;
+  source: string;
+  storagePath: string;
+  contentType: string;
+  byteSize: number;
+  durationSeconds: number;
+  recordedAt: TimestampString;
+}
+
+export interface CreateCallTranscriptData {
+  transcript: CallTranscript_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CreateCallTranscriptVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  callId: UUIDString;
+  consentEvidenceId: UUIDString;
+  actorUid: string;
+  source: TranscriptSource;
+  sourceName?: string | null;
+  language: string;
+  transcriptReference: string;
+  segmentCount: number;
+  hasTimestamps: boolean;
+  generatedAt: TimestampString;
 }
 
 export interface CreateCommunicationPhoneLineData {
@@ -2503,6 +2623,27 @@ export interface DeleteAiContentTemplateVariables {
   id: UUIDString;
 }
 
+export interface DeleteCallRecordingData {
+  recording?: CallRecording_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface DeleteCallRecordingVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface DeleteCallTranscriptData {
+  transcript?: CallTranscript_Key | null;
+  summaries: number;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface DeleteCallTranscriptVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
 export interface DeleteMyAiConversationData {
   messages: number;
   conversation: number;
@@ -2520,6 +2661,22 @@ export interface DeleteWebsiteSectionTemplateData {
 }
 
 export interface DeleteWebsiteSectionTemplateVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface DeletedCallMediaFileData {
+  recording?: {
+    storagePath: string;
+    status: CallMediaStatus;
+  };
+  transcript?: {
+    transcriptReference: string;
+    status: CallMediaStatus;
+  };
+}
+
+export interface DeletedCallMediaFileVariables {
   organizationId: UUIDString;
   id: UUIDString;
 }
@@ -2616,6 +2773,25 @@ export interface EnsureAutomationOrgStateData {
 
 export interface EnsureAutomationOrgStateVariables {
   organizationId: UUIDString;
+}
+
+export interface ExpireCallRecordingData {
+  recording?: CallRecording_Key | null;
+}
+
+export interface ExpireCallRecordingVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface ExpireCallTranscriptData {
+  transcript?: CallTranscript_Key | null;
+  summaries: number;
+}
+
+export interface ExpireCallTranscriptVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
 }
 
 export interface FeedGenerationJob_Key {
@@ -3429,6 +3605,79 @@ export interface GetBuildingVariables {
   id: UUIDString;
 }
 
+export interface GetCallMediaData {
+  me?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  call?: {
+    id: UUIDString;
+    callStatus: CallStatus;
+    answeredAt?: TimestampString | null;
+    durationSeconds: number;
+    agentMembershipId: UUIDString;
+  };
+  consents: ({
+    id: UUIDString;
+    status: CallConsentStatus;
+    method: string;
+    purpose: string;
+    legalBasis: string;
+    noticeText: string;
+    note?: string | null;
+    capturedAt: TimestampString;
+    capturedBy: {
+      displayName: string;
+    };
+    withdrawnAt?: TimestampString | null;
+    withdrawnBy?: {
+      displayName: string;
+    };
+    withdrawalNote?: string | null;
+  })[];
+  recordings: ({
+    id: UUIDString;
+    source: string;
+    contentType: string;
+    byteSize: number;
+    durationSeconds: number;
+    recordedAt: TimestampString;
+    retentionUntil: TimestampString;
+    createdAt: TimestampString;
+    createdBy: {
+      displayName: string;
+    };
+    consentEvidenceId: UUIDString;
+  })[];
+  transcripts: ({
+    id: UUIDString;
+    source: TranscriptSource;
+    sourceName?: string | null;
+    language: string;
+    segmentCount: number;
+    hasTimestamps: boolean;
+    generatedAt: TimestampString;
+    retentionUntil: TimestampString;
+    createdAt: TimestampString;
+    createdBy: {
+      displayName: string;
+    };
+    consentEvidenceId: UUIDString;
+  })[];
+  settings?: {
+    recordingEnabled: boolean;
+    recordingNoticeText?: string | null;
+    recordingLegalBasis?: string | null;
+    retentionDays: number;
+    aiAnalysisEnabled: boolean;
+  };
+}
+
+export interface GetCallMediaVariables {
+  organizationId: UUIDString;
+  callId: UUIDString;
+}
+
 export interface GetCallRecordData {
   me?: {
     id: UUIDString;
@@ -3508,6 +3757,46 @@ export interface GetCallRecordData {
 }
 
 export interface GetCallRecordVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface GetCallRecordingFileData {
+  me?: {
+    id: UUIDString;
+  };
+  recording?: {
+    id: UUIDString;
+    callId: UUIDString;
+    storagePath: string;
+    contentType: string;
+    byteSize: number;
+  };
+}
+
+export interface GetCallRecordingFileVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface GetCallTranscriptFileData {
+  me?: {
+    id: UUIDString;
+  };
+  transcript?: {
+    id: UUIDString;
+    callId: UUIDString;
+    transcriptReference: string;
+    language: string;
+    source: TranscriptSource;
+    sourceName?: string | null;
+    segmentCount: number;
+    hasTimestamps: boolean;
+    generatedAt: TimestampString;
+  };
+}
+
+export interface GetCallTranscriptFileVariables {
   organizationId: UUIDString;
   id: UUIDString;
 }
@@ -8399,6 +8688,18 @@ export interface MarkAutomationScanVariables {
   scannedAt: TimestampString;
 }
 
+export interface MarkCallMediaFileDeletedData {
+  callRecording_update?: CallRecording_Key | null;
+  callTranscript_update?: CallTranscript_Key | null;
+}
+
+export interface MarkCallMediaFileDeletedVariables {
+  organizationId: UUIDString;
+  recordingId?: UUIDString | null;
+  transcriptId?: UUIDString | null;
+  isRecording: boolean;
+}
+
 export interface MarkCallProviderEventData {
   callProviderEvent_update?: CallProviderEvent_Key | null;
 }
@@ -8751,6 +9052,31 @@ export interface RecordAutomationStepVariables {
   actionType: string;
   actionSnapshot: string;
   idempotencyKey: string;
+}
+
+export interface RecordCallConsentData {
+  consent: CallConsentEvidence_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface RecordCallConsentVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  callId: UUIDString;
+  status: CallConsentStatus;
+  method: string;
+  note?: string | null;
+}
+
+export interface RecordCallMediaAccessData {
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface RecordCallMediaAccessVariables {
+  organizationId: UUIDString;
+  actorUid: string;
+  targetType: AuditTargetType;
+  targetId: UUIDString;
 }
 
 export interface RecordCallProviderEventData {
@@ -10392,6 +10718,20 @@ export interface Website_Key {
   __typename?: 'Website_Key';
 }
 
+export interface WithdrawCallConsentData {
+  consent?: CallConsentEvidence_Key | null;
+  recordings: number;
+  transcripts: number;
+  summaries: number;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface WithdrawCallConsentVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  note: string;
+}
+
 export interface WithdrawCommunicationSuppressionData {
   suppression?: CommunicationSuppression_Key | null;
   auditLog_insert: AuditLog_Key;
@@ -10858,6 +11198,81 @@ export function automationExecutorProfile(vars: AutomationExecutorProfileVariabl
 export function listAutomationEventsForTarget(dc: DataConnect, vars: ListAutomationEventsForTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationEventsForTargetData>>;
 /** Generated Node Admin SDK operation action function for the 'ListAutomationEventsForTarget' Query. Allow users to pass in custom DataConnect instances. */
 export function listAutomationEventsForTarget(vars: ListAutomationEventsForTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationEventsForTargetData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetCallMedia' Query. Allow users to execute without passing in DataConnect. */
+export function getCallMedia(dc: DataConnect, vars: GetCallMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCallMediaData>>;
+/** Generated Node Admin SDK operation action function for the 'GetCallMedia' Query. Allow users to pass in custom DataConnect instances. */
+export function getCallMedia(vars: GetCallMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCallMediaData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RecordCallConsent' Mutation. Allow users to execute without passing in DataConnect. */
+export function recordCallConsent(dc: DataConnect, vars: RecordCallConsentVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordCallConsentData>>;
+/** Generated Node Admin SDK operation action function for the 'RecordCallConsent' Mutation. Allow users to pass in custom DataConnect instances. */
+export function recordCallConsent(vars: RecordCallConsentVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordCallConsentData>>;
+
+/** Generated Node Admin SDK operation action function for the 'WithdrawCallConsent' Mutation. Allow users to execute without passing in DataConnect. */
+export function withdrawCallConsent(dc: DataConnect, vars: WithdrawCallConsentVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<WithdrawCallConsentData>>;
+/** Generated Node Admin SDK operation action function for the 'WithdrawCallConsent' Mutation. Allow users to pass in custom DataConnect instances. */
+export function withdrawCallConsent(vars: WithdrawCallConsentVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<WithdrawCallConsentData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateCallRecording' Mutation. Allow users to execute without passing in DataConnect. */
+export function createCallRecording(dc: DataConnect, vars: CreateCallRecordingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateCallRecordingData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateCallRecording' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createCallRecording(vars: CreateCallRecordingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateCallRecordingData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateCallTranscript' Mutation. Allow users to execute without passing in DataConnect. */
+export function createCallTranscript(dc: DataConnect, vars: CreateCallTranscriptVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateCallTranscriptData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateCallTranscript' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createCallTranscript(vars: CreateCallTranscriptVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateCallTranscriptData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DeleteCallRecording' Mutation. Allow users to execute without passing in DataConnect. */
+export function deleteCallRecording(dc: DataConnect, vars: DeleteCallRecordingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeleteCallRecordingData>>;
+/** Generated Node Admin SDK operation action function for the 'DeleteCallRecording' Mutation. Allow users to pass in custom DataConnect instances. */
+export function deleteCallRecording(vars: DeleteCallRecordingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeleteCallRecordingData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DeleteCallTranscript' Mutation. Allow users to execute without passing in DataConnect. */
+export function deleteCallTranscript(dc: DataConnect, vars: DeleteCallTranscriptVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeleteCallTranscriptData>>;
+/** Generated Node Admin SDK operation action function for the 'DeleteCallTranscript' Mutation. Allow users to pass in custom DataConnect instances. */
+export function deleteCallTranscript(vars: DeleteCallTranscriptVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeleteCallTranscriptData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetCallRecordingFile' Query. Allow users to execute without passing in DataConnect. */
+export function getCallRecordingFile(dc: DataConnect, vars: GetCallRecordingFileVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCallRecordingFileData>>;
+/** Generated Node Admin SDK operation action function for the 'GetCallRecordingFile' Query. Allow users to pass in custom DataConnect instances. */
+export function getCallRecordingFile(vars: GetCallRecordingFileVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCallRecordingFileData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetCallTranscriptFile' Query. Allow users to execute without passing in DataConnect. */
+export function getCallTranscriptFile(dc: DataConnect, vars: GetCallTranscriptFileVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCallTranscriptFileData>>;
+/** Generated Node Admin SDK operation action function for the 'GetCallTranscriptFile' Query. Allow users to pass in custom DataConnect instances. */
+export function getCallTranscriptFile(vars: GetCallTranscriptFileVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCallTranscriptFileData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RecordCallMediaAccess' Mutation. Allow users to execute without passing in DataConnect. */
+export function recordCallMediaAccess(dc: DataConnect, vars: RecordCallMediaAccessVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordCallMediaAccessData>>;
+/** Generated Node Admin SDK operation action function for the 'RecordCallMediaAccess' Mutation. Allow users to pass in custom DataConnect instances. */
+export function recordCallMediaAccess(vars: RecordCallMediaAccessVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordCallMediaAccessData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CallMediaToRemove' Query. Allow users to execute without passing in DataConnect. */
+export function callMediaToRemove(dc: DataConnect, vars: CallMediaToRemoveVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CallMediaToRemoveData>>;
+/** Generated Node Admin SDK operation action function for the 'CallMediaToRemove' Query. Allow users to pass in custom DataConnect instances. */
+export function callMediaToRemove(vars: CallMediaToRemoveVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CallMediaToRemoveData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ExpireCallRecording' Mutation. Allow users to execute without passing in DataConnect. */
+export function expireCallRecording(dc: DataConnect, vars: ExpireCallRecordingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ExpireCallRecordingData>>;
+/** Generated Node Admin SDK operation action function for the 'ExpireCallRecording' Mutation. Allow users to pass in custom DataConnect instances. */
+export function expireCallRecording(vars: ExpireCallRecordingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ExpireCallRecordingData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ExpireCallTranscript' Mutation. Allow users to execute without passing in DataConnect. */
+export function expireCallTranscript(dc: DataConnect, vars: ExpireCallTranscriptVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ExpireCallTranscriptData>>;
+/** Generated Node Admin SDK operation action function for the 'ExpireCallTranscript' Mutation. Allow users to pass in custom DataConnect instances. */
+export function expireCallTranscript(vars: ExpireCallTranscriptVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ExpireCallTranscriptData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MarkCallMediaFileDeleted' Mutation. Allow users to execute without passing in DataConnect. */
+export function markCallMediaFileDeleted(dc: DataConnect, vars: MarkCallMediaFileDeletedVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkCallMediaFileDeletedData>>;
+/** Generated Node Admin SDK operation action function for the 'MarkCallMediaFileDeleted' Mutation. Allow users to pass in custom DataConnect instances. */
+export function markCallMediaFileDeleted(vars: MarkCallMediaFileDeletedVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkCallMediaFileDeletedData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DeletedCallMediaFile' Query. Allow users to execute without passing in DataConnect. */
+export function deletedCallMediaFile(dc: DataConnect, vars: DeletedCallMediaFileVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeletedCallMediaFileData>>;
+/** Generated Node Admin SDK operation action function for the 'DeletedCallMediaFile' Query. Allow users to pass in custom DataConnect instances. */
+export function deletedCallMediaFile(vars: DeletedCallMediaFileVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeletedCallMediaFileData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListCommunicationProviders' Query. Allow users to execute without passing in DataConnect. */
 export function listCommunicationProviders(dc: DataConnect, vars: ListCommunicationProvidersVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListCommunicationProvidersData>>;

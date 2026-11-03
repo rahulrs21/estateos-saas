@@ -65,7 +65,7 @@ function RulesSection({settings, send}: {settings: SettingsView; send: Send}) {
         maxCallsPerContactPerDay: number(form, "maxCallsPerContactPerDay"), telemarketingEnabled: form.get("telemarketingEnabled") === "on", telemarketingApprovalReference: text(form, "telemarketingApprovalReference") || null,
         marketingWindowStart: text(form, "marketingWindowStart"), marketingWindowEnd: text(form, "marketingWindowEnd"), marketingMaxCallsPerDay: number(form, "marketingMaxCallsPerDay"),
         marketingMaxUnansweredPerWeek: number(form, "marketingMaxUnansweredPerWeek"), allowedCallingCodes: text(form, "allowedCallingCodes"), maxConcurrentLiveCalls: number(form, "maxConcurrentLiveCalls"),
-        maxLiveCallsPerAgentPerDay: number(form, "maxLiveCallsPerAgentPerDay"), recordingEnabled: false, recordingNoticeText: settings.recordingNoticeText, recordingLegalBasis: settings.recordingLegalBasis,
+        maxLiveCallsPerAgentPerDay: number(form, "maxLiveCallsPerAgentPerDay"), recordingEnabled: form.get("recordingEnabled") === "on", recordingNoticeText: text(form, "recordingNoticeText") || null, recordingLegalBasis: text(form, "recordingLegalBasis") || null,
         retentionDays: number(form, "retentionDays"), aiAnalysisEnabled: false,
       }, "Calling rules saved.");
     } catch (problem) { setError(errorMessage(problem, "The rules could not be saved.")); }
@@ -95,7 +95,15 @@ function RulesSection({settings, send}: {settings: SettingsView; send: Send}) {
           {field("marketingMaxUnansweredPerWeek", "Unanswered per week", {type: "number", min: 0, max: 2})}
         </div>
       </fieldset>
-      <p className="text-xs leading-5 text-muted-foreground">Call recording and Claude analysis are off and arrive in later updates with their own consent controls. These checks are not legal advice; see the compliance notes for points your legal adviser should review.</p>
+      <fieldset className="space-y-4 rounded-lg border p-4"><legend className="px-1 text-sm font-medium">Call recordings and transcripts</legend>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="recordingEnabled" defaultChecked={rules.recordingEnabled} disabled={!settings.canManage} className="size-4" />Agents may add recordings and transcripts of calls, with the customer&apos;s notice or consent recorded for each call</label>
+        <p className="text-xs leading-5 text-muted-foreground">EstateOS never records calls itself. Agents upload what your approved phone or transcription service produced, only after recording the notice or consent on the call. Files are private, every access is logged, and they are deleted after the retention period.</p>
+        <LeadField id={`${prefix}-notice`} label="Notice read to callers" hint="At least 20 characters. Copied into each call's consent record.">
+          <textarea id={`${prefix}-notice`} name="recordingNoticeText" maxLength={1000} className={textareaClassName} defaultValue={settings.recordingNoticeText ?? ""} disabled={!settings.canManage} placeholder="This call may be recorded and transcribed for quality and record keeping. Tell us if you prefer not to be recorded." /></LeadField>
+        <LeadField id={`${prefix}-basis`} label="Legal basis" hint="For example: the customer's consent. Confirm it with your legal adviser.">
+          <Input id={`${prefix}-basis`} name="recordingLegalBasis" maxLength={500} defaultValue={settings.recordingLegalBasis ?? ""} disabled={!settings.canManage} /></LeadField>
+      </fieldset>
+      <p className="text-xs leading-5 text-muted-foreground">Claude analysis of calls is off and arrives in a later update with its own switch. These checks are not legal advice; see the compliance notes for points your legal adviser should review.</p>
       {settings.canManage && <Button type="submit">{pending ? "Saving…" : "Save calling rules"}</Button>}
     </fieldset><LeadFormMessage message={error} /></form>
   </Section>;

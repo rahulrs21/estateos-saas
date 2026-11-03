@@ -101,6 +101,11 @@ const ActivityKind = {
   PHONE_LINE_CHANGED: "PHONE_LINE_CHANGED",
   LIVE_CALLING_ATTESTATION_CHANGED: "LIVE_CALLING_ATTESTATION_CHANGED",
   CALL_STARTED: "CALL_STARTED",
+  CALL_CONSENT_CHANGED: "CALL_CONSENT_CHANGED",
+  CALL_RECORDING_CHANGED: "CALL_RECORDING_CHANGED",
+  CALL_TRANSCRIPT_CHANGED: "CALL_TRANSCRIPT_CHANGED",
+  CALL_MEDIA_ACCESSED: "CALL_MEDIA_ACCESSED",
+  CALL_AI_SUMMARY_CHANGED: "CALL_AI_SUMMARY_CHANGED",
 }
 exports.ActivityKind = ActivityKind;
 
@@ -233,6 +238,10 @@ const AuditTargetType = {
   COMMUNICATION_SUPPRESSION: "COMMUNICATION_SUPPRESSION",
   COMMUNICATION_PROVIDER: "COMMUNICATION_PROVIDER",
   PHONE_LINE: "PHONE_LINE",
+  CALL_CONSENT: "CALL_CONSENT",
+  CALL_RECORDING: "CALL_RECORDING",
+  CALL_TRANSCRIPT: "CALL_TRANSCRIPT",
+  CALL_AI_SUMMARY: "CALL_AI_SUMMARY",
 }
 exports.AuditTargetType = AuditTargetType;
 
@@ -309,11 +318,25 @@ const BuildingType = {
 }
 exports.BuildingType = BuildingType;
 
+const CallConsentStatus = {
+  NOTICE_GIVEN: "NOTICE_GIVEN",
+  GIVEN: "GIVEN",
+  DECLINED: "DECLINED",
+  WITHDRAWN: "WITHDRAWN",
+}
+exports.CallConsentStatus = CallConsentStatus;
+
 const CallDirection = {
   OUTBOUND: "OUTBOUND",
   INBOUND: "INBOUND",
 }
 exports.CallDirection = CallDirection;
+
+const CallMediaStatus = {
+  STORED: "STORED",
+  DELETED: "DELETED",
+}
+exports.CallMediaStatus = CallMediaStatus;
 
 const CallOutcome = {
   INTERESTED: "INTERESTED",
@@ -807,6 +830,12 @@ const TransactionType = {
   INVEST: "INVEST",
 }
 exports.TransactionType = TransactionType;
+
+const TranscriptSource = {
+  UPLOAD: "UPLOAD",
+  PROVIDER: "PROVIDER",
+}
+exports.TranscriptSource = TranscriptSource;
 
 const WebsiteMediaStatus = {
   PENDING: "PENDING",
@@ -1480,6 +1509,111 @@ function listAutomationEventsForTarget(dcOrVarsOrOptions, varsOrOptions, options
   return dcInstance.executeQuery('ListAutomationEventsForTarget', inputVars, inputOpts);
 }
 exports.listAutomationEventsForTarget = listAutomationEventsForTarget;
+
+function getCallMedia(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetCallMedia', inputVars, inputOpts);
+}
+exports.getCallMedia = getCallMedia;
+
+function recordCallConsent(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RecordCallConsent', inputVars, inputOpts);
+}
+exports.recordCallConsent = recordCallConsent;
+
+function withdrawCallConsent(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('WithdrawCallConsent', inputVars, inputOpts);
+}
+exports.withdrawCallConsent = withdrawCallConsent;
+
+function createCallRecording(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateCallRecording', inputVars, inputOpts);
+}
+exports.createCallRecording = createCallRecording;
+
+function createCallTranscript(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateCallTranscript', inputVars, inputOpts);
+}
+exports.createCallTranscript = createCallTranscript;
+
+function deleteCallRecording(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DeleteCallRecording', inputVars, inputOpts);
+}
+exports.deleteCallRecording = deleteCallRecording;
+
+function deleteCallTranscript(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DeleteCallTranscript', inputVars, inputOpts);
+}
+exports.deleteCallTranscript = deleteCallTranscript;
+
+function getCallRecordingFile(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetCallRecordingFile', inputVars, inputOpts);
+}
+exports.getCallRecordingFile = getCallRecordingFile;
+
+function getCallTranscriptFile(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetCallTranscriptFile', inputVars, inputOpts);
+}
+exports.getCallTranscriptFile = getCallTranscriptFile;
+
+function recordCallMediaAccess(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RecordCallMediaAccess', inputVars, inputOpts);
+}
+exports.recordCallMediaAccess = recordCallMediaAccess;
+
+function callMediaToRemove(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('CallMediaToRemove', inputVars, inputOpts);
+}
+exports.callMediaToRemove = callMediaToRemove;
+
+function expireCallRecording(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ExpireCallRecording', inputVars, inputOpts);
+}
+exports.expireCallRecording = expireCallRecording;
+
+function expireCallTranscript(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ExpireCallTranscript', inputVars, inputOpts);
+}
+exports.expireCallTranscript = expireCallTranscript;
+
+function markCallMediaFileDeleted(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('MarkCallMediaFileDeleted', inputVars, inputOpts);
+}
+exports.markCallMediaFileDeleted = markCallMediaFileDeleted;
+
+function deletedCallMediaFile(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('DeletedCallMediaFile', inputVars, inputOpts);
+}
+exports.deletedCallMediaFile = deletedCallMediaFile;
 
 function listCommunicationProviders(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);

@@ -1,0 +1,173 @@
+# Phase 6F.3: consent evidence, call recordings and transcripts
+# (docs/CALL_PRIVACY_COMPLIANCE.md#recording-transcripts-and-consent).
+# Recording needs the company's recording switch (with its notice and legal
+# basis) and consent evidence for the call. Files live in private storage
+# under paths EstateOS builds itself; rows pointing at them are created only by
+# the server (NO_ACCESS, with the requesting member re-checked here), so a
+# member can never make a record point at another file. Reads re-check that the
+# member may read the call.
+
+query GetCallMedia($organizationId: UUID!, $callId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  call: callRecord(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $callId}}, {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}}) @check(expr: "this != null", message: "CALL_NOT_FOUND") {id callStatus answeredAt durationSeconds agentMembershipId}
+  consents: callConsentEvidences(where: {organizationId: {eq: $organizationId}, callId: {eq: $callId}}, orderBy: [{capturedAt: ASC}, {id: ASC}], limit: 20) {
+    id status method purpose legalBasis noticeText note capturedAt capturedBy {displayName} withdrawnAt withdrawnBy {displayName} withdrawalNote
+  }
+  recordings: callRecordings(where: {organizationId: {eq: $organizationId}, callId: {eq: $callId}, status: {eq: STORED}}, orderBy: [{createdAt: ASC}], limit: 10) {
+    id source contentType byteSize durationSeconds recordedAt retentionUntil createdAt createdBy {displayName} consentEvidenceId
+  }
+  transcripts: callTranscripts(where: {organizationId: {eq: $organizationId}, callId: {eq: $callId}, status: {eq: STORED}}, orderBy: [{createdAt: ASC}], limit: 10) {
+    id source sourceName language segmentCount hasTimestamps generatedAt retentionUntil createdAt createdBy {displayName} consentEvidenceId
+  }
+  settings: communicationSettings(key: {organizationId: $organizationId}) {recordingEnabled recordingNoticeText recordingLegalBasis retentionDays aiAnalysisEnabled}
+}
+
+# The call's agent or an OWNER or ADMIN records the customer's notice or consent for an answered call.
+mutation RecordCallConsent($organizationId: UUID!, $id: UUID!, $callId: UUID!, $status: CallConsentStatus!, $method: String!, $note: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.status in ['NOTICE_GIVEN', 'GIVEN', 'DECLINED'] && vars.method in ['VERBAL_ON_CALL', 'ANNOUNCEMENT', 'WRITTEN'] && (!has(vars.note) || vars.note == null || vars.note.size() <= 500)") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact {
+    call: callRecord(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $callId}, callStatus: {in: [IN_PROGRESS, COMPLETED]}}, {_or: [
+      {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "this != null", message: "CALL_CHANGED_OR_FORBIDDEN") {id}
+    settings: communicationSettings(key: {organizationId: $organizationId}) @check(expr: "this != null && this.recordingEnabled && this.recordingNoticeText != null && this.recordingLegalBasis != null", message: "RECORDING_NOT_ENABLED") {recordingEnabled recordingNoticeText recordingLegalBasis}
+  }
+  consent: callConsentEvidence_insert(data: {organizationId: $organizationId, id: $id, callId: $callId, status: $status, method: $method,
+    purpose: "Recording and transcription of this call for service quality and record keeping", legalBasis_expr: "response.before.settings.recordingLegalBasis",
+    noticeText_expr: "response.before.settings.recordingNoticeText", note: $note, capturedByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_CONSENT_CHANGED, targetType: CALL_CONSENT, targetId: $id, metadata_expr: "{'event': 'RECORDED', 'status': vars.status, 'callId': vars.callId}"})
+}
+
+# Withdrawal deletes the recordings and transcripts that relied on this consent (their files are removed by the server).
+mutation WithdrawCallConsent($organizationId: UUID!, $id: UUID!, $note: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.note.size() >= 3 && vars.note.size() <= 500") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact {
+    consent: callConsentEvidence(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, status: {in: [NOTICE_GIVEN, GIVEN]}}, {call: {_or: [
+      {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}}]}}) @check(expr: "this != null", message: "CALL_CONSENT_NOT_FOUND") {id callId}
+  }
+  consent: callConsentEvidence_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {in: [NOTICE_GIVEN, GIVEN]}}}, data: {status: WITHDRAWN, withdrawnAt_expr: "request.time", withdrawnByUid_expr: "auth.uid", withdrawalNote: $note})
+    @check(expr: "this != null", message: "CALL_CONSENT_NOT_FOUND")
+  recordings: callRecording_updateMany(where: {organizationId: {eq: $organizationId}, consentEvidenceId: {eq: $id}, status: {eq: STORED}}, data: {status: DELETED, deletedAt_expr: "request.time", deletedByUid_expr: "auth.uid", deletionReason: "CONSENT_WITHDRAWN"})
+  transcripts: callTranscript_updateMany(where: {organizationId: {eq: $organizationId}, consentEvidenceId: {eq: $id}, status: {eq: STORED}}, data: {status: DELETED, deletedAt_expr: "request.time", deletedByUid_expr: "auth.uid", deletionReason: "CONSENT_WITHDRAWN"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_CONSENT_CHANGED, targetType: CALL_CONSENT, targetId: $id, metadata_expr: "{'event': 'WITHDRAWN', 'callId': response.before.consent.callId}"})
+}
+
+# Server only, after EstateOS stored the file under a path it built: the
+# requester must still be the call's agent or an OWNER or ADMIN, recording must
+# be enabled and the consent must be current and for this call.
+mutation CreateCallRecording($organizationId: UUID!, $id: UUID!, $callId: UUID!, $consentEvidenceId: UUID!, $actorUid: String!, $source: String!, $storagePath: String!, $contentType: String!,
+  $byteSize: Int!, $durationSeconds: Int!, $recordedAt: Timestamp!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+    call: callRecord(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $callId}, callStatus: {eq: COMPLETED}}, {_or: [
+      {agentMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "this != null", message: "CALL_CHANGED_OR_FORBIDDEN") {id}
+    consent: callConsentEvidence(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $consentEvidenceId}, callId: {eq: $callId}, status: {in: [NOTICE_GIVEN, GIVEN]}}}) @check(expr: "this != null", message: "CALL_CONSENT_REQUIRED") {id}
+    settings: communicationSettings(key: {organizationId: $organizationId}) @check(expr: "this != null && this.recordingEnabled", message: "RECORDING_NOT_ENABLED") {recordingEnabled retentionDays}
+  }
+  recording: callRecording_insert(data: {organizationId: $organizationId, id: $id, callId: $callId, consentEvidenceId: $consentEvidenceId, source: $source, storagePath: $storagePath, contentType: $contentType,
+    byteSize: $byteSize, durationSeconds: $durationSeconds, recordedAt: $recordedAt, retentionUntil_expr: "request.time + duration(string(response.before.settings.retentionDays * 86400) + 's')", createdByUid: $actorUid})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CALL_RECORDING_CHANGED, targetType: CALL_RECORDING, targetId: $id, metadata_expr: "{'event': 'STORED', 'callId': vars.callId, 'source': vars.source, 'durationSeconds': vars.durationSeconds}"})
+}
+
+mutation CreateCallTranscript($organizationId: UUID!, $id: UUID!, $callId: UUID!, $consentEvidenceId: UUID!, $actorUid: String!, $source: TranscriptSource!, $sourceName: String, $language: String!,
+  $transcriptReference: String!, $segmentCount: Int!, $hasTimestamps: Boolean!, $generatedAt: Timestamp!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+    call: callRecord(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $callId}, callStatus: {eq: COMPLETED}}, {_or: [
+      {agentMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "this != null", message: "CALL_CHANGED_OR_FORBIDDEN") {id}
+    consent: callConsentEvidence(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $consentEvidenceId}, callId: {eq: $callId}, status: {in: [NOTICE_GIVEN, GIVEN]}}}) @check(expr: "this != null", message: "CALL_CONSENT_REQUIRED") {id}
+    settings: communicationSettings(key: {organizationId: $organizationId}) @check(expr: "this != null && this.recordingEnabled", message: "RECORDING_NOT_ENABLED") {recordingEnabled retentionDays}
+  }
+  transcript: callTranscript_insert(data: {organizationId: $organizationId, id: $id, callId: $callId, consentEvidenceId: $consentEvidenceId, source: $source, sourceName: $sourceName, language: $language,
+    transcriptReference: $transcriptReference, segmentCount: $segmentCount, hasTimestamps: $hasTimestamps, generatedAt: $generatedAt,
+    retentionUntil_expr: "request.time + duration(string(response.before.settings.retentionDays * 86400) + 's')", createdByUid: $actorUid})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CALL_TRANSCRIPT_CHANGED, targetType: CALL_TRANSCRIPT, targetId: $id, metadata_expr: "{'event': 'STORED', 'callId': vars.callId, 'source': vars.source, 'segments': vars.segmentCount}"})
+}
+
+# OWNER or ADMIN deletes a recording or transcript; the server then removes the file.
+mutation DeleteCallRecording($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  recording: callRecording_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: STORED}}}, data: {status: DELETED, deletedAt_expr: "request.time", deletedByUid_expr: "auth.uid", deletionReason: "OWNER_OR_ADMIN"})
+    @check(expr: "this != null", message: "CALL_MEDIA_NOT_FOUND")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_RECORDING_CHANGED, targetType: CALL_RECORDING, targetId: $id, metadata_expr: "{'event': 'DELETED'}"})
+}
+
+mutation DeleteCallTranscript($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  transcript: callTranscript_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: STORED}}}, data: {status: DELETED, deletedAt_expr: "request.time", deletedByUid_expr: "auth.uid", deletionReason: "OWNER_OR_ADMIN"})
+    @check(expr: "this != null", message: "CALL_MEDIA_NOT_FOUND")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_TRANSCRIPT_CHANGED, targetType: CALL_TRANSCRIPT, targetId: $id, metadata_expr: "{'event': 'DELETED'}"})
+}
+
+# The stored file of a recording or transcript the member may read (the route streams it and audits the access).
+query GetCallRecordingFile($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+  recording: callRecording(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: STORED}}, {call: {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}}]}}) @check(expr: "this != null", message: "CALL_MEDIA_NOT_FOUND") {id callId storagePath contentType byteSize}
+}
+
+query GetCallTranscriptFile($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+  transcript: callTranscript(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: STORED}}, {call: {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}}]}}) @check(expr: "this != null", message: "CALL_MEDIA_NOT_FOUND") {id callId transcriptReference language source sourceName segmentCount hasTimestamps generatedAt}
+}
+
+# Server only: who opened a recording or transcript.
+mutation RecordCallMediaAccess($organizationId: UUID!, $actorUid: String!, $targetType: AuditTargetType!, $targetId: UUID!) @auth(level: NO_ACCESS) {
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CALL_MEDIA_ACCESSED, targetType: $targetType, targetId: $targetId})
+}
+
+# --- Retention and file removal (server only, on the worker tick) -------------------------------
+
+query CallMediaToRemove($now: Timestamp!, $limit: Int!) @auth(level: NO_ACCESS) {
+  expiredRecordings: callRecordings(where: {status: {eq: STORED}, retentionUntil: {lt: $now}}, orderBy: [{retentionUntil: ASC}], limit: $limit) {organizationId id storagePath}
+  expiredTranscripts: callTranscripts(where: {status: {eq: STORED}, retentionUntil: {lt: $now}}, orderBy: [{retentionUntil: ASC}], limit: $limit) {organizationId id transcriptReference}
+  deletedRecordings: callRecordings(where: {status: {eq: DELETED}, fileDeletedAt: {isNull: true}}, limit: $limit) {organizationId id storagePath}
+  deletedTranscripts: callTranscripts(where: {status: {eq: DELETED}, fileDeletedAt: {isNull: true}}, limit: $limit) {organizationId id transcriptReference}
+}
+
+mutation ExpireCallRecording($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) @transaction {
+  recording: callRecording_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: STORED}, retentionUntil: {lt_expr: "request.time"}}}, data: {status: DELETED, deletedAt_expr: "request.time", deletionReason: "RETENTION"})
+    @check(expr: "this != null", message: "CALL_MEDIA_NOT_FOUND")
+}
+
+mutation ExpireCallTranscript($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) @transaction {
+  transcript: callTranscript_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: STORED}, retentionUntil: {lt_expr: "request.time"}}}, data: {status: DELETED, deletedAt_expr: "request.time", deletionReason: "RETENTION"})
+    @check(expr: "this != null", message: "CALL_MEDIA_NOT_FOUND")
+}
+
+mutation MarkCallMediaFileDeleted($organizationId: UUID!, $recordingId: UUID, $transcriptId: UUID, $isRecording: Boolean!) @auth(level: NO_ACCESS) {
+  callRecording_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $recordingId}, status: {eq: DELETED}}}, data: {fileDeletedAt_expr: "request.time"}) @include(if: $isRecording)
+  callTranscript_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $transcriptId}, status: {eq: DELETED}}}, data: {fileDeletedAt_expr: "request.time"}) @skip(if: $isRecording)
+}
+
+# Server only: the stored path of a deleted recording or transcript, to remove its file straight away.
+query DeletedCallMediaFile($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  recording: callRecording(key: {organizationId: $organizationId, id: $id}) {storagePath status}
+  transcript: callTranscript(key: {organizationId: $organizationId, id: $id}) {transcriptReference status}
+}

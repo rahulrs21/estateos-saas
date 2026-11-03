@@ -6,6 +6,9 @@
 mutation ResetEstateOSWebsites @transaction {
   # Phase 6F communication records reference leads, contacts, follow-ups, viewings and memberships.
   callProviderEvent_deleteMany(all: true)
+  callTranscript_deleteMany(all: true)
+  callRecording_deleteMany(all: true)
+  callConsentEvidence_deleteMany(all: true)
   callRecord_deleteMany(all: true)
   communicationPhoneLine_deleteMany(all: true)
   communicationProviderConnection_deleteMany(all: true)

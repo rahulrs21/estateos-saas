@@ -51,7 +51,7 @@ Local days and times use the company timezone (default Asia/Dubai). An opt-out a
 | Marketing calls per day | 1 | 0-1 |
 | Unanswered marketing calls per week | 2 | 0-2 |
 | Allowed calling codes | 971 | Up to 10 codes |
-| Recording | Off | Needs a notice of at least 20 characters and a legal basis |
+| Recording (uploads of recordings and transcripts) | Off | Needs a notice of at least 20 characters and a legal basis |
 | Retention | 90 days | 1-3650 days |
 | Claude analysis | Off | — |
 | Live calling confirmation | None | Given or withdrawn only by its own operations (owners and administrators, audited), never by saving settings |
@@ -72,14 +72,47 @@ Outcome suppressions are written in the same database transaction as the call or
 
 **EstateOS does not query the TDRA DNCR.** No integration exists. Agencies must check the registry through their approved process and record listed numbers here.
 
-## Recording, transcripts and Claude analysis
+## Recording, transcripts and consent
 
-Not available in 6F.1: no call is recorded, transcribed or sent to Claude. The panel says "Calls are not recorded". 6F.3 and 6F.4 add consent evidence and separate gates for each.
+**EstateOS never records or transcribes calls itself.** Agents may add a recording or transcript that the company's approved phone or transcription service produced, and only when all of these hold (checked on the server, and again by the database):
+
+1. **Company switch.** An owner or administrator enabled recording in Calling settings, with the notice read to callers (at least 20 characters) and the legal basis. Off by default.
+2. **Answered call.** The call was answered, and the member is its agent or an owner or administrator.
+3. **Consent evidence.** The call has current evidence (`CallConsentEvidence`) that the customer was told about the recording (*notice given*) or agreed (*consent given*). It records:
+   - the method (said on the call, recorded announcement, in writing) and an optional note;
+   - who captured it and when;
+   - **copies of the company's notice text and legal basis at that moment**, so later settings changes do not rewrite the evidence.
+
+   *Declined* is recorded too, and allows no recording.
+4. **The file checks out.**
+   - Recordings must be WAV (PCM) or MP3, recognised by their contents, up to 30 MB and 4 hours, and no longer than the call plus 2 minutes.
+   - Transcripts must be WebVTT, SRT or plain text up to 1 MB and 5,000 lines. They are parsed into timestamped segments with speakers, and markup is removed.
+
+How they are kept:
+- **Private storage.** Files go to private storage under `organizations/{company}/communications/calls/{call}/…`, on paths EstateOS builds. The database rows pointing at them are created only by the server, which re-checks the member, the consent and the switch, so no member can make a record point at another file. Storage rules deny all browser access.
+- **No public URLs.** Recordings stream from `/api/communications/recordings/{id}/content` and transcripts from `/api/communications/transcripts/{id}/content`, only to members who may read the call (`private, no-store`, sandboxed). **Every opening is audited** (`CALL_MEDIA_ACCESSED`). A guessed ID from another company or outside the member's access returns not-found.
+- **Labelling.** Transcripts are labelled as possibly containing errors, with the language **detected** as English, Arabic or mixed (an estimate shown as such).
+- **Deletion.**
+  - Owners and administrators can delete a recording or transcript.
+  - **Withdrawing the consent** (by the call's agent or an owner or administrator, with what the customer said) deletes every recording and transcript that relied on it, and their files, in the same step. The evidence itself is kept, marked withdrawn.
+
+### Retention
+
+Each recording and transcript is deleted automatically after the company's retention period (default 90 days, set in Calling settings) from when it was added. The automation worker tick does this in small batches, as an expiry followed by file removal, and also removes any file whose deletion was interrupted. Rows are kept as deletion evidence (when, why, by whom); files are not.
+
+### Provider recordings and transcripts
+
+EstateOS's own call flows never ask a provider to record. Provider recording and transcript events (Twilio recording callbacks, Retell transcripts) are kept as received events marked *not eligible*; nothing is downloaded. Automatic ingestion needs the provider set-up, notice playback and legal review first.
+
+### Claude analysis
+
+Not available yet (Phase 6F.4 adds it behind its own company switch).
 
 ## Audit evidence
 
 The audit log records:
 - every logged call (type, status, source);
+- consent evidence recorded and withdrawn; recordings and transcripts added, deleted and **opened**;
 - every outcome change (old and new);
 - every suppression added or withdrawn (with the call that caused it);
 - every settings change (with the switches that widen what EstateOS may do).

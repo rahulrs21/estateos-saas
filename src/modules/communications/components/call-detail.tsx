@@ -13,6 +13,7 @@ import { isFinal } from "../call-state";
 import { communicationsGet, communicationsSend, errorMessage, formatDuration } from "../client";
 import { CALL_DIRECTION_LABELS, CALL_OUTCOME_LABELS, CALL_STATUS_LABELS, CALL_TYPE_LABELS, type CallStatus } from "../model";
 import type { getCall } from "../server/calls";
+import { CallMediaPanel } from "./call-media-panel";
 import { EditCallDialog } from "./call-panel";
 
 type CallDetailView = Awaited<ReturnType<typeof getCall>>;
@@ -23,7 +24,7 @@ function Fact({label, children}: {label: string; children?: ReactNode}) {
 
 const RESULT_LABELS: Record<string, string> = {
   APPLIED: "Applied", NO_CHANGE: "No change (repeat)", FINAL: "Ignored: the call had already ended", OUT_OF_ORDER: "Ignored: arrived late",
-  NOT_ALLOWED: "Ignored: not a valid next state", UNMATCHED: "No matching call", DEFERRED: "Kept for a later feature", IGNORED: "Ignored", RECEIVED: "Received",
+  NOT_ALLOWED: "Ignored: not a valid next state", UNMATCHED: "No matching call", NOT_ELIGIBLE: "Not used: EstateOS does not take recordings or transcripts from providers", DEFERRED: "Not used", IGNORED: "Ignored", RECEIVED: "Received",
 };
 
 export function CallDetail({callId, organizationId}: {callId: string; organizationId: string}) {
@@ -74,8 +75,9 @@ export function CallDetail({callId, organizationId}: {callId: string; organizati
           <Fact label="Duration">{call.answered && call.durationSeconds > 0 ? formatDuration(call.durationSeconds) : null}</Fact>
           {call.line && <Fact label="Company line">{call.line.name ? `${call.line.name} (${call.line.number})` : call.line.number}</Fact>}
         </dl></CardContent></Card>
-        <Card className="gap-4 py-5 shadow-xs ring-border"><CardHeader className="px-5"><CardTitle role="heading" aria-level={2}>Notes</CardTitle><CardDescription>What the agent recorded. Calls are not recorded or transcribed.</CardDescription></CardHeader>
+        <Card className="gap-4 py-5 shadow-xs ring-border"><CardHeader className="px-5"><CardTitle role="heading" aria-level={2}>Notes</CardTitle><CardDescription>What the agent recorded.</CardDescription></CardHeader>
           <CardContent className="px-5">{call.notes ? <p className="whitespace-pre-wrap break-words text-sm leading-6">{call.notes}</p> : <p className="text-sm text-muted-foreground">No notes.</p>}</CardContent></Card>
+        <CallMediaPanel callId={call.id} organizationId={organizationId} />
         {call.events.length > 0 && <Card className="gap-4 py-5 shadow-xs ring-border"><CardHeader className="px-5"><CardTitle role="heading" aria-level={2}>Provider events</CardTitle><CardDescription>Signed status updates from the provider, in the order received. Repeats and late updates never change a call.</CardDescription></CardHeader>
           <CardContent className="px-5"><ol className="space-y-2">{call.events.map(event => <li key={event.id} className="flex flex-wrap items-center justify-between gap-2 border-b pb-2 text-sm last:border-0">
             <span>{event.callStatus ? CALL_STATUS_LABELS[event.callStatus as CallStatus] : event.eventType.toLowerCase()} <span className="text-xs text-muted-foreground">· {RESULT_LABELS[event.result] ?? event.result}</span></span>

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { isAnswered, isConversation, isMissed, transition } from "../src/modules/communications/call-state";
 import { DEFAULT_RULES, evaluateCall, localMoment, rulesFrom, type CallCheck, type PriorCall } from "../src/modules/communications/compliance";
 import { CALL_OUTCOMES, SUPPRESSING_OUTCOMES, parseCallingCodes, suppresses } from "../src/modules/communications/model";
+import { audioFacts, detectLanguage, parseTranscript, timestamp, TranscriptFormatError } from "../src/modules/communications/media";
 import { callTotals, outcomeCounts, totalsByAgent, type MetricCall } from "../src/modules/communications/metrics";
 import { destinationProblems, displayNumber, normalizeCallNumber, numbersOnRecord } from "../src/modules/communications/phone";
 
@@ -143,4 +144,60 @@ test("metrics keep attempts, answered calls, missed calls, conversations and out
   const agents = totalsByAgent(calls);
   assert.deepEqual(agents.map(row => [row.agentName, row.attempts, row.answered]), [["Agent A", 3, 2], ["Agent B", 1, 0]]);
   assert.equal(callTotals([]).averageAnsweredSeconds, null);
+});
+/** A silent PCM WAV of the given length (synthetic test recording). */
+function wav(seconds: number, sampleRate = 8000) {
+  const dataSize = seconds * sampleRate * 2;
+  const bytes = new Uint8Array(44 + dataSize);
+  const view = new DataView(bytes.buffer);
+  const text = (at: number, value: string) => [...value].forEach((char, index) => view.setUint8(at + index, char.charCodeAt(0)));
+  text(0, "RIFF"); view.setUint32(4, 36 + dataSize, true); text(8, "WAVE"); text(12, "fmt "); view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true); text(36, "data"); view.setUint32(40, dataSize, true);
+  return bytes;
+}
+/** MPEG-1 Layer III frames at 128 kbps, 44.1 kHz (417 bytes, 1152 samples each), optionally after an ID3 tag. */
+function mp3(frames: number, id3 = false) {
+  const tag = id3 ? [0x49, 0x44, 0x33, 3, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0] : [];
+  const bytes = new Uint8Array(tag.length + frames * 417);
+  bytes.set(tag);
+  for (let index = 0; index < frames; index++) bytes.set([0xff, 0xfb, 0x90, 0x64], tag.length + index * 417);
+  return bytes;
+}
+
+test("recordings are recognised by their contents with their real duration", () => {
+  assert.deepEqual(audioFacts(wav(3)), {contentType: "audio/wav", extension: "wav", durationSeconds: 3});
+  const facts = audioFacts(mp3(383));
+  assert.equal(facts?.contentType, "audio/mpeg");
+  assert.equal(facts?.durationSeconds, 10, "383 frames x 1152 samples / 44100 Hz");
+  assert.equal(audioFacts(mp3(383, true))?.durationSeconds, 10, "an ID3 tag is skipped");
+  assert.equal(audioFacts(new TextEncoder().encode("<html>not audio</html>".padEnd(100, " "))), null);
+  assert.equal(audioFacts(new Uint8Array([0x89, 0x50, 0x4e, 0x47, ...new Array(60).fill(0)])), null, "a PNG is not a recording");
+  const float = wav(1); new DataView(float.buffer).setUint16(20, 3, true);
+  assert.equal(audioFacts(float), null, "only PCM WAV");
+});
+
+test("transcripts from WebVTT, SRT and text become segments; markup is removed; limits apply", () => {
+  const vtt = parseTranscript("WEBVTT\n\n1\n00:00:01.000 --> 00:00:04.500\n<v Agent>Good morning, this is a synthetic call.\n\n00:00:05.000 --> 00:00:09.000\n<v Customer>I am looking for a <b>two-bedroom</b> apartment.\n");
+  assert.equal(vtt.format, "VTT");
+  assert.deepEqual(vtt.segments[0], {id: 1, startSeconds: 1, endSeconds: 4.5, speaker: "Agent", text: "Good morning, this is a synthetic call."});
+  assert.equal(vtt.segments[1].text, "I am looking for a two-bedroom apartment.");
+  const srt = parseTranscript("1\n00:00:01,000 --> 00:00:03,000\nCustomer: Budget around two million.\n\n2\n00:01:02,500 --> 00:01:05,000\nAgent: Noted.\n");
+  assert.equal(srt.format, "SRT");
+  assert.deepEqual([srt.segments[0].speaker, srt.segments[0].text, srt.segments[1].startSeconds], ["Customer", "Budget around two million.", 62.5]);
+  const plain = parseTranscript("Agent: Hello\n\nCustomer: مرحبا، أبحث عن شقة\n");
+  assert.equal(plain.hasTimestamps, false);
+  assert.equal(plain.segments[1].speaker, "Customer");
+  assert.throws(() => parseTranscript("WEBVTT\n\nno timings here\n"), TranscriptFormatError);
+  assert.throws(() => parseTranscript("   \n\n"), TranscriptFormatError);
+  assert.throws(() => parseTranscript("x".repeat(1024 * 1024 + 1)), TranscriptFormatError);
+  assert.equal(timestamp(62.5), "1:02");
+  assert.equal(timestamp(3725), "1:02:05");
+});
+
+test("language detection is an estimate between English, Arabic and mixed", () => {
+  assert.equal(detectLanguage("I am looking for a two bedroom apartment in Dubai Marina"), "en");
+  assert.equal(detectLanguage("أبحث عن شقة بغرفتي نوم في دبي مارينا قريبة من المترو"), "ar");
+  assert.equal(detectLanguage("I am looking for شقة بغرفتي نوم in Dubai Marina قريبة من المترو"), "mixed");
+  assert.equal(detectLanguage("ok 123"), "unknown");
 });
