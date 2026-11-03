@@ -262,12 +262,16 @@ Verified on 2026-11-02 (local and isolated emulators only; nothing deployed, no 
   - unique-constraint violations from SQL Connect were not recognized as duplicates;
   - IDs without hyphens were refused;
   - Claude steps read leads through the request instead of the executor;
-  - deciding an expired approval returned a generic conflict instead of `AUTOMATION_APPROVAL_EXPIRED`.
+  - deciding an expired approval returned a generic conflict instead of `AUTOMATION_APPROVAL_EXPIRED`;
+  - emulator starts failing with "Failed to make request to …/emulator/configure", because the larger schema made the binary slower to listen than the CLI waits (fixed with a startup-wait preload; see [LOCAL_DATABASE.md](LOCAL_DATABASE.md#what-caused-data-loss-before), item 6);
+  - the local `dev:local` database failing to migrate because of an earlier unfinished draft schema (fixed with append-only enums and a guarded one-time repair; item 8 of the same section).
+- **Local `dev:local` database:** repaired and migrated on 2026-11-02; queries and lead assignment work again.
+- **Re-run on 2026-11-02 after the startup fixes:** lint, tsc, build, `npm test` (504), `test:dataconnect` (347), `test:automations:e2e` (25) and `test:persistence` all pass.
 - **Not verified:**
   - live Claude workflow drafting and Claude steps (only the invalid-key path was run, to avoid API cost without your go-ahead);
   - the hosted Cloud Scheduler adapter (documented, not provisioned);
   - the hosted rollout of the additive schema and operations;
-  - your `dev:local` database, which needs `npm run db:backup`, an `AUTOMATION_WORKER_SECRET` in `.env.local`, and a restart of `npm run dev:local`;
+  - clicking through trigger and condition changes in the visual editor (the editor has them; the browser test covers templates, reordering, adding steps and saving);
   - waiting out real delays, expiries and due times: the tests move stored timestamps into the past instead.
 
 ## Next recommended work
