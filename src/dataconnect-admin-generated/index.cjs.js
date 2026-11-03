@@ -93,6 +93,10 @@ const ActivityKind = {
   AUTOMATION_EXECUTION_CHANGED: "AUTOMATION_EXECUTION_CHANGED",
   AUTOMATION_APPROVAL_CHANGED: "AUTOMATION_APPROVAL_CHANGED",
   WORK_TASK_CHANGED: "WORK_TASK_CHANGED",
+  CALL_LOGGED: "CALL_LOGGED",
+  CALL_UPDATED: "CALL_UPDATED",
+  COMMUNICATION_SETTINGS_UPDATED: "COMMUNICATION_SETTINGS_UPDATED",
+  COMMUNICATION_SUPPRESSION_CHANGED: "COMMUNICATION_SUPPRESSION_CHANGED",
 }
 exports.ActivityKind = ActivityKind;
 
@@ -220,6 +224,9 @@ const AuditTargetType = {
   AUTOMATION_EXECUTION: "AUTOMATION_EXECUTION",
   AUTOMATION_APPROVAL: "AUTOMATION_APPROVAL",
   WORK_TASK: "WORK_TASK",
+  CALL: "CALL",
+  COMMUNICATION_SETTINGS: "COMMUNICATION_SETTINGS",
+  COMMUNICATION_SUPPRESSION: "COMMUNICATION_SUPPRESSION",
 }
 exports.AuditTargetType = AuditTargetType;
 
@@ -295,6 +302,65 @@ const BuildingType = {
   OTHER: "OTHER",
 }
 exports.BuildingType = BuildingType;
+
+const CallDirection = {
+  OUTBOUND: "OUTBOUND",
+  INBOUND: "INBOUND",
+}
+exports.CallDirection = CallDirection;
+
+const CallOutcome = {
+  INTERESTED: "INTERESTED",
+  NOT_INTERESTED: "NOT_INTERESTED",
+  CALLBACK_REQUESTED: "CALLBACK_REQUESTED",
+  VIEWING_REQUESTED: "VIEWING_REQUESTED",
+  NO_DECISION: "NO_DECISION",
+  WRONG_NUMBER: "WRONG_NUMBER",
+  DO_NOT_CALL_REQUESTED: "DO_NOT_CALL_REQUESTED",
+  OFFER_REJECTED: "OFFER_REJECTED",
+}
+exports.CallOutcome = CallOutcome;
+
+const CallSource = {
+  MANUAL: "MANUAL",
+  PROVIDER: "PROVIDER",
+}
+exports.CallSource = CallSource;
+
+const CallStatus = {
+  INITIATED: "INITIATED",
+  RINGING: "RINGING",
+  IN_PROGRESS: "IN_PROGRESS",
+  COMPLETED: "COMPLETED",
+  FAILED: "FAILED",
+  BUSY: "BUSY",
+  NO_ANSWER: "NO_ANSWER",
+  CANCELLED: "CANCELLED",
+}
+exports.CallStatus = CallStatus;
+
+const CallType = {
+  SERVICE: "SERVICE",
+  FOLLOW_UP: "FOLLOW_UP",
+  MARKETING: "MARKETING",
+  INBOUND_ENQUIRY: "INBOUND_ENQUIRY",
+}
+exports.CallType = CallType;
+
+const CommunicationSuppressionReason = {
+  OPT_OUT: "OPT_OUT",
+  DNCR_LISTED: "DNCR_LISTED",
+  OFFER_REJECTED: "OFFER_REJECTED",
+  WRONG_NUMBER: "WRONG_NUMBER",
+  OTHER: "OTHER",
+}
+exports.CommunicationSuppressionReason = CommunicationSuppressionReason;
+
+const CommunicationSuppressionScope = {
+  ALL: "ALL",
+  MARKETING: "MARKETING",
+}
+exports.CommunicationSuppressionScope = CommunicationSuppressionScope;
 
 const CompanySize = {
   SOLO: "SOLO",
@@ -1376,6 +1442,104 @@ function listAutomationEventsForTarget(dcOrVarsOrOptions, varsOrOptions, options
   return dcInstance.executeQuery('ListAutomationEventsForTarget', inputVars, inputOpts);
 }
 exports.listAutomationEventsForTarget = listAutomationEventsForTarget;
+
+function logLeadCall(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('LogLeadCall', inputVars, inputOpts);
+}
+exports.logLeadCall = logLeadCall;
+
+function logContactCall(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('LogContactCall', inputVars, inputOpts);
+}
+exports.logContactCall = logContactCall;
+
+function updateCallRecord(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateCallRecord', inputVars, inputOpts);
+}
+exports.updateCallRecord = updateCallRecord;
+
+function linkCallFollowUp(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('LinkCallFollowUp', inputVars, inputOpts);
+}
+exports.linkCallFollowUp = linkCallFollowUp;
+
+function getCallRecord(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetCallRecord', inputVars, inputOpts);
+}
+exports.getCallRecord = getCallRecord;
+
+function listLeadCalls(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListLeadCalls', inputVars, inputOpts);
+}
+exports.listLeadCalls = listLeadCalls;
+
+function listContactCalls(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListContactCalls', inputVars, inputOpts);
+}
+exports.listContactCalls = listContactCalls;
+
+function callComplianceFacts(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('CallComplianceFacts', inputVars, inputOpts);
+}
+exports.callComplianceFacts = callComplianceFacts;
+
+function getCommunicationSettings(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetCommunicationSettings', inputVars, inputOpts);
+}
+exports.getCommunicationSettings = getCommunicationSettings;
+
+function createCommunicationSettings(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateCommunicationSettings', inputVars, inputOpts);
+}
+exports.createCommunicationSettings = createCommunicationSettings;
+
+function updateCommunicationSettings(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateCommunicationSettings', inputVars, inputOpts);
+}
+exports.updateCommunicationSettings = updateCommunicationSettings;
+
+function listCommunicationSuppressions(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListCommunicationSuppressions', inputVars, inputOpts);
+}
+exports.listCommunicationSuppressions = listCommunicationSuppressions;
+
+function addCommunicationSuppression(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AddCommunicationSuppression', inputVars, inputOpts);
+}
+exports.addCommunicationSuppression = addCommunicationSuppression;
+
+function withdrawCommunicationSuppression(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('WithdrawCommunicationSuppression', inputVars, inputOpts);
+}
+exports.withdrawCommunicationSuppression = withdrawCommunicationSuppression;
 
 function listPropertyMapPins(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);

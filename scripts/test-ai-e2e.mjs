@@ -21,8 +21,8 @@ import { firebaseCliCommand, root } from "./local-db-lib.mjs";
  */
 const live = process.env.AI_E2E_LIVE === "1";
 // `node scripts/test-ai-e2e.mjs content` runs the Phase 6B Content Studio suite and `sales` the Phase 6C sales
-// intelligence suite, `websites` the Phase 6D landing page builder suite and `automations` the Phase 6E workflow suite instead of the Copilot suite.
-const suite = {content: "ai-content-e2e.browser.mjs", sales: "ai-sales-e2e.browser.mjs", websites: "websites-e2e.browser.mjs", automations: "automations-e2e.browser.mjs"}[process.argv[2]] ?? "ai-e2e.browser.mjs";
+// intelligence suite, `websites` the Phase 6D landing page builder suite, `automations` the Phase 6E workflow suite and `communications` the Phase 6F communication hub suite instead of the Copilot suite.
+const suite = {content: "ai-content-e2e.browser.mjs", sales: "ai-sales-e2e.browser.mjs", websites: "websites-e2e.browser.mjs", automations: "automations-e2e.browser.mjs", communications: "communications-e2e.browser.mjs"}[process.argv[2]] ?? "ai-e2e.browser.mjs";
 const workspace = join(root, ".tmp", "ai-e2e");
 const ports = {auth: 19899, dataconnect: 19999, postgres: 19932, storage: 19998, hub: 19990, logging: 19991};
 for (const generated of ["dataconnect", "next", "screens", "browser-profile", "tests-started", "tsconfig.json", "storage.rules"]) {

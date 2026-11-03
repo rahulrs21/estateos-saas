@@ -100,6 +100,10 @@ export enum ActivityKind {
   AUTOMATION_EXECUTION_CHANGED = "AUTOMATION_EXECUTION_CHANGED",
   AUTOMATION_APPROVAL_CHANGED = "AUTOMATION_APPROVAL_CHANGED",
   WORK_TASK_CHANGED = "WORK_TASK_CHANGED",
+  CALL_LOGGED = "CALL_LOGGED",
+  CALL_UPDATED = "CALL_UPDATED",
+  COMMUNICATION_SETTINGS_UPDATED = "COMMUNICATION_SETTINGS_UPDATED",
+  COMMUNICATION_SUPPRESSION_CHANGED = "COMMUNICATION_SUPPRESSION_CHANGED",
 }
 export enum AgentAvailabilityStatus {
   AVAILABLE = "AVAILABLE",
@@ -203,6 +207,9 @@ export enum AuditTargetType {
   AUTOMATION_EXECUTION = "AUTOMATION_EXECUTION",
   AUTOMATION_APPROVAL = "AUTOMATION_APPROVAL",
   WORK_TASK = "WORK_TASK",
+  CALL = "CALL",
+  COMMUNICATION_SETTINGS = "COMMUNICATION_SETTINGS",
+  COMMUNICATION_SUPPRESSION = "COMMUNICATION_SUPPRESSION",
 }
 export enum AutomationApprovalStatus {
   PENDING = "PENDING",
@@ -262,6 +269,51 @@ export enum BuildingType {
   TOWNHOUSE = "TOWNHOUSE",
   VILLA = "VILLA",
   OTHER = "OTHER",
+}
+export enum CallDirection {
+  OUTBOUND = "OUTBOUND",
+  INBOUND = "INBOUND",
+}
+export enum CallOutcome {
+  INTERESTED = "INTERESTED",
+  NOT_INTERESTED = "NOT_INTERESTED",
+  CALLBACK_REQUESTED = "CALLBACK_REQUESTED",
+  VIEWING_REQUESTED = "VIEWING_REQUESTED",
+  NO_DECISION = "NO_DECISION",
+  WRONG_NUMBER = "WRONG_NUMBER",
+  DO_NOT_CALL_REQUESTED = "DO_NOT_CALL_REQUESTED",
+  OFFER_REJECTED = "OFFER_REJECTED",
+}
+export enum CallSource {
+  MANUAL = "MANUAL",
+  PROVIDER = "PROVIDER",
+}
+export enum CallStatus {
+  INITIATED = "INITIATED",
+  RINGING = "RINGING",
+  IN_PROGRESS = "IN_PROGRESS",
+  COMPLETED = "COMPLETED",
+  FAILED = "FAILED",
+  BUSY = "BUSY",
+  NO_ANSWER = "NO_ANSWER",
+  CANCELLED = "CANCELLED",
+}
+export enum CallType {
+  SERVICE = "SERVICE",
+  FOLLOW_UP = "FOLLOW_UP",
+  MARKETING = "MARKETING",
+  INBOUND_ENQUIRY = "INBOUND_ENQUIRY",
+}
+export enum CommunicationSuppressionReason {
+  OPT_OUT = "OPT_OUT",
+  DNCR_LISTED = "DNCR_LISTED",
+  OFFER_REJECTED = "OFFER_REJECTED",
+  WRONG_NUMBER = "WRONG_NUMBER",
+  OTHER = "OTHER",
+}
+export enum CommunicationSuppressionScope {
+  ALL = "ALL",
+  MARKETING = "MARKETING",
 }
 export enum CompanySize {
   SOLO = "SOLO",
@@ -647,6 +699,20 @@ export interface AddAiContentAlternativeVariables {
   validation: string;
   model: string;
   generatedAt: TimestampString;
+}
+
+export interface AddCommunicationSuppressionData {
+  suppression: CommunicationSuppression_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface AddCommunicationSuppressionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  normalizedNumber: string;
+  scope: CommunicationSuppressionScope;
+  reason: CommunicationSuppressionReason;
+  note?: string | null;
 }
 
 export interface AddGeneratedPageVersionData {
@@ -1347,6 +1413,56 @@ export interface Building_Key {
   __typename?: 'Building_Key';
 }
 
+export interface CallComplianceFactsData {
+  settings?: {
+    revision: number;
+    timeZone: string;
+    callingWindowStart: string;
+    callingWindowEnd: string;
+    maxCallsPerContactPerDay: number;
+    telemarketingEnabled: boolean;
+    telemarketingApprovalReference?: string | null;
+    marketingWindowStart: string;
+    marketingWindowEnd: string;
+    marketingMaxCallsPerDay: number;
+    marketingMaxUnansweredPerWeek: number;
+    allowedCallingCodes: string;
+    liveCallingAttestedAt?: TimestampString | null;
+    liveCallingAttestationVersion?: string | null;
+    maxConcurrentLiveCalls: number;
+    maxLiveCallsPerAgentPerDay: number;
+    recordingEnabled: boolean;
+    retentionDays: number;
+    aiAnalysisEnabled: boolean;
+  };
+  suppressions: ({
+    id: UUIDString;
+    scope: CommunicationSuppressionScope;
+    reason: CommunicationSuppressionReason;
+    createdAt: TimestampString;
+  })[];
+  calls: ({
+    id: UUIDString;
+    startedAt: TimestampString;
+    direction: CallDirection;
+    callType: CallType;
+    callStatus: CallStatus;
+    answeredAt?: TimestampString | null;
+  })[];
+}
+
+export interface CallComplianceFactsVariables {
+  organizationId: UUIDString;
+  number: string;
+  since: TimestampString;
+}
+
+export interface CallRecord_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'CallRecord_Key';
+}
+
 export interface ChangeLeadStatusData {
   lead?: Lead_Key | null;
   activity: Activity_Key;
@@ -1429,6 +1545,17 @@ export interface CloseAutomationApprovalVariables {
   resultStatus: string;
   resultErrorCode?: string | null;
   actorUid: string;
+}
+
+export interface CommunicationSettings_Key {
+  organizationId: UUIDString;
+  __typename?: 'CommunicationSettings_Key';
+}
+
+export interface CommunicationSuppression_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'CommunicationSuppression_Key';
 }
 
 export interface CompleteLeadFollowUpData {
@@ -1604,6 +1731,33 @@ export interface CreateBuildingVariables {
   handoverDate?: DateString | null;
   latitude?: number | null;
   longitude?: number | null;
+}
+
+export interface CreateCommunicationSettingsData {
+  settings: CommunicationSettings_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CreateCommunicationSettingsVariables {
+  organizationId: UUIDString;
+  timeZone: string;
+  callingWindowStart: string;
+  callingWindowEnd: string;
+  maxCallsPerContactPerDay: number;
+  telemarketingEnabled: boolean;
+  telemarketingApprovalReference?: string | null;
+  marketingWindowStart: string;
+  marketingWindowEnd: string;
+  marketingMaxCallsPerDay: number;
+  marketingMaxUnansweredPerWeek: number;
+  allowedCallingCodes: string;
+  maxConcurrentLiveCalls: number;
+  maxLiveCallsPerAgentPerDay: number;
+  recordingEnabled: boolean;
+  recordingNoticeText?: string | null;
+  recordingLegalBasis?: string | null;
+  retentionDays: number;
+  aiAnalysisEnabled: boolean;
 }
 
 export interface CreateContactData {
@@ -3035,6 +3189,112 @@ export interface GetBuildingData {
 export interface GetBuildingVariables {
   organizationId: UUIDString;
   id: UUIDString;
+}
+
+export interface GetCallRecordData {
+  me?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  call?: {
+    id: UUIDString;
+    leadId?: UUIDString | null;
+    contactId?: UUIDString | null;
+    agentMembershipId: UUIDString;
+    direction: CallDirection;
+    source: CallSource;
+    callType: CallType;
+    callStatus: CallStatus;
+    outcome?: CallOutcome | null;
+    callerNumber?: string | null;
+    recipientNumber?: string | null;
+    counterpartyNumber?: string | null;
+    startedAt: TimestampString;
+    answeredAt?: TimestampString | null;
+    endedAt?: TimestampString | null;
+    durationSeconds: number;
+    notes?: string | null;
+    followUpRequired: boolean;
+    followUpId?: UUIDString | null;
+    viewingId?: UUIDString | null;
+    revision: number;
+    createdAt: TimestampString;
+    updatedAt: TimestampString;
+    lead?: {
+      id: UUIDString;
+      fullName: string;
+      status: LeadStatus;
+      assignedMembershipId?: UUIDString | null;
+    };
+    contact?: {
+      id: UUIDString;
+      fullName: string;
+    };
+    agentMembership: {
+      id: UUIDString;
+      email: string;
+      userProfile?: {
+        displayName: string;
+      };
+    };
+    followUp?: {
+      id: UUIDString;
+      title: string;
+      dueAt: TimestampString;
+      status: LeadFollowUpStatus;
+    };
+    viewing?: {
+      id: UUIDString;
+      scheduledAt: TimestampString;
+      status: LeadPropertyViewingStatus;
+    };
+  };
+}
+
+export interface GetCallRecordVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface GetCommunicationSettingsData {
+  me?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  settings?: {
+    revision: number;
+    timeZone: string;
+    callingWindowStart: string;
+    callingWindowEnd: string;
+    maxCallsPerContactPerDay: number;
+    telemarketingEnabled: boolean;
+    telemarketingApprovalReference?: string | null;
+    marketingWindowStart: string;
+    marketingWindowEnd: string;
+    marketingMaxCallsPerDay: number;
+    marketingMaxUnansweredPerWeek: number;
+    allowedCallingCodes: string;
+    liveCallingAttestedAt?: TimestampString | null;
+    liveCallingAttestationVersion?: string | null;
+    liveCallingAttestedBy?: {
+      displayName: string;
+    };
+    maxConcurrentLiveCalls: number;
+    maxLiveCallsPerAgentPerDay: number;
+    recordingEnabled: boolean;
+    recordingNoticeText?: string | null;
+    recordingLegalBasis?: string | null;
+    retentionDays: number;
+    aiAnalysisEnabled: boolean;
+    updatedAt: TimestampString;
+    updatedBy?: {
+      displayName: string;
+    };
+  };
+}
+
+export interface GetCommunicationSettingsVariables {
+  organizationId: UUIDString;
 }
 
 export interface GetContactData {
@@ -4711,6 +4971,16 @@ export interface Lead_Key {
   __typename?: 'Lead_Key';
 }
 
+export interface LinkCallFollowUpData {
+  call?: CallRecord_Key | null;
+}
+
+export interface LinkCallFollowUpVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  followUpId: UUIDString;
+}
+
 export interface ListActiveInventoryAgentsData {
   memberships: ({
     id: UUIDString;
@@ -5447,6 +5717,110 @@ export interface ListBuildingsVariables {
   search?: string | null;
 }
 
+export interface ListCommunicationSuppressionsData {
+  admin?: {
+    id: UUIDString;
+  };
+  active: ({
+    id: UUIDString;
+    normalizedNumber: string;
+    scope: CommunicationSuppressionScope;
+    reason: CommunicationSuppressionReason;
+    source: string;
+    note?: string | null;
+    callId?: UUIDString | null;
+    createdAt: TimestampString;
+    createdBy: {
+      displayName: string;
+    };
+  })[];
+  withdrawn: ({
+    id: UUIDString;
+    normalizedNumber: string;
+    scope: CommunicationSuppressionScope;
+    reason: CommunicationSuppressionReason;
+    source: string;
+    createdAt: TimestampString;
+    withdrawnAt?: TimestampString | null;
+    withdrawalReason?: string | null;
+    withdrawnBy?: {
+      displayName: string;
+    };
+  })[];
+}
+
+export interface ListCommunicationSuppressionsVariables {
+  organizationId: UUIDString;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListContactCallsData {
+  me?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  contact?: {
+    id: UUIDString;
+    fullName: string;
+    phone?: string | null;
+    normalizedPhone?: string | null;
+    alternatePhone?: string | null;
+    normalizedAlternatePhone?: string | null;
+  };
+  calls: ({
+    id: UUIDString;
+    leadId?: UUIDString | null;
+    direction: CallDirection;
+    source: CallSource;
+    callType: CallType;
+    callStatus: CallStatus;
+    outcome?: CallOutcome | null;
+    counterpartyNumber?: string | null;
+    startedAt: TimestampString;
+    answeredAt?: TimestampString | null;
+    durationSeconds: number;
+    notes?: string | null;
+    followUpRequired: boolean;
+    followUpId?: UUIDString | null;
+    viewingId?: UUIDString | null;
+    revision: number;
+    agentMembershipId: UUIDString;
+    agentMembership: {
+      id: UUIDString;
+      email: string;
+      userProfile?: {
+        displayName: string;
+      };
+    };
+    lead?: {
+      id: UUIDString;
+      fullName: string;
+    };
+    followUp?: {
+      id: UUIDString;
+      title: string;
+      dueAt: TimestampString;
+      status: LeadFollowUpStatus;
+    };
+    viewing?: {
+      id: UUIDString;
+      scheduledAt: TimestampString;
+      status: LeadPropertyViewingStatus;
+    };
+  })[];
+  total: ({
+    count: number;
+  })[];
+}
+
+export interface ListContactCallsVariables {
+  organizationId: UUIDString;
+  contactId: UUIDString;
+  limit?: number;
+  offset?: number;
+}
+
 export interface ListDevelopersData {
   developers: ({
     id: UUIDString;
@@ -5677,6 +6051,83 @@ export interface ListLeadAssigneesData {
 
 export interface ListLeadAssigneesVariables {
   organizationId: UUIDString;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListLeadCallsData {
+  me?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  lead?: {
+    id: UUIDString;
+    fullName: string;
+    phone?: string | null;
+    archivedAt?: TimestampString | null;
+    assignedMembershipId?: UUIDString | null;
+    contactId?: UUIDString | null;
+    contact?: {
+      id: UUIDString;
+      fullName: string;
+      phone?: string | null;
+      normalizedPhone?: string | null;
+      alternatePhone?: string | null;
+      normalizedAlternatePhone?: string | null;
+    };
+  };
+  calls: ({
+    id: UUIDString;
+    direction: CallDirection;
+    source: CallSource;
+    callType: CallType;
+    callStatus: CallStatus;
+    outcome?: CallOutcome | null;
+    counterpartyNumber?: string | null;
+    startedAt: TimestampString;
+    answeredAt?: TimestampString | null;
+    durationSeconds: number;
+    notes?: string | null;
+    followUpRequired: boolean;
+    followUpId?: UUIDString | null;
+    viewingId?: UUIDString | null;
+    revision: number;
+    agentMembershipId: UUIDString;
+    agentMembership: {
+      id: UUIDString;
+      email: string;
+      userProfile?: {
+        displayName: string;
+      };
+    };
+    followUp?: {
+      id: UUIDString;
+      title: string;
+      dueAt: TimestampString;
+      status: LeadFollowUpStatus;
+    };
+    viewing?: {
+      id: UUIDString;
+      scheduledAt: TimestampString;
+      status: LeadPropertyViewingStatus;
+    };
+  })[];
+  total: ({
+    count: number;
+  })[];
+  lastAnswered: ({
+    startedAt: TimestampString;
+  })[];
+  viewings: ({
+    id: UUIDString;
+    scheduledAt: TimestampString;
+    status: LeadPropertyViewingStatus;
+  })[];
+}
+
+export interface ListLeadCallsVariables {
+  organizationId: UUIDString;
+  leadId: UUIDString;
   limit?: number;
   offset?: number;
 }
@@ -7497,6 +7948,57 @@ export interface ListingStatusCountsVariables {
   organizationId: UUIDString;
 }
 
+export interface LogContactCallData {
+  call: CallRecord_Key;
+  auditLog_insert: AuditLog_Key;
+  suppression: CommunicationSuppression_Key;
+  suppressionAudit: AuditLog_Key;
+}
+
+export interface LogContactCallVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  contactId: UUIDString;
+  direction: CallDirection;
+  callType: CallType;
+  callStatus: CallStatus;
+  outcome?: CallOutcome | null;
+  startedAt: TimestampString;
+  durationSeconds: number;
+  notes?: string | null;
+  counterpartyNumber?: string | null;
+  followUpRequired: boolean;
+  suppress: boolean;
+  suppressionId: UUIDString;
+}
+
+export interface LogLeadCallData {
+  call: CallRecord_Key;
+  activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
+  suppression: CommunicationSuppression_Key;
+  suppressionAudit: AuditLog_Key;
+}
+
+export interface LogLeadCallVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  leadId: UUIDString;
+  direction: CallDirection;
+  callType: CallType;
+  callStatus: CallStatus;
+  outcome?: CallOutcome | null;
+  startedAt: TimestampString;
+  durationSeconds: number;
+  notes?: string | null;
+  counterpartyNumber?: string | null;
+  followUpRequired: boolean;
+  hasViewing: boolean;
+  viewingId?: UUIDString | null;
+  suppress: boolean;
+  suppressionId: UUIDString;
+}
+
 export interface MarkAutomationScanData {
   automationOrgState_update?: AutomationOrgState_Key | null;
 }
@@ -8791,6 +9293,53 @@ export interface UpdateBuildingVariables {
   longitude?: number | null;
 }
 
+export interface UpdateCallRecordData {
+  call?: CallRecord_Key | null;
+  activity_insert: Activity_Key;
+  auditLog_insert: AuditLog_Key;
+  suppression: CommunicationSuppression_Key;
+  suppressionAudit: AuditLog_Key;
+}
+
+export interface UpdateCallRecordVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  outcome?: CallOutcome | null;
+  notes?: string | null;
+  followUpRequired: boolean;
+  suppress: boolean;
+  suppressionId: UUIDString;
+}
+
+export interface UpdateCommunicationSettingsData {
+  settings?: CommunicationSettings_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface UpdateCommunicationSettingsVariables {
+  organizationId: UUIDString;
+  expectedRevision: number;
+  timeZone: string;
+  callingWindowStart: string;
+  callingWindowEnd: string;
+  maxCallsPerContactPerDay: number;
+  telemarketingEnabled: boolean;
+  telemarketingApprovalReference?: string | null;
+  marketingWindowStart: string;
+  marketingWindowEnd: string;
+  marketingMaxCallsPerDay: number;
+  marketingMaxUnansweredPerWeek: number;
+  allowedCallingCodes: string;
+  maxConcurrentLiveCalls: number;
+  maxLiveCallsPerAgentPerDay: number;
+  recordingEnabled: boolean;
+  recordingNoticeText?: string | null;
+  recordingLegalBasis?: string | null;
+  retentionDays: number;
+  aiAnalysisEnabled: boolean;
+}
+
 export interface UpdateContactData {
   contact?: Contact_Key | null;
   lead_updateMany: number;
@@ -9254,6 +9803,17 @@ export interface Website_Key {
   __typename?: 'Website_Key';
 }
 
+export interface WithdrawCommunicationSuppressionData {
+  suppression?: CommunicationSuppression_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface WithdrawCommunicationSuppressionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  reason: string;
+}
+
 export interface WorkTask_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -9709,6 +10269,76 @@ export function automationExecutorProfile(vars: AutomationExecutorProfileVariabl
 export function listAutomationEventsForTarget(dc: DataConnect, vars: ListAutomationEventsForTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationEventsForTargetData>>;
 /** Generated Node Admin SDK operation action function for the 'ListAutomationEventsForTarget' Query. Allow users to pass in custom DataConnect instances. */
 export function listAutomationEventsForTarget(vars: ListAutomationEventsForTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationEventsForTargetData>>;
+
+/** Generated Node Admin SDK operation action function for the 'LogLeadCall' Mutation. Allow users to execute without passing in DataConnect. */
+export function logLeadCall(dc: DataConnect, vars: LogLeadCallVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LogLeadCallData>>;
+/** Generated Node Admin SDK operation action function for the 'LogLeadCall' Mutation. Allow users to pass in custom DataConnect instances. */
+export function logLeadCall(vars: LogLeadCallVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LogLeadCallData>>;
+
+/** Generated Node Admin SDK operation action function for the 'LogContactCall' Mutation. Allow users to execute without passing in DataConnect. */
+export function logContactCall(dc: DataConnect, vars: LogContactCallVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LogContactCallData>>;
+/** Generated Node Admin SDK operation action function for the 'LogContactCall' Mutation. Allow users to pass in custom DataConnect instances. */
+export function logContactCall(vars: LogContactCallVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LogContactCallData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateCallRecord' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateCallRecord(dc: DataConnect, vars: UpdateCallRecordVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateCallRecordData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateCallRecord' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateCallRecord(vars: UpdateCallRecordVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateCallRecordData>>;
+
+/** Generated Node Admin SDK operation action function for the 'LinkCallFollowUp' Mutation. Allow users to execute without passing in DataConnect. */
+export function linkCallFollowUp(dc: DataConnect, vars: LinkCallFollowUpVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LinkCallFollowUpData>>;
+/** Generated Node Admin SDK operation action function for the 'LinkCallFollowUp' Mutation. Allow users to pass in custom DataConnect instances. */
+export function linkCallFollowUp(vars: LinkCallFollowUpVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LinkCallFollowUpData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetCallRecord' Query. Allow users to execute without passing in DataConnect. */
+export function getCallRecord(dc: DataConnect, vars: GetCallRecordVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCallRecordData>>;
+/** Generated Node Admin SDK operation action function for the 'GetCallRecord' Query. Allow users to pass in custom DataConnect instances. */
+export function getCallRecord(vars: GetCallRecordVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCallRecordData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListLeadCalls' Query. Allow users to execute without passing in DataConnect. */
+export function listLeadCalls(dc: DataConnect, vars: ListLeadCallsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListLeadCallsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListLeadCalls' Query. Allow users to pass in custom DataConnect instances. */
+export function listLeadCalls(vars: ListLeadCallsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListLeadCallsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListContactCalls' Query. Allow users to execute without passing in DataConnect. */
+export function listContactCalls(dc: DataConnect, vars: ListContactCallsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListContactCallsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListContactCalls' Query. Allow users to pass in custom DataConnect instances. */
+export function listContactCalls(vars: ListContactCallsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListContactCallsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CallComplianceFacts' Query. Allow users to execute without passing in DataConnect. */
+export function callComplianceFacts(dc: DataConnect, vars: CallComplianceFactsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CallComplianceFactsData>>;
+/** Generated Node Admin SDK operation action function for the 'CallComplianceFacts' Query. Allow users to pass in custom DataConnect instances. */
+export function callComplianceFacts(vars: CallComplianceFactsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CallComplianceFactsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetCommunicationSettings' Query. Allow users to execute without passing in DataConnect. */
+export function getCommunicationSettings(dc: DataConnect, vars: GetCommunicationSettingsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCommunicationSettingsData>>;
+/** Generated Node Admin SDK operation action function for the 'GetCommunicationSettings' Query. Allow users to pass in custom DataConnect instances. */
+export function getCommunicationSettings(vars: GetCommunicationSettingsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCommunicationSettingsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateCommunicationSettings' Mutation. Allow users to execute without passing in DataConnect. */
+export function createCommunicationSettings(dc: DataConnect, vars: CreateCommunicationSettingsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateCommunicationSettingsData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateCommunicationSettings' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createCommunicationSettings(vars: CreateCommunicationSettingsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateCommunicationSettingsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateCommunicationSettings' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateCommunicationSettings(dc: DataConnect, vars: UpdateCommunicationSettingsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateCommunicationSettingsData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateCommunicationSettings' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateCommunicationSettings(vars: UpdateCommunicationSettingsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateCommunicationSettingsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListCommunicationSuppressions' Query. Allow users to execute without passing in DataConnect. */
+export function listCommunicationSuppressions(dc: DataConnect, vars: ListCommunicationSuppressionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListCommunicationSuppressionsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListCommunicationSuppressions' Query. Allow users to pass in custom DataConnect instances. */
+export function listCommunicationSuppressions(vars: ListCommunicationSuppressionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListCommunicationSuppressionsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AddCommunicationSuppression' Mutation. Allow users to execute without passing in DataConnect. */
+export function addCommunicationSuppression(dc: DataConnect, vars: AddCommunicationSuppressionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AddCommunicationSuppressionData>>;
+/** Generated Node Admin SDK operation action function for the 'AddCommunicationSuppression' Mutation. Allow users to pass in custom DataConnect instances. */
+export function addCommunicationSuppression(vars: AddCommunicationSuppressionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AddCommunicationSuppressionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'WithdrawCommunicationSuppression' Mutation. Allow users to execute without passing in DataConnect. */
+export function withdrawCommunicationSuppression(dc: DataConnect, vars: WithdrawCommunicationSuppressionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<WithdrawCommunicationSuppressionData>>;
+/** Generated Node Admin SDK operation action function for the 'WithdrawCommunicationSuppression' Mutation. Allow users to pass in custom DataConnect instances. */
+export function withdrawCommunicationSuppression(vars: WithdrawCommunicationSuppressionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<WithdrawCommunicationSuppressionData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListPropertyMapPins' Query. Allow users to execute without passing in DataConnect. */
 export function listPropertyMapPins(dc: DataConnect, vars: ListPropertyMapPinsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListPropertyMapPinsData>>;

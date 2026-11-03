@@ -1,0 +1,253 @@
+# Phase 6F communication hub (docs/COMMUNICATION_HUB.md). Every member
+# operation re-checks the caller's ACTIVE membership in the company.
+# Call access: OWNERs and ADMINs see the company's calls; other members see
+# calls they handled and calls on leads assigned to them (there is no verified
+# team or branch scope; docs/PERMISSIONS.md). Operations marked NO_ACCESS are
+# server-only: EstateOS calls them with the company it resolved itself.
+
+# --- Calls --------------------------------------------------------------------
+
+# A call the agent made or took outside EstateOS (an approved external phone
+# service), logged afterwards. Never blocked for compliance: the server reports
+# compliance warnings instead, so agents always record what happened. The
+# customer's number must be the lead's or contact's number on record. An
+# outcome of do-not-call, offer rejected or wrong number adds a suppression in
+# the same transaction.
+mutation LogLeadCall($organizationId: UUID!, $id: UUID!, $leadId: UUID!, $direction: CallDirection!, $callType: CallType!, $callStatus: CallStatus!, $outcome: CallOutcome,
+  $startedAt: Timestamp!, $durationSeconds: Int!, $notes: String, $counterpartyNumber: String, $followUpRequired: Boolean!, $hasViewing: Boolean!, $viewingId: UUID,
+  $suppress: Boolean!, $suppressionId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.callStatus in ['COMPLETED', 'NO_ANSWER', 'BUSY', 'FAILED', 'CANCELLED'] && (vars.callStatus == 'COMPLETED' || !has(vars.outcome) || vars.outcome == null) && vars.durationSeconds >= 0 && vars.durationSeconds <= 14400 && (vars.callStatus == 'COMPLETED' || vars.durationSeconds == 0) && timestamp(vars.startedAt) <= request.time + duration('300s') && timestamp(vars.startedAt) >= request.time - duration('2592000s') && (!has(vars.notes) || vars.notes == null || vars.notes.size() <= 4000) && (!has(vars.counterpartyNumber) || vars.counterpartyNumber == null || vars.counterpartyNumber.matches('^[+][1-9][0-9]{6,14}$')) && vars.hasViewing == (has(vars.viewingId) && vars.viewingId != null) && vars.suppress == (has(vars.outcome) && vars.outcome != null && vars.outcome in ['DO_NOT_CALL_REQUESTED', 'OFFER_REJECTED', 'WRONG_NUMBER'] && has(vars.counterpartyNumber) && vars.counterpartyNumber != null)") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact @check(expr: "this.lead == null || !has(vars.counterpartyNumber) || vars.counterpartyNumber == null || (this.lead.contact != null ? (this.lead.contact.normalizedPhone == vars.counterpartyNumber || this.lead.contact.normalizedAlternatePhone == vars.counterpartyNumber) : this.lead.phone != null)", message: "CALL_NUMBER_NOT_ON_RECORD") {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+    lead: lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}, {_or: [
+      {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN") {id contactId phone contact {normalizedPhone normalizedAlternatePhone}}
+  }
+  # Checked on the block: a check on a field skipped by @include is never invoked and would deny.
+  viewingCheck: query @redact @check(expr: "!vars.hasViewing || (has(this.viewing) && this.viewing != null)", message: "CALL_VIEWING_NOT_FOUND") {
+    viewing: leadPropertyViewing(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $viewingId}, leadId: {eq: $leadId}}}) @include(if: $hasViewing) {id}
+  }
+  call: callRecord_insert(data: {organizationId: $organizationId, id: $id, leadId: $leadId, contactId_expr: "response.before.lead.contactId", agentMembershipId_expr: "response.before.actor.id",
+    direction: $direction, source: MANUAL, callType: $callType, callStatus: $callStatus, outcome: $outcome, counterpartyNumber: $counterpartyNumber,
+    recipientNumber_expr: "vars.direction == 'OUTBOUND' ? vars.counterpartyNumber : null", callerNumber_expr: "vars.direction == 'INBOUND' ? vars.counterpartyNumber : null",
+    startedAt: $startedAt, answeredAt_expr: "vars.callStatus == 'COMPLETED' ? vars.startedAt : null", endedAt_expr: "timestamp(vars.startedAt) + duration(string(vars.durationSeconds) + 's')",
+    durationSeconds: $durationSeconds, notes: $notes, followUpRequired: $followUpRequired, viewingId: $viewingId, createdByUid_expr: "auth.uid", updatedByUid_expr: "auth.uid"})
+  activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: CALL_LOGGED, leadId: $leadId, targetId: $id,
+    metadata_expr: "{'callId': vars.id, 'direction': vars.direction, 'callType': vars.callType, 'callStatus': vars.callStatus, 'outcome': has(vars.outcome) ? vars.outcome : null, 'durationSeconds': vars.durationSeconds, 'source': 'MANUAL'}"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_LOGGED, targetType: CALL, targetId: $id, metadata_expr: "{'leadId': vars.leadId, 'callType': vars.callType, 'callStatus': vars.callStatus, 'source': 'MANUAL'}"})
+  suppression: communicationSuppression_insert(data: {organizationId: $organizationId, id: $suppressionId, normalizedNumber_expr: "vars.counterpartyNumber != null ? vars.counterpartyNumber : ''", scope_expr: "vars.outcome == 'OFFER_REJECTED' ? 'MARKETING' : 'ALL'",
+    reason_expr: "vars.outcome == 'DO_NOT_CALL_REQUESTED' ? 'OPT_OUT' : (vars.outcome == 'OFFER_REJECTED' ? 'OFFER_REJECTED' : 'WRONG_NUMBER')", source: "CALL_OUTCOME", callId: $id, createdByUid_expr: "auth.uid"}) @include(if: $suppress)
+  suppressionAudit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: COMMUNICATION_SUPPRESSION_CHANGED, targetType: COMMUNICATION_SUPPRESSION, targetId: $suppressionId, metadata_expr: "{'event': 'ADDED', 'source': 'CALL_OUTCOME', 'callId': vars.id}"}) @include(if: $suppress)
+}
+
+# The same for a contact without a lead (contact access as in GetContact).
+mutation LogContactCall($organizationId: UUID!, $id: UUID!, $contactId: UUID!, $direction: CallDirection!, $callType: CallType!, $callStatus: CallStatus!, $outcome: CallOutcome,
+  $startedAt: Timestamp!, $durationSeconds: Int!, $notes: String, $counterpartyNumber: String, $followUpRequired: Boolean!, $suppress: Boolean!, $suppressionId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.callStatus in ['COMPLETED', 'NO_ANSWER', 'BUSY', 'FAILED', 'CANCELLED'] && (vars.callStatus == 'COMPLETED' || !has(vars.outcome) || vars.outcome == null) && vars.durationSeconds >= 0 && vars.durationSeconds <= 14400 && (vars.callStatus == 'COMPLETED' || vars.durationSeconds == 0) && timestamp(vars.startedAt) <= request.time + duration('300s') && timestamp(vars.startedAt) >= request.time - duration('2592000s') && (!has(vars.notes) || vars.notes == null || vars.notes.size() <= 4000) && (!has(vars.counterpartyNumber) || vars.counterpartyNumber == null || vars.counterpartyNumber.matches('^[+][1-9][0-9]{6,14}$')) && vars.suppress == (has(vars.outcome) && vars.outcome != null && vars.outcome in ['DO_NOT_CALL_REQUESTED', 'OFFER_REJECTED', 'WRONG_NUMBER'] && has(vars.counterpartyNumber) && vars.counterpartyNumber != null)") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact @check(expr: "this.contact == null || !has(vars.counterpartyNumber) || vars.counterpartyNumber == null || this.contact.normalizedPhone == vars.counterpartyNumber || this.contact.normalizedAlternatePhone == vars.counterpartyNumber", message: "CALL_NUMBER_NOT_ON_RECORD") {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+    contact: contact(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $contactId}}, {_or: [
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+      {leads_on_contact: {exist: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}}},
+      {createdByUid: {eq_expr: "auth.uid"}, leads_on_contact: {count: {eq: 0}}}
+    ]}]}}) @check(expr: "this != null", message: "CONTACT_NOT_FOUND_OR_FORBIDDEN") {id normalizedPhone normalizedAlternatePhone}
+  }
+  call: callRecord_insert(data: {organizationId: $organizationId, id: $id, contactId: $contactId, agentMembershipId_expr: "response.before.actor.id",
+    direction: $direction, source: MANUAL, callType: $callType, callStatus: $callStatus, outcome: $outcome, counterpartyNumber: $counterpartyNumber,
+    recipientNumber_expr: "vars.direction == 'OUTBOUND' ? vars.counterpartyNumber : null", callerNumber_expr: "vars.direction == 'INBOUND' ? vars.counterpartyNumber : null",
+    startedAt: $startedAt, answeredAt_expr: "vars.callStatus == 'COMPLETED' ? vars.startedAt : null", endedAt_expr: "timestamp(vars.startedAt) + duration(string(vars.durationSeconds) + 's')",
+    durationSeconds: $durationSeconds, notes: $notes, followUpRequired: $followUpRequired, createdByUid_expr: "auth.uid", updatedByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_LOGGED, targetType: CALL, targetId: $id, metadata_expr: "{'contactId': vars.contactId, 'callType': vars.callType, 'callStatus': vars.callStatus, 'source': 'MANUAL'}"})
+  suppression: communicationSuppression_insert(data: {organizationId: $organizationId, id: $suppressionId, normalizedNumber_expr: "vars.counterpartyNumber != null ? vars.counterpartyNumber : ''", scope_expr: "vars.outcome == 'OFFER_REJECTED' ? 'MARKETING' : 'ALL'",
+    reason_expr: "vars.outcome == 'DO_NOT_CALL_REQUESTED' ? 'OPT_OUT' : (vars.outcome == 'OFFER_REJECTED' ? 'OFFER_REJECTED' : 'WRONG_NUMBER')", source: "CALL_OUTCOME", callId: $id, createdByUid_expr: "auth.uid"}) @include(if: $suppress)
+  suppressionAudit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: COMMUNICATION_SUPPRESSION_CHANGED, targetType: COMMUNICATION_SUPPRESSION, targetId: $suppressionId, metadata_expr: "{'event': 'ADDED', 'source': 'CALL_OUTCOME', 'callId': vars.id}"}) @include(if: $suppress)
+}
+
+# Outcome, notes and the follow-up flag, by the call's agent or an OWNER or ADMIN (compare-and-set).
+# The connection status is never edited. A newly recorded do-not-call, offer
+# rejected or wrong number outcome adds a suppression in the same transaction.
+mutation UpdateCallRecord($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $outcome: CallOutcome, $notes: String, $followUpRequired: Boolean!, $suppress: Boolean!, $suppressionId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && (!has(vars.notes) || vars.notes == null || vars.notes.size() <= 4000)") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact {
+    call: callRecord(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}, {_or: [
+      {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "this != null && (this.callStatus == 'COMPLETED' || !has(vars.outcome) || vars.outcome == null) && vars.suppress == (has(vars.outcome) && vars.outcome != null && vars.outcome in ['DO_NOT_CALL_REQUESTED', 'OFFER_REJECTED', 'WRONG_NUMBER'] && vars.outcome != this.outcome && this.counterpartyNumber != null)", message: "CALL_CHANGED_OR_FORBIDDEN") {id leadId counterpartyNumber callStatus outcome}
+  }
+  call: callRecord_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+    data: {outcome: $outcome, notes: $notes, followUpRequired: $followUpRequired, revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "CALL_CHANGED_OR_FORBIDDEN")
+  activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: CALL_UPDATED, leadId_expr: "response.before.call.leadId", targetId: $id,
+    metadata_expr: "{'callId': vars.id, 'outcome': has(vars.outcome) ? vars.outcome : null, 'previousOutcome': response.before.call.outcome}"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_UPDATED, targetType: CALL, targetId: $id, metadata_expr: "{'outcome': has(vars.outcome) ? vars.outcome : null, 'previousOutcome': response.before.call.outcome}"})
+  suppression: communicationSuppression_insert(data: {organizationId: $organizationId, id: $suppressionId, normalizedNumber_expr: "response.before.call.counterpartyNumber != null ? response.before.call.counterpartyNumber : ''", scope_expr: "vars.outcome == 'OFFER_REJECTED' ? 'MARKETING' : 'ALL'",
+    reason_expr: "vars.outcome == 'DO_NOT_CALL_REQUESTED' ? 'OPT_OUT' : (vars.outcome == 'OFFER_REJECTED' ? 'OFFER_REJECTED' : 'WRONG_NUMBER')", source: "CALL_OUTCOME", callId: $id, createdByUid_expr: "auth.uid"}) @include(if: $suppress)
+  suppressionAudit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: COMMUNICATION_SUPPRESSION_CHANGED, targetType: COMMUNICATION_SUPPRESSION, targetId: $suppressionId, metadata_expr: "{'event': 'ADDED', 'source': 'CALL_OUTCOME', 'callId': vars.id}"}) @include(if: $suppress)
+}
+
+# Links a follow-up (scheduled through the existing lead operation) to the call. The follow-up must be on the call's lead.
+mutation LinkCallFollowUp($organizationId: UUID!, $id: UUID!, $followUpId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact {
+    call: callRecord(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, leadId: {isNull: false}}, {_or: [
+      {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "this != null", message: "CALL_CHANGED_OR_FORBIDDEN") {id leadId}
+  }
+  target: query @redact {
+    followUp: leadFollowUp(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $followUpId}, leadId: {eq_expr: "response.before.call.leadId"}}}) @check(expr: "this != null", message: "CALL_FOLLOW_UP_NOT_FOUND") {id}
+  }
+  call: callRecord_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}}}, data: {followUpId: $followUpId, followUpRequired: true, revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+    @check(expr: "this != null", message: "CALL_CHANGED_OR_FORBIDDEN")
+}
+
+query GetCallRecord($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  call: callRecord(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}}, {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}}) @check(expr: "this != null", message: "CALL_NOT_FOUND") {
+    id leadId contactId agentMembershipId direction source callType callStatus outcome callerNumber recipientNumber counterpartyNumber startedAt answeredAt endedAt durationSeconds notes followUpRequired followUpId viewingId revision createdAt updatedAt
+    lead {id fullName status assignedMembershipId} contact {id fullName}
+    agentMembership {id email userProfile {displayName}}
+    followUp {id title dueAt status} viewing {id scheduledAt status}
+  }
+}
+
+query ListLeadCalls($organizationId: UUID!, $leadId: UUID!, $limit: Int! = 20, $offset: Int! = 0)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 50 && vars.offset >= 0 && vars.offset <= 10000") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  lead: lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}}, {_or: [
+    {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}}) @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN") {id fullName phone archivedAt assignedMembershipId contactId contact {id fullName phone normalizedPhone alternatePhone normalizedAlternatePhone}}
+  calls: callRecords(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}}, orderBy: [{startedAt: DESC}, {id: ASC}], limit: $limit, offset: $offset) {
+    id direction source callType callStatus outcome counterpartyNumber startedAt answeredAt durationSeconds notes followUpRequired followUpId viewingId revision agentMembershipId
+    agentMembership {id email userProfile {displayName}} followUp {id title dueAt status} viewing {id scheduledAt status}
+  }
+  total: callRecords(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}}) {count: _count}
+  # The last call the customer answered (a dial attempt is not contact).
+  lastAnswered: callRecords(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, answeredAt: {isNull: false}}, orderBy: [{startedAt: DESC}, {id: ASC}], limit: 1) {startedAt}
+  viewings: leadPropertyViewings(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}}, orderBy: [{scheduledAt: DESC}], limit: 20) {id scheduledAt status}
+}
+
+query ListContactCalls($organizationId: UUID!, $contactId: UUID!, $limit: Int! = 20, $offset: Int! = 0)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 50 && vars.offset >= 0 && vars.offset <= 10000") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  contact: contact(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $contactId}}, {_or: [
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+    {leads_on_contact: {exist: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}}},
+    {createdByUid: {eq_expr: "auth.uid"}, leads_on_contact: {count: {eq: 0}}}
+  ]}]}}) @check(expr: "this != null", message: "CONTACT_NOT_FOUND_OR_FORBIDDEN") {id fullName phone normalizedPhone alternatePhone normalizedAlternatePhone}
+  # Calls on this contact that the caller may read (their own, on their leads, or all for administrators).
+  calls: callRecords(where: {_and: [{organizationId: {eq: $organizationId}, contactId: {eq: $contactId}}, {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}, orderBy: [{startedAt: DESC}, {id: ASC}], limit: $limit, offset: $offset) {
+    id leadId direction source callType callStatus outcome counterpartyNumber startedAt answeredAt durationSeconds notes followUpRequired followUpId viewingId revision agentMembershipId
+    agentMembership {id email userProfile {displayName}} lead {id fullName} followUp {id title dueAt status} viewing {id scheduledAt status}
+  }
+  total: callRecords(where: {_and: [{organizationId: {eq: $organizationId}, contactId: {eq: $contactId}}, {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}) {count: _count}
+}
+
+# Server only: what the compliance checks need about one number, across the
+# whole company (calls by any agent count towards the limits). Returns
+# timestamps and statuses, never notes or names.
+query CallComplianceFacts($organizationId: UUID!, $number: String!, $since: Timestamp!) @auth(level: NO_ACCESS) {
+  settings: communicationSettings(key: {organizationId: $organizationId}) {
+    revision timeZone callingWindowStart callingWindowEnd maxCallsPerContactPerDay telemarketingEnabled telemarketingApprovalReference marketingWindowStart marketingWindowEnd
+    marketingMaxCallsPerDay marketingMaxUnansweredPerWeek allowedCallingCodes liveCallingAttestedAt liveCallingAttestationVersion maxConcurrentLiveCalls maxLiveCallsPerAgentPerDay
+    recordingEnabled retentionDays aiAnalysisEnabled
+  }
+  suppressions: communicationSuppressions(where: {organizationId: {eq: $organizationId}, normalizedNumber: {eq: $number}, withdrawnAt: {isNull: true}}, orderBy: [{createdAt: ASC}], limit: 20) {id scope reason createdAt}
+  calls: callRecords(where: {organizationId: {eq: $organizationId}, counterpartyNumber: {eq: $number}, startedAt: {ge: $since}}, orderBy: [{startedAt: DESC}], limit: 200) {id startedAt direction callType callStatus answeredAt}
+}
+
+# --- Settings -----------------------------------------------------------------
+
+# Readable by every active member (no secrets): the dial and log forms show the rules that apply.
+query GetCommunicationSettings($organizationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  settings: communicationSettings(key: {organizationId: $organizationId}) {
+    revision timeZone callingWindowStart callingWindowEnd maxCallsPerContactPerDay telemarketingEnabled telemarketingApprovalReference marketingWindowStart marketingWindowEnd
+    marketingMaxCallsPerDay marketingMaxUnansweredPerWeek allowedCallingCodes liveCallingAttestedAt liveCallingAttestationVersion liveCallingAttestedBy {displayName}
+    maxConcurrentLiveCalls maxLiveCallsPerAgentPerDay recordingEnabled recordingNoticeText recordingLegalBasis retentionDays aiAnalysisEnabled updatedAt updatedBy {displayName}
+  }
+}
+
+# Creates the company's settings (first save). OWNER or ADMIN. The rules below
+# are enforced here as well as in the server: marketing calls stay within
+# 09:00-18:00 and at most one a day and two unanswered a week; telemarketing
+# needs a TDRA approval reference; recording needs a notice and a legal basis.
+mutation CreateCommunicationSettings($organizationId: UUID!, $timeZone: String!, $callingWindowStart: String!, $callingWindowEnd: String!, $maxCallsPerContactPerDay: Int!,
+  $telemarketingEnabled: Boolean!, $telemarketingApprovalReference: String, $marketingWindowStart: String!, $marketingWindowEnd: String!, $marketingMaxCallsPerDay: Int!, $marketingMaxUnansweredPerWeek: Int!,
+  $allowedCallingCodes: String!, $maxConcurrentLiveCalls: Int!, $maxLiveCallsPerAgentPerDay: Int!, $recordingEnabled: Boolean!, $recordingNoticeText: String, $recordingLegalBasis: String,
+  $retentionDays: Int!, $aiAnalysisEnabled: Boolean!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.timeZone.size() >= 1 && vars.timeZone.size() <= 64 && vars.callingWindowStart.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && vars.callingWindowEnd.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && vars.callingWindowStart < vars.callingWindowEnd && vars.marketingWindowStart.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && vars.marketingWindowEnd.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && vars.marketingWindowStart >= '09:00' && vars.marketingWindowEnd <= '18:00' && vars.marketingWindowStart < vars.marketingWindowEnd && vars.maxCallsPerContactPerDay >= 1 && vars.maxCallsPerContactPerDay <= 10 && vars.marketingMaxCallsPerDay >= 0 && vars.marketingMaxCallsPerDay <= 1 && vars.marketingMaxUnansweredPerWeek >= 0 && vars.marketingMaxUnansweredPerWeek <= 2 && vars.allowedCallingCodes.matches('^[1-9][0-9]{0,3}(,[1-9][0-9]{0,3}){0,9}$') && vars.maxConcurrentLiveCalls >= 1 && vars.maxConcurrentLiveCalls <= 50 && vars.maxLiveCallsPerAgentPerDay >= 1 && vars.maxLiveCallsPerAgentPerDay <= 500 && vars.retentionDays >= 1 && vars.retentionDays <= 3650 && (!vars.telemarketingEnabled || (has(vars.telemarketingApprovalReference) && vars.telemarketingApprovalReference != null && vars.telemarketingApprovalReference.size() >= 3 && vars.telemarketingApprovalReference.size() <= 120)) && (!vars.recordingEnabled || (has(vars.recordingNoticeText) && vars.recordingNoticeText != null && vars.recordingNoticeText.size() >= 20 && vars.recordingNoticeText.size() <= 1000 && has(vars.recordingLegalBasis) && vars.recordingLegalBasis != null && vars.recordingLegalBasis.size() >= 5 && vars.recordingLegalBasis.size() <= 500))") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  settings: communicationSettings_insert(data: {organizationId: $organizationId, timeZone: $timeZone, callingWindowStart: $callingWindowStart, callingWindowEnd: $callingWindowEnd, maxCallsPerContactPerDay: $maxCallsPerContactPerDay,
+    telemarketingEnabled: $telemarketingEnabled, telemarketingApprovalReference: $telemarketingApprovalReference, marketingWindowStart: $marketingWindowStart, marketingWindowEnd: $marketingWindowEnd,
+    marketingMaxCallsPerDay: $marketingMaxCallsPerDay, marketingMaxUnansweredPerWeek: $marketingMaxUnansweredPerWeek, allowedCallingCodes: $allowedCallingCodes, maxConcurrentLiveCalls: $maxConcurrentLiveCalls,
+    maxLiveCallsPerAgentPerDay: $maxLiveCallsPerAgentPerDay, recordingEnabled: $recordingEnabled, recordingNoticeText: $recordingNoticeText, recordingLegalBasis: $recordingLegalBasis,
+    retentionDays: $retentionDays, aiAnalysisEnabled: $aiAnalysisEnabled, updatedByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: COMMUNICATION_SETTINGS_UPDATED, targetType: COMMUNICATION_SETTINGS, targetId: $organizationId,
+    metadata_expr: "{'telemarketingEnabled': vars.telemarketingEnabled, 'recordingEnabled': vars.recordingEnabled, 'aiAnalysisEnabled': vars.aiAnalysisEnabled, 'revision': 1}"})
+}
+
+# Updates them (compare-and-set). The live-calling attestation is changed only by its own operations.
+mutation UpdateCommunicationSettings($organizationId: UUID!, $expectedRevision: Int!, $timeZone: String!, $callingWindowStart: String!, $callingWindowEnd: String!, $maxCallsPerContactPerDay: Int!,
+  $telemarketingEnabled: Boolean!, $telemarketingApprovalReference: String, $marketingWindowStart: String!, $marketingWindowEnd: String!, $marketingMaxCallsPerDay: Int!, $marketingMaxUnansweredPerWeek: Int!,
+  $allowedCallingCodes: String!, $maxConcurrentLiveCalls: Int!, $maxLiveCallsPerAgentPerDay: Int!, $recordingEnabled: Boolean!, $recordingNoticeText: String, $recordingLegalBasis: String,
+  $retentionDays: Int!, $aiAnalysisEnabled: Boolean!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.timeZone.size() >= 1 && vars.timeZone.size() <= 64 && vars.callingWindowStart.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && vars.callingWindowEnd.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && vars.callingWindowStart < vars.callingWindowEnd && vars.marketingWindowStart.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && vars.marketingWindowEnd.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && vars.marketingWindowStart >= '09:00' && vars.marketingWindowEnd <= '18:00' && vars.marketingWindowStart < vars.marketingWindowEnd && vars.maxCallsPerContactPerDay >= 1 && vars.maxCallsPerContactPerDay <= 10 && vars.marketingMaxCallsPerDay >= 0 && vars.marketingMaxCallsPerDay <= 1 && vars.marketingMaxUnansweredPerWeek >= 0 && vars.marketingMaxUnansweredPerWeek <= 2 && vars.allowedCallingCodes.matches('^[1-9][0-9]{0,3}(,[1-9][0-9]{0,3}){0,9}$') && vars.maxConcurrentLiveCalls >= 1 && vars.maxConcurrentLiveCalls <= 50 && vars.maxLiveCallsPerAgentPerDay >= 1 && vars.maxLiveCallsPerAgentPerDay <= 500 && vars.retentionDays >= 1 && vars.retentionDays <= 3650 && (!vars.telemarketingEnabled || (has(vars.telemarketingApprovalReference) && vars.telemarketingApprovalReference != null && vars.telemarketingApprovalReference.size() >= 3 && vars.telemarketingApprovalReference.size() <= 120)) && (!vars.recordingEnabled || (has(vars.recordingNoticeText) && vars.recordingNoticeText != null && vars.recordingNoticeText.size() >= 20 && vars.recordingNoticeText.size() <= 1000 && has(vars.recordingLegalBasis) && vars.recordingLegalBasis != null && vars.recordingLegalBasis.size() >= 5 && vars.recordingLegalBasis.size() <= 500))") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  settings: communicationSettings_update(first: {where: {organizationId: {eq: $organizationId}, revision: {eq: $expectedRevision}}}, data: {timeZone: $timeZone, callingWindowStart: $callingWindowStart, callingWindowEnd: $callingWindowEnd,
+    maxCallsPerContactPerDay: $maxCallsPerContactPerDay, telemarketingEnabled: $telemarketingEnabled, telemarketingApprovalReference: $telemarketingApprovalReference, marketingWindowStart: $marketingWindowStart,
+    marketingWindowEnd: $marketingWindowEnd, marketingMaxCallsPerDay: $marketingMaxCallsPerDay, marketingMaxUnansweredPerWeek: $marketingMaxUnansweredPerWeek, allowedCallingCodes: $allowedCallingCodes,
+    maxConcurrentLiveCalls: $maxConcurrentLiveCalls, maxLiveCallsPerAgentPerDay: $maxLiveCallsPerAgentPerDay, recordingEnabled: $recordingEnabled, recordingNoticeText: $recordingNoticeText,
+    recordingLegalBasis: $recordingLegalBasis, retentionDays: $retentionDays, aiAnalysisEnabled: $aiAnalysisEnabled, revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+    @check(expr: "this != null", message: "COMMUNICATION_SETTINGS_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: COMMUNICATION_SETTINGS_UPDATED, targetType: COMMUNICATION_SETTINGS, targetId: $organizationId,
+    metadata_expr: "{'telemarketingEnabled': vars.telemarketingEnabled, 'recordingEnabled': vars.recordingEnabled, 'aiAnalysisEnabled': vars.aiAnalysisEnabled, 'revision': vars.expectedRevision + 1}"})
+}
+
+# --- Suppressions (OWNER or ADMIN) -------------------------------------------------
+
+query ListCommunicationSuppressions($organizationId: UUID!, $limit: Int! = 100, $offset: Int! = 0)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 200 && vars.offset >= 0 && vars.offset <= 10000") {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED") {id}
+  active: communicationSuppressions(where: {organizationId: {eq: $organizationId}, withdrawnAt: {isNull: true}}, orderBy: [{createdAt: DESC}, {id: ASC}], limit: $limit, offset: $offset) {
+    id normalizedNumber scope reason source note callId createdAt createdBy {displayName}
+  }
+  withdrawn: communicationSuppressions(where: {organizationId: {eq: $organizationId}, withdrawnAt: {isNull: false}}, orderBy: [{withdrawnAt: DESC}, {id: ASC}], limit: 50) {
+    id normalizedNumber scope reason source createdAt withdrawnAt withdrawalReason withdrawnBy {displayName}
+  }
+}
+
+mutation AddCommunicationSuppression($organizationId: UUID!, $id: UUID!, $normalizedNumber: String!, $scope: CommunicationSuppressionScope!, $reason: CommunicationSuppressionReason!, $note: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.normalizedNumber.matches('^[+][1-9][0-9]{6,14}$') && (!has(vars.note) || vars.note == null || vars.note.size() <= 500)") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  suppression: communicationSuppression_insert(data: {organizationId: $organizationId, id: $id, normalizedNumber: $normalizedNumber, scope: $scope, reason: $reason,
+    source_expr: "vars.reason == 'DNCR_LISTED' ? 'DNCR_CHECK' : 'ADMINISTRATOR'", note: $note, createdByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: COMMUNICATION_SUPPRESSION_CHANGED, targetType: COMMUNICATION_SUPPRESSION, targetId: $id, metadata_expr: "{'event': 'ADDED', 'scope': vars.scope, 'reason': vars.reason}"})
+}
+
+mutation WithdrawCommunicationSuppression($organizationId: UUID!, $id: UUID!, $reason: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.reason.size() >= 3 && vars.reason.size() <= 500") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
+  suppression: communicationSuppression_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, withdrawnAt: {isNull: true}}}, data: {withdrawnAt_expr: "request.time", withdrawnByUid_expr: "auth.uid", withdrawalReason: $reason})
+    @check(expr: "this != null", message: "COMMUNICATION_SUPPRESSION_NOT_FOUND")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: COMMUNICATION_SUPPRESSION_CHANGED, targetType: COMMUNICATION_SUPPRESSION, targetId: $id, metadata_expr: "{'event': 'WITHDRAWN'}"})
+}

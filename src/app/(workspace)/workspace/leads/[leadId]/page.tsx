@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { PageSkeleton } from "@/components/shared/page-skeleton";
 import { requireSession } from "@/lib/auth/session";
 import { LeadSalesPanel } from "@/modules/ai/sales/components/lead-sales-panel";
+import { CallPanel } from "@/modules/communications/components/call-panel";
 import { LeadDetail } from "@/modules/leads/components/lead-detail";
 import { LeadPropertySection } from "@/modules/leads/components/lead-property-section";
 import { LeadsAccessState } from "@/modules/leads/components/leads-access-state";
@@ -25,7 +26,7 @@ async function LeadDetailContent({ params, searchParams }: DetailProps) {
     if (error instanceof WorkspaceError) return <LeadsAccessState error={error} scope="detail" />;
     throw error;
   }
-  return <LeadDetail data={data} salesSection={<LeadSalesPanel leadId={data.lead.id} organizationId={data.organization.id} />} propertySection={!data.lead.archivedAt && <Suspense fallback={<div role="status" className="animate-pulse rounded-xl border p-6 text-sm text-muted-foreground">Loading properties and viewings...</div>}><LeadPropertySection key={data.lead.updatedAt} leadId={data.lead.id} /></Suspense>} />;
+  return <LeadDetail data={data} callSection={<CallPanel subject={{kind: "LEAD", id: data.lead.id}} organizationId={data.organization.id} />} salesSection={<LeadSalesPanel leadId={data.lead.id} organizationId={data.organization.id} />} propertySection={!data.lead.archivedAt && <Suspense fallback={<div role="status" className="animate-pulse rounded-xl border p-6 text-sm text-muted-foreground">Loading properties and viewings...</div>}><LeadPropertySection key={data.lead.updatedAt} leadId={data.lead.id} /></Suspense>} />;
 }
 
 export default function LeadDetailPage(props: DetailProps) {

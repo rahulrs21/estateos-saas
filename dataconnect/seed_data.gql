@@ -4,6 +4,10 @@
 # their own step: one mutation can hold at most 50 deletes (PostgreSQL allows
 # 100 function arguments for the combined result).
 mutation ResetEstateOSWebsites @transaction {
+  # Phase 6F communication records reference leads, contacts, follow-ups, viewings and memberships.
+  callRecord_deleteMany(all: true)
+  communicationSuppression_deleteMany(all: true)
+  communicationSettings_deleteMany(all: true)
   # Phase 6E automation records reference leads, listings and memberships.
   automationApproval_deleteMany(all: true)
   scheduledAutomationJob_deleteMany(all: true)

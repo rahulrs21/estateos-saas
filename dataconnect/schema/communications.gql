@@ -1,0 +1,125 @@
+# Phase 6F: communication hub (docs/COMMUNICATION_HUB.md, docs/CALL_PRIVACY_COMPLIANCE.md).
+# Additive tables only. A call record is EstateOS's own record of a call: logged
+# manually by the agent, or (later, once a provider is verified and approved)
+# created from signed provider events. The connection status of a call and the
+# sales outcome the agent records are separate fields; a dial attempt is never
+# counted as a conversation.
+
+enum CallDirection { OUTBOUND INBOUND }
+enum CallSource { MANUAL PROVIDER }
+# SERVICE: a call the customer asked for or that serves an existing request.
+# FOLLOW_UP: a follow-up on the customer's own enquiry. MARKETING: an
+# unsolicited promotional call (UAE telemarketing rules apply).
+enum CallType { SERVICE FOLLOW_UP MARKETING INBOUND_ENQUIRY }
+enum CallStatus { INITIATED RINGING IN_PROGRESS COMPLETED FAILED BUSY NO_ANSWER CANCELLED }
+enum CallOutcome { INTERESTED NOT_INTERESTED CALLBACK_REQUESTED VIEWING_REQUESTED NO_DECISION WRONG_NUMBER DO_NOT_CALL_REQUESTED OFFER_REJECTED }
+enum CommunicationSuppressionScope { ALL MARKETING }
+enum CommunicationSuppressionReason { OPT_OUT DNCR_LISTED OFFER_REJECTED WRONG_NUMBER OTHER }
+
+# One row per company; absent means the defaults below. Every switch that
+# widens what EstateOS may do (telemarketing, recording, AI analysis, live
+# calling) is off by default and changed only by an OWNER or ADMIN.
+type CommunicationSettings @table(key: ["organization"]) {
+  organizationId: UUID!
+  organization: Organization!
+  revision: Int! @default(value: 1)
+  timeZone: String! @default(value: "Asia/Dubai") @col(dataType: "varchar(64)")
+  # Company policy for every call (not a legal limit): local HH:MM.
+  callingWindowStart: String! @default(value: "08:00") @col(dataType: "varchar(5)")
+  callingWindowEnd: String! @default(value: "21:00") @col(dataType: "varchar(5)")
+  maxCallsPerContactPerDay: Int! @default(value: 3)
+  # Marketing calls (Cabinet Resolution 56 of 2024): TDRA approval, 09:00-18:00,
+  # at most one a day and two a week when unanswered.
+  telemarketingEnabled: Boolean! @default(value: false)
+  telemarketingApprovalReference: String @col(dataType: "varchar(120)")
+  marketingWindowStart: String! @default(value: "09:00") @col(dataType: "varchar(5)")
+  marketingWindowEnd: String! @default(value: "18:00") @col(dataType: "varchar(5)")
+  marketingMaxCallsPerDay: Int! @default(value: 1)
+  marketingMaxUnansweredPerWeek: Int! @default(value: 2)
+  # Destinations: calling codes without "+", comma separated (for example "971").
+  allowedCallingCodes: String! @default(value: "971") @col(dataType: "varchar(120)")
+  # Live calling through a provider: an OWNER or ADMIN confirms the provider
+  # and operating arrangements were verified (versioned statement).
+  liveCallingAttestedBy: UserProfile
+  liveCallingAttestedAt: Timestamp
+  liveCallingAttestationVersion: String @col(dataType: "varchar(20)")
+  maxConcurrentLiveCalls: Int! @default(value: 5)
+  maxLiveCallsPerAgentPerDay: Int! @default(value: 60)
+  # Recording: never silent. Needs a notice, a legal basis and a retention period.
+  recordingEnabled: Boolean! @default(value: false)
+  recordingNoticeText: String @col(dataType: "varchar(1000)")
+  recordingLegalBasis: String @col(dataType: "varchar(500)")
+  retentionDays: Int! @default(value: 90)
+  # Claude analysis of transcripts and notes (separate from recording).
+  aiAnalysisEnabled: Boolean! @default(value: false)
+  updatedBy: UserProfile
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Numbers EstateOS must not call (or must not call for marketing). Rows are
+# never deleted: withdrawing keeps the evidence.
+type CommunicationSuppression @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "normalizedNumber", "withdrawnAt"])
+  @index(fields: ["organizationId", "createdAt"], order: [ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  normalizedNumber: String! @col(dataType: "varchar(16)")
+  scope: CommunicationSuppressionScope!
+  reason: CommunicationSuppressionReason!
+  # CALL_OUTCOME, ADMINISTRATOR or DNCR_CHECK.
+  source: String! @col(dataType: "varchar(20)")
+  note: String @col(dataType: "varchar(500)")
+  # Plain identifier: the call whose outcome created the suppression.
+  callId: UUID
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  withdrawnAt: Timestamp
+  withdrawnBy: UserProfile
+  withdrawalReason: String @col(dataType: "varchar(500)")
+}
+
+type CallRecord @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "leadId", "startedAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "contactId", "startedAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "agentMembershipId", "startedAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "counterpartyNumber", "startedAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "callStatus", "startedAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "startedAt"], order: [ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  leadId: UUID
+  lead: Lead @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  contactId: UUID
+  contact: Contact @ref(fields: ["organizationId", "contactId"], references: ["organizationId", "id"])
+  # The member who made or took the call.
+  agentMembershipId: UUID!
+  agentMembership: Membership! @ref(fields: ["organizationId", "agentMembershipId"], references: ["organizationId", "id"], constraintName: "call_record_agent_membership_fkey")
+  direction: CallDirection!
+  source: CallSource!
+  callType: CallType!
+  callerNumber: String @col(dataType: "varchar(32)")
+  recipientNumber: String @col(dataType: "varchar(32)")
+  # The customer's number in E.164, taken from the lead or contact on record.
+  counterpartyNumber: String @col(dataType: "varchar(16)")
+  startedAt: Timestamp!
+  answeredAt: Timestamp
+  endedAt: Timestamp
+  durationSeconds: Int! @default(value: 0)
+  callStatus: CallStatus!
+  outcome: CallOutcome
+  notes: String @col(dataType: "varchar(4000)")
+  followUpRequired: Boolean! @default(value: false)
+  followUpId: UUID
+  followUp: LeadFollowUp @ref(fields: ["organizationId", "followUpId"], references: ["organizationId", "id"])
+  viewingId: UUID
+  viewing: LeadPropertyViewing @ref(fields: ["organizationId", "viewingId"], references: ["organizationId", "id"])
+  # Compare-and-set for edits.
+  revision: Int! @default(value: 1)
+  createdBy: UserProfile!
+  updatedBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}

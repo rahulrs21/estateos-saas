@@ -11,6 +11,7 @@ import { LeadAssignment, LeadFollowUp, LeadFollowUpCompletion, LeadNoteForm, Lea
 import { LeadEditorDialog } from "./lead-form";
 import { formatLeadDate, LeadStatusBadge, leadStatusLabels } from "./lead-ui";
 import { AiContentLink } from "@/modules/ai/content/components/ai-content-link";
+import { CALL_DIRECTION_LABELS, CALL_OUTCOME_LABELS, CALL_STATUS_LABELS, type CallDirection, type CallOutcome, type CallStatus } from "@/modules/communications/model";
 
 const activityLabels: Record<string, string> = {
   LEAD_CREATED: "Lead created", LEAD_UPDATED: "Lead details updated", LEAD_ARCHIVED: "Lead archived",
@@ -18,6 +19,7 @@ const activityLabels: Record<string, string> = {
   FOLLOW_UP_SCHEDULED: "Follow-up scheduled", FOLLOW_UP_COMPLETED: "Follow-up completed",
   LEAD_PROPERTY_INTEREST_CHANGED: "Property shortlist updated", LEAD_PRIMARY_INTEREST_CHANGED: "Interested inventory updated",
   LEAD_PROPERTY_VIEWING_SCHEDULED: "Property viewing scheduled", LEAD_PROPERTY_VIEWING_UPDATED: "Property viewing updated",
+  CALL_LOGGED: "Call logged", CALL_UPDATED: "Call updated",
 };
 
 function activityDescription(activity: LeadActivity, data: LeadDetailData) {
@@ -29,6 +31,12 @@ function activityDescription(activity: LeadActivity, data: LeadDetailData) {
     if (member) return `Assigned to ${member.userProfile?.displayName || member.email}.`;
   }
   if (activity.kind === "FOLLOW_UP_SCHEDULED" && typeof metadata.followUpAt === "string") return `Scheduled for ${formatLeadDate(metadata.followUpAt, true)} (Dubai time).`;
+  if (activity.kind === "CALL_LOGGED" && typeof metadata.callStatus === "string") {
+    const direction = CALL_DIRECTION_LABELS[metadata.direction as CallDirection] ?? "Call";
+    const outcome = typeof metadata.outcome === "string" ? CALL_OUTCOME_LABELS[metadata.outcome as CallOutcome] : null;
+    return [`${direction} call`, CALL_STATUS_LABELS[metadata.callStatus as CallStatus]?.toLowerCase(), outcome?.toLowerCase()].filter(Boolean).join(", ") + ". Details are in Calls.";
+  }
+  if (activity.kind === "CALL_UPDATED" && typeof metadata.outcome === "string") return `Outcome recorded: ${CALL_OUTCOME_LABELS[metadata.outcome as CallOutcome]?.toLowerCase() ?? "updated"}.`;
   return null;
 }
 
@@ -36,7 +44,7 @@ function DetailValue({ label, children }: { label: string; children?: ReactNode 
   return <div><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-2 break-words text-sm font-medium">{children || <span className="font-normal text-muted-foreground">Not provided</span>}</dd></div>;
 }
 
-export function LeadDetail({ data, propertySection, salesSection }: { data: LeadDetailData; propertySection?: ReactNode; salesSection?: ReactNode }) {
+export function LeadDetail({ data, propertySection, salesSection, callSection }: { data: LeadDetailData; propertySection?: ReactNode; salesSection?: ReactNode; callSection?: ReactNode }) {
   const { lead, organization, membership, activities, activityPage, hasMoreActivities, followUps, followUpPage, followUpTotal, hasMoreFollowUps } = data;
   const currency = lead.currency ?? "AED";
   const amount = (value?: number | null) => value == null ? null : `${new Intl.NumberFormat("en-AE", { maximumFractionDigits: 2 }).format(value)} ${currency}`;
@@ -67,6 +75,8 @@ export function LeadDetail({ data, propertySection, salesSection }: { data: Lead
           <DetailValue label="Nationality">{lead.contact?.nationality}</DetailValue><DetailValue label="Preferred language">{lead.contact?.preferredLanguage}</DetailValue>
           <DetailValue label="Lead source">{sourceName}</DetailValue><DetailValue label="Branch">{lead.branch?.name}</DetailValue>
         </dl>{lead.contact?.notes && <div className="mt-6 border-t pt-5"><h3 className="text-xs font-medium">Contact notes</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{lead.contact.notes}</p></div>}</CardContent></Card>
+
+        {callSection}
 
         <Card id="lead-requirements" className="scroll-mt-24 gap-5 py-5 shadow-xs ring-border"><CardHeader className="px-5 sm:px-6"><div className="flex items-center gap-2"><Building2 className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Property requirements</CardTitle></div><CardDescription>Preferences for this opportunity.</CardDescription></CardHeader><CardContent className="px-5 sm:px-6"><dl className="grid gap-6 sm:grid-cols-2">
           <DetailValue label="Project or property interest">{lead.propertyInterest}</DetailValue><DetailValue label="Preferred location">{lead.preferredLocation && <span className="inline-flex items-start gap-2"><MapPin className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />{lead.preferredLocation}</span>}</DetailValue>

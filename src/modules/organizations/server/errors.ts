@@ -129,6 +129,24 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (/\b(?:AUTOMATION_NOT_FOUND|WORK_TASK_NOT_FOUND)\b/.test(message)) {
       return new WorkspaceError("NOT_FOUND", 404, "This record was not found in your company.");
     }
+    if (message.includes("CALL_NUMBER_NOT_ON_RECORD")) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "The number must be the customer's phone number on record. Update the contact first if they use another number.");
+    }
+    if (/\b(?:CALL_VIEWING_NOT_FOUND|CALL_FOLLOW_UP_NOT_FOUND)\b/.test(message)) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "Choose a viewing or follow-up of this lead.");
+    }
+    if (message.includes("CALL_CHANGED_OR_FORBIDDEN")) {
+      return new WorkspaceError("CONFLICT", 409, "This call was changed in another window, or only its agent or an administrator can change it. Reload and try again.");
+    }
+    if (message.includes("COMMUNICATION_ADMIN_REQUIRED")) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "Only company owners and administrators can change communication settings and the do-not-call list.");
+    }
+    if (message.includes("COMMUNICATION_SETTINGS_CHANGED")) {
+      return new WorkspaceError("CONFLICT", 409, "These settings were changed by a colleague. Reload and try again.");
+    }
+    if (/\b(?:CALL_NOT_FOUND|COMMUNICATION_SUPPRESSION_NOT_FOUND)\b/.test(message)) {
+      return new WorkspaceError("NOT_FOUND", 404, "This record was not found in your company.");
+    }
     if (message.includes("AI_CONVERSATION_CHANGED")) {
       return new WorkspaceError("CONFLICT", 409, "This conversation changed in another window. Reload it and try again.");
     }

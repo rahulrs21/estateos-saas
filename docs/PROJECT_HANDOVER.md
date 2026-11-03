@@ -2,7 +2,7 @@
 
 EstateOS is a multi-tenant, AI-ready real estate CRM SaaS for brokerages, starting with Dubai and the UAE. Each company has an isolated workspace, team and role-based permissions. Read [AGENTS.md](../AGENTS.md) first; it contains the binding development rules.
 
-_Last updated: 2026-11-02 (Phase 6E workflow automation and approvals)._
+_Last updated: 2026-11-03 (Phase 6F.1 call records and manual call logging)._
 
 ## Technology
 
@@ -27,6 +27,7 @@ Next.js App Router (Next 16, see the version notice in AGENTS.md), React 19, Typ
 | 6C | AI sales intelligence (Anthropic Claude): explainable rule-based lead qualification with history, review and override; follow-up assistant; property matching with Claude explanations; viewing preparation with editable follow-up drafts; `/ai-sales` dashboard of recorded metrics; property and Copilot shortcuts | **Implemented; see verification status below**. [Details](AI_SALES_INTELLIGENCE.md), [scoring](AI_LEAD_QUALIFICATION.md) |
 | 6D | AI landing page and website builder: single-page campaigns from CRM records; Claude generation, templates, blank and duplicate; validated component registry; Elementor-style full-screen editor (drag-and-drop elements, inline text editing, Content / Style / Advanced section settings, per-device spacing and visibility, background photos, videos and colours, navigator, context menu, shortcuts) with desktop, tablet and mobile previews; 25 section types, rich templates and curated stock photos and videos labelled as illustrative; self-hosted heading and body fonts; linked CRM data; lead form connection through the existing capture path; UAE checklist; review, approval, immutable publications, rollback; public pages with SEO; pending-enquiry recovery | **Implemented; see verification status below**. [Details](AI_PAGE_BUILDER.md), [registry](PAGE_COMPONENT_REGISTRY.md), [publishing](WEBSITE_PUBLISHING.md) |
 | 6E | Workflow automation and approvals: allowlisted triggers from a transactional outbox, declarative conditions, LOW/MEDIUM risk policy in code, visual editor with templates A–F and a dry-run tester, Claude workflow drafts, durable PostgreSQL engine (leases, idempotent steps, retries, dead letters, restart recovery), executor identity, approvals with revalidation and separation of duties, due-task triggers, local worker and a Cloud Scheduler design, dashboard, My tasks | **Implemented; see verification status below**. [Engine](AUTOMATION_ENGINE.md), [builder](WORKFLOW_BUILDER.md), [approvals](WORKFLOW_APPROVALS.md), [security](WORKFLOW_SECURITY.md), [operations](AUTOMATION_OPERATIONS.md) |
+| 6F | Communication hub (in progress): call records with connection status separate from outcome, manual call logging and history on lead and contact pages, follow-up links, the do-not-call list, server-side UAE calling rules (TDRA approval, 09:00-18:00 marketing hours, frequency limits) and settings. No provider is connected; EstateOS places, records and transcribes no calls | **6F.1 implemented and tested on emulators; 6F.2-6F.7 not started**. [Hub](COMMUNICATION_HUB.md), [privacy and compliance](CALL_PRIVACY_COMPLIANCE.md) |
 | 6F+ | Organization AI usage dashboard; multi-page agency websites and custom domains | Not started |
 | 7 | Marketing campaigns and advertising integrations | Not started |
 | 8 | Communications (WhatsApp, email, calling) | Not started |
@@ -52,6 +53,7 @@ Live publishing requires, per provider: partner/API approval, the official speci
 | `src/modules/ai/content/` | AI Content Studio: pure core (catalog, schemas, facts, validate, prompt, generate) with `server/` adapters and `components/` |
 | `src/modules/websites/` | Landing page builder: registry, linked data, templates, checklist, AI mapping and renderer (pure), `server/` services and `components/`; public pages at `src/app/site/`, real 404s in `src/proxy.ts` |
 | `src/modules/automations/` | Workflow automation: pure definition, conditions, policy, scheduling, templates and Claude mapping; `server/` engine, actions, approvals, tasks and HTTP; `components/` editor, graph, dashboard, approvals and My tasks. Worker: `scripts/automation-worker.mjs` |
+| `src/modules/communications/` | Communication hub: pure call states, phone and compliance rules; `server/` calls, settings and HTTP; `components/` call panel |
 | `docs/` | Architecture, database, permissions and per-phase documents |
 
 ## Working locally
@@ -59,7 +61,7 @@ Live publishing requires, per provider: partner/API approval, the official speci
 - `npm run dev:local` — Next.js with the persistent local SQL Connect emulator (`.local-data/sql-connect`; separate from hosted PostgreSQL). Stop with one Ctrl+C. Uploaded files are autosaved within seconds, so closing VS Code no longer loses them. `npm run db:status`, `db:backup`, `db:list`, `db:restore` manage local data; see [LOCAL_DATABASE.md](LOCAL_DATABASE.md).
 - `npm run seed:demo -- --email you@company.com` (with `dev:local` running) loads fictional, idempotent demo data into a separate demo company; see [dev-data/README.md](../dev-data/README.md).
 - `npm run sql:validate` / `npm run sql:generate` after schema or connector changes; restart the dev server afterwards.
-- Workflow automation runs locally when `AUTOMATION_WORKER_SECRET` (32+ random characters) is in `.env.local`: `dev:local` then starts the worker. See [AUTOMATION_OPERATIONS.md](AUTOMATION_OPERATIONS.md#local-worker). `npm run test:automations:e2e` for automation changes.
+- Workflow automation runs locally when `AUTOMATION_WORKER_SECRET` (32+ random characters) is in `.env.local`: `dev:local` then starts the worker. See [AUTOMATION_OPERATIONS.md](AUTOMATION_OPERATIONS.md#local-worker). `npm run test:automations:e2e` for automation changes, `npm run test:communications:e2e` for communication changes.
 - Google Maps keys are optional locally; see [MAPS.md](MAPS.md#google-maps-integration). Without them, map areas show a not-configured state and address lookups are unavailable.
 - Checks before finishing any change: `npx tsc --noEmit`, `npm run lint`, `npm test`, `npm run test:dataconnect` (isolated demo project and ports; safe while `dev:local` runs), `npm run test:persistence` after launcher changes, `npm run test:leads:ui` for lead UI changes, `npm run test:maps:e2e` for map, location or inventory UI changes (real app + Auth/SQL Connect emulators in headless Chrome; never loads `.env.local`), `npm run test:ai:e2e` for Copilot changes and `npm run test:ai-content:e2e` for Content Studio changes (`AI_E2E_LIVE=1` adds a few paid live Claude calls), and `npm run build`.
 
