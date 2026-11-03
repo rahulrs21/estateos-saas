@@ -695,6 +695,93 @@ try {
   assert.equal((await post("/api/communications/voice-assistant/sessions", {}, f.orgB)).status, 409, "another company without a configuration cannot start tests");
   pass("Test calls stay within the company and are continued only by the person who started them");
 
+  // ------------------------------------------------------------ 6F.6: a missed call starts a workflow (template G)
+  const tickNow = async () => {
+    const response = await fetch(origin + "/api/internal/automations/tick", {method: "POST", headers: {Authorization: `Bearer ${workerSecret}`}, signal: AbortSignal.timeout(120000)});
+    const body = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(body));
+    assert.equal(body.data.errors, 0, "tick errors: " + serverLog.slice(-2000));
+  };
+  await signIn("owner-a");
+  const workflow = await post("/api/automations", {definition: {schemaVersion: 1, name: "E2E missed call follow-up", description: "Template G", trigger: "call.missed",
+    steps: [{id: "call-back", type: "task.create", title: "Call back {{lead.fullName}}", dueMinutes: 30, assignee: "ASSIGNEE"},
+      {id: "notify-agent", type: "notification.create", audience: "ASSIGNEE", title: "Missed call", message: "A call from {{lead.fullName}} was missed."}]}});
+  assert.equal(workflow.status, 201, JSON.stringify(workflow.body));
+  const workflowId = workflow.body.data.id;
+  for (const [action, extra] of [["submit"], ["approve", {versionNumber: 1}], ["activate"]]) {
+    const revision = (await api(`/api/automations/${workflowId}`)).body.data.workflow.revision;
+    const result = await post(`/api/automations/${workflowId}/transition`, {action, expectedRevision: revision, ...extra});
+    assert.equal(result.status, 200, `${action}: ${JSON.stringify(result.body)}`);
+  }
+  await signIn("agent-a");
+  const callBacks = async () => (await sql(`query F($org: UUID!, $lead: UUID!) { leadFollowUps(where: {organizationId: {eq: $org}, leadId: {eq: $lead}, title: {startsWith: "Call back"}}) { id } }`, {org: f.orgA, lead: lead.id})).leadFollowUps.length;
+  const callBacksBefore = await callBacks();
+  const outgoingAttempt = await post("/api/communications/calls", {requestId: randomUUID(), leadId: lead.id, direction: "OUTBOUND", callType: "FOLLOW_UP", callStatus: "NO_ANSWER", startedAt: new Date(Date.now() - 180_000).toISOString(), durationSeconds: 0});
+  assert.equal(outgoingAttempt.status, 201, JSON.stringify(outgoingAttempt.body));
+  const missedIn = await post("/api/communications/calls", {requestId: randomUUID(), leadId: lead.id, direction: "INBOUND", callType: "INBOUND_ENQUIRY", callStatus: "NO_ANSWER", startedAt: new Date(Date.now() - 120_000).toISOString(), durationSeconds: 0});
+  assert.equal(missedIn.status, 201, JSON.stringify(missedIn.body));
+  await tickNow(); await tickNow();
+  assert.equal(await callBacks(), callBacksBefore + 1, "exactly one call-back task for the missed incoming call, none for the outgoing attempt");
+  await tickNow();
+  assert.equal(await callBacks(), callBacksBefore + 1, "a further tick changes nothing");
+  const missedEvents = (await sql(`query E($org: UUID!) { automationEvents(where: {organizationId: {eq: $org}, triggerType: {eq: "call.missed"}}) { status matchedCount } }`, {org: f.orgA})).automationEvents;
+  assert.ok(missedEvents.some(row => row.matchedCount === 1), JSON.stringify(missedEvents));
+  pass("A missed incoming call starts the missed-call workflow once (one call-back task); an unanswered outgoing attempt starts nothing");
+
+  // ------------------------------------------------------------ 6F.6: meetings
+  assert.equal((await post("/api/communications/meetings", {requestId: randomUUID(), leadId: lead.id, details: {title: "Wrong link", provider: "ZOOM", meetingUrl: "https://meet.google.com/abc-defg-hij",
+    startsAt: new Date(Date.now() + 86_400_000).toISOString(), endsAt: new Date(Date.now() + 90_000_000).toISOString()}})).status, 400, "a link must match the provider");
+  await load(`/leads/${lead.id}`, "!!document.querySelector('#meetings') && document.querySelector('#meetings').innerText.includes('No meetings yet')");
+  await clickText("Schedule meeting", "#meetings button");
+  await waitFor("document.querySelector('[role=dialog]')?.innerText.includes('Schedule a meeting') && !!document.querySelector('[role=dialog] [name=startsAt]')?.value", "the meeting dialog");
+  await setField("title", "E2E consultation");
+  await setField("meetingUrl", "https://meet.google.com/abc-defg-hij");
+  await setField("agenda", "Two-bedroom options in Dubai Marina (synthetic).");
+  await clickText("Schedule", "[role=dialog] button");
+  await waitFor("!document.querySelector('[role=dialog]') && document.querySelector('#meetings').innerText.includes('E2E consultation')", "the scheduled meeting");
+  const meetingHref = await evaluate("document.querySelector('#meetings a[href^=\"/communications/meetings/\"]').getAttribute('href')");
+  const meetingId = meetingHref.split("/").pop();
+  await load(meetingHref, "!!document.querySelector('[data-testid=meeting-status]')");
+  const link = await evaluate("(()=>{const a=[...document.querySelectorAll('a')].find(a=>a.textContent.includes('Open in Google Meet'));return a&&{href:a.href,target:a.target,rel:a.rel};})()");
+  assert.deepEqual(link, {href: "https://meet.google.com/abc-defg-hij", target: "_blank", rel: "noopener noreferrer"});
+  await clickText("Mark as held", "button");
+  await waitFor("document.querySelector('[role=dialog]')?.innerText.includes('Meeting held')", "the held dialog");
+  await setField("notes", "Customer wants a two-bedroom apartment in Dubai Marina and asked for the payment plan.");
+  await clickText("Save", "[role=dialog] button");
+  await waitFor("document.querySelector('[data-testid=meeting-status]')?.textContent === 'Held' && !!document.querySelector('[data-testid=meeting-notes]')", "the held meeting");
+  const meetingEvents = (await sql(`query E($org: UUID!, $id: UUID!) { automationEvents(where: {organizationId: {eq: $org}, targetId: {eq: $id}}) { triggerType } }`, {org: f.orgA, id: meetingId})).automationEvents.map(row => row.triggerType).sort();
+  assert.deepEqual(meetingEvents, ["meeting.completed", "meeting.scheduled"]);
+  await clickText("Summarise the notes", "button");
+  await waitFor("[...document.querySelectorAll('button')].some(b=>b.textContent.includes('Summarise the notes') && !b.disabled)", "the failed meeting summary");
+  assert.equal((await api(`/api/communications/meetings/${meetingId}`)).body.data.summary, null, "a failed Claude request stores nothing");
+  const meetingUsage = (await sql(`query U($org: UUID!) { aiUsageRecords(where: {organizationId: {eq: $org}, contentType: {eq: "MEETING_SUMMARY"}}) { status userUid } }`, {org: f.orgA})).aiUsageRecords;
+  assert.ok(meetingUsage.some(row => row.status === "FAILED" && row.userUid === "agent-a"));
+  await screenshot("meeting-detail");
+  assert.equal((await post(`/api/communications/meetings/${meetingId}/status`, {expectedRevision: 1, status: "CANCELLED"})).status, 409, "a held meeting cannot be cancelled");
+  await load("/communications/meetings", "document.querySelector('[aria-label=Meetings]')?.innerText.includes('E2E consultation')");
+  await signIn("manager-a");
+  assert.equal((await api(`/api/communications/meetings/${meetingId}`)).status, 404);
+  await signIn("owner-b");
+  assert.equal((await api(`/api/communications/meetings/${meetingId}`)).status, 404);
+  pass("An agent schedules a meeting from the lead with a checked link, opens it in the provider's app, records it as held once with the workflow events; Claude failure stores nothing; others cannot see it");
+
+  // ------------------------------------------------------------ 6F.6: reports
+  await signIn("agent-a");
+  // The test meeting is tomorrow, so the period runs to the day after (Dubai dates).
+  const reportTo = new Date(Date.now() + 4 * 3_600_000 + 2 * 86_400_000).toISOString().slice(0, 10);
+  const own = (await api(`/api/communications/reports?agent=${f.memberOwnerA}&to=${reportTo}`)).body.data;
+  assert.equal(own.companyWide, false);
+  assert.ok(own.byAgent.every(row => row.agentId.replaceAll("-", "") === f.memberAgentA.replaceAll("-", "")), "agents see only their own figures");
+  assert.ok(own.totals.attempts >= 1 && own.totals.missed >= 1 && own.meetings.held >= 1, JSON.stringify(own.totals));
+  assert.equal((await api("/api/communications/reports?from=2026-01-01&to=2026-12-31")).status, 400, "at most 92 days");
+  await signIn("owner-a");
+  await load("/communications/reports", "!!document.querySelector('[aria-label=\"Report by agent\"]')");
+  const reportText = await evaluate("document.body.innerText");
+  assert.match(reportText, /not a measure of quality/);
+  assert.match(reportText, /Outgoing attempts/);
+  await screenshot("communication-reports");
+  pass("Reports separate attempts, answers, conversations and meetings; agents see only their own figures; owners see the company");
+
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");
   console.log(`\n${checks} communication end-to-end checks passed.`);
 } catch (error) {

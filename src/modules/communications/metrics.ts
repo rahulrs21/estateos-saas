@@ -76,3 +76,38 @@ export function totalsByAgent(calls: readonly MetricCall[]) {
   return [...groups.values()].map(group => ({agentId: group.agentId, agentName: group.agentName, ...callTotals(group.calls)}))
     .sort((a, b) => (b.attempts + b.incoming) - (a.attempts + a.incoming) || a.agentName.localeCompare(b.agentName));
 }
+
+export interface MetricMeeting { status: "SCHEDULED" | "COMPLETED" | "CANCELLED" | "NO_SHOW"; organizerId: string; organizerName: string }
+export interface MeetingTotals { scheduled: number; held: number; noShow: number; cancelled: number }
+
+/** Meetings by what happened; a scheduled meeting in the past that nobody updated stays "scheduled". */
+export function meetingTotals(meetings: readonly MetricMeeting[]): MeetingTotals {
+  const totals: MeetingTotals = {scheduled: 0, held: 0, noShow: 0, cancelled: 0};
+  for (const meeting of meetings) {
+    if (meeting.status === "COMPLETED") totals.held += 1;
+    else if (meeting.status === "NO_SHOW") totals.noShow += 1;
+    else if (meeting.status === "CANCELLED") totals.cancelled += 1;
+    else totals.scheduled += 1;
+  }
+  return totals;
+}
+
+/**
+ * One row per agent with calls and meetings kept apart. The answer rate is
+ * answered outgoing calls over finished outgoing attempts (null without any).
+ */
+export function agentReport(calls: readonly MetricCall[], meetings: readonly MetricMeeting[]) {
+  const names = new Map<string, string>();
+  for (const call of calls) names.set(call.agentId, call.agentName);
+  for (const meeting of meetings) if (!names.has(meeting.organizerId)) names.set(meeting.organizerId, meeting.organizerName);
+  return [...names.entries()].map(([agentId, agentName]) => {
+    const own = calls.filter(call => call.agentId === agentId);
+    const totals = callTotals(own);
+    return {
+      agentId, agentName, ...totals, answerRate: totals.attempts ? Math.round((totals.answered / totals.attempts) * 100) : null,
+      interested: own.filter(call => call.outcome === "INTERESTED" && isAnswered(call)).length,
+      viewingRequested: own.filter(call => call.outcome === "VIEWING_REQUESTED" && isAnswered(call)).length,
+      meetings: meetingTotals(meetings.filter(meeting => meeting.organizerId === agentId)),
+    };
+  }).sort((a, b) => (b.attempts + b.incoming) - (a.attempts + a.incoming) || a.agentName.localeCompare(b.agentName));
+}

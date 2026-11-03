@@ -1,0 +1,24 @@
+# Phase 6F.6: communication performance reports (docs/COMMUNICATION_HUB.md#reports).
+# OWNER and ADMIN members see the company (optionally one agent); everyone else
+# sees only the calls they made or took and the meetings they organized.
+# Metrics are computed on the server from these rows.
+
+query CommunicationReport($organizationId: UUID!, $from: Timestamp!, $to: Timestamp!, $agentMembershipId: UUID)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && timestamp(vars.from) < timestamp(vars.to) && timestamp(vars.to) <= timestamp(vars.from) + duration('8035200s')") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  calls: callRecords(where: {_and: [{organizationId: {eq: $organizationId}, startedAt: {ge: $from, lt: $to}, agentMembershipId: {eq: $agentMembershipId}}, {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}, orderBy: [{startedAt: DESC}, {id: ASC}], limit: 5000) {
+    direction source callStatus answeredAt outcome durationSeconds agentMembershipId agentMembership {email userProfile {displayName}}
+  }
+  meetings: communicationMeetings(where: {_and: [{organizationId: {eq: $organizationId}, startsAt: {ge: $from, lt: $to}, organizerMembershipId: {eq: $agentMembershipId}}, {_or: [
+    {organizerMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}, orderBy: [{startsAt: DESC}, {id: ASC}], limit: 2000) {
+    status organizerMembershipId organizerMembership {email userProfile {displayName}}
+  }
+  agents: memberships(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}, orderBy: [{createdAt: ASC}], limit: 200) {
+    id email userProfile {displayName}
+  }
+}

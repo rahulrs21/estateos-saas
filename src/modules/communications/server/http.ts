@@ -20,6 +20,8 @@ import {
 } from "./providers";
 import { callMedia, deleteRecording, deleteTranscript, recordConsent, recordingFile, transcriptFile, uploadRecording, uploadTranscript, withdrawConsent } from "./media";
 import { callSummaries, decideSuggestion, generateCallSummary, reviewCallSummary } from "./intelligence";
+import { createMeeting, decideMeetingSuggestion, getMeeting, listMeetings, meetingAttendeeOptions, setMeetingStatus, summarizeMeeting, updateMeeting } from "./meetings";
+import { communicationReport } from "./reports";
 import { endVoiceTest, interruptVoiceTurn, saveVoiceAssistant, startVoiceTest, voiceAssistantView, voiceTestSession, voiceTurn } from "./voice";
 import { providerWebhookResponse } from "./webhooks";
 import { MAX_RECORDING_BYTES } from "../media";
@@ -179,3 +181,13 @@ export const voiceTestSessionResponse = (request: Request, id: string) => read(r
 export const voiceTurnResponse = (request: Request, id: string) => write(request, "voice.test.turn", (context, body) => voiceTurn(request, context, id, body));
 export const interruptVoiceTurnResponse = (request: Request, id: string) => write(request, "voice.test.interrupt", (context, body) => interruptVoiceTurn(context, id, body));
 export const endVoiceTestResponse = (request: Request, id: string) => write(request, "voice.test.end", context => endVoiceTest(context, id));
+
+export const listMeetingsResponse = (request: Request) => read(request, "meetings.list", listMeetings);
+export const createMeetingResponse = (request: Request) => write(request, "meetings.create", createMeeting, 201);
+export const meetingAttendeesResponse = (request: Request) => read(request, "meetings.attendees", context => meetingAttendeeOptions(context));
+export const getMeetingResponse = (request: Request, id: string) => read(request, "meetings.get", context => getMeeting(context, id));
+export const updateMeetingResponse = (request: Request, id: string) => write(request, "meetings.update", (context, body) => updateMeeting(context, id, body));
+export const meetingStatusResponse = (request: Request, id: string) => write(request, "meetings.status", (context, body) => setMeetingStatus(context, id, body));
+export const summarizeMeetingResponse = (request: Request, id: string) => write(request, "meetings.summary", context => summarizeMeeting(request, context, id), 201);
+export const decideMeetingSuggestionResponse = (request: Request, id: string, index: string) => write(request, "meetings.suggestion", (context, body) => decideMeetingSuggestion(context, id, index, body));
+export const reportResponse = (request: Request) => read(request, "reports", communicationReport);

@@ -108,6 +108,10 @@ export const ActivityKind = {
   CALL_AI_SUMMARY_CHANGED: "CALL_AI_SUMMARY_CHANGED",
   VOICE_ASSISTANT_UPDATED: "VOICE_ASSISTANT_UPDATED",
   VOICE_ASSISTANT_TEST_STARTED: "VOICE_ASSISTANT_TEST_STARTED",
+  MEETING_SCHEDULED: "MEETING_SCHEDULED",
+  MEETING_UPDATED: "MEETING_UPDATED",
+  MEETING_COMPLETED: "MEETING_COMPLETED",
+  MEETING_SUMMARY_CHANGED: "MEETING_SUMMARY_CHANGED",
 }
 
 export const AgentAvailabilityStatus = {
@@ -234,6 +238,7 @@ export const AuditTargetType = {
   CALL_AI_SUMMARY: "CALL_AI_SUMMARY",
   VOICE_ASSISTANT: "VOICE_ASSISTANT",
   VOICE_TEST_SESSION: "VOICE_TEST_SESSION",
+  MEETING: "MEETING",
 }
 
 export const AutomationApprovalStatus = {
@@ -638,6 +643,23 @@ export const MapDisplayMode = {
 export const MarketType = {
   OFF_PLAN: "OFF_PLAN",
   SECONDARY: "SECONDARY",
+}
+
+export const MeetingProvider = {
+  GOOGLE_MEET: "GOOGLE_MEET",
+  MICROSOFT_TEAMS: "MICROSOFT_TEAMS",
+  ZOOM: "ZOOM",
+  WEBEX: "WEBEX",
+  IN_PERSON: "IN_PERSON",
+  PHONE: "PHONE",
+  OTHER: "OTHER",
+}
+
+export const MeetingStatus = {
+  SCHEDULED: "SCHEDULED",
+  COMPLETED: "COMPLETED",
+  CANCELLED: "CANCELLED",
+  NO_SHOW: "NO_SHOW",
 }
 
 export const MembershipRole = {
@@ -1484,6 +1506,72 @@ export function deletedCallMediaFile(dcOrVarsOrOptions, varsOrOptions, options) 
   return dcInstance.executeQuery('DeletedCallMediaFile', inputVars, inputOpts);
 }
 
+export function listMeetings(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListMeetings', inputVars, inputOpts);
+}
+
+export function getMeeting(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetMeeting', inputVars, inputOpts);
+}
+
+export function createMeeting(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateMeeting', inputVars, inputOpts);
+}
+
+export function addMeetingAttendee(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AddMeetingAttendee', inputVars, inputOpts);
+}
+
+export function removeMeetingAttendee(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RemoveMeetingAttendee', inputVars, inputOpts);
+}
+
+export function updateMeeting(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateMeeting', inputVars, inputOpts);
+}
+
+export function completeMeeting(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CompleteMeeting', inputVars, inputOpts);
+}
+
+export function setMeetingStatus(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetMeetingStatus', inputVars, inputOpts);
+}
+
+export function saveMeetingSummary(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SaveMeetingSummary', inputVars, inputOpts);
+}
+
+export function decideMeetingSuggestion(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DecideMeetingSuggestion', inputVars, inputOpts);
+}
+
+export function listMeetingAttendeeOptions(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListMeetingAttendeeOptions', inputVars, inputOpts);
+}
+
 export function listCommunicationProviders(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
@@ -1620,6 +1708,12 @@ export function communicationDashboard(dcOrVarsOrOptions, varsOrOptions, options
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeQuery('CommunicationDashboard', inputVars, inputOpts);
+}
+
+export function communicationReport(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('CommunicationReport', inputVars, inputOpts);
 }
 
 export function getVoiceAssistant(dcOrVarsOrOptions, varsOrOptions, options) {

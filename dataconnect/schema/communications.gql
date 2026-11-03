@@ -418,3 +418,59 @@ type VoiceAssistantTestSession @table(key: ["organization", "id"])
   createdAt: Timestamp! @default(expr: "request.time")
   endedAt: Timestamp
 }
+
+# Meetings (6F.6). EstateOS stores the meeting and its link; the video call
+# itself happens in the provider's own app. A stored link is not an in-app call.
+enum MeetingProvider { GOOGLE_MEET MICROSOFT_TEAMS ZOOM WEBEX IN_PERSON PHONE OTHER }
+enum MeetingStatus { SCHEDULED COMPLETED CANCELLED NO_SHOW }
+
+type CommunicationMeeting @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "startsAt"])
+  @index(fields: ["organizationId", "leadId", "startsAt"])
+  @index(fields: ["organizationId", "organizerMembershipId", "startsAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  leadId: UUID
+  lead: Lead @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"], constraintName: "communication_meeting_lead_fkey")
+  contactId: UUID
+  contact: Contact @ref(fields: ["organizationId", "contactId"], references: ["organizationId", "id"], constraintName: "communication_meeting_contact_fkey")
+  organizerMembershipId: UUID!
+  organizerMembership: Membership! @ref(fields: ["organizationId", "organizerMembershipId"], references: ["organizationId", "id"], constraintName: "communication_meeting_organizer_fkey")
+  title: String! @col(dataType: "varchar(160)")
+  provider: MeetingProvider!
+  # https only, on the provider's own hosts (validated by the server and here).
+  meetingUrl: String @col(dataType: "varchar(500)")
+  location: String @col(dataType: "varchar(200)")
+  startsAt: Timestamp!
+  endsAt: Timestamp!
+  agenda: String @col(dataType: "varchar(2000)")
+  notes: String @col(dataType: "varchar(8000)")
+  status: MeetingStatus! @default(value: SCHEDULED)
+  revision: Int! @default(value: 1)
+  # A Claude summary of the notes, checked like call summaries (server-written).
+  summaryJson: String @col(dataType: "varchar(40000)")
+  summaryModel: String @col(dataType: "varchar(80)")
+  summarizedAt: Timestamp
+  summarizedBy: UserProfile
+  # Decisions on the summary's suggestions: {"0": {"status": "ACCEPTED", "followUpId": "…"}}.
+  suggestionDecisionsJson: String @col(dataType: "varchar(4000)")
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+  completedAt: Timestamp
+}
+
+# Team members invited to a meeting (the customer is the meeting's lead or contact).
+type CommunicationMeetingAttendee @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "meetingId", "membershipId"])
+  @index(fields: ["organizationId", "membershipId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  meetingId: UUID!
+  meeting: CommunicationMeeting! @ref(fields: ["organizationId", "meetingId"], references: ["organizationId", "id"], constraintName: "communication_meeting_attendee_meeting_fkey")
+  membershipId: UUID!
+  membership: Membership! @ref(fields: ["organizationId", "membershipId"], references: ["organizationId", "id"], constraintName: "communication_meeting_attendee_member_fkey")
+  createdAt: Timestamp! @default(expr: "request.time")
+}

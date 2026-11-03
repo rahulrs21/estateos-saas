@@ -37,12 +37,16 @@ Text fields (task titles, messages, notes, reasons, instructions) are plain text
 | `website_form.submitted` | Website capture | Lead |
 | `task.created`, `task.completed` | Follow-ups and work tasks, including those workflows create | Task |
 | `task.overdue` | Worker scan of pending follow-ups and work tasks | Task |
+| `call.started` | `StartLeadCall`, `CreateIncomingProviderCall` (6F.6) | Call and its lead |
+| `call.completed`, `call.failed`, `call.missed` | `LogLeadCall`, `LogContactCall`, `ApplyProviderCallStatus` when a call ends: answered, failed, or an incoming call nobody answered. One per call (`call:<id>:final`); an unanswered outgoing attempt writes none | Call and its lead |
+| `call.summary_ready` | `CreateCallAiSummary` (with the lineage when a workflow made it) | Call and its lead |
+| `meeting.scheduled`, `meeting.completed` | `CreateMeeting`, `CompleteMeeting` | Meeting and its lead |
 | `workflow.manual` | "Run now" (optionally for one lead) | Lead or none |
 | `workflow.scheduled` | Worker scheduler | None |
 
 ## Events (transactional outbox)
 
-CRM mutations insert an `AutomationEvent` in the same `@transaction` as the change (marked `# Phase 6E outbox` in the connector files), so a failed or rolled-back operation never produces an event. Events carry their origin (`CRM`, `WEBSITE`, `WORKFLOW`, `SCHEDULE`, `MANUAL`), actor, a small payload, and for workflow-created events the original event, parent execution, originating workflow and chain depth. Scanned and scheduled events have a unique `deduplicationKey` (for example `lead.followup_due:<id>:<dueAt>`), so they fire once.
+CRM mutations insert an `AutomationEvent` in the same `@transaction` as the change (marked `# Phase 6E outbox` in the connector files), so a failed or rolled-back operation never produces an event. Events carry their origin (`CRM`, `WEBSITE`, `WORKFLOW`, `SCHEDULE`, `MANUAL`, or `PROVIDER` for signed provider webhooks), actor, a small payload, and for workflow-created events the original event, parent execution, originating workflow and chain depth. Scanned and scheduled events have a unique `deduplicationKey` (for example `lead.followup_due:<id>:<dueAt>`), so they fire once.
 
 ### Time-based triggers
 
@@ -103,6 +107,7 @@ Inside its company lease the worker scans, at most once a minute and only while 
 | `lead.activity` | LOW | An internal note of its own kind (it never counts as client contact) |
 | `ai.draft` | LOW | An editable WhatsApp or email draft in Content Studio (`generateWorkflowDraft`), never sent |
 | `ai.sales_review` | LOW | The existing AI sales analysis (`analyzeLead`), saved as an internal insight |
+| `call.summarize` | LOW | A Claude call summary (6F.4) as the executor, from the transcript or else the agent's notes. Skipped with a reason when Claude call analysis is off, the call was not answered, there is nothing to summarise, or the executor is not an owner or administrator (or the call's agent). Not allowed in a `call.summary_ready` workflow |
 | `delay`, `end`, `pause` | LOW | Engine control; `pause` pauses the workflow for review |
 | `approval.request` | LOW | Waits for an authorized decision to continue |
 | `lead.reassign` | MEDIUM | Always waits for approval of the exact change, then applies it with expected-state checks |

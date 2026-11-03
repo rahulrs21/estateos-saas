@@ -12,12 +12,10 @@ import { Input } from "@/components/ui/input";
 import { aiContentHref } from "@/modules/ai/content/components/ai-content-link";
 import { formatLeadDate, fromDubaiDateTimeInput, LeadField, LeadFormMessage, toDubaiDateTimeInput } from "@/modules/leads/components/lead-ui";
 import { communicationsGet, communicationsSend, errorMessage } from "../client";
-import { SUGGESTION_LABELS, type CheckedItem, type SuggestionKind } from "../intelligence";
+import { SUGGESTION_LABELS, type CheckedItem, type CheckedSummary, type SuggestionKind } from "../intelligence";
 import { timestamp } from "../media";
 import type { CallSummariesView } from "../server/intelligence";
 
-type Summary = CallSummariesView["summaries"][number];
-type Suggestion = Summary["suggestions"][number];
 const FOLLOW_UP_KINDS = ["FOLLOW_UP", "CLARIFY_BUDGET", "SHARE_PAYMENT_PLAN", "ALTERNATIVE_PROPERTY"];
 const CONFIDENCE = {HIGH: "High confidence", MEDIUM: "Medium confidence", LOW: "Low confidence"} as const;
 
@@ -40,7 +38,8 @@ function Section({title, items}: {title: string; items: Array<CheckedItem | null
   return <div><h4 className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h4><ul className="space-y-2">{present.map((item, index) => <Point key={index} item={item} />)}</ul></div>;
 }
 
-function AcceptFollowUp({suggestion, organizationId, onDone}: {suggestion: Suggestion; organizationId: string; onDone: () => void}) {
+/** Accepts a follow-up suggestion by scheduling a lead follow-up at a chosen time (call and meeting summaries). */
+export function AcceptFollowUp({title, path, organizationId, onDone}: {title: string; path: string; organizationId: string; onDone: () => void}) {
   const prefix = useId();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
@@ -51,7 +50,7 @@ function AcceptFollowUp({suggestion, organizationId, onDone}: {suggestion: Sugge
     event.preventDefault(); setError(""); setPending(true);
     const form = new FormData(event.currentTarget);
     try {
-      await communicationsSend(`/api/communications/suggestions/${suggestion.id}/decide`, organizationId, "POST", {action: "ACCEPT", followUpAt: fromDubaiDateTimeInput(String(form.get("followUpAt") ?? "")), title: String(form.get("title") ?? "").trim() || undefined});
+      await communicationsSend(path, organizationId, "POST", {action: "ACCEPT", followUpAt: fromDubaiDateTimeInput(String(form.get("followUpAt") ?? "")), title: String(form.get("title") ?? "").trim() || undefined});
       setOpen(false); toast.success("Follow-up scheduled on the lead."); onDone();
     } catch (problem) { setError(errorMessage(problem, "The follow-up could not be scheduled.")); }
     finally { setPending(false); }
@@ -60,13 +59,29 @@ function AcceptFollowUp({suggestion, organizationId, onDone}: {suggestion: Sugge
     <DialogTrigger render={<Button size="sm" variant="outline" />}>Schedule follow-up</DialogTrigger>
     <DialogContent><DialogHeader><DialogTitle>Schedule a follow-up</DialogTitle><DialogDescription>A follow-up on the lead, assigned like any other. Nothing is sent to the customer.</DialogDescription></DialogHeader>
       <form onSubmit={submit} className="space-y-4"><fieldset disabled={pending} className="space-y-4">
-        <LeadField id={`${prefix}-title`} label="Title"><Input id={`${prefix}-title`} name="title" maxLength={500} defaultValue={suggestion.title} /></LeadField>
+        <LeadField id={`${prefix}-title`} label="Title"><Input id={`${prefix}-title`} name="title" maxLength={500} defaultValue={title} /></LeadField>
         <LeadField id={`${prefix}-at`} label="When (Dubai time)"><Input id={`${prefix}-at`} name="followUpAt" type="datetime-local" required defaultValue={defaultAt} key={defaultAt} /></LeadField>
         <Button type="submit">{pending ? "Scheduling…" : "Schedule"}</Button>
       </fieldset><LeadFormMessage message={error} /></form>
     </DialogContent>
   </Dialog>;
 }
+
+/** The checked sections of a summary (calls and meetings). */
+export function SummarySections({summary, subject = "call"}: {summary: CheckedSummary; subject?: "call" | "meeting"}) {
+  return <>
+    <Section title={`Reason for the ${subject}`} items={[summary.reasonForCall]} />
+    <Section title="Requirements" items={summary.requirements} />
+    <Section title="Locations and projects" items={summary.locations} />
+    <Section title="Budget (only if stated)" items={[summary.budget]} />
+    <Section title="Preferences" items={summary.preferences} />
+    <Section title="Questions" items={summary.questions} />
+    <Section title="Agreed" items={summary.agreements} />
+    <Section title="Next steps" items={summary.nextSteps} />
+    {summary.limitations && <p className="text-xs text-muted-foreground">Limitations: {summary.limitations}</p>}
+  </>;
+}
+export const SUMMARY_CONFIDENCE = {HIGH: "High confidence", MEDIUM: "Medium confidence", LOW: "Low confidence"} as const;
 
 /** Claude summaries of a call: drafts with checked evidence, and suggestions a person decides. */
 export function CallSummaryPanel({callId, organizationId}: {callId: string; organizationId: string}) {
@@ -110,21 +125,13 @@ export function CallSummaryPanel({callId, organizationId}: {callId: string; orga
           <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void act(summary.id, `/api/communications/summaries/${summary.id}/review`, {status: "DISMISSED"}, "Summary dismissed.")}>Dismiss</Button>
         </div>}
       </div>
-      <Section title="Reason for the call" items={[summary.summary.reasonForCall]} />
-      <Section title="Requirements" items={summary.summary.requirements} />
-      <Section title="Locations and projects" items={summary.summary.locations} />
-      <Section title="Budget (only if stated)" items={[summary.summary.budget]} />
-      <Section title="Preferences" items={summary.summary.preferences} />
-      <Section title="Questions" items={summary.summary.questions} />
-      <Section title="Agreed" items={summary.summary.agreements} />
-      <Section title="Next steps" items={summary.summary.nextSteps} />
-      {summary.summary.limitations && <p className="text-xs text-muted-foreground">Limitations: {summary.summary.limitations}</p>}
+      <SummarySections summary={summary.summary} />
       {summary.suggestions.length > 0 && <div className="space-y-2 border-t pt-3"><h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Suggested actions</h4>
         <ul className="space-y-2">{summary.suggestions.map(suggestion => <li key={suggestion.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
           <div className="min-w-0"><p className="text-sm font-medium">{suggestion.title}</p><p className="text-xs text-muted-foreground">{SUGGESTION_LABELS[suggestion.kind as SuggestionKind] ?? suggestion.kind} · {suggestion.detail}{!suggestion.verified && " · not found in the source"}</p></div>
           {suggestion.status !== "PENDING" ? <Badge variant="outline">{suggestion.status === "ACCEPTED" ? "Accepted" : "Dismissed"}</Badge>
             : view.canEdit && <div className="flex flex-wrap gap-1">
-              {FOLLOW_UP_KINDS.includes(suggestion.kind) && view.leadId && <AcceptFollowUp suggestion={suggestion} organizationId={organizationId} onDone={() => void load()} />}
+              {FOLLOW_UP_KINDS.includes(suggestion.kind) && view.leadId && <AcceptFollowUp title={suggestion.title} path={`/api/communications/suggestions/${suggestion.id}/decide`} organizationId={organizationId} onDone={() => void load()} />}
               {suggestion.kind === "PROPOSAL_DRAFT" && view.leadId && <Link className={buttonVariants({variant: "outline", size: "sm"})} href={aiContentHref("CLIENT_PROPOSAL", undefined, [{kind: "leadId", id: view.leadId}])}
                 onClick={() => void communicationsSend(`/api/communications/suggestions/${suggestion.id}/decide`, organizationId, "POST", {action: "ACCEPT"}).catch(() => undefined)}>Draft in Content Studio</Link>}
               {suggestion.kind === "SCHEDULE_VIEWING" && view.leadId && <Link className={buttonVariants({variant: "outline", size: "sm"})} href={`/leads/${view.leadId}#lead-viewings`}

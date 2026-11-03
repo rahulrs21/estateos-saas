@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CallPanel } from "@/modules/communications/components/call-panel";
+import { MeetingPanel } from "@/modules/communications/components/meetings";
 import { ContactEditorDialog } from "./contact-editor-dialog";
 import type { ContactRecord } from "../types";
 
@@ -26,6 +27,7 @@ export function ContactDetail({ organization, role, contact }: { organization: {
       <Card className="shadow-xs"><CardHeader><CardTitle className="text-base">Notes</CardTitle><CardDescription>Internal context for this contact.</CardDescription></CardHeader><CardContent><p className="min-h-24 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{contact.notes || "No notes have been added."}</p><p className="mt-4 border-t pt-4 text-xs text-muted-foreground">Updated {new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", dateStyle: "medium", timeStyle: "short" }).format(new Date(contact.updatedAt))}</p></CardContent></Card>
     </div>
     <CallPanel subject={{kind: "CONTACT", id: contact.id}} organizationId={organization.id} />
+    <MeetingPanel subject={{kind: "CONTACT", id: contact.id}} organizationId={organization.id} />
     {!canManage && <p className="text-xs text-muted-foreground">Contact changes are limited to company owners and administrators.</p>}
     <Link href="/leads" className={buttonVariants({ variant: "ghost", size: "sm" })}>Open leads</Link>
   </div>;

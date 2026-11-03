@@ -352,7 +352,7 @@ mutation SetAutomationWorkflowNextRun($organizationId: UUID!, $claimToken: UUID!
 
 # Facts for conditions, read fresh when a step runs. "Contacted" counts people's notes and status changes since the event, not automation notes.
 query AutomationFacts($organizationId: UUID!, $leadId: UUID, $hasLead: Boolean!, $listingId: UUID, $hasListing: Boolean!, $viewingId: UUID, $hasViewing: Boolean!, $followUpId: UUID, $hasFollowUp: Boolean!,
-  $workTaskId: UUID, $hasWorkTask: Boolean!, $contactId: UUID, $hasContact: Boolean!, $since: Timestamp!)
+  $workTaskId: UUID, $hasWorkTask: Boolean!, $contactId: UUID, $hasContact: Boolean!, $since: Timestamp!, $callId: UUID, $hasCall: Boolean! = false, $meetingId: UUID, $hasMeeting: Boolean! = false)
   @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
   executor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}) @check(expr: "this != null", message: "EXECUTOR_NOT_AUTHORIZED") {id role}
   lead: lead(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $leadId}}}) @include(if: $hasLead) {
@@ -360,6 +360,10 @@ query AutomationFacts($organizationId: UUID!, $leadId: UUID, $hasLead: Boolean!,
   }
   contactActivity: activities(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, createdAt: {gt: $since}, kind: {in: [LEAD_NOTE_ADDED, LEAD_STATUS_CHANGED, FOLLOW_UP_COMPLETED]}}, limit: 1) @include(if: $hasLead) {id}
   completedFollowUps: leadFollowUps(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, status: {eq: COMPLETED}, completedAt: {gt: $since}}, limit: 1) @include(if: $hasLead) {id}
+  # An answered call since the event counts as contact (6F.6); an unanswered attempt does not.
+  answeredCalls: callRecords(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, callStatus: {eq: COMPLETED}, answeredAt: {gt: $since}}, limit: 1) @include(if: $hasLead) {id}
+  call: callRecord(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $callId}}}) @include(if: $hasCall) {id leadId contactId agentMembershipId direction callType callStatus outcome durationSeconds source}
+  meeting: communicationMeeting(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $meetingId}}}) @include(if: $hasMeeting) {id leadId contactId organizerMembershipId title status provider startsAt}
   listing: propertyListing(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $listingId}}}) @include(if: $hasListing) {id title listingStatus listingPurpose assignedMembershipId askingPriceMinor archivedAt}
   viewing: leadPropertyViewing(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $viewingId}}}) @include(if: $hasViewing) {id leadId status outcome scheduledAt}
   followUp: leadFollowUp(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $followUpId}}}) @include(if: $hasFollowUp) {id leadId title status dueAt assignedUserId}

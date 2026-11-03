@@ -32,7 +32,7 @@ const catalog = () => {
 - delay: minutes (1-${LIMITS.delayMinutes})
 - approval.request: reason, minutes (approval expiry, 15-10080)
 - pause: reason
-- lead.distribute, ai.sales_review, end: no fields
+- lead.distribute, ai.sales_review, call.summarize, end: no fields
 Unused fields: empty string, 0 or an empty list.
 </step_fields>
 <operators>${OPERATORS.join(", ")}. Text facts: eq, ne, contains, empty, not_empty. Numbers: eq, ne, gt, lt, empty, not_empty. Booleans: eq, ne with "true" or "false". Dates: before, after (ISO time), within_minutes (a number), empty, not_empty. Values are strings; empty checks use "".</operators>

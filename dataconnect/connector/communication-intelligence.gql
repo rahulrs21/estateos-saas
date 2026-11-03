@@ -21,7 +21,8 @@ query ListCallSummaries($organizationId: UUID!, $callId: UUID!)
 }
 
 mutation CreateCallAiSummary($organizationId: UUID!, $id: UUID!, $callId: UUID!, $actorUid: String!, $sourceKind: String!, $hasTranscript: Boolean!, $transcriptId: UUID,
-  $summaryJson: String!, $overallConfidence: String!, $unverifiedCount: Int!, $model: String!, $promptVersion: String!)
+  $summaryJson: String!, $overallConfidence: String!, $unverifiedCount: Int!, $model: String!, $promptVersion: String!,
+  $originalEventId: UUID, $parentExecutionId: UUID, $originWorkflowId: UUID, $chainDepth: Int! = 0)
   @auth(level: NO_ACCESS) @transaction {
   before: query @redact @check(expr: "this.call != null && this.settings != null && this.settings.aiAnalysisEnabled && (!vars.hasTranscript || (has(this.transcript) && this.transcript != null))", message: "CALL_AI_NOT_AVAILABLE") {
     call: callRecord(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $callId}, callStatus: {eq: COMPLETED}}, {_or: [
@@ -35,6 +36,9 @@ mutation CreateCallAiSummary($organizationId: UUID!, $id: UUID!, $callId: UUID!,
     overallConfidence: $overallConfidence, unverifiedCount: $unverifiedCount, model: $model, promptVersion: $promptVersion, createdByUid: $actorUid})
   auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CALL_AI_SUMMARY_CHANGED, targetType: CALL_AI_SUMMARY, targetId: $id,
     metadata_expr: "{'event': 'CREATED', 'callId': vars.callId, 'sourceKind': vars.sourceKind, 'unverified': vars.unverifiedCount}"})
+  # Workflow event (6F.6). A summary made by a workflow step carries its lineage, so chains stay bounded.
+  automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'call.summary_ready:' + vars.id", triggerType: "call.summary_ready", targetType: "CALL", targetId: $callId, actorUid: $actorUid,
+    origin_expr: "vars.chainDepth > 0 ? 'WORKFLOW' : 'CRM'", originalEventId: $originalEventId, parentExecutionId: $parentExecutionId, originWorkflowId: $originWorkflowId, chainDepth: $chainDepth, payload_expr: "{'summaryId': vars.id}"})
 }
 
 # Server only: one suggestion of a summary just created (IDs derived from the summary, so a retry cannot duplicate them).

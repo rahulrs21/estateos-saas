@@ -2,7 +2,7 @@ import "server-only";
 
 import { stableUuid } from "@/modules/automations/ids";
 import { mapWorkspaceDataError, WorkspaceError } from "@/modules/organizations/server/errors";
-import { isAnswered, isConversation } from "../call-state";
+import { finalCallTrigger, isAnswered, isConversation } from "../call-state";
 import { COMPLIANCE_MESSAGES, evaluateCall, rulesFrom, type CommunicationRules, type ComplianceIssue, type PriorCall, type SuppressionFact } from "../compliance";
 import { suppresses, type CallDirection, type CallOutcome, type CallSource, type CallStatus, type CallType } from "../model";
 import { displayNumber, numbersOnRecord } from "../phone";
@@ -177,6 +177,7 @@ export async function logCall(context: Context, body: unknown) {
     organizationId, id, direction: sdk.CallDirection[input.direction], callType: sdk.CallType[input.callType], callStatus: sdk.CallStatus[input.callStatus],
     outcome: input.outcome ? sdk.CallOutcome[input.outcome] : null, startedAt: at.toISOString(), durationSeconds: input.callStatus === "COMPLETED" ? input.durationSeconds : 0,
     notes: input.notes, counterpartyNumber: number, followUpRequired: input.followUpRequired || Boolean(input.followUpAt), suppress, suppressionId: stableUuid("call-suppression", id),
+    emitEvent: finalCallTrigger(input.direction, input.callStatus) !== null,
   };
   let duplicate = false;
   try {

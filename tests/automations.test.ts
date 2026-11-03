@@ -145,7 +145,7 @@ test("every trigger declares its facts and target; every action declares where i
     assert.ok(TRIGGERS[trigger].label && TRIGGERS[trigger].source, trigger);
   }
   for (const type of ACTION_TYPES) assert.ok(ACTIONS[type].targets.length > 0, type);
-  assert.equal(TRIGGER_TYPES.length, 16);
+  assert.equal(TRIGGER_TYPES.length, 23, "16 from 6E and 7 communication triggers from 6F.6");
 });
 
 test("scheduling: business and quiet hours in the company's timezone, UTC results", () => {
@@ -179,8 +179,8 @@ test("deterministic IDs and keys make repeated steps idempotent", () => {
   assert.equal(canonicalJson({b: 1, a: [2, {d: 1, c: 2}]}), canonicalJson({a: [2, {c: 2, d: 1}], b: 1}), "key order does not change the hash input");
 });
 
-test("templates A-F are valid definitions with only allowlisted, internal actions", () => {
-  assert.deepEqual(WORKFLOW_TEMPLATES.map(template => template.key), ["A", "B", "C", "D", "E", "F"]);
+test("templates A-I are valid definitions with only allowlisted, internal actions", () => {
+  assert.deepEqual(WORKFLOW_TEMPLATES.map(template => template.key), ["A", "B", "C", "D", "E", "F", "G", "H", "I"]);
   for (const template of WORKFLOW_TEMPLATES) {
     const definition = parseWorkflowDefinition(template.definition);
     assert.ok(definition.steps.every(step => ACTION_TYPES.includes(step.type)), template.key);

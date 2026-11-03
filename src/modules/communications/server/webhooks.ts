@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { enforceRateLimit, requestClientIp } from "@/lib/rate-limit/server";
 import { getAppOrigin } from "@/modules/auth/server/config";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
-import { isFinal, transition } from "../call-state";
+import { finalCallTrigger, isFinal, transition } from "../call-state";
 import type { CallStatus } from "../model";
 import { ADAPTERS } from "../providers";
 import { WebhookPayloadError, type ProviderCallEvent, type ProviderType } from "../providers/types";
@@ -144,13 +144,15 @@ export async function processProviderEvent(connection: Connection, event: Provid
     if (!decision.apply) return mark(decision.reason === "DUPLICATE" ? "NO_CHANGE" : decision.reason, call.id);
     const at = event.occurredAt ?? new Date().toISOString();
     const final = isFinal(next);
+    const trigger = final ? finalCallTrigger(call.direction, next) : null;
     const answeredAt = next === "IN_PROGRESS" ? at
       // Only the final status was reported: answered at the end minus the talk time, never before the call started.
       : next === "COMPLETED" && !call.answeredAt ? new Date(Math.max(Date.parse(call.startedAt), Date.parse(at) - (event.durationSeconds ?? 0) * 1000)).toISOString()
       : null;
     try {
       await sdk.applyProviderCallStatus(dc, {organizationId, id: call.id, expectedStatus: sdk.CallStatus[current], callStatus: sdk.CallStatus[next], answeredAt,
-        endedAt: final ? at : null, durationSeconds: final && next === "COMPLETED" ? event.durationSeconds ?? null : final ? 0 : null});
+        endedAt: final ? at : null, durationSeconds: final && next === "COMPLETED" ? event.durationSeconds ?? null : final ? 0 : null,
+        emitFinal: trigger !== null, finalTrigger: trigger ?? "call.completed"});
       return mark("APPLIED", call.id);
     } catch (error) {
       // Another delivery changed the call first: decide again against its new status.

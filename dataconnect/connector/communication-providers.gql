@@ -178,10 +178,13 @@ mutation CreateIncomingProviderCall($organizationId: UUID!, $id: UUID!, $provide
     direction: INBOUND, source: PROVIDER, callType: INBOUND_ENQUIRY, callStatus: $callStatus, callerNumber: $callerNumber, recipientNumber: $recipientNumber, counterpartyNumber: $counterpartyNumber,
     contactId: $contactId, leadId: $leadId, startedAt: $startedAt, createdByUid: $actorUid, updatedByUid: $actorUid})
   auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CALL_STARTED, targetType: CALL, targetId: $id, metadata_expr: "{'direction': 'INBOUND', 'source': 'PROVIDER'}"})
+  automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'call:' + vars.id + ':started'", triggerType: "call.started", targetType: "CALL", targetId: $id, origin: "PROVIDER"})
 }
 
 # Moves a provider call from the status EstateOS last saw (compare-and-set) to a later one.
-mutation ApplyProviderCallStatus($organizationId: UUID!, $id: UUID!, $expectedStatus: CallStatus!, $callStatus: CallStatus!, $answeredAt: Timestamp, $endedAt: Timestamp, $durationSeconds: Int)
+# A final status also writes the call's one workflow event ($finalTrigger: call.completed, call.failed or call.missed, chosen by the server).
+mutation ApplyProviderCallStatus($organizationId: UUID!, $id: UUID!, $expectedStatus: CallStatus!, $callStatus: CallStatus!, $answeredAt: Timestamp, $endedAt: Timestamp, $durationSeconds: Int,
+  $emitFinal: Boolean! = false, $finalTrigger: String! = "call.completed")
   @auth(level: NO_ACCESS) @transaction {
   before: query @redact {
     call: callRecord(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null", message: "CALL_NOT_FOUND") {answeredAt endedAt durationSeconds}
@@ -191,6 +194,7 @@ mutation ApplyProviderCallStatus($organizationId: UUID!, $id: UUID!, $expectedSt
     endedAt_expr: "has(vars.endedAt) && vars.endedAt != null ? vars.endedAt : response.before.call.endedAt",
     durationSeconds_expr: "has(vars.durationSeconds) && vars.durationSeconds != null ? vars.durationSeconds : response.before.call.durationSeconds",
     revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "CALL_STATUS_CHANGED")
+  automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'call:' + vars.id + ':final'", triggerType: $finalTrigger, targetType: "CALL", targetId: $id, origin: "PROVIDER"}) @include(if: $emitFinal)
 }
 
 mutation SetProviderCallId($organizationId: UUID!, $id: UUID!, $providerCallId: String!) @auth(level: NO_ACCESS) @transaction {
@@ -235,6 +239,7 @@ mutation StartLeadCall($organizationId: UUID!, $id: UUID!, $leadId: UUID!, $phon
     providerConnectionId_expr: "response.before.line.providerConnectionId", phoneLineId: $phoneLineId, direction: OUTBOUND, source: PROVIDER, callType: $callType, callStatus: INITIATED,
     callerNumber_expr: "response.before.line.phoneNumber", recipientNumber: $counterpartyNumber, counterpartyNumber: $counterpartyNumber, startedAt_expr: "request.time", createdByUid_expr: "auth.uid", updatedByUid_expr: "auth.uid"})
   activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: CALL_STARTED, leadId: $leadId, targetId: $id, metadata_expr: "{'callId': vars.id, 'direction': 'OUTBOUND', 'callType': vars.callType, 'source': 'PROVIDER'}"})
+  automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'call:' + vars.id + ':started'", triggerType: "call.started", targetType: "CALL", targetId: $id, actorUid_expr: "auth.uid", origin: "CRM", payload_expr: "{'leadId': vars.leadId}"})
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_STARTED, targetType: CALL, targetId: $id, metadata_expr: "{'leadId': vars.leadId, 'callType': vars.callType, 'source': 'PROVIDER'}"})
 }
 

@@ -11,7 +11,7 @@ Calls with customers, recorded against leads and contacts, with the rules that a
 | 6F.3 | Consent evidence, uploaded recordings and transcripts, private storage, audited access, retention | Implemented and tested on emulators ([privacy](CALL_PRIVACY_COMPLIANCE.md#recording-transcripts-and-consent)) |
 | 6F.4 | Claude call summaries with checked evidence, review and suggestions | Implemented and tested on emulators; live Claude not run ([details](AI_CALL_INTELLIGENCE.md)) |
 | 6F.5 | Voice assistant configuration and test-mode simulator | Implemented and tested on emulators; test mode only, no live AI calls, live Claude not run ([architecture](AI_VOICE_ARCHITECTURE.md)) |
-| 6F.6 | Meetings, workflow triggers, reports | Not started |
+| 6F.6 | Meetings, workflow triggers, reports | Implemented and tested on emulators ([meetings](#meetings), [workflow events](#workflow-events), [reports](#reports)) |
 
 **No calling provider is connected, and EstateOS places no calls.** The Call button stays disabled and lists the reasons until a verified provider, an active registered line and an owner's or administrator's confirmation are all in place ([live calling](TELEPHONY_PROVIDERS.md#live-calling)). Agents log calls they make or take through the company's approved phone service.
 
@@ -110,6 +110,71 @@ Logging writes a `CALL_LOGGED` lead activity (without the notes, which stay on t
 
 The contact page lists calls on the contact and on its leads that the member may read.
 
+## Meetings
+
+A meeting is EstateOS's record of a meeting with a lead or contact, and its link. **The video call itself happens in the provider's own app; EstateOS does not host video calls**, and nothing is sent to the customer: the agent shares the link.
+
+| Part | Detail |
+| --- | --- |
+| Scheduling | From the Meetings card on a lead or contact page: title, type, link or location, start (Dubai time), duration, agenda and invited colleagues. Repeated submissions are harmless (request ID). |
+| Links | `https` only, on the provider's own hosts (`src/modules/communications/meetings.ts`): Google Meet `meet.google.com`; Teams `teams.microsoft.com`, `teams.live.com`; Zoom `zoom.us` and subdomains; Webex subdomains of `webex.com`; *Other*: any public https host (no IP addresses, `localhost` or credentials). In-person and phone meetings have no link. The database repeats the https and length checks. |
+| Status | Scheduled → *Held* (with notes), *Cancelled* or *Customer did not attend*, each once (compare-and-set). Only scheduled meetings are edited. |
+| Summary | For a held meeting with notes, the organizer (or an owner or administrator) can ask Claude for a summary of the notes. It uses the [call-summary pipeline](AI_CALL_INTELLIGENCE.md): minimized source, checked quotes, usage `CALL_AI` / `MEETING_SUMMARY`, the company's Claude switch. It is stored only by the server (`SaveMeetingSummary`). |
+| Suggestions | Decided once each. Accepting a follow-up kind schedules a lead follow-up with the existing operation; proposal and viewing suggestions open Content Studio or the lead's viewings. |
+| Pages | `/communications/meetings` (upcoming, past, all) and `/communications/meetings/[id]` |
+
+**Who sees and changes meetings:**
+
+| | Sees | Changes |
+| --- | --- | --- |
+| Owners and administrators | Every meeting | Every meeting |
+| Organizer | Their meetings | Their meetings |
+| Invited colleagues | Meetings they are invited to | No |
+| The lead's assigned agent | Meetings on their leads | No |
+
+Scheduling needs the same lead or contact access as logging a call.
+
+## Workflow events
+
+Calls and meetings start Phase 6E workflows through the existing outbox. The event is written in the same transaction as the change, so nothing is lost or invented ([AUTOMATION_ENGINE.md](AUTOMATION_ENGINE.md#triggers)).
+
+| Event | When |
+| --- | --- |
+| `call.started` | A provider call is created (placed from EstateOS or received on a company line) |
+| `call.completed` | An answered call ends (logged or reported) |
+| `call.failed` | A call failed or dropped |
+| `call.missed` | An incoming call ended unanswered |
+| `call.summary_ready` | A Claude call summary was stored |
+| `meeting.scheduled`, `meeting.completed` | A meeting is scheduled, or marked as held |
+
+- **One final event per call.** Each call has one final event, using the deduplication key `call:<id>:final`, whether the call was logged manually or reported by the provider.
+- **Unanswered outgoing attempts start nothing.** For manual logs, the server sets `emitEvent` with `finalCallTrigger` (`call-state.ts`), and the database refuses a log whose flag disagrees with the status and direction.
+- **What conditions can use.** Workflow conditions see the call's direction, purpose, status, outcome, duration, source and agent, and the meeting's status, type, start and organizer. They also see the lead's facts through the record. They never see notes, numbers or transcripts.
+- **Answered calls count as contact.** An answered call now counts as contact for `lead.contacted`.
+- **New action and templates.**
+  - `call.summarize` asks Claude for a call summary as the workflow's executor.
+  - Templates: G (missed call → call-back task and notification), H (answered call → summary), I (meeting held → next-day follow-up).
+
+## Reports
+
+`/communications/reports` (all members): Dubai calendar days, up to 92 days (default the last 30).
+
+**Scope:**
+- Owners and administrators see the company, or one agent.
+- Everyone else sees only the calls they made or took and the meetings they organized. The database applies the same rule, so naming another agent returns nothing.
+
+**Figures,** counted separately:
+- outgoing attempts, answered and answer rate;
+- incoming and missed;
+- conversations;
+- *interested* and *viewing requested* outcomes;
+- meetings held, scheduled, not attended and cancelled.
+
+**Context notes on the page:**
+- Average talk time is labelled as not a quality measure.
+- Manual logs are counted.
+- More than 5,000 calls in a period is flagged.
+
 ## API
 
 All routes use the verified session; the company is resolved on the server. Mutations also need same-origin, the CSRF token and an `X-EstateOS-Organization` header matching the session's company (`src/modules/communications/server/http.ts`).
@@ -139,6 +204,11 @@ All routes use the verified session; the company is resolved on the server. Muta
 | `/api/communications/recordings/[id]/delete`, `/transcripts/[id]/delete` | POST | Delete (owners and administrators) |
 | `/api/communications/calls/[callId]/summaries` | GET, POST | Claude summaries of a call; create one (`source`: TRANSCRIPT or NOTES) |
 | `/api/communications/summaries/[id]/review`, `/suggestions/[id]/decide` | POST | Review a summary; accept or dismiss a suggestion |
+| `/api/communications/meetings` | GET, POST | Meetings the member may see (`when`, `status`, `leadId`, `contactId`, `page`); schedule one |
+| `/api/communications/meetings/attendees` | GET | Colleagues who can be invited (names only) |
+| `/api/communications/meetings/[id]` | GET, PUT | A meeting; edit a scheduled one (`expectedRevision`) |
+| `/api/communications/meetings/[id]/status`, `/summary`, `/suggestions/[index]/decide` | POST | Held, cancelled or no-show; Claude summary of the notes; decide a suggestion |
+| `/api/communications/reports` | GET | Report (`from`, `to`, `agent` for owners and administrators) |
 | `/api/communications/voice-assistant` and `/voice-assistant/sessions/**` | GET, PUT, POST | Voice assistant configuration and test calls (owners and administrators; [API](AI_VOICE_ARCHITECTURE.md#api)) |
 
 ## Security
@@ -170,7 +240,8 @@ Guessed IDs from another company or outside the member's access return not-found
 Later sub-phases add:
 - 6F.3: consent, recording and transcript tables (`communication-media.gql`);
 - 6F.4: `CallAiSummary` and `CallAiSuggestion` (`communication-intelligence.gql`);
-- 6F.5: `VoiceAssistantConfig` (one per company) and `VoiceAssistantTestSession` (`communication-voice.gql`), with the enum values `VOICE_ASSISTANT_UPDATED`, `VOICE_ASSISTANT_TEST_STARTED`, `VOICE_ASSISTANT` and `VOICE_TEST_SESSION`.
+- 6F.5: `VoiceAssistantConfig` (one per company) and `VoiceAssistantTestSession` (`communication-voice.gql`), with the enum values `VOICE_ASSISTANT_UPDATED`, `VOICE_ASSISTANT_TEST_STARTED`, `VOICE_ASSISTANT` and `VOICE_TEST_SESSION`;
+- 6F.6: `CommunicationMeeting` and `CommunicationMeetingAttendee` (`communication-meetings.gql`), the report query (`communication-reports.gql`), outbox inserts in the call and summary operations, and the enum values `MEETING_SCHEDULED`, `MEETING_UPDATED`, `MEETING_COMPLETED`, `MEETING_SUMMARY_CHANGED` and `MEETING`.
 
 Shared enums gained values at the end only (`ActivityKind`: `CALL_LOGGED`, `CALL_UPDATED`, `COMMUNICATION_SETTINGS_UPDATED`, `COMMUNICATION_SUPPRESSION_CHANGED`; `AuditTargetType`: `CALL`, `COMMUNICATION_SETTINGS`, `COMMUNICATION_SUPPRESSION`). SQL Connect cannot reorder enum values ([LOCAL_DATABASE.md](LOCAL_DATABASE.md#what-caused-data-loss-before), item 8).
 
@@ -180,6 +251,8 @@ Shared enums gained values at the end only (`ActivityKind`: `CALL_LOGGED`, `CALL
 
 - A `@check` on a field skipped by `@include(if: false)` is denied ("no invocation"). Put such checks on an enclosing `query` block that always runs (see `viewingCheck` in `LogLeadCall`).
 - `_expr` values of a field skipped by `@include` are still evaluated, so they must not produce null for non-null columns (see the suppression insert).
+- An `Any` value (`payload_expr`, `metadata_expr`) cannot hold a timestamp variable, and a ternary inside it needs `dyn()` on both branches ("Failed to compute Any_Expr"); see the meeting events.
+- An optional filter variable is ignored in `where` only when it is absent. An explicit `null` matches nothing, so the server omits it (see the reports, where "every agent" is an absent `agentMembershipId`).
 
 ## Testing
 

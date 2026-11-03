@@ -115,6 +115,10 @@ export enum ActivityKind {
   CALL_AI_SUMMARY_CHANGED = "CALL_AI_SUMMARY_CHANGED",
   VOICE_ASSISTANT_UPDATED = "VOICE_ASSISTANT_UPDATED",
   VOICE_ASSISTANT_TEST_STARTED = "VOICE_ASSISTANT_TEST_STARTED",
+  MEETING_SCHEDULED = "MEETING_SCHEDULED",
+  MEETING_UPDATED = "MEETING_UPDATED",
+  MEETING_COMPLETED = "MEETING_COMPLETED",
+  MEETING_SUMMARY_CHANGED = "MEETING_SUMMARY_CHANGED",
 }
 export enum AgentAvailabilityStatus {
   AVAILABLE = "AVAILABLE",
@@ -229,6 +233,7 @@ export enum AuditTargetType {
   CALL_AI_SUMMARY = "CALL_AI_SUMMARY",
   VOICE_ASSISTANT = "VOICE_ASSISTANT",
   VOICE_TEST_SESSION = "VOICE_TEST_SESSION",
+  MEETING = "MEETING",
 }
 export enum AutomationApprovalStatus {
   PENDING = "PENDING",
@@ -580,6 +585,21 @@ export enum MarketType {
   OFF_PLAN = "OFF_PLAN",
   SECONDARY = "SECONDARY",
 }
+export enum MeetingProvider {
+  GOOGLE_MEET = "GOOGLE_MEET",
+  MICROSOFT_TEAMS = "MICROSOFT_TEAMS",
+  ZOOM = "ZOOM",
+  WEBEX = "WEBEX",
+  IN_PERSON = "IN_PERSON",
+  PHONE = "PHONE",
+  OTHER = "OTHER",
+}
+export enum MeetingStatus {
+  SCHEDULED = "SCHEDULED",
+  COMPLETED = "COMPLETED",
+  CANCELLED = "CANCELLED",
+  NO_SHOW = "NO_SHOW",
+}
 export enum MembershipRole {
   OWNER = "OWNER",
   ADMIN = "ADMIN",
@@ -826,6 +846,17 @@ export interface AddLeadNoteVariables {
   note: string;
 }
 
+export interface AddMeetingAttendeeData {
+  communicationMeetingAttendee_insert: CommunicationMeetingAttendee_Key;
+}
+
+export interface AddMeetingAttendeeVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  meetingId: UUIDString;
+  membershipId: UUIDString;
+}
+
 export interface AddPaymentPlanInstallmentData {
   paymentPlan_update?: PaymentPlan_Key | null;
   paymentPlanInstallment_insert: PaymentPlanInstallment_Key;
@@ -931,6 +962,7 @@ export interface AppendAiExchangeVariables {
 
 export interface ApplyProviderCallStatusData {
   call?: CallRecord_Key | null;
+  automationEvent_insert: AutomationEvent_Key;
 }
 
 export interface ApplyProviderCallStatusVariables {
@@ -941,6 +973,8 @@ export interface ApplyProviderCallStatusVariables {
   answeredAt?: TimestampString | null;
   endedAt?: TimestampString | null;
   durationSeconds?: number | null;
+  emitFinal?: boolean;
+  finalTrigger?: string;
 }
 
 export interface ApproveAutomationWorkflowData {
@@ -1337,6 +1371,31 @@ export interface AutomationFactsData {
   completedFollowUps: ({
     id: UUIDString;
   })[];
+  answeredCalls: ({
+    id: UUIDString;
+  })[];
+  call?: {
+    id: UUIDString;
+    leadId?: UUIDString | null;
+    contactId?: UUIDString | null;
+    agentMembershipId: UUIDString;
+    direction: CallDirection;
+    callType: CallType;
+    callStatus: CallStatus;
+    outcome?: CallOutcome | null;
+    durationSeconds: number;
+    source: CallSource;
+  };
+  meeting?: {
+    id: UUIDString;
+    leadId?: UUIDString | null;
+    contactId?: UUIDString | null;
+    organizerMembershipId: UUIDString;
+    title: string;
+    status: MeetingStatus;
+    provider: MeetingProvider;
+    startsAt: TimestampString;
+  };
   listing?: {
     id: UUIDString;
     title: string;
@@ -1393,6 +1452,10 @@ export interface AutomationFactsVariables {
   contactId?: UUIDString | null;
   hasContact: boolean;
   since: TimestampString;
+  callId?: UUIDString | null;
+  hasCall?: boolean;
+  meetingId?: UUIDString | null;
+  hasMeeting?: boolean;
 }
 
 export interface AutomationMetricsData {
@@ -1780,6 +1843,18 @@ export interface CommunicationDashboardVariables {
   until: TimestampString;
 }
 
+export interface CommunicationMeetingAttendee_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'CommunicationMeetingAttendee_Key';
+}
+
+export interface CommunicationMeeting_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'CommunicationMeeting_Key';
+}
+
 export interface CommunicationPhoneLine_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -1790,6 +1865,52 @@ export interface CommunicationProviderConnection_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'CommunicationProviderConnection_Key';
+}
+
+export interface CommunicationReportData {
+  me?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  calls: ({
+    direction: CallDirection;
+    source: CallSource;
+    callStatus: CallStatus;
+    answeredAt?: TimestampString | null;
+    outcome?: CallOutcome | null;
+    durationSeconds: number;
+    agentMembershipId: UUIDString;
+    agentMembership: {
+      email: string;
+      userProfile?: {
+        displayName: string;
+      };
+    };
+  })[];
+  meetings: ({
+    status: MeetingStatus;
+    organizerMembershipId: UUIDString;
+    organizerMembership: {
+      email: string;
+      userProfile?: {
+        displayName: string;
+      };
+    };
+  })[];
+  agents: ({
+    id: UUIDString;
+    email: string;
+    userProfile?: {
+      displayName: string;
+    };
+  })[];
+}
+
+export interface CommunicationReportVariables {
+  organizationId: UUIDString;
+  from: TimestampString;
+  to: TimestampString;
+  agentMembershipId?: UUIDString | null;
 }
 
 export interface CommunicationSettings_Key {
@@ -1815,6 +1936,22 @@ export interface CompleteLeadFollowUpVariables {
   organizationId: UUIDString;
   leadId: UUIDString;
   followUpId?: UUIDString | null;
+}
+
+export interface CompleteMeetingData {
+  meeting?: CommunicationMeeting_Key | null;
+  activity: Activity_Key;
+  auditLog_insert: AuditLog_Key;
+  automationEvent_insert: AutomationEvent_Key;
+}
+
+export interface CompleteMeetingVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  leadId?: UUIDString | null;
+  hasLead: boolean;
+  notes?: string | null;
 }
 
 export interface CompleteWorkTaskData {
@@ -2009,6 +2146,7 @@ export interface CreateCallAiSuggestionVariables {
 export interface CreateCallAiSummaryData {
   summary: CallAiSummary_Key;
   auditLog_insert: AuditLog_Key;
+  automationEvent_insert: AutomationEvent_Key;
 }
 
 export interface CreateCallAiSummaryVariables {
@@ -2024,6 +2162,10 @@ export interface CreateCallAiSummaryVariables {
   unverifiedCount: number;
   model: string;
   promptVersion: string;
+  originalEventId?: UUIDString | null;
+  parentExecutionId?: UUIDString | null;
+  originWorkflowId?: UUIDString | null;
+  chainDepth?: number;
 }
 
 export interface CreateCallRecordingData {
@@ -2226,6 +2368,7 @@ export interface CreateGeneratedWebsitePageVariables {
 export interface CreateIncomingProviderCallData {
   call: CallRecord_Key;
   auditLog_insert: AuditLog_Key;
+  automationEvent_insert: AutomationEvent_Key;
 }
 
 export interface CreateIncomingProviderCallVariables {
@@ -2414,6 +2557,29 @@ export interface CreateLeadVariables {
   initialFollowUpNote?: string | null;
   hasInitialNote?: boolean;
   hasInitialFollowUp?: boolean;
+}
+
+export interface CreateMeetingData {
+  meeting: CommunicationMeeting_Key;
+  activity: Activity_Key;
+  auditLog_insert: AuditLog_Key;
+  automationEvent_insert: AutomationEvent_Key;
+}
+
+export interface CreateMeetingVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  hasLead: boolean;
+  leadId?: UUIDString | null;
+  hasContact: boolean;
+  contactId?: UUIDString | null;
+  title: string;
+  provider: MeetingProvider;
+  meetingUrl?: string | null;
+  location?: string | null;
+  startsAt: TimestampString;
+  endsAt: TimestampString;
+  agenda?: string | null;
 }
 
 export interface CreateOrganizationData {
@@ -2693,6 +2859,18 @@ export interface DecideCallAiSuggestionVariables {
   status: CallSuggestionStatus;
   resultType?: string | null;
   resultId?: UUIDString | null;
+}
+
+export interface DecideMeetingSuggestionData {
+  meeting?: CommunicationMeeting_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface DecideMeetingSuggestionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  suggestionDecisionsJson: string;
 }
 
 export interface DeleteAiContentDraftData {
@@ -4632,6 +4810,74 @@ export interface GetLeadSalesIntelligenceVariables {
 export interface GetLeadVariables {
   organizationId: UUIDString;
   leadId: UUIDString;
+}
+
+export interface GetMeetingData {
+  me?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  meeting?: {
+    id: UUIDString;
+    title: string;
+    provider: MeetingProvider;
+    meetingUrl?: string | null;
+    location?: string | null;
+    startsAt: TimestampString;
+    endsAt: TimestampString;
+    agenda?: string | null;
+    notes?: string | null;
+    status: MeetingStatus;
+    revision: number;
+    leadId?: UUIDString | null;
+    contactId?: UUIDString | null;
+    organizerMembershipId: UUIDString;
+    summaryJson?: string | null;
+    summaryModel?: string | null;
+    summarizedAt?: TimestampString | null;
+    summarizedBy?: {
+      displayName: string;
+    };
+    suggestionDecisionsJson?: string | null;
+    createdAt: TimestampString;
+    updatedAt: TimestampString;
+    completedAt?: TimestampString | null;
+    createdBy: {
+      displayName: string;
+    };
+    lead?: {
+      id: UUIDString;
+      fullName: string;
+      assignedMembershipId?: UUIDString | null;
+    };
+    contact?: {
+      id: UUIDString;
+      fullName: string;
+    };
+    organizerMembership: {
+      id: UUIDString;
+      userProfile?: {
+        displayName: string;
+      };
+    };
+    attendees: ({
+      id: UUIDString;
+      membershipId: UUIDString;
+      membership: {
+        userProfile?: {
+          displayName: string;
+        };
+      };
+    })[];
+  };
+  settings?: {
+    aiAnalysisEnabled: boolean;
+  };
+}
+
+export interface GetMeetingVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
 }
 
 export interface GetMyAgentAvailabilityData {
@@ -7809,6 +8055,69 @@ export interface ListListingActivityVariables {
   id: UUIDString;
 }
 
+export interface ListMeetingAttendeeOptionsData {
+  me?: {
+    id: UUIDString;
+  };
+  members: ({
+    id: UUIDString;
+    role: MembershipRole;
+    userProfile?: {
+      displayName: string;
+    };
+  })[];
+}
+
+export interface ListMeetingAttendeeOptionsVariables {
+  organizationId: UUIDString;
+}
+
+export interface ListMeetingsData {
+  me?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  meetings: ({
+    id: UUIDString;
+    title: string;
+    provider: MeetingProvider;
+    status: MeetingStatus;
+    startsAt: TimestampString;
+    endsAt: TimestampString;
+    leadId?: UUIDString | null;
+    contactId?: UUIDString | null;
+    summarizedAt?: TimestampString | null;
+    lead?: {
+      id: UUIDString;
+      fullName: string;
+    };
+    contact?: {
+      id: UUIDString;
+      fullName: string;
+    };
+    organizerMembership: {
+      id: UUIDString;
+      userProfile?: {
+        displayName: string;
+      };
+    };
+    attendees: ({
+      membershipId: UUIDString;
+    })[];
+  })[];
+}
+
+export interface ListMeetingsVariables {
+  organizationId: UUIDString;
+  from?: TimestampString | null;
+  to?: TimestampString | null;
+  status?: MeetingStatus | null;
+  leadId?: UUIDString | null;
+  contactId?: UUIDString | null;
+  limit?: number;
+  offset?: number;
+}
+
 export interface ListMembershipsData {
   memberships: ({
     id: UUIDString;
@@ -8892,6 +9201,7 @@ export interface LogContactCallData {
   auditLog_insert: AuditLog_Key;
   suppression: CommunicationSuppression_Key;
   suppressionAudit: AuditLog_Key;
+  callEvent: AutomationEvent_Key;
 }
 
 export interface LogContactCallVariables {
@@ -8909,6 +9219,7 @@ export interface LogContactCallVariables {
   followUpRequired: boolean;
   suppress: boolean;
   suppressionId: UUIDString;
+  emitEvent: boolean;
 }
 
 export interface LogLeadCallData {
@@ -8917,6 +9228,7 @@ export interface LogLeadCallData {
   auditLog_insert: AuditLog_Key;
   suppression: CommunicationSuppression_Key;
   suppressionAudit: AuditLog_Key;
+  callEvent: AutomationEvent_Key;
 }
 
 export interface LogLeadCallVariables {
@@ -8936,6 +9248,7 @@ export interface LogLeadCallVariables {
   viewingId?: UUIDString | null;
   suppress: boolean;
   suppressionId: UUIDString;
+  emitEvent: boolean;
 }
 
 export interface MarkAutomationScanData {
@@ -9568,6 +9881,16 @@ export interface ReleaseAutomationOrganizationVariables {
   claimToken: UUIDString;
 }
 
+export interface RemoveMeetingAttendeeData {
+  communicationMeetingAttendee_deleteMany: number;
+}
+
+export interface RemoveMeetingAttendeeVariables {
+  organizationId: UUIDString;
+  meetingId: UUIDString;
+  membershipId: UUIDString;
+}
+
 export interface RemovePageLeadFormBindingData {
   binding?: PageLeadFormBinding_Key | null;
   audit: AuditLog_Key;
@@ -9888,6 +10211,20 @@ export interface SaveLeadPropertyInterestVariables {
   expectedUpdatedAt?: TimestampString | null;
 }
 
+export interface SaveMeetingSummaryData {
+  communicationMeeting_update?: CommunicationMeeting_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SaveMeetingSummaryVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  expectedRevision: number;
+  summaryJson: string;
+  model: string;
+}
+
 export interface SavePortalConnectionData {
   connection: OrganizationPortalConnection_Key;
   auditLog_insert: AuditLog_Key;
@@ -10107,6 +10444,18 @@ export interface SetLeadPrimaryInterestVariables {
   propertyId?: UUIDString | null;
 }
 
+export interface SetMeetingStatusData {
+  meeting?: CommunicationMeeting_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SetMeetingStatusVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  status: MeetingStatus;
+}
+
 export interface SetMembershipRoleData {
   membership?: Membership_Key | null;
   activity_insert: Activity_Key;
@@ -10275,6 +10624,7 @@ export interface StartAutomationExecutionVariables {
 export interface StartLeadCallData {
   call: CallRecord_Key;
   activity_insert: Activity_Key;
+  automationEvent_insert: AutomationEvent_Key;
   auditLog_insert: AuditLog_Key;
 }
 
@@ -10740,6 +11090,25 @@ export interface UpdateLeadVariables {
   currency?: string | null;
   bedroomPreference?: string | null;
   priority?: LeadPriority | null;
+}
+
+export interface UpdateMeetingData {
+  meeting?: CommunicationMeeting_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface UpdateMeetingVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  title: string;
+  provider: MeetingProvider;
+  meetingUrl?: string | null;
+  location?: string | null;
+  startsAt: TimestampString;
+  endsAt: TimestampString;
+  agenda?: string | null;
+  notes?: string | null;
 }
 
 export interface UpdateOrganizationData {
@@ -11642,6 +12011,61 @@ export function deletedCallMediaFile(dc: DataConnect, vars: DeletedCallMediaFile
 /** Generated Node Admin SDK operation action function for the 'DeletedCallMediaFile' Query. Allow users to pass in custom DataConnect instances. */
 export function deletedCallMediaFile(vars: DeletedCallMediaFileVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeletedCallMediaFileData>>;
 
+/** Generated Node Admin SDK operation action function for the 'ListMeetings' Query. Allow users to execute without passing in DataConnect. */
+export function listMeetings(dc: DataConnect, vars: ListMeetingsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListMeetingsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListMeetings' Query. Allow users to pass in custom DataConnect instances. */
+export function listMeetings(vars: ListMeetingsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListMeetingsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetMeeting' Query. Allow users to execute without passing in DataConnect. */
+export function getMeeting(dc: DataConnect, vars: GetMeetingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetMeetingData>>;
+/** Generated Node Admin SDK operation action function for the 'GetMeeting' Query. Allow users to pass in custom DataConnect instances. */
+export function getMeeting(vars: GetMeetingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetMeetingData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateMeeting' Mutation. Allow users to execute without passing in DataConnect. */
+export function createMeeting(dc: DataConnect, vars: CreateMeetingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateMeetingData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateMeeting' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createMeeting(vars: CreateMeetingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateMeetingData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AddMeetingAttendee' Mutation. Allow users to execute without passing in DataConnect. */
+export function addMeetingAttendee(dc: DataConnect, vars: AddMeetingAttendeeVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AddMeetingAttendeeData>>;
+/** Generated Node Admin SDK operation action function for the 'AddMeetingAttendee' Mutation. Allow users to pass in custom DataConnect instances. */
+export function addMeetingAttendee(vars: AddMeetingAttendeeVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AddMeetingAttendeeData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RemoveMeetingAttendee' Mutation. Allow users to execute without passing in DataConnect. */
+export function removeMeetingAttendee(dc: DataConnect, vars: RemoveMeetingAttendeeVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RemoveMeetingAttendeeData>>;
+/** Generated Node Admin SDK operation action function for the 'RemoveMeetingAttendee' Mutation. Allow users to pass in custom DataConnect instances. */
+export function removeMeetingAttendee(vars: RemoveMeetingAttendeeVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RemoveMeetingAttendeeData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateMeeting' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateMeeting(dc: DataConnect, vars: UpdateMeetingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateMeetingData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateMeeting' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateMeeting(vars: UpdateMeetingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateMeetingData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CompleteMeeting' Mutation. Allow users to execute without passing in DataConnect. */
+export function completeMeeting(dc: DataConnect, vars: CompleteMeetingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CompleteMeetingData>>;
+/** Generated Node Admin SDK operation action function for the 'CompleteMeeting' Mutation. Allow users to pass in custom DataConnect instances. */
+export function completeMeeting(vars: CompleteMeetingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CompleteMeetingData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SetMeetingStatus' Mutation. Allow users to execute without passing in DataConnect. */
+export function setMeetingStatus(dc: DataConnect, vars: SetMeetingStatusVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetMeetingStatusData>>;
+/** Generated Node Admin SDK operation action function for the 'SetMeetingStatus' Mutation. Allow users to pass in custom DataConnect instances. */
+export function setMeetingStatus(vars: SetMeetingStatusVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetMeetingStatusData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SaveMeetingSummary' Mutation. Allow users to execute without passing in DataConnect. */
+export function saveMeetingSummary(dc: DataConnect, vars: SaveMeetingSummaryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveMeetingSummaryData>>;
+/** Generated Node Admin SDK operation action function for the 'SaveMeetingSummary' Mutation. Allow users to pass in custom DataConnect instances. */
+export function saveMeetingSummary(vars: SaveMeetingSummaryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveMeetingSummaryData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DecideMeetingSuggestion' Mutation. Allow users to execute without passing in DataConnect. */
+export function decideMeetingSuggestion(dc: DataConnect, vars: DecideMeetingSuggestionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DecideMeetingSuggestionData>>;
+/** Generated Node Admin SDK operation action function for the 'DecideMeetingSuggestion' Mutation. Allow users to pass in custom DataConnect instances. */
+export function decideMeetingSuggestion(vars: DecideMeetingSuggestionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DecideMeetingSuggestionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListMeetingAttendeeOptions' Query. Allow users to execute without passing in DataConnect. */
+export function listMeetingAttendeeOptions(dc: DataConnect, vars: ListMeetingAttendeeOptionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListMeetingAttendeeOptionsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListMeetingAttendeeOptions' Query. Allow users to pass in custom DataConnect instances. */
+export function listMeetingAttendeeOptions(vars: ListMeetingAttendeeOptionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListMeetingAttendeeOptionsData>>;
+
 /** Generated Node Admin SDK operation action function for the 'ListCommunicationProviders' Query. Allow users to execute without passing in DataConnect. */
 export function listCommunicationProviders(dc: DataConnect, vars: ListCommunicationProvidersVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListCommunicationProvidersData>>;
 /** Generated Node Admin SDK operation action function for the 'ListCommunicationProviders' Query. Allow users to pass in custom DataConnect instances. */
@@ -11756,6 +12180,11 @@ export function listCalls(vars: ListCallsVariables, options?: OperationOptions):
 export function communicationDashboard(dc: DataConnect, vars: CommunicationDashboardVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CommunicationDashboardData>>;
 /** Generated Node Admin SDK operation action function for the 'CommunicationDashboard' Query. Allow users to pass in custom DataConnect instances. */
 export function communicationDashboard(vars: CommunicationDashboardVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CommunicationDashboardData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CommunicationReport' Query. Allow users to execute without passing in DataConnect. */
+export function communicationReport(dc: DataConnect, vars: CommunicationReportVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CommunicationReportData>>;
+/** Generated Node Admin SDK operation action function for the 'CommunicationReport' Query. Allow users to pass in custom DataConnect instances. */
+export function communicationReport(vars: CommunicationReportVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CommunicationReportData>>;
 
 /** Generated Node Admin SDK operation action function for the 'GetVoiceAssistant' Query. Allow users to execute without passing in DataConnect. */
 export function getVoiceAssistant(dc: DataConnect, vars: GetVoiceAssistantVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetVoiceAssistantData>>;

@@ -3,6 +3,7 @@ import "server-only";
 import { requireAiConfig } from "@/modules/ai/server/anthropic";
 import { generateWorkflowDraft } from "@/modules/ai/content/server/generate";
 import { analyzeLead } from "@/modules/ai/sales/server/service";
+import { summarizeCallForWorkflow } from "@/modules/communications/server/intelligence";
 import { planNewLeadAssignment } from "@/modules/leads/distribution/service";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { fillPlaceholders } from "../conditions";
@@ -69,7 +70,8 @@ const lineage = (run: StepRun) => ({
 });
 const dueAt = (run: StepRun, minutes: number) => new Date(run.now.getTime() + minutes * 60_000).toISOString();
 /** The agent responsible for the target: the lead's, the listing's or the task's. */
-const assigneeOf = (state: RunState) => state.lead?.assignedMembershipId ?? state.listing?.assignedMembershipId ?? state.task?.assignedMembershipId ?? null;
+const assigneeOf = (state: RunState) => state.lead?.assignedMembershipId ?? state.listing?.assignedMembershipId ?? state.task?.assignedMembershipId
+  ?? state.call?.agentMembershipId ?? state.meeting?.organizerMembershipId ?? null;
 
 async function createTask(run: StepRun, title: string, minutes: number, assignee: "ASSIGNEE" | "UNASSIGNED"): Promise<StepOutcome> {
   const {context, organizationId} = run;
@@ -171,6 +173,22 @@ async function salesReview(run: StepRun): Promise<StepOutcome> {
   return {status: "SUCCEEDED", resultType: "AI_LEAD_ANALYSIS", resultId: lead.id, aiCalls: 1, summary: "AI sales analysis saved as an internal insight on the lead."};
 }
 
+/**
+ * A Claude summary of the call (6F.4) as the executor, from its transcript or
+ * else the agent's notes. Skipped (not failed) when the company has Claude call
+ * analysis off or there is nothing to summarise; a repeated step reuses the summary.
+ */
+async function summarizeCallStep(run: StepRun): Promise<StepOutcome> {
+  const call = run.state.call;
+  if (!call) throw new PermanentStepError("AUTOMATION_TARGET_INVALID", "No call.");
+  const result = await summarizeCallForWorkflow(run.context, call.id, {
+    summaryId: stableUuid("automation-call-summary", run.execution.id, run.position), ...lineage(run),
+  });
+  if (result.status === "SKIPPED") return {status: "SKIPPED", summary: result.reason};
+  return {status: "SUCCEEDED", resultType: "CALL_AI_SUMMARY", resultId: result.id, aiCalls: result.claude ? 1 : 0,
+    summary: result.claude ? "Claude summary saved as a draft for the agent to review." : "Summary already saved."};
+}
+
 /** Runs one side-effect action. Waiting and approvals are handled by the engine. */
 export async function runAction(run: StepRun, action: Action): Promise<StepOutcome> {
   switch (action.type) {
@@ -181,6 +199,7 @@ export async function runAction(run: StepRun, action: Action): Promise<StepOutco
     case "lead.activity": return addNote(run, action.note);
     case "ai.draft": return aiDraft(run, action);
     case "ai.sales_review": return salesReview(run);
+    case "call.summarize": return summarizeCallStep(run);
     default: throw new PermanentStepError("ACTION_NOT_AVAILABLE", action.type);
   }
 }

@@ -16,7 +16,7 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import {
   CALL_SUMMARY_JSON, CALL_SUMMARY_PROMPT_VERSION, CALL_SUMMARY_SYSTEM_PROMPT, SUGGESTION_KINDS, callSummaryTask, callSummaryZod, checkSummary, sourceLines, sourceText,
-  type CallSummaryOutput, type CheckedSummary, type SuggestionKind,
+  type CallSummaryOutput, type CheckedSummary, type SourceLine, type SuggestionKind,
 } from "../intelligence";
 import type { TranscriptSegment } from "../media";
 import { asMember, asServer, isAdministrator, sdk, type Context } from "./data";
@@ -83,19 +83,39 @@ export type CallSummariesView = Awaited<ReturnType<typeof callSummaries>>;
 
 const generateSchema = z.strictObject({source: z.enum(["TRANSCRIPT", "NOTES"]), transcriptId: idSchema.optional()});
 
-/** Asks Claude for a summary, checks every quote against the source, and stores it as a draft. */
-export async function generateCallSummary(request: Request, context: Context, rawCallId: string, body: unknown) {
-  const callId = parseInput(idSchema, rawCallId);
-  const input = parseInput(generateSchema, body);
-  const view = await callSummaries(context, callId);
-  if (!view.aiAnalysisEnabled) throw new WorkspaceError("CALL_AI_NOT_AVAILABLE", 409, "Claude analysis of calls is not enabled for your company. An owner or administrator can enable it in Calling settings.");
-  if (!view.canEdit) throw new WorkspaceError("PERMISSION_DENIED", 403, "Only the call's agent, or an owner or administrator, can summarise this call.");
-  if (!view.canGenerate) throw new WorkspaceError("CALL_AI_NOT_AVAILABLE", 409, "Only answered calls can be summarised.");
+/**
+ * One Claude request over minimized source lines (call transcript or notes,
+ * meeting notes), with the AI allowance and usage records. Returns the summary
+ * with every quote checked against the lines; Claude failures are thrown.
+ */
+export async function claudeSummary(context: Context, input: {kind: "TRANSCRIPT" | "NOTES"; lines: SourceLine[]; task: string; contentType: "CALL_SUMMARY" | "MEETING_SUMMARY"}) {
   const config = requireAiConfig();
-  await enforceRate(request, context, config);
+  const facts = sourceText(input.kind, input.lines);
+  if (facts.length > SOURCE_LIMIT_CHARS) throw new WorkspaceError("VALIDATION_ERROR", 400, "This is too long to summarise in one request.");
+  const reservation = await reserveQuota(context, config);
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new WorkspaceError("AI_TIMEOUT", 504, "Claude took too long to respond. Try again.")), config.requestTimeoutMs + 5_000);
+  let result: StructuredResult<CallSummaryOutput>;
+  try {
+    result = await generateStructured({
+      config, maxOutputTokens: Math.min(config.maxOutputTokens, MAX_OUTPUT_TOKENS), system: CALL_SUMMARY_SYSTEM_PROMPT, factsText: facts, instructionsText: input.task,
+      jsonSchema: CALL_SUMMARY_JSON, zod: callSummaryZod, createStream: modelStreamFactory(config), signal: controller.signal, mapError: logAndMapProviderError, messages: SUMMARY_MESSAGES,
+    });
+  } finally { clearTimeout(timeout); }
+  if (result.status !== "SUCCEEDED" && result.usage.modelRequests === 0) await reservation.release();
+  const usage = await recordCommunicationAiUsage(context, config, {result: result as StructuredResult<unknown>, durationMs: Date.now() - startedAt, feature: "CALL_AI", contentType: input.contentType, promptVersion: CALL_SUMMARY_PROMPT_VERSION});
+  console.info(JSON.stringify({event: "ai.call_summary", contentType: input.contentType, status: result.status, errorCode: result.error?.code ?? null, model: usage.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, durationMs: Date.now() - startedAt}));
+  if (result.status !== "SUCCEEDED" || !result.output) throw result.error ?? new WorkspaceError("AI_UNAVAILABLE", 503, "Claude could not produce a summary. Try again.");
+  return {checked: checkSummary(result.output, input.lines), model: usage.model};
+}
 
+interface Lineage {originalEventId: string; parentExecutionId: string; originWorkflowId: string; chainDepth: number}
+
+/** Reads the source as the member, asks Claude, and stores the checked summary and its suggestions. */
+async function produceCallSummary(context: Context, view: CallSummariesView, callId: string, input: {source: "TRANSCRIPT" | "NOTES"; transcriptId?: string; id: string; lineage?: Lineage}) {
   // The source, read as the member and minimized before it leaves EstateOS.
-  let lines;
+  let lines: SourceLine[];
   let transcriptId: string | null = null;
   if (input.source === "TRANSCRIPT") {
     transcriptId = input.transcriptId ?? (view.transcripts[0] ? canonicalUuid(view.transcripts[0].id) : null);
@@ -109,36 +129,51 @@ export async function generateCallSummary(request: Request, context: Context, ra
     if (!call?.notes?.trim()) throw new WorkspaceError("VALIDATION_ERROR", 400, "Add notes to the call before summarising them.");
     lines = sourceLines({kind: "NOTES", notes: call.notes});
   }
-  const facts = sourceText(input.source, lines);
-  if (facts.length > SOURCE_LIMIT_CHARS) throw new WorkspaceError("VALIDATION_ERROR", 400, "This call is too long to summarise in one request.");
-
-  const reservation = await reserveQuota(context, config);
-  const startedAt = Date.now();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new WorkspaceError("AI_TIMEOUT", 504, "Claude took too long to respond. Try again.")), config.requestTimeoutMs + 5_000);
-  let result: StructuredResult<CallSummaryOutput>;
-  try {
-    result = await generateStructured({
-      config, maxOutputTokens: Math.min(config.maxOutputTokens, MAX_OUTPUT_TOKENS), system: CALL_SUMMARY_SYSTEM_PROMPT, factsText: facts, instructionsText: callSummaryTask(input.source),
-      jsonSchema: CALL_SUMMARY_JSON, zod: callSummaryZod, createStream: modelStreamFactory(config), signal: controller.signal, mapError: logAndMapProviderError, messages: SUMMARY_MESSAGES,
-    });
-  } finally { clearTimeout(timeout); }
-  if (result.status !== "SUCCEEDED" && result.usage.modelRequests === 0) await reservation.release();
-  const usage = await recordCommunicationAiUsage(context, config, {result: result as StructuredResult<unknown>, durationMs: Date.now() - startedAt, feature: "CALL_AI", contentType: "CALL_SUMMARY", promptVersion: CALL_SUMMARY_PROMPT_VERSION});
-  console.info(JSON.stringify({event: "ai.call_summary", status: result.status, errorCode: result.error?.code ?? null, model: usage.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, durationMs: Date.now() - startedAt}));
-  if (result.status !== "SUCCEEDED" || !result.output) throw result.error ?? new WorkspaceError("AI_UNAVAILABLE", 503, "Claude could not summarise this call. Try again.");
-
-  const checked = checkSummary(result.output, lines);
-  const id = randomUUID();
+  const {checked, model} = await claudeSummary(context, {kind: input.source, lines, task: callSummaryTask(input.source), contentType: "CALL_SUMMARY"});
+  const {id} = input;
   await asServer("CreateCallAiSummary", dc => sdk.createCallAiSummary(dc, {
     organizationId: context.organizationId, id, callId, actorUid: context.request.user.uid, sourceKind: input.source, hasTranscript: Boolean(transcriptId), transcriptId,
-    summaryJson: JSON.stringify(checked), overallConfidence: checked.overallConfidence, unverifiedCount: checked.unverifiedCount, model: usage.model.slice(0, 80), promptVersion: CALL_SUMMARY_PROMPT_VERSION,
+    summaryJson: JSON.stringify(checked), overallConfidence: checked.overallConfidence, unverifiedCount: checked.unverifiedCount, model: model.slice(0, 80), promptVersion: CALL_SUMMARY_PROMPT_VERSION,
+    ...(input.lineage ?? {}),
   }));
   for (const [index, entry] of checked.suggestions.entries()) {
     await asServer("CreateCallAiSuggestion", dc => sdk.createCallAiSuggestion(dc, {organizationId: context.organizationId, id: stableUuid("call-suggestion", id, index), summaryId: id, callId,
       kind: entry.kind, title: entry.title.slice(0, 120), detail: entry.text.slice(0, 400), basis: entry.basis, confidence: entry.confidence, verified: entry.verified}));
   }
   return {id, unverifiedCount: checked.unverifiedCount};
+}
+
+/** Asks Claude for a summary, checks every quote against the source, and stores it as a draft. */
+export async function generateCallSummary(request: Request, context: Context, rawCallId: string, body: unknown) {
+  const callId = parseInput(idSchema, rawCallId);
+  const input = parseInput(generateSchema, body);
+  const view = await callSummaries(context, callId);
+  if (!view.aiAnalysisEnabled) throw new WorkspaceError("CALL_AI_NOT_AVAILABLE", 409, "Claude analysis of calls is not enabled for your company. An owner or administrator can enable it in Calling settings.");
+  if (!view.canEdit) throw new WorkspaceError("PERMISSION_DENIED", 403, "Only the call's agent, or an owner or administrator, can summarise this call.");
+  if (!view.canGenerate) throw new WorkspaceError("CALL_AI_NOT_AVAILABLE", 409, "Only answered calls can be summarised.");
+  await enforceRate(request, context, requireAiConfig());
+  return produceCallSummary(context, view, callId, {...input, id: randomUUID()});
+}
+
+/**
+ * The workflow step call.summarize, as the workflow's executor: the transcript
+ * if there is one, else the agent's notes. Conditions that a retry cannot
+ * change are skipped with a reason; a repeated step finds its summary.
+ */
+export async function summarizeCallForWorkflow(context: Context, callId: string, input: {summaryId: string} & Lineage):
+  Promise<{status: "SKIPPED"; reason: string} | {status: "SUCCEEDED"; id: string; claude: boolean}> {
+  let view: CallSummariesView;
+  try { view = await callSummaries(context, callId); }
+  catch (error) { if (error instanceof WorkspaceError && error.status === 404) return {status: "SKIPPED", reason: "The workflow's executor cannot read this call."}; throw error; }
+  if (view.summaries.some(row => canonicalUuid(row.id) === input.summaryId)) return {status: "SUCCEEDED", id: input.summaryId, claude: false};
+  if (!view.aiAnalysisEnabled) return {status: "SKIPPED", reason: "Claude call analysis is off for the company."};
+  if (!view.canEdit) return {status: "SKIPPED", reason: "Only the call's agent, or an owner or administrator, can summarise a call; the workflow's executor is neither."};
+  if (!view.canGenerate) return {status: "SKIPPED", reason: "Only answered calls are summarised."};
+  const source = view.transcripts.length ? "TRANSCRIPT" as const : view.hasNotes ? "NOTES" as const : null;
+  if (!source) return {status: "SKIPPED", reason: "The call has no transcript or notes to summarise yet."};
+  const {summaryId, ...lineage} = input;
+  await produceCallSummary(context, view, callId, {source, id: summaryId, lineage});
+  return {status: "SUCCEEDED", id: summaryId, claude: true};
 }
 
 export async function reviewCallSummary(context: Context, rawId: string, body: unknown) {

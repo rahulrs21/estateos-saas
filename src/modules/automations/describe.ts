@@ -50,6 +50,7 @@ export function describeStep(step: Partial<Action> & Pick<Action, "type">): stri
     case "viewing.followup": return `Create the viewing follow-up “${step.title ?? ""}”, due in ${minutesLabel(step.dueMinutes ?? 1440)}.`;
     case "ai.draft": return `Prepare an editable ${String(step.contentType ?? "message").toLowerCase().replaceAll("_", " ")} draft with Claude (never sent).`;
     case "ai.sales_review": return "Run the AI sales review and save it as an internal insight.";
+    case "call.summarize": return "Summarise the call with Claude as a draft for the agent (needs Claude call analysis enabled).";
     case "delay": return `Wait ${minutesLabel(step.minutes ?? 60)}, then recheck.`;
     case "approval.request": return `Wait for an authorized member to approve continuing. Reason: ${step.reason ?? ""}`;
     case "end": return "End the execution.";

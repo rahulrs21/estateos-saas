@@ -168,6 +168,15 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (/\b(?:CALL_AI_SUMMARY_CHANGED|CALL_AI_SUGGESTION_DECIDED)\b/.test(message)) {
       return new WorkspaceError("CONFLICT", 409, "This summary or suggestion was already handled, or you cannot change it. Reload the call.");
     }
+    if (message.includes("MEETING_TARGET_NOT_FOUND")) {
+      return new WorkspaceError("NOT_FOUND", 404, "This lead or contact was not found, or you cannot schedule meetings for it.");
+    }
+    if (message.includes("MEETING_ATTENDEE_INVALID")) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "Invite active members of your company only.");
+    }
+    if (message.includes("MEETING_CHANGED")) {
+      return new WorkspaceError("CONFLICT", 409, "This meeting changed, was already updated, or you cannot change it. Reload it.");
+    }
     if (message.includes("VOICE_ASSISTANT_ADMIN_REQUIRED")) {
       return new WorkspaceError("PERMISSION_DENIED", 403, "Only an owner or administrator can configure or test the voice assistant.");
     }

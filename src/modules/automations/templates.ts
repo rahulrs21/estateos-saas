@@ -9,7 +9,7 @@ import type { WorkflowDefinitionInput } from "./definition";
  */
 
 export interface WorkflowTemplate {
-  key: "A" | "B" | "C" | "D" | "E" | "F";
+  key: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I";
   title: string;
   summary: string;
   /** What to check before activating; shown with the template. */
@@ -91,6 +91,38 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
       steps: [
         {id: "review", type: "ai.sales_review"},
         {id: "note", type: "lead.activity", note: "AI sales review requested for {{lead.fullName}}; see the AI insights panel."},
+      ],
+    },
+  },
+  {
+    key: "G", title: "Missed call follow-up", summary: "When an incoming call is missed, the agent gets a call-back task and a notification.",
+    setup: ["Missed calls come from calls logged in EstateOS (or a verified provider later). Unanswered outgoing attempts start nothing."],
+    definition: {
+      schemaVersion: 1, name: "Missed call follow-up", description: "Call back customers whose calls were missed.", trigger: "call.missed",
+      steps: [
+        {id: "call-back", type: "task.create", title: "Call back {{lead.fullName}}", dueMinutes: 30, assignee: "ASSIGNEE"},
+        {id: "notify-agent", type: "notification.create", audience: "ASSIGNEE", title: "Missed call", message: "A call from {{lead.fullName}} was missed. A call-back task was created."},
+      ],
+    },
+  },
+  {
+    key: "H", title: "Summarise answered calls", summary: "After an answered call, Claude drafts a summary from its transcript or the agent's notes for the agent to review.",
+    setup: ["Needs Claude call analysis enabled in Communications settings, and an executor who is an owner or administrator.", "Uses your company's AI allowance; the summary is a draft and changes nothing on the lead."],
+    definition: {
+      schemaVersion: 1, name: "Summarise answered calls", description: "A draft Claude summary of each answered call.", trigger: "call.completed",
+      steps: [
+        {id: "wait-for-notes", type: "delay", minutes: 30},
+        {id: "summarise", type: "call.summarize"},
+      ],
+    },
+  },
+  {
+    key: "I", title: "Meeting follow-up", summary: "When a meeting is marked as held, the organizer's follow-up is scheduled for the next day.",
+    setup: ["Applies to meetings recorded in Communications, Meetings."],
+    definition: {
+      schemaVersion: 1, name: "Meeting follow-up", description: "Follow up the day after a meeting.", trigger: "meeting.completed",
+      steps: [
+        {id: "follow-up", type: "task.create", title: "Follow up after the meeting with {{lead.fullName}}", dueMinutes: 1440, assignee: "ASSIGNEE"},
       ],
     },
   },

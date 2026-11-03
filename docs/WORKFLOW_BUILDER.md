@@ -38,6 +38,9 @@ Templates live in `templates.ts`. Each is an ordinary definition with safe defau
 | D | New property listing | `listing.created` | Notify managers → review task in the team queue |
 | E | Overdue follow-ups | `lead.followup_due` (pending) | Remind the agent → wait a day → notify managers if still open; quiet hours 21:00–08:00 |
 | F | AI sales review | `workflow.manual` | AI sales analysis → note on the lead |
+| G | Missed call follow-up | `call.missed` | Call-back follow-up due in 30 minutes → notify the agent |
+| H | Summarise answered calls | `call.completed` | Wait 30 minutes for notes → Claude call summary (needs Claude call analysis and an owner or administrator as executor) |
+| I | Meeting follow-up | `meeting.completed` | Follow-up for the next day |
 
 ## Claude workflow drafts
 

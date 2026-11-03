@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 const TABS = [
   {key: "overview", label: "Overview", href: "/communications"},
   {key: "calls", label: "Calls", href: "/communications/calls"},
+  {key: "meetings", label: "Meetings", href: "/communications/meetings"},
+  {key: "reports", label: "Reports", href: "/communications/reports"},
   {key: "voice", label: "Voice assistant", href: "/communications/voice-assistant"},
   {key: "settings", label: "Settings", href: "/communications/settings"},
 ] as const;

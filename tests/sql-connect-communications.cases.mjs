@@ -13,7 +13,14 @@ import { fixture as f } from "./fixtures/sql-connect-fixtures.mjs";
  * Admin identity (server-only operations).
  * Company A: owner-a, admin-a, manager-a, agent-a, shared-agent. Company B: owner-b.
  */
-export function registerCommunicationCases({sdk, run, forbidden, dc}) {
+/** As the server does (finalCallTrigger): a call log writes its workflow event when answered, failed or incoming. */
+const emitFor = vars => vars.callStatus === "COMPLETED" || vars.callStatus === "FAILED" || vars.direction === "INBOUND";
+const withCallEvents = generated => ({...generated,
+  logLeadCall: (dc, vars, options) => generated.logLeadCall(dc, {emitEvent: emitFor(vars), ...vars}, options),
+  logContactCall: (dc, vars, options) => generated.logContactCall(dc, {emitEvent: emitFor(vars), ...vars}, options)});
+
+export function registerCommunicationCases({sdk: generated, run, forbidden, dc}) {
+  const sdk = withCallEvents(generated);
   describe("Phase 6F communications", {concurrency: false}, () => {
     const key = value => String(value).replaceAll("-", "").toLowerCase();
     const server = async (operation, variables) => (await operation(dc, variables)).data;
@@ -595,6 +602,102 @@ export function registerCommunicationCases({sdk, run, forbidden, dc}) {
       assert.equal((await run(sdk.getVoiceTestSession, "owner-b", {organizationId: f.orgB, id: sessionId})).session, null);
       const {sessions} = await run(sdk.getVoiceAssistant, "owner-a", {organizationId: f.orgA});
       assert.ok(sessions.some(item => item.id.replaceAll("-", "") === sessionId.replaceAll("-", "")));
+    });
+  });
+
+  describe("Phase 6F.6 workflow events, meetings and reports", {concurrency: false}, () => {
+    const key = value => String(value).replaceAll("-", "").toLowerCase();
+    const server = async (operation, variables) => (await operation(dc, variables)).data;
+    const rejectsWith = (promise, token) => assert.rejects(promise, error => String(error?.message ?? error).includes(token), token);
+    const events = async targetId => (await dc.executeGraphql(`query E($org: UUID!, $target: UUID!) { automationEvents(where: {organizationId: {eq: $org}, targetId: {eq: $target}}) { triggerType targetType origin deduplicationKey payload } }`,
+      {variables: {org: f.orgA, target: targetId}})).data.automationEvents;
+    let leadId, number, meetingId;
+    const callVars = extra => ({organizationId: f.orgA, id: randomUUID(), leadId, direction: sdk.CallDirection.OUTBOUND, callType: sdk.CallType.FOLLOW_UP, callStatus: sdk.CallStatus.COMPLETED, outcome: null,
+      startedAt: new Date(Date.now() - 300_000).toISOString(), durationSeconds: 60, notes: null, counterpartyNumber: number, followUpRequired: false, hasViewing: false, viewingId: null, suppress: false, suppressionId: randomUUID(), ...extra});
+    const meetingVars = extra => ({organizationId: f.orgA, id: randomUUID(), hasLead: true, leadId, hasContact: false, contactId: null, title: "Synthetic consultation", provider: sdk.MeetingProvider.GOOGLE_MEET,
+      meetingUrl: "https://meet.google.com/abc-defg-hij", location: null, startsAt: new Date(Date.now() + 86_400_000).toISOString(), endsAt: new Date(Date.now() + 86_400_000 + 1_800_000).toISOString(), agenda: null, ...extra});
+
+    it("writes one workflow event per finished call in the same transaction; unanswered outgoing attempts write none", async () => {
+      number = `+97150${String(Date.now() % 10_000_000).padStart(7, "0")}`;
+      const created = await run(sdk.createLead, "owner-a", {organizationId: f.orgA, fullName: `Workflow call ${randomUUID().slice(0, 6)}`, phone: number, normalizedPhone: number, assignedMembershipId: f.memberAgentA});
+      leadId = created.lead.id;
+      const answered = callVars();
+      await run(sdk.logLeadCall, "agent-a", answered);
+      const [event] = await events(answered.id);
+      assert.equal(event.triggerType, "call.completed");
+      assert.equal(event.targetType, "CALL");
+      assert.equal(event.origin, "CRM");
+      assert.equal(key(event.payload.leadId), key(leadId));
+      const attempt = callVars({callStatus: sdk.CallStatus.NO_ANSWER, durationSeconds: 0});
+      await run(sdk.logLeadCall, "agent-a", attempt);
+      assert.equal((await events(attempt.id)).length, 0, "an unanswered outgoing attempt starts nothing");
+      const missed = callVars({direction: sdk.CallDirection.INBOUND, callType: sdk.CallType.INBOUND_ENQUIRY, callStatus: sdk.CallStatus.NO_ANSWER, durationSeconds: 0});
+      await run(sdk.logLeadCall, "agent-a", missed);
+      assert.equal((await events(missed.id))[0].triggerType, "call.missed");
+      await forbidden(generated.logLeadCall, "agent-a", {...callVars(), emitEvent: false}, undefined);
+      await forbidden(generated.logLeadCall, "agent-a", {...callVars({callStatus: sdk.CallStatus.NO_ANSWER, durationSeconds: 0}), emitEvent: true});
+
+      const facts = await run(sdk.automationFacts, "owner-a", {organizationId: f.orgA, since: new Date(Date.now() - 3_600_000).toISOString(), leadId, hasLead: true, hasListing: false, hasViewing: false,
+        hasFollowUp: false, hasWorkTask: false, hasContact: false, callId: answered.id, hasCall: true});
+      assert.equal(facts.call.callStatus, "COMPLETED");
+      assert.equal(key(facts.call.agentMembershipId), key(f.memberAgentA));
+      assert.equal(facts.answeredCalls.length, 1, "an answered call counts as contact with the lead");
+    });
+
+    it("schedules meetings for accessible leads only, with the link rules, and writes meeting.scheduled", async () => {
+      await rejectsWith(run(sdk.createMeeting, "shared-agent", meetingVars()), "MEETING_TARGET_NOT_FOUND");
+      await forbidden(sdk.createMeeting, "owner-b", meetingVars());
+      await forbidden(sdk.createMeeting, "agent-a", meetingVars({provider: sdk.MeetingProvider.ZOOM, meetingUrl: null}));
+      await forbidden(sdk.createMeeting, "agent-a", meetingVars({provider: sdk.MeetingProvider.IN_PERSON}));
+      await forbidden(sdk.createMeeting, "agent-a", meetingVars({meetingUrl: "http://meet.google.com/abc"}));
+      await forbidden(sdk.createMeeting, "agent-a", meetingVars({endsAt: new Date(Date.now() + 86_400_000 - 60_000).toISOString()}));
+      await forbidden(sdk.createMeeting, "agent-a", meetingVars({hasContact: true, contactId: randomUUID()}));
+      const vars = meetingVars();
+      meetingId = vars.id;
+      await run(sdk.createMeeting, "agent-a", vars);
+      assert.equal((await events(meetingId))[0].triggerType, "meeting.scheduled");
+      const {meeting} = await run(sdk.getMeeting, "agent-a", {organizationId: f.orgA, id: meetingId});
+      assert.equal(key(meeting.organizerMembershipId), key(f.memberAgentA));
+      assert.ok(meeting.contactId, "the lead's contact is linked");
+      await forbidden(sdk.getMeeting, "owner-b", {organizationId: f.orgA, id: meetingId});
+      assert.equal((await run(sdk.getMeeting, "manager-a", {organizationId: f.orgA, id: meetingId})).meeting, null, "a manager without the lead does not see it");
+      await rejectsWith(run(sdk.addMeetingAttendee, "agent-a", {organizationId: f.orgA, id: randomUUID(), meetingId, membershipId: f.memberSuspendedA}), "MEETING_ATTENDEE_INVALID");
+      await rejectsWith(run(sdk.addMeetingAttendee, "shared-agent", {organizationId: f.orgA, id: randomUUID(), meetingId, membershipId: f.memberSharedA}), "MEETING_CHANGED");
+      await run(sdk.addMeetingAttendee, "agent-a", {organizationId: f.orgA, id: randomUUID(), meetingId, membershipId: f.memberManagerA});
+      assert.ok((await run(sdk.getMeeting, "manager-a", {organizationId: f.orgA, id: meetingId})).meeting, "an invited colleague sees it");
+      const listed = await run(sdk.listMeetings, "manager-a", {organizationId: f.orgA, limit: 25, offset: 0});
+      assert.ok(listed.meetings.some(row => key(row.id) === key(meetingId)));
+      await rejectsWith(run(sdk.updateMeeting, "manager-a", {organizationId: f.orgA, id: meetingId, expectedRevision: 1, title: "Changed", provider: sdk.MeetingProvider.IN_PERSON, meetingUrl: null, location: "Office",
+        startsAt: vars.startsAt, endsAt: vars.endsAt, agenda: null, notes: null}), "MEETING_CHANGED");
+    });
+
+    it("completes a meeting once with notes and the event; stores summaries only from the server for the organizer or an administrator", async () => {
+      await rejectsWith(run(sdk.completeMeeting, "agent-a", {organizationId: f.orgA, id: meetingId, expectedRevision: 1, leadId: f.leadA, hasLead: true, notes: "x"}), "MEETING_CHANGED");
+      await run(sdk.completeMeeting, "agent-a", {organizationId: f.orgA, id: meetingId, expectedRevision: 1, leadId, hasLead: true, notes: "Customer wants a two-bedroom unit."});
+      await rejectsWith(run(sdk.completeMeeting, "agent-a", {organizationId: f.orgA, id: meetingId, expectedRevision: 2, leadId, hasLead: true, notes: null}), "MEETING_CHANGED");
+      assert.deepEqual((await events(meetingId)).map(row => row.triggerType).sort(), ["meeting.completed", "meeting.scheduled"]);
+      const summary = JSON.stringify({suggestions: []});
+      await forbidden(sdk.saveMeetingSummary, "agent-a", {organizationId: f.orgA, id: meetingId, actorUid: "agent-a", expectedRevision: 2, summaryJson: summary, model: "synthetic"});
+      await rejectsWith(server(sdk.saveMeetingSummary, {organizationId: f.orgA, id: meetingId, actorUid: "manager-a", expectedRevision: 2, summaryJson: summary, model: "synthetic"}), "MEETING_CHANGED");
+      await server(sdk.saveMeetingSummary, {organizationId: f.orgA, id: meetingId, actorUid: "agent-a", expectedRevision: 2, summaryJson: summary, model: "synthetic"});
+      await run(sdk.decideMeetingSuggestion, "agent-a", {organizationId: f.orgA, id: meetingId, expectedRevision: 3, suggestionDecisionsJson: "{\"0\":{\"status\":\"DISMISSED\"}}"});
+      await rejectsWith(run(sdk.decideMeetingSuggestion, "agent-a", {organizationId: f.orgA, id: meetingId, expectedRevision: 3, suggestionDecisionsJson: "{}"}), "MEETING_CHANGED");
+      await rejectsWith(run(sdk.decideMeetingSuggestion, "manager-a", {organizationId: f.orgA, id: meetingId, expectedRevision: 4, suggestionDecisionsJson: "{}"}), "MEETING_CHANGED");
+    });
+
+    it("reports company-wide figures to owners and administrators and only their own to everyone else", async () => {
+      const range = {from: new Date(Date.now() - 86_400_000).toISOString(), to: new Date(Date.now() + 2 * 86_400_000).toISOString()};
+      const owner = await run(sdk.communicationReport, "owner-a", {organizationId: f.orgA, ...range});
+      assert.ok(owner.calls.length >= 3 && owner.agents.length > 0);
+      assert.equal((await run(sdk.communicationReport, "owner-a", {organizationId: f.orgA, ...range, agentMembershipId: null})).calls.length, 0, "an explicit null filter matches nothing, so the server omits it");
+      const agent = await run(sdk.communicationReport, "agent-a", {organizationId: f.orgA, ...range});
+      assert.ok(agent.calls.every(row => key(row.agentMembershipId) === key(f.memberAgentA)));
+      assert.equal(agent.agents.length, 0, "the agent list is for administrators");
+      const manager = await run(sdk.communicationReport, "manager-a", {organizationId: f.orgA, ...range, agentMembershipId: f.memberAgentA});
+      assert.equal(manager.calls.length, 0, "naming another agent shows nothing that is not the manager's own");
+      assert.equal(manager.meetings.length, 0);
+      await forbidden(sdk.communicationReport, "owner-b", {organizationId: f.orgA, ...range});
+      await forbidden(sdk.communicationReport, "owner-a", {organizationId: f.orgA, from: range.from, to: new Date(Date.now() + 100 * 86_400_000).toISOString()});
     });
   });
 }

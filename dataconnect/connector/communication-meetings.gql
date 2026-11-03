@@ -1,0 +1,167 @@
+# Phase 6F.6: meetings with leads and contacts (docs/COMMUNICATION_HUB.md#meetings).
+# A meeting is EstateOS's record and link; the call itself happens in the
+# provider's app. Readable by its organizer and attendees, the lead's assigned
+# agent, and OWNER and ADMIN members; changed by the organizer or an OWNER or
+# ADMIN. Scheduling and completing write a workflow event in the same transaction.
+
+query ListMeetings($organizationId: UUID!, $from: Timestamp, $to: Timestamp, $status: MeetingStatus, $leadId: UUID, $contactId: UUID, $limit: Int! = 25, $offset: Int! = 0)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 200 && vars.offset >= 0 && vars.offset <= 10000") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  meetings: communicationMeetings(where: {_and: [{organizationId: {eq: $organizationId}, startsAt: {ge: $from, lt: $to}, status: {eq: $status}, leadId: {eq: $leadId}, contactId: {eq: $contactId}}, {_or: [
+    {organizerMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {communicationMeetingAttendees_on_meeting: {exist: {membership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}, orderBy: [{startsAt: DESC}, {id: ASC}], limit: $limit, offset: $offset) {
+    id title provider status startsAt endsAt leadId contactId summarizedAt
+    lead {id fullName} contact {id fullName} organizerMembership {id userProfile {displayName}}
+    attendees: communicationMeetingAttendees_on_meeting(limit: 20) {membershipId}
+  }
+}
+
+query GetMeeting($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  meeting: communicationMeeting(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}}, {_or: [
+    {organizerMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {communicationMeetingAttendees_on_meeting: {exist: {membership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}}) {
+    id title provider meetingUrl location startsAt endsAt agenda notes status revision leadId contactId organizerMembershipId
+    summaryJson summaryModel summarizedAt summarizedBy {displayName} suggestionDecisionsJson createdAt updatedAt completedAt createdBy {displayName}
+    lead {id fullName assignedMembershipId} contact {id fullName}
+    organizerMembership {id userProfile {displayName}}
+    attendees: communicationMeetingAttendees_on_meeting(orderBy: [{createdAt: ASC}], limit: 20) {id membershipId membership {userProfile {displayName}}}
+  }
+  settings: communicationSettings(key: {organizationId: $organizationId}) {aiAnalysisEnabled}
+}
+
+mutation CreateMeeting($organizationId: UUID!, $id: UUID!, $hasLead: Boolean!, $leadId: UUID, $hasContact: Boolean!, $contactId: UUID, $title: String!, $provider: MeetingProvider!,
+  $meetingUrl: String, $location: String, $startsAt: Timestamp!, $endsAt: Timestamp!, $agenda: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.hasLead != vars.hasContact && vars.hasLead == (has(vars.leadId) && vars.leadId != null) && vars.hasContact == (has(vars.contactId) && vars.contactId != null) && vars.title.size() >= 1 && vars.title.size() <= 160 && (vars.provider in ['IN_PERSON', 'PHONE']) == (!has(vars.meetingUrl) || vars.meetingUrl == null) && (!has(vars.meetingUrl) || vars.meetingUrl == null || vars.meetingUrl.matches('^https://[^ <>]{4,490}$')) && (!has(vars.location) || vars.location == null || vars.location.size() <= 200) && (!has(vars.agenda) || vars.agenda == null || vars.agenda.size() <= 2000) && timestamp(vars.startsAt) < timestamp(vars.endsAt) && timestamp(vars.endsAt) <= timestamp(vars.startsAt) + duration('43200s') && timestamp(vars.startsAt) >= request.time - duration('2592000s') && timestamp(vars.startsAt) <= request.time + duration('31536000s')") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+  }
+  # Checked on the block: a check on a field skipped by @include is never invoked.
+  target: query @redact @check(expr: "vars.hasLead ? (has(this.lead) && this.lead != null) : (has(this.contact) && this.contact != null)", message: "MEETING_TARGET_NOT_FOUND") {
+    lead: lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}, {_or: [
+      {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @include(if: $hasLead) {id contactId}
+    contact: contact(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $contactId}}, {_or: [
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+      {leads_on_contact: {exist: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}}},
+      {createdByUid: {eq_expr: "auth.uid"}, leads_on_contact: {count: {eq: 0}}}
+    ]}]}}) @include(if: $hasContact) {id}
+  }
+  meeting: communicationMeeting_insert(data: {organizationId: $organizationId, id: $id, leadId: $leadId, contactId_expr: "vars.hasLead ? response.target.lead.contactId : vars.contactId",
+    organizerMembershipId_expr: "response.before.actor.id", title: $title, provider: $provider, meetingUrl: $meetingUrl, location: $location, startsAt: $startsAt, endsAt: $endsAt, agenda: $agenda, createdByUid_expr: "auth.uid"})
+  activity: activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: MEETING_SCHEDULED, leadId: $leadId, targetId: $id, metadata_expr: "{'meetingId': vars.id, 'provider': vars.provider}"}) @include(if: $hasLead)
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: MEETING_SCHEDULED, targetType: MEETING, targetId: $id, metadata_expr: "{'provider': vars.provider}"})
+  automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'meeting.scheduled:' + vars.id", triggerType: "meeting.scheduled", targetType: "MEETING", targetId: $id, actorUid_expr: "auth.uid", origin: "CRM",
+    payload_expr: "{'leadId': vars.hasLead ? dyn(vars.leadId) : dyn(null)}"})
+}
+
+# Attendees: active members of the company, added or removed by the organizer or an OWNER or ADMIN.
+mutation AddMeetingAttendee($organizationId: UUID!, $id: UUID!, $meetingId: UUID!, $membershipId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact {
+    meeting: communicationMeeting(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $meetingId}, status: {eq: SCHEDULED}}, {_or: [
+      {organizerMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "this != null", message: "MEETING_CHANGED") {id}
+    member: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $membershipId}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "MEETING_ATTENDEE_INVALID") {id}
+  }
+  communicationMeetingAttendee_insert(data: {organizationId: $organizationId, id: $id, meetingId: $meetingId, membershipId: $membershipId})
+}
+
+mutation RemoveMeetingAttendee($organizationId: UUID!, $meetingId: UUID!, $membershipId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact {
+    meeting: communicationMeeting(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $meetingId}, status: {eq: SCHEDULED}}, {_or: [
+      {organizerMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "this != null", message: "MEETING_CHANGED") {id}
+  }
+  communicationMeetingAttendee_deleteMany(where: {organizationId: {eq: $organizationId}, meetingId: {eq: $meetingId}, membershipId: {eq: $membershipId}})
+}
+
+# Details of a scheduled meeting (compare-and-set).
+mutation UpdateMeeting($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $title: String!, $provider: MeetingProvider!, $meetingUrl: String, $location: String,
+  $startsAt: Timestamp!, $endsAt: Timestamp!, $agenda: String, $notes: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.title.size() >= 1 && vars.title.size() <= 160 && (vars.provider in ['IN_PERSON', 'PHONE']) == (!has(vars.meetingUrl) || vars.meetingUrl == null) && (!has(vars.meetingUrl) || vars.meetingUrl == null || vars.meetingUrl.matches('^https://[^ <>]{4,490}$')) && (!has(vars.location) || vars.location == null || vars.location.size() <= 200) && (!has(vars.agenda) || vars.agenda == null || vars.agenda.size() <= 2000) && (!has(vars.notes) || vars.notes == null || vars.notes.size() <= 8000) && timestamp(vars.startsAt) < timestamp(vars.endsAt) && timestamp(vars.endsAt) <= timestamp(vars.startsAt) + duration('43200s') && timestamp(vars.startsAt) <= request.time + duration('31536000s')") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  meeting: communicationMeeting_update(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {eq: SCHEDULED}}, {_or: [
+    {organizerMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}}, data: {title: $title, provider: $provider, meetingUrl: $meetingUrl, location: $location, startsAt: $startsAt, endsAt: $endsAt, agenda: $agenda, notes: $notes,
+    revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "MEETING_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: MEETING_UPDATED, targetType: MEETING, targetId: $id, metadata_expr: "{'event': 'UPDATED', 'revision': vars.expectedRevision + 1}"})
+}
+
+# The meeting was held: notes recorded, status final, workflow event written.
+mutation CompleteMeeting($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $leadId: UUID, $hasLead: Boolean!, $notes: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.hasLead == (has(vars.leadId) && vars.leadId != null) && (!has(vars.notes) || vars.notes == null || vars.notes.size() <= 8000)") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  # The lead given must be the meeting's own (or none for a contact meeting).
+  before: query @redact @check(expr: "this.meeting != null && (vars.hasLead ? this.meeting.leadId == vars.leadId : this.meeting.leadId == null)", message: "MEETING_CHANGED") {
+    meeting: communicationMeeting(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {eq: SCHEDULED}}, {_or: [
+      {organizerMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) {id leadId}
+  }
+  meeting: communicationMeeting_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {eq: SCHEDULED}}},
+    data: {status: COMPLETED, notes: $notes, completedAt_expr: "request.time", revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "MEETING_CHANGED")
+  activity: activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: MEETING_COMPLETED, leadId: $leadId, targetId: $id, metadata_expr: "{'meetingId': vars.id}"}) @include(if: $hasLead)
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: MEETING_COMPLETED, targetType: MEETING, targetId: $id, metadata_expr: "{'event': 'COMPLETED'}"})
+  automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'meeting.completed:' + vars.id", triggerType: "meeting.completed", targetType: "MEETING", targetId: $id, actorUid_expr: "auth.uid", origin: "CRM",
+    payload_expr: "{'leadId': vars.hasLead ? dyn(vars.leadId) : dyn(null)}"})
+}
+
+# Cancelled, or the customer did not attend.
+mutation SetMeetingStatus($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $status: MeetingStatus!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.status in ['CANCELLED', 'NO_SHOW']") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  meeting: communicationMeeting_update(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {eq: SCHEDULED}}, {_or: [
+    {organizerMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}}, data: {status: $status, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "MEETING_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: MEETING_UPDATED, targetType: MEETING, targetId: $id, metadata_expr: "{'event': vars.status}"})
+}
+
+# Server only: a Claude summary of a held meeting's notes, after EstateOS checked its evidence.
+mutation SaveMeetingSummary($organizationId: UUID!, $id: UUID!, $actorUid: String!, $expectedRevision: Int!, $summaryJson: String!, $model: String!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    settings: communicationSettings(first: {where: {organizationId: {eq: $organizationId}, aiAnalysisEnabled: {eq: true}}}) @check(expr: "this != null", message: "CALL_AI_NOT_AVAILABLE") {organizationId}
+    meeting: communicationMeeting(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {eq: COMPLETED}}, {_or: [
+      {organizerMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "this != null", message: "MEETING_CHANGED") {id}
+  }
+  communicationMeeting_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+    data: {summaryJson: $summaryJson, summaryModel: $model, summarizedAt_expr: "request.time", summarizedByUid: $actorUid, suggestionDecisionsJson: "{}", revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "MEETING_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: MEETING_SUMMARY_CHANGED, targetType: MEETING, targetId: $id, metadata_expr: "{'event': 'CREATED'}"})
+}
+
+# The organizer (or an OWNER or ADMIN) records a decision on a summary suggestion (compare-and-set).
+mutation DecideMeetingSuggestion($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $suggestionDecisionsJson: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.suggestionDecisionsJson.size() <= 4000") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  meeting: communicationMeeting_update(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, status: {eq: COMPLETED}, summaryJson: {isNull: false}}, {_or: [
+    {organizerMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}}, data: {suggestionDecisionsJson: $suggestionDecisionsJson, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "MEETING_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: MEETING_SUMMARY_CHANGED, targetType: MEETING, targetId: $id, metadata_expr: "{'event': 'SUGGESTION_DECIDED'}"})
+}
+
+# Colleagues who can be invited: active members' names only (no emails).
+query ListMeetingAttendeeOptions($organizationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+  members: memberships(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}, orderBy: [{createdAt: ASC}], limit: 200) {id role userProfile {displayName}}
+}

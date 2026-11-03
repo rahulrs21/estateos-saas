@@ -49,7 +49,7 @@ const LEAD_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
 const LISTING_STATUSES = ["DRAFT", "PENDING_REVIEW", "APPROVED", "ACTIVE", "PAUSED", "CLOSED", "ARCHIVED", "UNDER_OFFER", "SOLD", "RENTED", "WITHDRAWN", "EXPIRED"] as const;
 
 const EVENT_FACTS = {
-  "event.origin": {kind: "string", label: "Event origin", options: ["CRM", "WEBSITE", "WORKFLOW", "SCHEDULE", "MANUAL"]},
+  "event.origin": {kind: "string", label: "Event origin", options: ["CRM", "WEBSITE", "WORKFLOW", "SCHEDULE", "MANUAL", "PROVIDER"]},
   "event.occurredAt": {kind: "date", label: "Event time"},
 } as const satisfies Record<string, FactDefinition>;
 const LEAD_FACTS = {
@@ -84,6 +84,22 @@ const LISTING_FACTS = {
   "listing.assignedAgentId": {kind: "string", label: "Listing agent"},
   "listing.price": {kind: "number", label: "Asking price (AED)"},
 } as const satisfies Record<string, FactDefinition>;
+/** Calls (6F.6): connection facts and what the agent recorded; never notes, numbers or transcripts. */
+const CALL_FACTS = {
+  "call.direction": {kind: "string", label: "Call direction", options: ["OUTBOUND", "INBOUND"]},
+  "call.type": {kind: "string", label: "Call purpose", options: ["SERVICE", "FOLLOW_UP", "MARKETING", "INBOUND_ENQUIRY"]},
+  "call.status": {kind: "string", label: "Call status", options: ["INITIATED", "RINGING", "IN_PROGRESS", "COMPLETED", "FAILED", "BUSY", "NO_ANSWER", "CANCELLED"]},
+  "call.outcome": {kind: "string", label: "Call outcome", options: ["INTERESTED", "NOT_INTERESTED", "CALLBACK_REQUESTED", "VIEWING_REQUESTED", "NO_DECISION", "WRONG_NUMBER", "DO_NOT_CALL_REQUESTED", "OFFER_REJECTED"]},
+  "call.durationSeconds": {kind: "number", label: "Call duration (seconds)"},
+  "call.source": {kind: "string", label: "How the call was recorded", options: ["MANUAL", "PROVIDER"]},
+  "call.agentId": {kind: "string", label: "Call agent"},
+} as const satisfies Record<string, FactDefinition>;
+const MEETING_FACTS = {
+  "meeting.status": {kind: "string", label: "Meeting status", options: ["SCHEDULED", "COMPLETED", "CANCELLED", "NO_SHOW"]},
+  "meeting.provider": {kind: "string", label: "Meeting type", options: ["GOOGLE_MEET", "MICROSOFT_TEAMS", "ZOOM", "WEBEX", "IN_PERSON", "PHONE", "OTHER"]},
+  "meeting.startsAt": {kind: "date", label: "Meeting start"},
+  "meeting.organizerId": {kind: "string", label: "Meeting organizer"},
+} as const satisfies Record<string, FactDefinition>;
 const CONTACT_FACTS = {
   "contact.preferredLanguage": {kind: "string", label: "Preferred language"},
   "contact.hasEmail": {kind: "boolean", label: "Has an email address"},
@@ -93,7 +109,7 @@ const CONTACT_FACTS = {
 // --- Triggers --------------------------------------------------------------------------------
 
 /** What an execution acts on; it decides which actions make sense. */
-export type TargetType = "LEAD" | "CONTACT" | "VIEWING" | "LISTING" | "TASK" | "NONE";
+export type TargetType = "LEAD" | "CONTACT" | "VIEWING" | "LISTING" | "TASK" | "CALL" | "MEETING" | "NONE";
 
 export interface TriggerDefinition {
   label: string;
@@ -119,6 +135,13 @@ export const TRIGGERS = {
   "task.created": {label: "Task created", description: "A follow-up or work task is created.", target: "TASK", facts: {...EVENT_FACTS, ...TASK_FACTS}, source: "ScheduleLeadFollowUp, workflow tasks"},
   "task.overdue": {label: "Task overdue", description: "A pending follow-up or work task passes its due time.", target: "TASK", facts: {...EVENT_FACTS, ...TASK_FACTS}, source: "Worker scan of pending tasks"},
   "task.completed": {label: "Task completed", description: "A follow-up or work task is completed.", target: "TASK", facts: {...EVENT_FACTS, ...TASK_FACTS}, source: "CompleteLeadFollowUp, CompleteWorkTask"},
+  "call.started": {label: "Call started", description: "A provider call starts (placed from EstateOS or received on a company line).", target: "CALL", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...CALL_FACTS}, source: "StartLeadCall, provider webhooks"},
+  "call.completed": {label: "Call answered and ended", description: "An answered call ends, logged by the agent or reported by the provider.", target: "CALL", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...CALL_FACTS}, source: "LogLeadCall, LogContactCall, provider webhooks"},
+  "call.missed": {label: "Incoming call missed", description: "An incoming call ends unanswered. Unanswered outgoing attempts start nothing.", target: "CALL", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...CALL_FACTS}, source: "LogLeadCall, LogContactCall, provider webhooks"},
+  "call.failed": {label: "Call failed", description: "A call could not be connected or dropped.", target: "CALL", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...CALL_FACTS}, source: "LogLeadCall, LogContactCall, provider webhooks"},
+  "call.summary_ready": {label: "Call summary ready", description: "Claude finished a call summary (a draft for the agent to review).", target: "CALL", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...CALL_FACTS}, source: "CreateCallAiSummary"},
+  "meeting.scheduled": {label: "Meeting scheduled", description: "A meeting with a lead or contact is scheduled.", target: "MEETING", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...MEETING_FACTS}, source: "CreateMeeting"},
+  "meeting.completed": {label: "Meeting completed", description: "A meeting is marked as held.", target: "MEETING", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...MEETING_FACTS}, source: "CompleteMeeting"},
   "workflow.manual": {label: "Run manually", description: "An authorized member runs the workflow, optionally for one lead.", target: "LEAD", facts: {...EVENT_FACTS, ...LEAD_FACTS}, source: "Run now"},
   "workflow.scheduled": {label: "On a schedule", description: "Runs once, daily or weekly in the company's timezone.", target: "NONE", facts: {...EVENT_FACTS}, source: "Worker scheduler"},
 } as const satisfies Record<string, TriggerDefinition>;
@@ -187,6 +210,8 @@ export const actionSchema = z.discriminatedUnion("type", [
   z.strictObject({...common, type: z.literal("ai.draft"), contentType: z.enum(DRAFT_CONTENT_TYPES), instructions: message(500)}),
   /** The existing AI Sales Intelligence analysis of the lead, saved as an internal insight. */
   z.strictObject({...common, type: z.literal("ai.sales_review")}),
+  /** A Claude summary of the call (6F.4), as a draft for the agent; needs the company's Claude-analysis switch. */
+  z.strictObject({...common, type: z.literal("call.summarize")}),
   z.strictObject({...common, type: z.literal("delay"), minutes}),
   /** Stops until an authorized member approves continuing. */
   z.strictObject({...common, type: z.literal("approval.request"), reason: message(300), expiresMinutes: z.number().int().min(15).max(10_080).default(1440)}),
@@ -195,7 +220,7 @@ export const actionSchema = z.discriminatedUnion("type", [
 ]);
 export type Action = z.infer<typeof actionSchema>;
 export type ActionType = Action["type"];
-export const ACTION_TYPES = ["task.create", "notification.create", "lead.distribute", "lead.reassign", "lead.activity", "viewing.followup", "ai.draft", "ai.sales_review", "delay", "approval.request", "end", "pause"] as const satisfies readonly ActionType[];
+export const ACTION_TYPES = ["task.create", "notification.create", "lead.distribute", "lead.reassign", "lead.activity", "viewing.followup", "ai.draft", "ai.sales_review", "call.summarize", "delay", "approval.request", "end", "pause"] as const satisfies readonly ActionType[];
 
 export type Risk = "LOW" | "MEDIUM";
 export interface ActionDefinition {
@@ -209,18 +234,19 @@ export interface ActionDefinition {
   ai: boolean;
 }
 export const ACTIONS: Record<ActionType, ActionDefinition> = {
-  "task.create": {label: "Create a follow-up task", description: "A follow-up on the lead, or a work task for a listing or the team queue.", risk: "LOW", targets: ["LEAD", "VIEWING", "LISTING", "TASK", "CONTACT", "NONE"], ai: false},
-  "notification.create": {label: "Send an in-app notification", description: "To the assigned agent, the managers or the administrators. Never an email or message.", risk: "LOW", targets: ["LEAD", "VIEWING", "LISTING", "TASK", "CONTACT", "NONE"], ai: false},
+  "task.create": {label: "Create a follow-up task", description: "A follow-up on the lead, or a work task for a listing or the team queue.", risk: "LOW", targets: ["LEAD", "VIEWING", "LISTING", "TASK", "CONTACT", "CALL", "MEETING", "NONE"], ai: false},
+  "notification.create": {label: "Send an in-app notification", description: "To the assigned agent, the managers or the administrators. Never an email or message.", risk: "LOW", targets: ["LEAD", "VIEWING", "LISTING", "TASK", "CONTACT", "CALL", "MEETING", "NONE"], ai: false},
   "lead.distribute": {label: "Assign with the distribution rules", description: "Uses the company's approved lead distribution; only for unassigned leads.", risk: "LOW", targets: ["LEAD"], ai: false},
   "lead.reassign": {label: "Reassign the lead (needs approval)", description: "Waits for an authorized member to approve the exact change.", risk: "MEDIUM", targets: ["LEAD", "VIEWING"], ai: false},
-  "lead.activity": {label: "Add a note to the lead", description: "An internal activity on the lead's timeline.", risk: "LOW", targets: ["LEAD", "VIEWING"], ai: false},
+  "lead.activity": {label: "Add a note to the lead", description: "An internal activity on the lead's timeline.", risk: "LOW", targets: ["LEAD", "VIEWING", "CALL", "MEETING"], ai: false},
   "viewing.followup": {label: "Create a viewing follow-up", description: "A follow-up task on the viewing's lead.", risk: "LOW", targets: ["VIEWING"], ai: false},
-  "ai.draft": {label: "Prepare a message draft with Claude", description: "An internal WhatsApp or email draft in Content Studio for the agent to edit. Never sent.", risk: "LOW", targets: ["LEAD", "VIEWING"], ai: true},
-  "ai.sales_review": {label: "Run the AI sales review", description: "The existing lead qualification analysis, saved as an internal insight.", risk: "LOW", targets: ["LEAD", "VIEWING"], ai: true},
-  delay: {label: "Wait", description: "Waits, then rechecks the conditions of the next steps.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "NONE"], ai: false},
-  "approval.request": {label: "Ask for approval to continue", description: "Stops until an authorized member approves.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "NONE"], ai: false},
-  end: {label: "End", description: "Ends the execution.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "NONE"], ai: false},
-  pause: {label: "Pause the workflow", description: "Stops this execution and pauses the workflow for review.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "NONE"], ai: false},
+  "ai.draft": {label: "Prepare a message draft with Claude", description: "An internal WhatsApp or email draft in Content Studio for the agent to edit. Never sent.", risk: "LOW", targets: ["LEAD", "VIEWING", "CALL", "MEETING"], ai: true},
+  "ai.sales_review": {label: "Run the AI sales review", description: "The existing lead qualification analysis, saved as an internal insight.", risk: "LOW", targets: ["LEAD", "VIEWING", "CALL", "MEETING"], ai: true},
+  "call.summarize": {label: "Summarise the call with Claude", description: "A draft summary from the call's transcript or the agent's notes, for the agent to review. Needs Claude call analysis enabled.", risk: "LOW", targets: ["CALL"], ai: true},
+  delay: {label: "Wait", description: "Waits, then rechecks the conditions of the next steps.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "CALL", "MEETING", "NONE"], ai: false},
+  "approval.request": {label: "Ask for approval to continue", description: "Stops until an authorized member approves.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "CALL", "MEETING", "NONE"], ai: false},
+  end: {label: "End", description: "Ends the execution.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "CALL", "MEETING", "NONE"], ai: false},
+  pause: {label: "Pause the workflow", description: "Stops this execution and pauses the workflow for review.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "CALL", "MEETING", "NONE"], ai: false},
 };
 /** Whether a step waits for a human decision before its side effect. */
 export const needsApproval = (action: Action) => ACTIONS[action.type].risk === "MEDIUM" || action.type === "approval.request";
@@ -277,6 +303,7 @@ export function definitionProblems(definition: Omit<WorkflowDefinition, "errorPo
     if (!ACTIONS[step.type].targets.includes(trigger.target)) problems.push(`Step ${index + 1}: "${ACTIONS[step.type].label}" does not work with the "${trigger.label}" trigger.`);
     if (ACTIONS[step.type].ai) ai += 1;
     if ((step.type === "end" || step.type === "pause") && index !== definition.steps.length - 1 && !step.when) problems.push(`Step ${index + 1}: steps after an unconditional ${step.type} would never run.`);
+    if (step.type === "call.summarize" && definition.trigger === "call.summary_ready") problems.push(`Step ${index + 1}: a summary-ready workflow cannot summarise the call again.`);
   });
   if (ai > LIMITS.aiStepsPerWorkflow) problems.push(`At most ${LIMITS.aiStepsPerWorkflow} Claude steps per workflow.`);
   if (definition.steps.every(step => step.type === "delay" || step.type === "end")) problems.push("Add at least one action besides waiting.");

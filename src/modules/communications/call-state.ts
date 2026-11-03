@@ -43,3 +43,16 @@ export const isMissed = (call: Pick<CallFacts, "direction" | "callStatus" | "ans
 
 /** A conversation: answered, and the agent recorded an outcome from talking to the customer (a wrong number is not one). */
 export const isConversation = (call: CallFacts) => isAnswered(call) && Boolean(call.outcome) && call.outcome !== "WRONG_NUMBER";
+
+export type FinalCallTrigger = "call.completed" | "call.failed" | "call.missed";
+/**
+ * The workflow event a finished call starts (docs/COMMUNICATION_HUB.md#workflow-events):
+ * answered, failed, or an incoming call nobody answered. An unanswered outgoing
+ * attempt starts none. The database applies the same rule to manual logs.
+ */
+export function finalCallTrigger(direction: CallDirection, status: CallStatus): FinalCallTrigger | null {
+  if (status === "COMPLETED") return "call.completed";
+  if (status === "FAILED") return "call.failed";
+  if (direction === "INBOUND" && isFinal(status)) return "call.missed";
+  return null;
+}
