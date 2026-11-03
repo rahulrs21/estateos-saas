@@ -602,6 +602,99 @@ try {
   assert.equal((await post(`/api/communications/suggestions/${suggestionId}/decide`, {action: "DISMISS"})).status, 409);
   pass("Managers without the lead and other companies cannot read or act on summaries");
 
+  // ------------------------------------------------------------ 6F.5: voice assistant, test mode only
+  await signIn("agent-a");
+  assert.equal((await api("/api/communications/voice-assistant")).status, 403);
+  await signIn("manager-a");
+  assert.equal((await api("/api/communications/voice-assistant")).status, 403);
+  assert.equal((await post("/api/communications/voice-assistant/sessions")).status, 403);
+  await load("/communications/voice-assistant", "document.body.innerText.includes('Only owners and administrators')");
+  assert.equal(await evaluate("[...document.querySelectorAll('nav[aria-label=\"Communications sections\"] a')].some(a=>a.textContent.includes('Voice assistant'))"), false);
+  pass("Managers and agents cannot configure or test the voice assistant, and do not see it");
+
+  // A fictional active project the assistant may talk about.
+  const projectId = randomUUID();
+  await dc.executeGraphql(`mutation P($org: UUID!, $dev: UUID!, $id: UUID!) {
+    developer_insert(data: {organizationId: $org, id: $dev, name: "Example Developments", slug: "example-developments-e2e", createdByUid: "owner-a", updatedByUid: "owner-a"})
+    project_insert(data: {organizationId: $org, id: $id, developerId: $dev, projectName: "Harbour Crest (fictional)", projectCode: "E2E-HC", projectType: RESIDENTIAL, projectStatus: ACTIVE,
+      constructionStatus: UNDER_CONSTRUCTION, emirate: DUBAI, community: "Creek Harbour", startingPriceMinor: "120000000", expectedHandoverDate: "2027-12-31", createdByUid: "owner-a", updatedByUid: "owner-a"})
+  }`, {variables: {org: f.orgA, dev: randomUUID(), id: projectId}});
+  await signIn("owner-a");
+  const baseVoice = {expectedRevision: 0, status: "DRAFT", assistantName: "E2E Assistant", greeting: "How can I help?", questions: [], handoffMessage: "A colleague will call you back shortly.",
+    projectIds: [], listingIds: [], maxTurns: 6, maxSessionMinutes: 5, maxReplyTokens: 2000};
+  assert.equal((await post("/api/communications/voice-assistant", {...baseVoice, disclosureText: "Hello and thank you for calling our agency today."}, f.orgA, "PUT")).status, 400, "an AI disclosure is required");
+  assert.equal((await post("/api/communications/voice-assistant", {...baseVoice, disclosureText: "You are speaking with an AI assistant.", status: "LIVE"}, f.orgA, "PUT")).status, 400, "there is no live status");
+  await load("/communications/voice-assistant", "!!document.querySelector('input[name=assistantName]')");
+  assert.match(await evaluate("document.body.innerText"), /Test mode only/);
+  await evaluate(`(()=>{document.querySelector('select[name=status]').value='TEST_ONLY';
+    const box=[...document.querySelectorAll('input[name=projectIds]')].find(e=>e.value.replaceAll('-','')===${JSON.stringify(projectId.replaceAll("-", ""))});if(!box)throw Error('project option missing');if(!box.checked)box.click();})()`);
+  await clickText("Save", "button");
+  await waitFor("fetch('/api/communications/voice-assistant').then(r=>r.json()).then(b=>b.data.config?.status === 'TEST_ONLY' && b.data.config.projectIds.length === 1)", "the saved assistant");
+  pass("An owner configures the assistant with a required AI disclosure and an allowed active project; there is no live mode");
+
+  const voiceUsage = async () => (await sql(`query U($org: UUID!) { aiUsageRecords(where: {organizationId: {eq: $org}, feature: {eq: "VOICE_ASSISTANT"}}) { status userUid contentType } }`, {org: f.orgA})).aiUsageRecords;
+  const say = async text => {
+    await evaluate(`(()=>{const e=document.querySelector('[data-testid=voice-simulator] input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(text)});e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await pause(100);
+    await clickText("Say", "[data-testid=voice-simulator] button");
+  };
+  await waitFor("[...document.querySelectorAll('button')].some(b=>b.textContent.includes('Start test call') && !b.disabled)", "the start button");
+  await clickText("Start test call", "button");
+  await waitFor("!!document.querySelector('[data-testid=voice-simulator] input')", "the simulator");
+  assert.equal(await evaluate("document.querySelector('[data-testid=voice-simulator] li[data-turn-kind]').dataset.turnKind"), "DISCLOSURE", "the AI disclosure comes first");
+  assert.match(await evaluate("document.querySelector('[data-testid=voice-simulator]').innerText"), /Harbour Crest \(fictional\)/);
+  await say("Can I speak to a real person, please?");
+  await waitFor("document.querySelector('[data-testid=voice-session-status]')?.textContent === 'Handed to a person'", "the handoff");
+  assert.match(await evaluate("document.querySelector('[data-testid=voice-simulator]').innerText"), /A member of our team will call you back/, "the configured handoff message");
+  assert.equal((await voiceUsage()).length, 0, "a request for a person is handled without Claude");
+  pass("A test call opens with the AI disclosure, and asking for a person hands over without calling Claude");
+
+  await clickText("Start test call", "button");
+  await waitFor("document.querySelector('[data-testid=voice-session-status]')?.textContent === 'In progress'", "a second test call");
+  await say("What is the starting price at Harbour Crest?");
+  await waitFor("document.querySelector('[data-testid=voice-session-status]')?.textContent === 'Handed to a person' && !document.querySelector('[data-testid=voice-replying]')", "the fallback handoff");
+  const fallbackText = await evaluate("document.querySelector('[data-testid=voice-simulator]').innerText");
+  assert.match(fallbackText, /Fallback: Claude unavailable/);
+  assert.match(fallbackText, /Claude could not answer/);
+  assert.ok((await voiceUsage()).some(row => row.status === "FAILED" && row.userUid === "owner-a" && row.contentType === "VOICE_TEST_TURN"), "the attempt is recorded as AI usage");
+  await evaluate("document.querySelector('[data-testid=voice-simulator]').scrollIntoView({block: 'start'})"); await pause(300);
+  await screenshot("voice-assistant-simulator");
+  pass("With Anthropic refusing the key, the assistant hands the caller to a person and the usage is recorded");
+
+  // Interrupting a reply in progress (state set as the server leaves it while Claude answers).
+  const third = await post("/api/communications/voice-assistant/sessions");
+  assert.equal(third.status, 201, JSON.stringify(third.body));
+  const sessionId = third.body.data.id;
+  const sessionView = async () => (await api(`/api/communications/voice-assistant/sessions/${sessionId}`)).body.data;
+  assert.equal((await post(`/api/communications/voice-assistant/sessions/${sessionId}/interrupt`, {turnId: randomUUID()})).status, 409, "nothing to interrupt");
+  const pendingTurn = randomUUID();
+  const before = await sessionView();
+  const pendingTurns = [...before.turns, {id: pendingTurn, role: "CALLER", kind: "UTTERANCE", text: "Tell me about the payment plan", at: new Date().toISOString()}];
+  await dc.executeGraphql(`mutation T($org: UUID!, $id: UUID!, $turn: UUID!, $turns: String!) { voiceAssistantTestSession_update(key: {organizationId: $org, id: $id}, data: {turnsJson: $turns, callerTurns: 1, pendingTurnId: $turn, pendingSince_expr: "request.time", revision_update: {inc: 1}}) }`,
+    {variables: {org: f.orgA, id: sessionId, turn: pendingTurn, turns: JSON.stringify(pendingTurns)}});
+  const busy = await sessionView();
+  assert.equal(busy.pending, true);
+  assert.equal((await post(`/api/communications/voice-assistant/sessions/${sessionId}/turns`, {utterance: "Hello?", turnId: randomUUID(), expectedRevision: busy.revision})).status, 409, "no new turn while a reply is pending");
+  assert.equal((await post(`/api/communications/voice-assistant/sessions/${sessionId}/interrupt`, {turnId: pendingTurn})).status, 200);
+  const interruptedView = await sessionView();
+  assert.equal(interruptedView.pending, false);
+  assert.equal(interruptedView.turns.at(-1).kind, "INTERRUPTED");
+  assert.equal((await post(`/api/communications/voice-assistant/sessions/${sessionId}/interrupt`, {turnId: pendingTurn})).status, 409, "a reply is interrupted once");
+  assert.equal((await post(`/api/communications/voice-assistant/sessions/${sessionId}/end`)).status, 200);
+  assert.equal((await post(`/api/communications/voice-assistant/sessions/${sessionId}/turns`, {utterance: "Hello?", turnId: randomUUID(), expectedRevision: (await sessionView()).revision})).status, 409, "an ended test accepts nothing");
+  pass("Interrupting discards the pending reply exactly once; ended test calls accept no more turns");
+
+  await signIn("admin-a");
+  assert.equal((await api(`/api/communications/voice-assistant/sessions/${sessionId}`)).status, 200, "administrators can review any test call");
+  const fourth = await post("/api/communications/voice-assistant/sessions");
+  await signIn("owner-a");
+  const othersSession = (await api(`/api/communications/voice-assistant/sessions/${fourth.body.data.id}`)).body.data;
+  assert.equal((await post(`/api/communications/voice-assistant/sessions/${fourth.body.data.id}/turns`, {utterance: "Hi", turnId: randomUUID(), expectedRevision: othersSession.revision})).status, 403, "only the tester continues their own call");
+  await signIn("owner-b");
+  assert.equal((await api(`/api/communications/voice-assistant/sessions/${sessionId}`)).status, 404);
+  assert.equal((await post("/api/communications/voice-assistant/sessions", {}, f.orgB)).status, 409, "another company without a configuration cannot start tests");
+  pass("Test calls stay within the company and are continued only by the person who started them");
+
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");
   console.log(`\n${checks} communication end-to-end checks passed.`);
 } catch (error) {

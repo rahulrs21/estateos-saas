@@ -113,6 +113,8 @@ export enum ActivityKind {
   CALL_TRANSCRIPT_CHANGED = "CALL_TRANSCRIPT_CHANGED",
   CALL_MEDIA_ACCESSED = "CALL_MEDIA_ACCESSED",
   CALL_AI_SUMMARY_CHANGED = "CALL_AI_SUMMARY_CHANGED",
+  VOICE_ASSISTANT_UPDATED = "VOICE_ASSISTANT_UPDATED",
+  VOICE_ASSISTANT_TEST_STARTED = "VOICE_ASSISTANT_TEST_STARTED",
 }
 export enum AgentAvailabilityStatus {
   AVAILABLE = "AVAILABLE",
@@ -225,6 +227,8 @@ export enum AuditTargetType {
   CALL_RECORDING = "CALL_RECORDING",
   CALL_TRANSCRIPT = "CALL_TRANSCRIPT",
   CALL_AI_SUMMARY = "CALL_AI_SUMMARY",
+  VOICE_ASSISTANT = "VOICE_ASSISTANT",
+  VOICE_TEST_SESSION = "VOICE_TEST_SESSION",
 }
 export enum AutomationApprovalStatus {
   PENDING = "PENDING",
@@ -685,6 +689,16 @@ export enum TransactionType {
 export enum TranscriptSource {
   UPLOAD = "UPLOAD",
   PROVIDER = "PROVIDER",
+}
+export enum VoiceAssistantStatus {
+  DRAFT = "DRAFT",
+  TEST_ONLY = "TEST_ONLY",
+}
+export enum VoiceTestSessionStatus {
+  ACTIVE = "ACTIVE",
+  HANDED_OFF = "HANDED_OFF",
+  ENDED = "ENDED",
+  LIMIT_REACHED = "LIMIT_REACHED",
 }
 export enum WebsiteMediaStatus {
   PENDING = "PENDING",
@@ -2575,6 +2589,26 @@ export interface CreatePropertyVariables {
   assignedMembershipId?: UUIDString | null;
   occupancyStatus: OccupancyStatus;
   inventoryStatus: InventoryStatus;
+}
+
+export interface CreateVoiceAssistantConfigData {
+  config: VoiceAssistantConfig_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CreateVoiceAssistantConfigVariables {
+  organizationId: UUIDString;
+  status: VoiceAssistantStatus;
+  assistantName: string;
+  disclosureText: string;
+  greeting: string;
+  questionsJson: string;
+  handoffMessage: string;
+  projectIdsJson: string;
+  listingIdsJson: string;
+  maxTurns: number;
+  maxSessionMinutes: number;
+  maxReplyTokens: number;
 }
 
 export interface CreateWebsiteMediaData {
@@ -5220,6 +5254,88 @@ export interface GetTeamMembershipByEmailData {
 export interface GetTeamMembershipByEmailVariables {
   organizationId: UUIDString;
   email: string;
+}
+
+export interface GetVoiceAssistantData {
+  admin?: {
+    id: UUIDString;
+  };
+  config?: {
+    revision: number;
+    status: VoiceAssistantStatus;
+    assistantName: string;
+    disclosureText: string;
+    greeting: string;
+    questionsJson: string;
+    handoffMessage: string;
+    projectIdsJson: string;
+    listingIdsJson: string;
+    maxTurns: number;
+    maxSessionMinutes: number;
+    maxReplyTokens: number;
+    updatedAt: TimestampString;
+    updatedBy: {
+      displayName: string;
+    };
+  };
+  sessions: ({
+    id: UUIDString;
+    status: VoiceTestSessionStatus;
+    callerTurns: number;
+    handoffReason?: string | null;
+    configRevision: number;
+    createdAt: TimestampString;
+    endedAt?: TimestampString | null;
+    createdBy: {
+      displayName: string;
+    };
+  })[];
+}
+
+export interface GetVoiceAssistantVariables {
+  organizationId: UUIDString;
+}
+
+export interface GetVoiceTestSessionData {
+  admin?: {
+    id: UUIDString;
+  };
+  session?: {
+    id: UUIDString;
+    configRevision: number;
+    status: VoiceTestSessionStatus;
+    revision: number;
+    factsJson: string;
+    turnsJson: string;
+    callerTurns: number;
+    pendingTurnId?: UUIDString | null;
+    pendingSince?: TimestampString | null;
+    handoffReason?: string | null;
+    viewingRequestJson?: string | null;
+    inputTokens: number;
+    outputTokens: number;
+    createdByUid: string;
+    createdAt: TimestampString;
+    endedAt?: TimestampString | null;
+    createdBy: {
+      displayName: string;
+    };
+  };
+  config?: {
+    revision: number;
+    status: VoiceAssistantStatus;
+    assistantName: string;
+    handoffMessage: string;
+    questionsJson: string;
+    maxTurns: number;
+    maxSessionMinutes: number;
+    maxReplyTokens: number;
+  };
+}
+
+export interface GetVoiceTestSessionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
 }
 
 export interface GetWebsiteAgentData {
@@ -9786,6 +9902,27 @@ export interface SavePortalConnectionVariables {
   expectedUpdatedAt?: TimestampString | null;
 }
 
+export interface SaveVoiceTestSessionData {
+  session?: VoiceAssistantTestSession_Key | null;
+}
+
+export interface SaveVoiceTestSessionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  expectedRevision: number;
+  status: VoiceTestSessionStatus;
+  turnsJson: string;
+  callerTurns: number;
+  pendingTurnId?: UUIDString | null;
+  pendingSince?: TimestampString | null;
+  handoffReason?: string | null;
+  viewingRequestJson?: string | null;
+  endedAt?: TimestampString | null;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface SaveWebsitePageVersionData {
   page?: WebsitePage_Key | null;
   version: PageVersion_Key;
@@ -10149,6 +10286,20 @@ export interface StartLeadCallVariables {
   callType: CallType;
   counterpartyNumber: string;
   attestationVersion: string;
+}
+
+export interface StartVoiceTestSessionData {
+  session: VoiceAssistantTestSession_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface StartVoiceTestSessionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  configRevision: number;
+  factsJson: string;
+  turnsJson: string;
 }
 
 export interface SubmitAutomationWorkflowData {
@@ -10791,6 +10942,27 @@ export interface UpdatePropertyVariables {
   inventoryStatus: InventoryStatus;
 }
 
+export interface UpdateVoiceAssistantConfigData {
+  config?: VoiceAssistantConfig_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface UpdateVoiceAssistantConfigVariables {
+  organizationId: UUIDString;
+  expectedRevision: number;
+  status: VoiceAssistantStatus;
+  assistantName: string;
+  disclosureText: string;
+  greeting: string;
+  questionsJson: string;
+  handoffMessage: string;
+  projectIdsJson: string;
+  listingIdsJson: string;
+  maxTurns: number;
+  maxSessionMinutes: number;
+  maxReplyTokens: number;
+}
+
 export interface UpdateWebsiteAgentCardData {
   membership_update?: Membership_Key | null;
   auditLog_insert: AuditLog_Key;
@@ -10841,6 +11013,17 @@ export interface UpsertMyProfileVariables {
 export interface UserProfile_Key {
   uid: string;
   __typename?: 'UserProfile_Key';
+}
+
+export interface VoiceAssistantConfig_Key {
+  organizationId: UUIDString;
+  __typename?: 'VoiceAssistantConfig_Key';
+}
+
+export interface VoiceAssistantTestSession_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'VoiceAssistantTestSession_Key';
 }
 
 export interface WebsiteMedia_Key {
@@ -11573,6 +11756,36 @@ export function listCalls(vars: ListCallsVariables, options?: OperationOptions):
 export function communicationDashboard(dc: DataConnect, vars: CommunicationDashboardVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CommunicationDashboardData>>;
 /** Generated Node Admin SDK operation action function for the 'CommunicationDashboard' Query. Allow users to pass in custom DataConnect instances. */
 export function communicationDashboard(vars: CommunicationDashboardVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CommunicationDashboardData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetVoiceAssistant' Query. Allow users to execute without passing in DataConnect. */
+export function getVoiceAssistant(dc: DataConnect, vars: GetVoiceAssistantVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetVoiceAssistantData>>;
+/** Generated Node Admin SDK operation action function for the 'GetVoiceAssistant' Query. Allow users to pass in custom DataConnect instances. */
+export function getVoiceAssistant(vars: GetVoiceAssistantVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetVoiceAssistantData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateVoiceAssistantConfig' Mutation. Allow users to execute without passing in DataConnect. */
+export function createVoiceAssistantConfig(dc: DataConnect, vars: CreateVoiceAssistantConfigVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateVoiceAssistantConfigData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateVoiceAssistantConfig' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createVoiceAssistantConfig(vars: CreateVoiceAssistantConfigVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateVoiceAssistantConfigData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateVoiceAssistantConfig' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateVoiceAssistantConfig(dc: DataConnect, vars: UpdateVoiceAssistantConfigVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateVoiceAssistantConfigData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateVoiceAssistantConfig' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateVoiceAssistantConfig(vars: UpdateVoiceAssistantConfigVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateVoiceAssistantConfigData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetVoiceTestSession' Query. Allow users to execute without passing in DataConnect. */
+export function getVoiceTestSession(dc: DataConnect, vars: GetVoiceTestSessionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetVoiceTestSessionData>>;
+/** Generated Node Admin SDK operation action function for the 'GetVoiceTestSession' Query. Allow users to pass in custom DataConnect instances. */
+export function getVoiceTestSession(vars: GetVoiceTestSessionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetVoiceTestSessionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'StartVoiceTestSession' Mutation. Allow users to execute without passing in DataConnect. */
+export function startVoiceTestSession(dc: DataConnect, vars: StartVoiceTestSessionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<StartVoiceTestSessionData>>;
+/** Generated Node Admin SDK operation action function for the 'StartVoiceTestSession' Mutation. Allow users to pass in custom DataConnect instances. */
+export function startVoiceTestSession(vars: StartVoiceTestSessionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<StartVoiceTestSessionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SaveVoiceTestSession' Mutation. Allow users to execute without passing in DataConnect. */
+export function saveVoiceTestSession(dc: DataConnect, vars: SaveVoiceTestSessionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveVoiceTestSessionData>>;
+/** Generated Node Admin SDK operation action function for the 'SaveVoiceTestSession' Mutation. Allow users to pass in custom DataConnect instances. */
+export function saveVoiceTestSession(vars: SaveVoiceTestSessionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveVoiceTestSessionData>>;
 
 /** Generated Node Admin SDK operation action function for the 'LogLeadCall' Mutation. Allow users to execute without passing in DataConnect. */
 export function logLeadCall(dc: DataConnect, vars: LogLeadCallVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LogLeadCallData>>;

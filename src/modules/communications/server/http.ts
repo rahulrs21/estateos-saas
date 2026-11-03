@@ -20,6 +20,7 @@ import {
 } from "./providers";
 import { callMedia, deleteRecording, deleteTranscript, recordConsent, recordingFile, transcriptFile, uploadRecording, uploadTranscript, withdrawConsent } from "./media";
 import { callSummaries, decideSuggestion, generateCallSummary, reviewCallSummary } from "./intelligence";
+import { endVoiceTest, interruptVoiceTurn, saveVoiceAssistant, startVoiceTest, voiceAssistantView, voiceTestSession, voiceTurn } from "./voice";
 import { providerWebhookResponse } from "./webhooks";
 import { MAX_RECORDING_BYTES } from "../media";
 
@@ -171,3 +172,10 @@ export const callSummariesResponse = (request: Request, callId: string) => read(
 export const generateSummaryResponse = (request: Request, callId: string) => write(request, "summary.generate", (context, body) => generateCallSummary(request, context, callId, body), 201);
 export const reviewSummaryResponse = (request: Request, id: string) => write(request, "summary.review", (context, body) => reviewCallSummary(context, id, body));
 export const decideSuggestionResponse = (request: Request, id: string) => write(request, "suggestion.decide", (context, body) => decideSuggestion(context, id, body));
+export const voiceAssistantResponse = (request: Request) => read(request, "voice.get", context => voiceAssistantView(context));
+export const saveVoiceAssistantResponse = (request: Request) => write(request, "voice.save", saveVoiceAssistant);
+export const startVoiceTestResponse = (request: Request) => write(request, "voice.test.start", context => startVoiceTest(context), 201);
+export const voiceTestSessionResponse = (request: Request, id: string) => read(request, "voice.test.get", context => voiceTestSession(context, id));
+export const voiceTurnResponse = (request: Request, id: string) => write(request, "voice.test.turn", (context, body) => voiceTurn(request, context, id, body));
+export const interruptVoiceTurnResponse = (request: Request, id: string) => write(request, "voice.test.interrupt", (context, body) => interruptVoiceTurn(context, id, body));
+export const endVoiceTestResponse = (request: Request, id: string) => write(request, "voice.test.end", context => endVoiceTest(context, id));

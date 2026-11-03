@@ -1,0 +1,69 @@
+# Phase 6F.5: voice assistant foundation, test mode only (docs/AI_VOICE_ARCHITECTURE.md).
+# OWNER and ADMIN members configure the assistant and run simulated calls.
+# Test sessions are written only by the server (NO_ACCESS, the member re-checked
+# here), after EstateOS checked each assistant reply against the approved facts,
+# so a member cannot store a fabricated assistant turn.
+
+query GetVoiceAssistant($organizationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "VOICE_ASSISTANT_ADMIN_REQUIRED") {id}
+  config: voiceAssistantConfig(key: {organizationId: $organizationId}) {
+    revision status assistantName disclosureText greeting questionsJson handoffMessage projectIdsJson listingIdsJson maxTurns maxSessionMinutes maxReplyTokens updatedAt updatedBy {displayName}
+  }
+  sessions: voiceAssistantTestSessions(where: {organizationId: {eq: $organizationId}}, orderBy: [{createdAt: DESC}, {id: ASC}], limit: 20) {
+    id status callerTurns handoffReason configRevision createdAt endedAt createdBy {displayName}
+  }
+}
+
+mutation CreateVoiceAssistantConfig($organizationId: UUID!, $status: VoiceAssistantStatus!, $assistantName: String!, $disclosureText: String!, $greeting: String!, $questionsJson: String!,
+  $handoffMessage: String!, $projectIdsJson: String!, $listingIdsJson: String!, $maxTurns: Int!, $maxSessionMinutes: Int!, $maxReplyTokens: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.assistantName.size() >= 2 && vars.assistantName.size() <= 60 && vars.disclosureText.size() >= 20 && vars.disclosureText.size() <= 400 && vars.disclosureText.matches('(^|[^A-Za-z])(AI|A[.]I[.])([^A-Za-z]|$)|[Aa]rtificial [Ii]ntelligence|[Vv]irtual assistant|[Aa]utomated assistant|[Dd]igital assistant|ذكاء اصطناعي|مساعد افتراضي') && vars.greeting.size() >= 5 && vars.greeting.size() <= 400 && vars.questionsJson.size() <= 2000 && vars.handoffMessage.size() >= 10 && vars.handoffMessage.size() <= 400 && vars.projectIdsJson.size() <= 500 && vars.listingIdsJson.size() <= 500 && vars.maxTurns >= 2 && vars.maxTurns <= 30 && vars.maxSessionMinutes >= 1 && vars.maxSessionMinutes <= 30 && vars.maxReplyTokens >= 1000 && vars.maxReplyTokens <= 4000") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "VOICE_ASSISTANT_ADMIN_REQUIRED")
+  config: voiceAssistantConfig_insert(data: {organizationId: $organizationId, status: $status, assistantName: $assistantName, disclosureText: $disclosureText, greeting: $greeting, questionsJson: $questionsJson,
+    handoffMessage: $handoffMessage, projectIdsJson: $projectIdsJson, listingIdsJson: $listingIdsJson, maxTurns: $maxTurns, maxSessionMinutes: $maxSessionMinutes, maxReplyTokens: $maxReplyTokens, updatedByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: VOICE_ASSISTANT_UPDATED, targetType: VOICE_ASSISTANT, targetId: $organizationId, metadata_expr: "{'status': vars.status, 'revision': 1}"})
+}
+
+mutation UpdateVoiceAssistantConfig($organizationId: UUID!, $expectedRevision: Int!, $status: VoiceAssistantStatus!, $assistantName: String!, $disclosureText: String!, $greeting: String!, $questionsJson: String!,
+  $handoffMessage: String!, $projectIdsJson: String!, $listingIdsJson: String!, $maxTurns: Int!, $maxSessionMinutes: Int!, $maxReplyTokens: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.assistantName.size() >= 2 && vars.assistantName.size() <= 60 && vars.disclosureText.size() >= 20 && vars.disclosureText.size() <= 400 && vars.disclosureText.matches('(^|[^A-Za-z])(AI|A[.]I[.])([^A-Za-z]|$)|[Aa]rtificial [Ii]ntelligence|[Vv]irtual assistant|[Aa]utomated assistant|[Dd]igital assistant|ذكاء اصطناعي|مساعد افتراضي') && vars.greeting.size() >= 5 && vars.greeting.size() <= 400 && vars.questionsJson.size() <= 2000 && vars.handoffMessage.size() >= 10 && vars.handoffMessage.size() <= 400 && vars.projectIdsJson.size() <= 500 && vars.listingIdsJson.size() <= 500 && vars.maxTurns >= 2 && vars.maxTurns <= 30 && vars.maxSessionMinutes >= 1 && vars.maxSessionMinutes <= 30 && vars.maxReplyTokens >= 1000 && vars.maxReplyTokens <= 4000") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "VOICE_ASSISTANT_ADMIN_REQUIRED")
+  config: voiceAssistantConfig_update(first: {where: {organizationId: {eq: $organizationId}, revision: {eq: $expectedRevision}}}, data: {status: $status, assistantName: $assistantName, disclosureText: $disclosureText,
+    greeting: $greeting, questionsJson: $questionsJson, handoffMessage: $handoffMessage, projectIdsJson: $projectIdsJson, listingIdsJson: $listingIdsJson, maxTurns: $maxTurns, maxSessionMinutes: $maxSessionMinutes,
+    maxReplyTokens: $maxReplyTokens, revision_update: {inc: 1}, updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "VOICE_ASSISTANT_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: VOICE_ASSISTANT_UPDATED, targetType: VOICE_ASSISTANT, targetId: $organizationId, metadata_expr: "{'status': vars.status, 'revision': vars.expectedRevision + 1}"})
+}
+
+query GetVoiceTestSession($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "VOICE_ASSISTANT_ADMIN_REQUIRED") {id}
+  session: voiceAssistantTestSession(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}}}) {
+    id configRevision status revision factsJson turnsJson callerTurns pendingTurnId pendingSince handoffReason viewingRequestJson inputTokens outputTokens createdByUid createdAt endedAt createdBy {displayName}
+  }
+  config: voiceAssistantConfig(key: {organizationId: $organizationId}) {revision status assistantName handoffMessage questionsJson maxTurns maxSessionMinutes maxReplyTokens}
+}
+
+# Server only: a simulated call starts with the disclosure and greeting, using the
+# facts the server read from the allowed records. The configuration must be
+# ready for testing and unchanged since the server read it.
+mutation StartVoiceTestSession($organizationId: UUID!, $id: UUID!, $actorUid: String!, $configRevision: Int!, $factsJson: String!, $turnsJson: String!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "VOICE_ASSISTANT_ADMIN_REQUIRED") {id}
+    config: voiceAssistantConfig(first: {where: {organizationId: {eq: $organizationId}, revision: {eq: $configRevision}, status: {eq: TEST_ONLY}}}) @check(expr: "this != null", message: "VOICE_ASSISTANT_NOT_READY") {revision}
+  }
+  session: voiceAssistantTestSession_insert(data: {organizationId: $organizationId, id: $id, configRevision: $configRevision, factsJson: $factsJson, turnsJson: $turnsJson, createdByUid: $actorUid})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: VOICE_ASSISTANT_TEST_STARTED, targetType: VOICE_TEST_SESSION, targetId: $id, metadata_expr: "{'configRevision': vars.configRevision}"})
+}
+
+# Server only: the next state of an active session the member started (compare-and-set on the revision).
+mutation SaveVoiceTestSession($organizationId: UUID!, $id: UUID!, $actorUid: String!, $expectedRevision: Int!, $status: VoiceTestSessionStatus!, $turnsJson: String!, $callerTurns: Int!,
+  $pendingTurnId: UUID, $pendingSince: Timestamp, $handoffReason: String, $viewingRequestJson: String, $endedAt: Timestamp, $inputTokens: Int!, $outputTokens: Int!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "VOICE_ASSISTANT_ADMIN_REQUIRED") {id}
+  }
+  session: voiceAssistantTestSession_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, createdByUid: {eq: $actorUid}, revision: {eq: $expectedRevision}, status: {eq: ACTIVE}}},
+    data: {status: $status, turnsJson: $turnsJson, callerTurns: $callerTurns, pendingTurnId: $pendingTurnId, pendingSince: $pendingSince, handoffReason: $handoffReason, viewingRequestJson: $viewingRequestJson,
+      endedAt: $endedAt, inputTokens_update: {inc: $inputTokens}, outputTokens_update: {inc: $outputTokens}, revision_update: {inc: 1}}) @check(expr: "this != null", message: "VOICE_TEST_SESSION_CHANGED")
+}

@@ -106,6 +106,8 @@ const ActivityKind = {
   CALL_TRANSCRIPT_CHANGED: "CALL_TRANSCRIPT_CHANGED",
   CALL_MEDIA_ACCESSED: "CALL_MEDIA_ACCESSED",
   CALL_AI_SUMMARY_CHANGED: "CALL_AI_SUMMARY_CHANGED",
+  VOICE_ASSISTANT_UPDATED: "VOICE_ASSISTANT_UPDATED",
+  VOICE_ASSISTANT_TEST_STARTED: "VOICE_ASSISTANT_TEST_STARTED",
 }
 exports.ActivityKind = ActivityKind;
 
@@ -242,6 +244,8 @@ const AuditTargetType = {
   CALL_RECORDING: "CALL_RECORDING",
   CALL_TRANSCRIPT: "CALL_TRANSCRIPT",
   CALL_AI_SUMMARY: "CALL_AI_SUMMARY",
+  VOICE_ASSISTANT: "VOICE_ASSISTANT",
+  VOICE_TEST_SESSION: "VOICE_TEST_SESSION",
 }
 exports.AuditTargetType = AuditTargetType;
 
@@ -850,6 +854,20 @@ const TranscriptSource = {
   PROVIDER: "PROVIDER",
 }
 exports.TranscriptSource = TranscriptSource;
+
+const VoiceAssistantStatus = {
+  DRAFT: "DRAFT",
+  TEST_ONLY: "TEST_ONLY",
+}
+exports.VoiceAssistantStatus = VoiceAssistantStatus;
+
+const VoiceTestSessionStatus = {
+  ACTIVE: "ACTIVE",
+  HANDED_OFF: "HANDED_OFF",
+  ENDED: "ENDED",
+  LIMIT_REACHED: "LIMIT_REACHED",
+}
+exports.VoiceTestSessionStatus = VoiceTestSessionStatus;
 
 const WebsiteMediaStatus = {
   PENDING: "PENDING",
@@ -1831,6 +1849,48 @@ function communicationDashboard(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeQuery('CommunicationDashboard', inputVars, inputOpts);
 }
 exports.communicationDashboard = communicationDashboard;
+
+function getVoiceAssistant(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetVoiceAssistant', inputVars, inputOpts);
+}
+exports.getVoiceAssistant = getVoiceAssistant;
+
+function createVoiceAssistantConfig(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateVoiceAssistantConfig', inputVars, inputOpts);
+}
+exports.createVoiceAssistantConfig = createVoiceAssistantConfig;
+
+function updateVoiceAssistantConfig(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateVoiceAssistantConfig', inputVars, inputOpts);
+}
+exports.updateVoiceAssistantConfig = updateVoiceAssistantConfig;
+
+function getVoiceTestSession(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetVoiceTestSession', inputVars, inputOpts);
+}
+exports.getVoiceTestSession = getVoiceTestSession;
+
+function startVoiceTestSession(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('StartVoiceTestSession', inputVars, inputOpts);
+}
+exports.startVoiceTestSession = startVoiceTestSession;
+
+function saveVoiceTestSession(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SaveVoiceTestSession', inputVars, inputOpts);
+}
+exports.saveVoiceTestSession = saveVoiceTestSession;
 
 function logLeadCall(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);

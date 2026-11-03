@@ -42,19 +42,20 @@ async function enforceRate(request: Request, context: Context, config: AiConfig)
   ], "You are using call summaries too quickly. Wait a moment and try again.");
 }
 
-async function recordUsage(context: Context, config: AiConfig, input: {result: StructuredResult<unknown>; durationMs: number}) {
+/** Records one Claude request in AiUsageRecord (server-only operation: the company and user come from the verified context). */
+export async function recordCommunicationAiUsage(context: Context, config: AiConfig, input: {result: StructuredResult<unknown>; durationMs: number; feature: "CALL_AI" | "VOICE_ASSISTANT"; contentType: string; promptVersion: string}) {
   const {result} = input;
   const model = result.servedModel ?? config.model;
   const estimatedCostUsd = estimateCostUsd(model === config.model ? config.pricing : pricingFor(model), result.usage);
   try {
     await executeWorkspaceOperation(() => sql.recordAiUsage(context.request.dc, {
-      organizationId: context.organizationId, id: randomUUID(), userUid: context.request.user.uid, conversationId: null, model: model.slice(0, 80), promptVersion: CALL_SUMMARY_PROMPT_VERSION,
+      organizationId: context.organizationId, id: randomUUID(), userUid: context.request.user.uid, conversationId: null, model: model.slice(0, 80), promptVersion: input.promptVersion,
       status: sql.AiRequestStatus[result.status], errorCode: result.status === "SUCCEEDED" ? null : result.error?.code.slice(0, 40) ?? null,
       inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, cacheReadInputTokens: result.usage.cacheReadInputTokens, cacheCreationInputTokens: result.usage.cacheCreationInputTokens,
-      estimatedCostUsd, modelRequests: result.usage.modelRequests, toolCalls: 0, durationMs: Math.min(input.durationMs, 2_147_483_647), feature: "CALL_AI", contentType: "CALL_SUMMARY",
-    }), "RecordAiUsage"); // server-only operation: the company and user come from the verified context
+      estimatedCostUsd, modelRequests: result.usage.modelRequests, toolCalls: 0, durationMs: Math.min(input.durationMs, 2_147_483_647), feature: input.feature, contentType: input.contentType,
+    }), "RecordAiUsage");
   } catch (error) {
-    console.error(JSON.stringify({event: "ai.usage.record_failed", feature: "CALL_AI", model, code: error instanceof WorkspaceError ? error.code : "ERROR"}));
+    console.error(JSON.stringify({event: "ai.usage.record_failed", feature: input.feature, model, code: error instanceof WorkspaceError ? error.code : "ERROR"}));
   }
   return {model, estimatedCostUsd};
 }
@@ -123,7 +124,7 @@ export async function generateCallSummary(request: Request, context: Context, ra
     });
   } finally { clearTimeout(timeout); }
   if (result.status !== "SUCCEEDED" && result.usage.modelRequests === 0) await reservation.release();
-  const usage = await recordUsage(context, config, {result: result as StructuredResult<unknown>, durationMs: Date.now() - startedAt});
+  const usage = await recordCommunicationAiUsage(context, config, {result: result as StructuredResult<unknown>, durationMs: Date.now() - startedAt, feature: "CALL_AI", contentType: "CALL_SUMMARY", promptVersion: CALL_SUMMARY_PROMPT_VERSION});
   console.info(JSON.stringify({event: "ai.call_summary", status: result.status, errorCode: result.error?.code ?? null, model: usage.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, durationMs: Date.now() - startedAt}));
   if (result.status !== "SUCCEEDED" || !result.output) throw result.error ?? new WorkspaceError("AI_UNAVAILABLE", 503, "Claude could not summarise this call. Try again.");
 

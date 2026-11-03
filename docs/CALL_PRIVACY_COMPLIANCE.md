@@ -128,3 +128,4 @@ The lead timeline records calls without their notes.
 5. Retention periods for call records, notes and do-not-call evidence under the UAE Personal Data Protection Law (Federal Decree-Law 45 of 2021), and free-zone regimes (DIFC, ADGM) where the agency operates there.
 6. The lawful basis and notice text for recording and for sending notes or transcripts to Claude (6F.3 and 6F.4).
 7. Whether and how the agency checks numbers against the DNCR before marketing calls.
+8. Before any live AI voice calls (not built): whether an AI assistant may answer or place calls for the agency, the wording and timing of the AI disclosure, how an opt-out given to the assistant is recorded, and whether such calls may be recorded or transcribed ([AI_VOICE_ARCHITECTURE.md](AI_VOICE_ARCHITECTURE.md#future-live-adapter-not-implemented)).

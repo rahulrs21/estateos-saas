@@ -361,3 +361,60 @@ type CallAiSuggestion @table(key: ["organization", "id"])
   decidedBy: UserProfile
   decidedAt: Timestamp
 }
+# Voice assistant foundation (6F.5, docs/AI_VOICE_ARCHITECTURE.md). Test mode
+# only: there is no live status, and nothing here places or answers a call.
+# DRAFT: being prepared. TEST_ONLY: an OWNER or ADMIN may run simulated calls.
+enum VoiceAssistantStatus { DRAFT TEST_ONLY }
+# HANDED_OFF: passed to a person (asked for, outside the approved facts, or Claude unavailable).
+# LIMIT_REACHED: the turn or time limit ended it.
+enum VoiceTestSessionStatus { ACTIVE HANDED_OFF ENDED LIMIT_REACHED }
+
+# One per company. The assistant may use only facts read from the allowed
+# projects and listings (never leads or contacts) and must disclose that it is
+# an AI first. Lists are JSON arrays, validated by the server.
+type VoiceAssistantConfig @table(key: ["organization"]) {
+  organizationId: UUID!
+  organization: Organization!
+  revision: Int! @default(value: 1)
+  status: VoiceAssistantStatus! @default(value: DRAFT)
+  assistantName: String! @col(dataType: "varchar(60)")
+  disclosureText: String! @col(dataType: "varchar(400)")
+  greeting: String! @col(dataType: "varchar(400)")
+  questionsJson: String! @col(dataType: "varchar(2000)")
+  handoffMessage: String! @col(dataType: "varchar(400)")
+  projectIdsJson: String! @col(dataType: "varchar(500)")
+  listingIdsJson: String! @col(dataType: "varchar(500)")
+  maxTurns: Int! @default(value: 12)
+  maxSessionMinutes: Int! @default(value: 10)
+  maxReplyTokens: Int! @default(value: 2000)
+  updatedBy: UserProfile!
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# A simulated conversation typed by an OWNER or ADMIN. Always synthetic and
+# labelled TEST. Written only by the server (each assistant turn is checked
+# against the facts snapshot first), with a revision for compare-and-set.
+type VoiceAssistantTestSession @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "createdAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  configRevision: Int!
+  status: VoiceTestSessionStatus! @default(value: ACTIVE)
+  revision: Int! @default(value: 1)
+  # The approved facts read when the test started (allowlisted fields only).
+  factsJson: String! @col(dataType: "varchar(40000)")
+  turnsJson: String! @col(dataType: "varchar(40000)")
+  callerTurns: Int! @default(value: 0)
+  # A reply being prepared; the caller can interrupt it until it is saved.
+  pendingTurnId: UUID
+  pendingSince: Timestamp
+  handoffReason: String @col(dataType: "varchar(30)")
+  # A viewing the caller asked for: a request for staff, never a booking.
+  viewingRequestJson: String @col(dataType: "varchar(1000)")
+  inputTokens: Int! @default(value: 0)
+  outputTokens: Int! @default(value: 0)
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  endedAt: Timestamp
+}

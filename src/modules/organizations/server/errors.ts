@@ -168,6 +168,18 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (/\b(?:CALL_AI_SUMMARY_CHANGED|CALL_AI_SUGGESTION_DECIDED)\b/.test(message)) {
       return new WorkspaceError("CONFLICT", 409, "This summary or suggestion was already handled, or you cannot change it. Reload the call.");
     }
+    if (message.includes("VOICE_ASSISTANT_ADMIN_REQUIRED")) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "Only an owner or administrator can configure or test the voice assistant.");
+    }
+    if (message.includes("VOICE_ASSISTANT_NOT_READY")) {
+      return new WorkspaceError("VOICE_ASSISTANT_NOT_READY", 409, "The voice assistant is not ready for testing, or its settings changed. Mark it ready for testing and try again.");
+    }
+    if (message.includes("VOICE_ASSISTANT_CHANGED")) {
+      return new WorkspaceError("CONFLICT", 409, "The voice assistant settings were changed by someone else. Reload and try again.");
+    }
+    if (message.includes("VOICE_TEST_SESSION_CHANGED")) {
+      return new WorkspaceError("CONFLICT", 409, "This test call changed or has ended. Reload it.");
+    }
     if (message.includes("RECORDING_NOT_ENABLED")) {
       return new WorkspaceError("RECORDING_NOT_ENABLED", 409, "Recording is not enabled for your company. An owner or administrator can enable it with the notice and legal basis in Calling settings.");
     }

@@ -22,12 +22,12 @@ export async function communicationsGet<T>(path: string, fallback = "Communicati
 }
 
 /** Mutations carry the CSRF token and the company the page was opened for; the server checks both. */
-export async function communicationsSend<T>(path: string, organizationId: string, method: "POST" | "PUT", body: unknown = {}, fallback = "The request could not be completed.") {
+export async function communicationsSend<T>(path: string, organizationId: string, method: "POST" | "PUT", body: unknown = {}, fallback = "The request could not be completed.", signal?: AbortSignal) {
   const csrf = await fetch("/api/auth/csrf", {credentials: "same-origin", cache: "no-store"});
   const token = ((await csrf.json().catch(() => ({}))) as {csrfToken?: string}).csrfToken;
   if (!csrf.ok || !token) throw new CommunicationsRequestError("Could not prepare a secure request. Reload and try again.", "CSRF_UNAVAILABLE", csrf.status);
   return readJson<T>(await fetch(path, {
-    method, credentials: "same-origin", cache: "no-store", body: JSON.stringify(body),
+    method, credentials: "same-origin", cache: "no-store", body: JSON.stringify(body), signal,
     headers: {"X-CSRF-Token": token, "X-EstateOS-Organization": organizationId, "Content-Type": "application/json"},
   }), fallback);
 }

@@ -10,7 +10,7 @@ Calls with customers, recorded against leads and contacts, with the rules that a
 | 6F.2 | Hub pages, provider connections and lines, signed webhooks, gated live dialling | Implemented and tested on emulators; no provider connected ([providers](TELEPHONY_PROVIDERS.md)) |
 | 6F.3 | Consent evidence, uploaded recordings and transcripts, private storage, audited access, retention | Implemented and tested on emulators ([privacy](CALL_PRIVACY_COMPLIANCE.md#recording-transcripts-and-consent)) |
 | 6F.4 | Claude call summaries with checked evidence, review and suggestions | Implemented and tested on emulators; live Claude not run ([details](AI_CALL_INTELLIGENCE.md)) |
-| 6F.5 | Voice assistant configuration and test-mode simulator | Not started |
+| 6F.5 | Voice assistant configuration and test-mode simulator | Implemented and tested on emulators; test mode only, no live AI calls, live Claude not run ([architecture](AI_VOICE_ARCHITECTURE.md)) |
 | 6F.6 | Meetings, workflow triggers, reports | Not started |
 
 **No calling provider is connected, and EstateOS places no calls.** The Call button stays disabled and lists the reasons until a verified provider, an active registered line and an owner's or administrator's confirmation are all in place ([live calling](TELEPHONY_PROVIDERS.md#live-calling)). Agents log calls they make or take through the company's approved phone service.
@@ -54,6 +54,7 @@ Other fields:
   - calls by agent (owners and administrators).
 
   Only stored records are counted; with more than 1,000 calls in the period the page says the figures cover the latest 1,000.
+- **Voice assistant** (`/communications/voice-assistant`, owners and administrators): configuration and simulated test calls ([architecture](AI_VOICE_ARCHITECTURE.md)). The tab is hidden from managers and agents.
 - **Calls** (`/communications/calls`): filter by direction, status, outcome, how the call was recorded, dates (Dubai) and, for owners and administrators, agent; 25 per page.
 - **Call page** (`/communications/calls/[id]`):
   - customer, agent, purpose and timings;
@@ -138,6 +139,7 @@ All routes use the verified session; the company is resolved on the server. Muta
 | `/api/communications/recordings/[id]/delete`, `/transcripts/[id]/delete` | POST | Delete (owners and administrators) |
 | `/api/communications/calls/[callId]/summaries` | GET, POST | Claude summaries of a call; create one (`source`: TRANSCRIPT or NOTES) |
 | `/api/communications/summaries/[id]/review`, `/suggestions/[id]/decide` | POST | Review a summary; accept or dismiss a suggestion |
+| `/api/communications/voice-assistant` and `/voice-assistant/sessions/**` | GET, PUT, POST | Voice assistant configuration and test calls (owners and administrators; [API](AI_VOICE_ARCHITECTURE.md#api)) |
 
 ## Security
 
@@ -147,6 +149,7 @@ All routes use the verified session; the company is resolved on the server. Muta
 | Read calls | Company-wide | Calls they handled and calls on leads assigned to them | Same as MANAGER |
 | Edit a call | Any call | Calls they handled | Same as MANAGER |
 | Settings and do-not-call list | Change | Read the rules only | Read the rules only |
+| Voice assistant (test mode) | Configure and test | No (its facts come from inventory, which managers cannot read) | No |
 
 MANAGER access is assignment-based like the rest of the CRM, because EstateOS has no verified team or branch membership yet ([PERMISSIONS.md](PERMISSIONS.md)). Company-wide manager access needs a team-membership module first.
 
@@ -163,6 +166,11 @@ Guessed IDs from another company or outside the member's access return not-found
 ## Data model
 
 `dataconnect/schema/communications.gql`: `CommunicationSettings` (one per company), `CommunicationSuppression`, `CallRecord`, and since 6F.2 `CommunicationProviderConnection`, `CommunicationPhoneLine` and `CallProviderEvent` (plus the provider connection, provider call ID and line on `CallRecord`, unique per provider call). Every row is keyed by company with composite tenant foreign keys. Operations are in `dataconnect/connector/communications.gql` and `communication-providers.gql`.
+
+Later sub-phases add:
+- 6F.3: consent, recording and transcript tables (`communication-media.gql`);
+- 6F.4: `CallAiSummary` and `CallAiSuggestion` (`communication-intelligence.gql`);
+- 6F.5: `VoiceAssistantConfig` (one per company) and `VoiceAssistantTestSession` (`communication-voice.gql`), with the enum values `VOICE_ASSISTANT_UPDATED`, `VOICE_ASSISTANT_TEST_STARTED`, `VOICE_ASSISTANT` and `VOICE_TEST_SESSION`.
 
 Shared enums gained values at the end only (`ActivityKind`: `CALL_LOGGED`, `CALL_UPDATED`, `COMMUNICATION_SETTINGS_UPDATED`, `COMMUNICATION_SUPPRESSION_CHANGED`; `AuditTargetType`: `CALL`, `COMMUNICATION_SETTINGS`, `COMMUNICATION_SUPPRESSION`). SQL Connect cannot reorder enum values ([LOCAL_DATABASE.md](LOCAL_DATABASE.md#what-caused-data-loss-before), item 8).
 

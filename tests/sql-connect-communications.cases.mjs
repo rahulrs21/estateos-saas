@@ -540,4 +540,61 @@ export function registerCommunicationCases({sdk, run, forbidden, dc}) {
       assert.ok(stored.deletedAt);
     });
   });
+
+  describe("Phase 6F.5 voice assistant test mode", {concurrency: false}, () => {
+    const server = async (operation, variables) => (await operation(dc, variables)).data;
+    const rejectsWith = (promise, token) => assert.rejects(promise, error => String(error?.message ?? error).includes(token), token);
+    const config = (extra = {}) => ({organizationId: f.orgA, status: sdk.VoiceAssistantStatus.DRAFT, assistantName: "Synthetic Assistant", disclosureText: "You are speaking with an AI virtual assistant, not a person.",
+      greeting: "How can I help?", questionsJson: "[]", handoffMessage: "A colleague will call you back.", projectIdsJson: "[]", listingIdsJson: "[]", maxTurns: 6, maxSessionMinutes: 5, maxReplyTokens: 2000, ...extra});
+    const turns = JSON.stringify([{id: "t1", role: "ASSISTANT", kind: "DISCLOSURE", text: "AI disclosure", at: new Date().toISOString()}]);
+    const sessionId = randomUUID();
+    const save = (extra = {}) => server(sdk.saveVoiceTestSession, {organizationId: f.orgA, id: sessionId, actorUid: "owner-a", expectedRevision: 1, status: sdk.VoiceTestSessionStatus.ACTIVE,
+      turnsJson: turns, callerTurns: 1, pendingTurnId: randomUUID(), pendingSince: new Date().toISOString(), handoffReason: null, viewingRequestJson: null, endedAt: null, inputTokens: 0, outputTokens: 0, ...extra});
+
+    it("lets only owners and administrators configure the assistant, and requires an AI disclosure", async () => {
+      await forbidden(sdk.getVoiceAssistant, "manager-a", {organizationId: f.orgA});
+      await forbidden(sdk.getVoiceAssistant, "agent-a", {organizationId: f.orgA});
+      await forbidden(sdk.getVoiceAssistant, "owner-b", {organizationId: f.orgA});
+      await forbidden(sdk.createVoiceAssistantConfig, "agent-a", config());
+      await forbidden(sdk.createVoiceAssistantConfig, "owner-a", config({disclosureText: "Hello and thank you for calling our agency today."}));
+      await forbidden(sdk.createVoiceAssistantConfig, "owner-a", config({maxTurns: 99}));
+      await run(sdk.createVoiceAssistantConfig, "owner-a", config());
+      await assert.rejects(run(sdk.createVoiceAssistantConfig, "admin-a", config()), "one configuration per company");
+      await run(sdk.updateVoiceAssistantConfig, "admin-a", {...config({status: sdk.VoiceAssistantStatus.TEST_ONLY}), expectedRevision: 1});
+      await rejectsWith(run(sdk.updateVoiceAssistantConfig, "owner-a", {...config(), expectedRevision: 1}), "VOICE_ASSISTANT_CHANGED");
+      const {config: stored} = await run(sdk.getVoiceAssistant, "owner-a", {organizationId: f.orgA});
+      assert.equal(stored.revision, 2);
+      assert.equal(stored.status, "TEST_ONLY");
+      const {voiceAssistantConfig} = await run(sdk.getVoiceAssistant, "owner-b", {organizationId: f.orgB}).then(data => ({voiceAssistantConfig: data.config}));
+      assert.equal(voiceAssistantConfig, null, "another company sees only its own (absent) configuration");
+    });
+
+    it("writes test sessions only from the server, for the member who started them, with compare-and-set", async () => {
+      await forbidden(sdk.startVoiceTestSession, "owner-a", {organizationId: f.orgA, id: randomUUID(), actorUid: "owner-a", configRevision: 2, factsJson: "{}", turnsJson: turns});
+      await rejectsWith(server(sdk.startVoiceTestSession, {organizationId: f.orgA, id: randomUUID(), actorUid: "agent-a", configRevision: 2, factsJson: "{}", turnsJson: turns}), "VOICE_ASSISTANT_ADMIN_REQUIRED");
+      await rejectsWith(server(sdk.startVoiceTestSession, {organizationId: f.orgA, id: randomUUID(), actorUid: "owner-a", configRevision: 1, factsJson: "{}", turnsJson: turns}), "VOICE_ASSISTANT_NOT_READY");
+      await rejectsWith(server(sdk.startVoiceTestSession, {organizationId: f.orgB, id: randomUUID(), actorUid: "owner-a", configRevision: 2, factsJson: "{}", turnsJson: turns}), "VOICE_ASSISTANT_ADMIN_REQUIRED");
+      await server(sdk.startVoiceTestSession, {organizationId: f.orgA, id: sessionId, actorUid: "owner-a", configRevision: 2, factsJson: "{}", turnsJson: turns});
+
+      await forbidden(sdk.saveVoiceTestSession, "owner-a", {organizationId: f.orgA, id: sessionId, actorUid: "owner-a", expectedRevision: 1, status: sdk.VoiceTestSessionStatus.ACTIVE, turnsJson: "[]", callerTurns: 0, inputTokens: 0, outputTokens: 0});
+      await rejectsWith(save({actorUid: "admin-a"}), "VOICE_TEST_SESSION_CHANGED");
+      await save({inputTokens: 120, outputTokens: 30});
+      await rejectsWith(save(), "VOICE_TEST_SESSION_CHANGED");
+      await save({expectedRevision: 2, status: sdk.VoiceTestSessionStatus.HANDED_OFF, pendingTurnId: null, pendingSince: null, handoffReason: "CALLER_ASKED_FOR_PERSON", endedAt: new Date().toISOString(), inputTokens: 10, outputTokens: 5});
+      await rejectsWith(save({expectedRevision: 3}), "VOICE_TEST_SESSION_CHANGED");
+
+      const {session} = await run(sdk.getVoiceTestSession, "admin-a", {organizationId: f.orgA, id: sessionId});
+      assert.equal(session.status, "HANDED_OFF");
+      assert.equal(session.revision, 3);
+      assert.equal(session.inputTokens, 130);
+      assert.equal(session.outputTokens, 35);
+      assert.equal(session.pendingTurnId, null);
+      assert.ok(session.endedAt);
+      await forbidden(sdk.getVoiceTestSession, "manager-a", {organizationId: f.orgA, id: sessionId});
+      await forbidden(sdk.getVoiceTestSession, "owner-b", {organizationId: f.orgA, id: sessionId});
+      assert.equal((await run(sdk.getVoiceTestSession, "owner-b", {organizationId: f.orgB, id: sessionId})).session, null);
+      const {sessions} = await run(sdk.getVoiceAssistant, "owner-a", {organizationId: f.orgA});
+      assert.ok(sessions.some(item => item.id.replaceAll("-", "") === sessionId.replaceAll("-", "")));
+    });
+  });
 }
