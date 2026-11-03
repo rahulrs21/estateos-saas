@@ -162,6 +162,12 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (/\b(?:LIVE_CALL_LINE_UNAVAILABLE|LIVE_CALLING_NOT_ATTESTED)\b/.test(message)) {
       return new WorkspaceError("LIVE_CALLING_UNAVAILABLE", 409, "Live calling is not available: it needs a verified provider, an active registered line assigned to you and an administrator's confirmation.");
     }
+    if (message.includes("CALL_AI_NOT_AVAILABLE")) {
+      return new WorkspaceError("CALL_AI_NOT_AVAILABLE", 409, "Claude analysis is not available for this call: it needs the company's switch, an answered call, and the call's agent or an owner or administrator.");
+    }
+    if (/\b(?:CALL_AI_SUMMARY_CHANGED|CALL_AI_SUGGESTION_DECIDED)\b/.test(message)) {
+      return new WorkspaceError("CONFLICT", 409, "This summary or suggestion was already handled, or you cannot change it. Reload the call.");
+    }
     if (message.includes("RECORDING_NOT_ENABLED")) {
       return new WorkspaceError("RECORDING_NOT_ENABLED", 409, "Recording is not enabled for your company. An owner or administrator can enable it with the notice and legal basis in Calling settings.");
     }

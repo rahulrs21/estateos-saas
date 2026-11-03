@@ -58,6 +58,8 @@ mutation WithdrawCallConsent($organizationId: UUID!, $id: UUID!, $note: String!)
     @check(expr: "this != null", message: "CALL_CONSENT_NOT_FOUND")
   recordings: callRecording_updateMany(where: {organizationId: {eq: $organizationId}, consentEvidenceId: {eq: $id}, status: {eq: STORED}}, data: {status: DELETED, deletedAt_expr: "request.time", deletedByUid_expr: "auth.uid", deletionReason: "CONSENT_WITHDRAWN"})
   transcripts: callTranscript_updateMany(where: {organizationId: {eq: $organizationId}, consentEvidenceId: {eq: $id}, status: {eq: STORED}}, data: {status: DELETED, deletedAt_expr: "request.time", deletedByUid_expr: "auth.uid", deletionReason: "CONSENT_WITHDRAWN"})
+  # Claude summaries made from those transcripts are cleared too.
+  summaries: callAiSummary_updateMany(where: {organizationId: {eq: $organizationId}, deletedAt: {isNull: true}, transcript: {consentEvidenceId: {eq: $id}}}, data: {summaryJson: "{}", status: DISMISSED, deletedAt_expr: "request.time"})
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_CONSENT_CHANGED, targetType: CALL_CONSENT, targetId: $id, metadata_expr: "{'event': 'WITHDRAWN', 'callId': response.before.consent.callId}"})
 }
 
@@ -113,6 +115,7 @@ mutation DeleteCallTranscript($organizationId: UUID!, $id: UUID!)
   admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "COMMUNICATION_ADMIN_REQUIRED")
   transcript: callTranscript_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: STORED}}}, data: {status: DELETED, deletedAt_expr: "request.time", deletedByUid_expr: "auth.uid", deletionReason: "OWNER_OR_ADMIN"})
     @check(expr: "this != null", message: "CALL_MEDIA_NOT_FOUND")
+  summaries: callAiSummary_updateMany(where: {organizationId: {eq: $organizationId}, transcriptId: {eq: $id}, deletedAt: {isNull: true}}, data: {summaryJson: "{}", status: DISMISSED, deletedAt_expr: "request.time"})
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_TRANSCRIPT_CHANGED, targetType: CALL_TRANSCRIPT, targetId: $id, metadata_expr: "{'event': 'DELETED'}"})
 }
 
@@ -159,6 +162,7 @@ mutation ExpireCallRecording($organizationId: UUID!, $id: UUID!) @auth(level: NO
 mutation ExpireCallTranscript($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) @transaction {
   transcript: callTranscript_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: STORED}, retentionUntil: {lt_expr: "request.time"}}}, data: {status: DELETED, deletedAt_expr: "request.time", deletionReason: "RETENTION"})
     @check(expr: "this != null", message: "CALL_MEDIA_NOT_FOUND")
+  summaries: callAiSummary_updateMany(where: {organizationId: {eq: $organizationId}, transcriptId: {eq: $id}, deletedAt: {isNull: true}}, data: {summaryJson: "{}", status: DISMISSED, deletedAt_expr: "request.time"})
 }
 
 mutation MarkCallMediaFileDeleted($organizationId: UUID!, $recordingId: UUID, $transcriptId: UUID, $isRecording: Boolean!) @auth(level: NO_ACCESS) {

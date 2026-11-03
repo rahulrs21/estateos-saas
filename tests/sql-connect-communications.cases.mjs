@@ -468,4 +468,76 @@ export function registerCommunicationCases({sdk, run, forbidden, dc}) {
       assert.ok(!after.deletedRecordings.some(item => key(item.id) === key(second)), "a removed file is not removed again");
     });
   });
+
+  describe("Phase 6F.4 Claude call summaries", {concurrency: false}, () => {
+    const server = async (operation, variables) => (await operation(dc, variables)).data;
+    const rejectsWith = (promise, token) => assert.rejects(promise, error => String(error?.message ?? error).includes(token), token);
+    const summaryJson = JSON.stringify({reasonForCall: null, requirements: [], locations: [], budget: null, preferences: [], questions: [], agreements: [], nextSteps: [], suggestions: [], overallConfidence: "LOW", limitations: "Synthetic", unverifiedCount: 0});
+    let callId, transcriptId, otherCallId;
+    const create = (extra = {}) => server(sdk.createCallAiSummary, {organizationId: f.orgA, id: randomUUID(), callId, actorUid: "agent-a", sourceKind: "NOTES", hasTranscript: false, transcriptId: null,
+      summaryJson, overallConfidence: "LOW", unverifiedCount: 0, model: "claude-test", promptVersion: "call-summary-1", ...extra});
+
+    it("stores summaries only from the server, when the company enabled Claude analysis, for the call's agent or an administrator", async () => {
+      const number = `+97150${String(Date.now() % 10_000_000).padStart(7, "0")}`;
+      const created = await run(sdk.createLead, "owner-a", {organizationId: f.orgA, fullName: `Summarised call ${randomUUID().slice(0, 6)}`, phone: number, normalizedPhone: number, assignedMembershipId: f.memberAgentA});
+      const base = {organizationId: f.orgA, leadId: created.lead.id, direction: sdk.CallDirection.OUTBOUND, callType: sdk.CallType.FOLLOW_UP, callStatus: sdk.CallStatus.COMPLETED, outcome: null,
+        startedAt: new Date(Date.now() - 600_000).toISOString(), durationSeconds: 120, notes: "Synthetic notes", counterpartyNumber: number, followUpRequired: false, hasViewing: false, viewingId: null, suppress: false, suppressionId: randomUUID()};
+      callId = randomUUID(); otherCallId = randomUUID();
+      await run(sdk.logLeadCall, "agent-a", {...base, id: callId});
+      await run(sdk.logLeadCall, "agent-a", {...base, id: otherCallId});
+      await rejectsWith(create(), "CALL_AI_NOT_AVAILABLE");
+      const {settings} = await run(sdk.getCommunicationSettings, "owner-a", {organizationId: f.orgA});
+      await run(sdk.updateCommunicationSettings, "owner-a", {organizationId: f.orgA, expectedRevision: settings.revision, timeZone: settings.timeZone, callingWindowStart: settings.callingWindowStart, callingWindowEnd: settings.callingWindowEnd,
+        maxCallsPerContactPerDay: settings.maxCallsPerContactPerDay, telemarketingEnabled: false, telemarketingApprovalReference: null, marketingWindowStart: "09:00", marketingWindowEnd: "18:00", marketingMaxCallsPerDay: 1, marketingMaxUnansweredPerWeek: 2,
+        allowedCallingCodes: "971", maxConcurrentLiveCalls: 5, maxLiveCallsPerAgentPerDay: 60, recordingEnabled: true, recordingNoticeText: settings.recordingNoticeText, recordingLegalBasis: settings.recordingLegalBasis, retentionDays: 90, aiAnalysisEnabled: true});
+      await forbidden(sdk.createCallAiSummary, "agent-a", {organizationId: f.orgA, id: randomUUID(), callId, actorUid: "agent-a", sourceKind: "NOTES", hasTranscript: false, transcriptId: null, summaryJson, overallConfidence: "LOW", unverifiedCount: 0, model: "x", promptVersion: "x"});
+      await rejectsWith(create({actorUid: "shared-agent"}), "CALL_AI_NOT_AVAILABLE");
+      await rejectsWith(create({actorUid: "manager-a"}), "CALL_AI_NOT_AVAILABLE");
+      // A transcript of another call cannot be the source.
+      const consent = randomUUID();
+      await run(sdk.recordCallConsent, "agent-a", {organizationId: f.orgA, id: consent, callId: otherCallId, status: sdk.CallConsentStatus.GIVEN, method: "VERBAL_ON_CALL", note: null});
+      transcriptId = randomUUID();
+      await server(sdk.createCallTranscript, {organizationId: f.orgA, id: transcriptId, callId: otherCallId, consentEvidenceId: consent, actorUid: "agent-a", source: sdk.TranscriptSource.UPLOAD, sourceName: "Synthetic",
+        language: "en", transcriptReference: `organizations/${f.orgA}/communications/calls/${otherCallId}/transcripts/t.json`, segmentCount: 2, hasTimestamps: true, generatedAt: new Date().toISOString()});
+      await rejectsWith(create({sourceKind: "TRANSCRIPT", hasTranscript: true, transcriptId}), "CALL_AI_NOT_AVAILABLE");
+      const id = randomUUID();
+      await create({id});
+      await server(sdk.createCallAiSuggestion, {organizationId: f.orgA, id: randomUUID(), summaryId: id, callId, kind: "FOLLOW_UP", title: "Call back", detail: "Synthetic", basis: "STATED", confidence: "HIGH", verified: true});
+      await rejectsWith(server(sdk.createCallAiSuggestion, {organizationId: f.orgA, id: randomUUID(), summaryId: id, callId: otherCallId, kind: "FOLLOW_UP", title: "x", detail: "x", basis: "STATED", confidence: "HIGH", verified: true}), "CALL_AI_SUMMARY_CHANGED");
+      const listed = await run(sdk.listCallSummaries, "agent-a", {organizationId: f.orgA, callId});
+      assert.equal(listed.summaries.length, 1);
+      assert.equal(listed.summaries[0].suggestions.length, 1);
+      assert.equal(listed.settings.aiAnalysisEnabled, true);
+      await forbidden(sdk.listCallSummaries, "shared-agent", {organizationId: f.orgA, callId});
+      await forbidden(sdk.listCallSummaries, "owner-b", {organizationId: f.orgA, callId});
+    });
+
+    it("lets the call's agent or an administrator review a summary and decide each suggestion once", async () => {
+      const {summaries} = await run(sdk.listCallSummaries, "owner-a", {organizationId: f.orgA, callId});
+      const summary = summaries[0], suggestion = summary.suggestions[0];
+      await rejectsWith(run(sdk.reviewCallAiSummary, "shared-agent", {organizationId: f.orgA, id: summary.id, status: sdk.CallSummaryStatus.REVIEWED}), "CALL_AI_SUMMARY_CHANGED");
+      await forbidden(sdk.reviewCallAiSummary, "agent-a", {organizationId: f.orgA, id: summary.id, status: sdk.CallSummaryStatus.DRAFT});
+      await run(sdk.reviewCallAiSummary, "agent-a", {organizationId: f.orgA, id: summary.id, status: sdk.CallSummaryStatus.REVIEWED});
+      await rejectsWith(run(sdk.reviewCallAiSummary, "owner-a", {organizationId: f.orgA, id: summary.id, status: sdk.CallSummaryStatus.DISMISSED}), "CALL_AI_SUMMARY_CHANGED");
+      await rejectsWith(run(sdk.decideCallAiSuggestion, "shared-agent", {organizationId: f.orgA, id: suggestion.id, status: sdk.CallSuggestionStatus.ACCEPTED, resultType: "FOLLOW_UP", resultId: null}), "CALL_AI_SUGGESTION_DECIDED");
+      await forbidden(sdk.decideCallAiSuggestion, "agent-a", {organizationId: f.orgA, id: suggestion.id, status: sdk.CallSuggestionStatus.ACCEPTED, resultType: "SEND_WHATSAPP", resultId: null});
+      await run(sdk.decideCallAiSuggestion, "agent-a", {organizationId: f.orgA, id: suggestion.id, status: sdk.CallSuggestionStatus.ACCEPTED, resultType: "FOLLOW_UP", resultId: null});
+      await rejectsWith(run(sdk.decideCallAiSuggestion, "agent-a", {organizationId: f.orgA, id: suggestion.id, status: sdk.CallSuggestionStatus.DISMISSED, resultType: null, resultId: null}), "CALL_AI_SUGGESTION_DECIDED");
+      const after = (await run(sdk.listCallSummaries, "agent-a", {organizationId: f.orgA, callId})).summaries[0];
+      assert.equal(after.status, "REVIEWED");
+      assert.equal(after.suggestions[0].status, "ACCEPTED");
+    });
+
+    it("clears summaries made from a transcript when the transcript is deleted", async () => {
+      const id = randomUUID();
+      await server(sdk.createCallAiSummary, {organizationId: f.orgA, id, callId: otherCallId, actorUid: "agent-a", sourceKind: "TRANSCRIPT", hasTranscript: true, transcriptId,
+        summaryJson, overallConfidence: "LOW", unverifiedCount: 0, model: "claude-test", promptVersion: "call-summary-1"});
+      assert.equal((await run(sdk.listCallSummaries, "agent-a", {organizationId: f.orgA, callId: otherCallId})).summaries.length, 1);
+      await run(sdk.deleteCallTranscript, "admin-a", {organizationId: f.orgA, id: transcriptId});
+      assert.equal((await run(sdk.listCallSummaries, "agent-a", {organizationId: f.orgA, callId: otherCallId})).summaries.length, 0, "the derived summary is gone with its transcript");
+      const stored = (await dc.executeGraphql(`query S($org: UUID!, $id: UUID!) { callAiSummary(key: {organizationId: $org, id: $id}) { summaryJson deletedAt } }`, {variables: {org: f.orgA, id}})).data.callAiSummary;
+      assert.equal(stored.summaryJson, "{}", "its content is erased, not just hidden");
+      assert.ok(stored.deletedAt);
+    });
+  });
 }

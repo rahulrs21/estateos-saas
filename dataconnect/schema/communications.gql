@@ -25,6 +25,9 @@ enum PhoneLineStatus { PENDING ACTIVE DISABLED }
 enum CallConsentStatus { NOTICE_GIVEN GIVEN DECLINED WITHDRAWN }
 enum CallMediaStatus { STORED DELETED }
 enum TranscriptSource { UPLOAD PROVIDER }
+# Claude call summaries (6F.4): a draft until the agent reviews it; suggestions wait for a person.
+enum CallSummaryStatus { DRAFT REVIEWED DISMISSED }
+enum CallSuggestionStatus { PENDING ACCEPTED DISMISSED }
 
 # One row per company; absent means the defaults below. Every switch that
 # widens what EstateOS may do (telemarketing, recording, AI analysis, live
@@ -305,4 +308,56 @@ type CallTranscript @table(key: ["organization", "id"])
   deletedBy: UserProfile
   deletionReason: String @col(dataType: "varchar(30)")
   fileDeletedAt: Timestamp
+}
+# A Claude summary of one call, from its transcript or the agent's notes, with
+# every item's evidence checked by EstateOS (docs/AI_CALL_INTELLIGENCE.md).
+# Cleared (deletedAt) when the transcript it came from is withdrawn, deleted or expires.
+type CallAiSummary @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "callId", "createdAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  callId: UUID!
+  call: CallRecord! @ref(fields: ["organizationId", "callId"], references: ["organizationId", "id"])
+  # TRANSCRIPT or NOTES.
+  sourceKind: String! @col(dataType: "varchar(12)")
+  transcriptId: UUID
+  transcript: CallTranscript @ref(fields: ["organizationId", "transcriptId"], references: ["organizationId", "id"], constraintName: "call_ai_summary_transcript_fkey")
+  summaryJson: String! @col(dataType: "varchar(40000)")
+  overallConfidence: String! @col(dataType: "varchar(6)")
+  unverifiedCount: Int! @default(value: 0)
+  model: String! @col(dataType: "varchar(80)")
+  promptVersion: String! @col(dataType: "varchar(20)")
+  status: CallSummaryStatus! @default(value: DRAFT)
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  reviewedBy: UserProfile
+  reviewedAt: Timestamp
+  deletedAt: Timestamp
+}
+
+# A suggested next action from a summary. Accepting one runs the matching
+# existing operation as the member (for example a lead follow-up); nothing is
+# sent or changed automatically.
+type CallAiSuggestion @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "summaryId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  summaryId: UUID!
+  summary: CallAiSummary! @ref(fields: ["organizationId", "summaryId"], references: ["organizationId", "id"])
+  callId: UUID!
+  call: CallRecord! @ref(fields: ["organizationId", "callId"], references: ["organizationId", "id"], constraintName: "call_ai_suggestion_call_fkey")
+  kind: String! @col(dataType: "varchar(30)")
+  title: String! @col(dataType: "varchar(120)")
+  detail: String! @col(dataType: "varchar(400)")
+  basis: String! @col(dataType: "varchar(10)")
+  confidence: String! @col(dataType: "varchar(6)")
+  verified: Boolean!
+  status: CallSuggestionStatus! @default(value: PENDING)
+  # What accepting it produced: FOLLOW_UP (with resultId), CONTENT_STUDIO or VIEWING_FORM.
+  resultType: String @col(dataType: "varchar(30)")
+  resultId: UUID
+  decidedBy: UserProfile
+  decidedAt: Timestamp
 }

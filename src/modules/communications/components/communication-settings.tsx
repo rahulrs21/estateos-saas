@@ -66,7 +66,7 @@ function RulesSection({settings, send}: {settings: SettingsView; send: Send}) {
         marketingWindowStart: text(form, "marketingWindowStart"), marketingWindowEnd: text(form, "marketingWindowEnd"), marketingMaxCallsPerDay: number(form, "marketingMaxCallsPerDay"),
         marketingMaxUnansweredPerWeek: number(form, "marketingMaxUnansweredPerWeek"), allowedCallingCodes: text(form, "allowedCallingCodes"), maxConcurrentLiveCalls: number(form, "maxConcurrentLiveCalls"),
         maxLiveCallsPerAgentPerDay: number(form, "maxLiveCallsPerAgentPerDay"), recordingEnabled: form.get("recordingEnabled") === "on", recordingNoticeText: text(form, "recordingNoticeText") || null, recordingLegalBasis: text(form, "recordingLegalBasis") || null,
-        retentionDays: number(form, "retentionDays"), aiAnalysisEnabled: false,
+        retentionDays: number(form, "retentionDays"), aiAnalysisEnabled: form.get("aiAnalysisEnabled") === "on",
       }, "Calling rules saved.");
     } catch (problem) { setError(errorMessage(problem, "The rules could not be saved.")); }
     finally { setPending(false); }
@@ -103,7 +103,11 @@ function RulesSection({settings, send}: {settings: SettingsView; send: Send}) {
         <LeadField id={`${prefix}-basis`} label="Legal basis" hint="For example: the customer's consent. Confirm it with your legal adviser.">
           <Input id={`${prefix}-basis`} name="recordingLegalBasis" maxLength={500} defaultValue={settings.recordingLegalBasis ?? ""} disabled={!settings.canManage} /></LeadField>
       </fieldset>
-      <p className="text-xs leading-5 text-muted-foreground">Claude analysis of calls is off and arrives in a later update with its own switch. These checks are not legal advice; see the compliance notes for points your legal adviser should review.</p>
+      <fieldset className="space-y-2 rounded-lg border p-4"><legend className="px-1 text-sm font-medium">Claude call summaries</legend>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="aiAnalysisEnabled" defaultChecked={rules.aiAnalysisEnabled} disabled={!settings.canManage} className="size-4" />Agents may ask Claude to summarise a call from its transcript or their notes</label>
+        <p className="text-xs leading-5 text-muted-foreground">Phone numbers, emails and names are removed before anything is sent to Anthropic. Summaries are drafts for the agent: every point quotes the call, unsupported points are marked, and nothing changes customer records or sends messages without a person. Uses your company&apos;s AI allowance.</p>
+      </fieldset>
+      <p className="text-xs leading-5 text-muted-foreground">These checks are not legal advice; see the compliance notes for points your legal adviser should review.</p>
       {settings.canManage && <Button type="submit">{pending ? "Saving…" : "Save calling rules"}</Button>}
     </fieldset><LeadFormMessage message={error} /></form>
   </Section>;

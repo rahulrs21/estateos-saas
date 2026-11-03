@@ -458,7 +458,7 @@ try {
     const proto=e instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));};
     set('recordingEnabled',true);set('recordingNoticeText','This call may be recorded and transcribed for quality and record keeping (synthetic).');set('recordingLegalBasis','Customer consent (synthetic test)');})()`);
   await clickText("Save calling rules", "button");
-  await waitFor("document.body.innerText.includes('Last saved') && document.querySelector('input[name=recordingEnabled]')?.checked", "the saved rules");
+  await waitFor("fetch('/api/communications/settings').then(r=>r.json()).then(b=>b.data.rules.recordingEnabled === true)", "the saved rules");
   assert.equal((await api("/api/communications/settings")).body.data.rules.recordingEnabled, true);
   pass("An owner enables recordings with the notice read to callers and the legal basis");
 
@@ -541,6 +541,66 @@ try {
   assert.equal((await api(`/api/communications/recordings/${short.body.data.id}/content`)).status, 404);
   assert.equal((await bucket.file(shortPath).exists())[0], false);
   pass("The worker removes recordings past the company's retention period, with their files");
+
+  // ------------------------------------------------------------ 6F.4: Claude call summaries
+  const summaries = async () => (await api(`/api/communications/calls/${recordedCall}/summaries`)).body.data;
+  const offRequest = await post(`/api/communications/calls/${recordedCall}/summaries`, {source: "NOTES"});
+  assert.equal(offRequest.status, 409, "summaries are off until the company enables them");
+  await signIn("owner-a");
+  await load("/communications/settings", "!!document.querySelector('input[name=aiAnalysisEnabled]')");
+  await evaluate("(()=>{const e=document.querySelector('input[name=aiAnalysisEnabled]');if(!e.checked)e.click();})()");
+  await clickText("Save calling rules", "button");
+  await waitFor("fetch('/api/communications/settings').then(r=>r.json()).then(b=>b.data.rules.aiAnalysisEnabled === true)", "Claude summaries enabled");
+  await signIn("agent-a");
+  await load(`/communications/calls/${recordedCall}`, "[...document.querySelectorAll('button')].some(b=>b.textContent.includes('Summarise my notes'))");
+  await clickText("Summarise my notes", "button");
+  await waitFor("!![...document.querySelectorAll('button')].find(b=>b.textContent.includes('Summarise my notes') && !b.disabled)", "the failed summary request to finish");
+  assert.equal((await summaries()).summaries.length, 0, "a failed Claude request stores nothing");
+  const usage = (await sql(`query U($org: UUID!) { aiUsageRecords(where: {organizationId: {eq: $org}, feature: {eq: "CALL_AI"}}) { status errorCode userUid } }`, {org: f.orgA})).aiUsageRecords;
+  assert.ok(usage.some(row => row.status === "FAILED" && row.userUid === "agent-a"), "the attempt is recorded against the company's AI usage");
+  pass("Claude summaries need the company switch; with Anthropic refusing the key the request fails safely, stores nothing and records the usage");
+
+  // A stored summary (as the server writes it after checking evidence) and the agent's review of it.
+  const summaryId = randomUUID();
+  const point = (text, basis, verified, quote) => ({text, basis, confidence: verified ? "HIGH" : "LOW", verified, downgraded: !verified && basis === "INFERRED", evidence: [{ref: "N1", quote, verified, at: null}]});
+  const checked = {reasonForCall: point("Enquiry about a two-bedroom apartment", "STATED", true, "Updated synthetic notes"), requirements: [], locations: [], budget: null, preferences: [point("Prefers a sea view", "INFERRED", false, "sea view")],
+    questions: [], agreements: [], nextSteps: [], suggestions: [], overallConfidence: "MEDIUM", limitations: "Synthetic summary for testing.", unverifiedCount: 1};
+  await dc.executeGraphql(`mutation S($org: UUID!, $id: UUID!, $call: UUID!, $json: String!, $s1: UUID!, $s2: UUID!) {
+    callAiSummary_insert(data: {organizationId: $org, id: $id, callId: $call, sourceKind: "NOTES", summaryJson: $json, overallConfidence: "MEDIUM", unverifiedCount: 1, model: "synthetic", promptVersion: "call-summary-1", createdByUid: "agent-a"})
+    a: callAiSuggestion_insert(data: {organizationId: $org, id: $s1, summaryId: $id, callId: $call, kind: "FOLLOW_UP", title: "Send the floor plans", detail: "The customer asked for floor plans.", basis: "STATED", confidence: "HIGH", verified: true})
+    b: callAiSuggestion_insert(data: {organizationId: $org, id: $s2, summaryId: $id, callId: $call, kind: "PROPOSAL_DRAFT", title: "Prepare a proposal", detail: "Proposal for the shortlisted unit.", basis: "INFERRED", confidence: "MEDIUM", verified: true})
+  }`, {variables: {org: f.orgA, id: summaryId, call: recordedCall, json: JSON.stringify(checked), s1: randomUUID(), s2: randomUUID()}});
+  await load(`/communications/calls/${recordedCall}`, "!!document.querySelector('[aria-label=\"Call summary\"]')");
+  const summaryText = await evaluate("document.querySelector('[aria-label=\"Call summary\"]').innerText");
+  assert.match(summaryText, /Draft, not reviewed/);
+  assert.match(summaryText, /1 unsupported point/);
+  assert.match(summaryText, /Not found in the source/);
+  assert.match(summaryText, /Said on the call/);
+  assert.match(summaryText, /Claude's inference/);
+  await evaluate("document.querySelector('[aria-label=\"Call summary\"]').scrollIntoView({block: 'start'})"); await pause(300);
+  await screenshot("call-summary");
+  const followUpsBefore = (await sql(`query F($org: UUID!, $lead: UUID!) { leadFollowUps(where: {organizationId: {eq: $org}, leadId: {eq: $lead}}) { id title } }`, {org: f.orgA, lead: lead.id})).leadFollowUps.length;
+  await clickText("Schedule follow-up", "button");
+  await waitFor("document.querySelector('[role=dialog]')?.innerText.includes('Schedule a follow-up')", "the follow-up dialog");
+  await clickText("Schedule", "[role=dialog] button");
+  await waitFor("!document.querySelector('[role=dialog]') && document.querySelector('[aria-label=\"Call summary\"]').innerText.includes('Accepted')", "the accepted suggestion");
+  const followUps = (await sql(`query F($org: UUID!, $lead: UUID!) { leadFollowUps(where: {organizationId: {eq: $org}, leadId: {eq: $lead}}) { id title } }`, {org: f.orgA, lead: lead.id})).leadFollowUps;
+  assert.equal(followUps.length, followUpsBefore + 1, "exactly one follow-up");
+  assert.ok(followUps.some(row => row.title === "Send the floor plans"));
+  const suggestionId = (await summaries()).summaries[0].suggestions.find(item => item.kind === "FOLLOW_UP").id;
+  assert.equal((await post(`/api/communications/suggestions/${suggestionId}/decide`, {action: "ACCEPT", followUpAt: new Date(Date.now() + 86_400_000).toISOString()})).status, 409, "a suggestion is accepted once");
+  await clickText("Mark reviewed", "button");
+  await waitFor("document.querySelector('[aria-label=\"Call summary\"]').innerText.includes('Reviewed')", "the reviewed summary");
+  const leadAfter = (await sql(`query L($org: UUID!, $id: UUID!) { lead(key: {organizationId: $org, id: $id}) { budgetMin budgetMax preferredLocation } }`, {org: f.orgA, id: lead.id})).lead;
+  assert.deepEqual(leadAfter, {budgetMin: null, budgetMax: null, preferredLocation: null}, "nothing in the summary changed the lead");
+  pass("The agent sees which points are supported, accepts a follow-up suggestion once through the lead's follow-ups, marks the summary reviewed, and the lead is unchanged");
+
+  await signIn("manager-a");
+  assert.equal((await api(`/api/communications/calls/${recordedCall}/summaries`)).status, 404);
+  await signIn("owner-b");
+  assert.equal((await api(`/api/communications/calls/${recordedCall}/summaries`)).status, 404);
+  assert.equal((await post(`/api/communications/suggestions/${suggestionId}/decide`, {action: "DISMISS"})).status, 409);
+  pass("Managers without the lead and other companies cannot read or act on summaries");
 
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");
   console.log(`\n${checks} communication end-to-end checks passed.`);

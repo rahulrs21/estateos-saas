@@ -323,6 +323,16 @@ export enum CallStatus {
   NO_ANSWER = "NO_ANSWER",
   CANCELLED = "CANCELLED",
 }
+export enum CallSuggestionStatus {
+  PENDING = "PENDING",
+  ACCEPTED = "ACCEPTED",
+  DISMISSED = "DISMISSED",
+}
+export enum CallSummaryStatus {
+  DRAFT = "DRAFT",
+  REVIEWED = "REVIEWED",
+  DISMISSED = "DISMISSED",
+}
 export enum CallType {
   SERVICE = "SERVICE",
   FOLLOW_UP = "FOLLOW_UP",
@@ -1965,6 +1975,43 @@ export interface CreateBuildingVariables {
   longitude?: number | null;
 }
 
+export interface CreateCallAiSuggestionData {
+  callAiSuggestion_insert: CallAiSuggestion_Key;
+}
+
+export interface CreateCallAiSuggestionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  summaryId: UUIDString;
+  callId: UUIDString;
+  kind: string;
+  title: string;
+  detail: string;
+  basis: string;
+  confidence: string;
+  verified: boolean;
+}
+
+export interface CreateCallAiSummaryData {
+  summary: CallAiSummary_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CreateCallAiSummaryVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  callId: UUIDString;
+  actorUid: string;
+  sourceKind: string;
+  hasTranscript: boolean;
+  transcriptId?: UUIDString | null;
+  summaryJson: string;
+  overallConfidence: string;
+  unverifiedCount: number;
+  model: string;
+  promptVersion: string;
+}
+
 export interface CreateCallRecordingData {
   recording: CallRecording_Key;
   auditLog_insert: AuditLog_Key;
@@ -2599,6 +2646,19 @@ export interface DecideAutomationApprovalVariables {
   reason?: string | null;
   expectedSnapshotHash: string;
   currentTargetStateHash: string;
+}
+
+export interface DecideCallAiSuggestionData {
+  suggestion?: CallAiSuggestion_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface DecideCallAiSuggestionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  status: CallSuggestionStatus;
+  resultType?: string | null;
+  resultId?: UUIDString | null;
 }
 
 export interface DeleteAiContentDraftData {
@@ -3601,6 +3661,28 @@ export interface GetBuildingData {
 }
 
 export interface GetBuildingVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface GetCallAiSuggestionData {
+  me?: {
+    id: UUIDString;
+  };
+  suggestion?: {
+    id: UUIDString;
+    kind: string;
+    title: string;
+    detail: string;
+    status: CallSuggestionStatus;
+    callId: UUIDString;
+    call: {
+      leadId?: UUIDString | null;
+    };
+  };
+}
+
+export interface GetCallAiSuggestionVariables {
   organizationId: UUIDString;
   id: UUIDString;
 }
@@ -6260,6 +6342,68 @@ export interface ListBuildingsVariables {
   limit?: number;
   offset?: number;
   search?: string | null;
+}
+
+export interface ListCallSummariesData {
+  me?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  call?: {
+    id: UUIDString;
+    leadId?: UUIDString | null;
+    callStatus: CallStatus;
+    notes?: string | null;
+    agentMembershipId: UUIDString;
+  };
+  summaries: ({
+    id: UUIDString;
+    sourceKind: string;
+    transcriptId?: UUIDString | null;
+    summaryJson: string;
+    overallConfidence: string;
+    unverifiedCount: number;
+    model: string;
+    status: CallSummaryStatus;
+    createdAt: TimestampString;
+    createdBy: {
+      displayName: string;
+    };
+    reviewedAt?: TimestampString | null;
+    reviewedBy?: {
+      displayName: string;
+    };
+    suggestions: ({
+      id: UUIDString;
+      kind: string;
+      title: string;
+      detail: string;
+      basis: string;
+      confidence: string;
+      verified: boolean;
+      status: CallSuggestionStatus;
+      resultType?: string | null;
+      resultId?: UUIDString | null;
+      decidedAt?: TimestampString | null;
+      decidedBy?: {
+        displayName: string;
+      };
+    })[];
+  })[];
+  transcripts: ({
+    id: UUIDString;
+    language: string;
+    segmentCount: number;
+    createdAt: TimestampString;
+  })[];
+  settings?: {
+    aiAnalysisEnabled: boolean;
+  };
+}
+
+export interface ListCallSummariesVariables {
+  organizationId: UUIDString;
+  callId: UUIDString;
 }
 
 export interface ListCallsData {
@@ -9511,6 +9655,17 @@ export interface ReturnAutomationWorkflowToDraftVariables {
   note: string;
 }
 
+export interface ReviewCallAiSummaryData {
+  summary?: CallAiSummary_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface ReviewCallAiSummaryVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  status: CallSummaryStatus;
+}
+
 export interface RevokeInvitationData {
   invitation?: Invitation_Key | null;
   membership_update?: Membership_Key | null;
@@ -11198,6 +11353,36 @@ export function automationExecutorProfile(vars: AutomationExecutorProfileVariabl
 export function listAutomationEventsForTarget(dc: DataConnect, vars: ListAutomationEventsForTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationEventsForTargetData>>;
 /** Generated Node Admin SDK operation action function for the 'ListAutomationEventsForTarget' Query. Allow users to pass in custom DataConnect instances. */
 export function listAutomationEventsForTarget(vars: ListAutomationEventsForTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationEventsForTargetData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListCallSummaries' Query. Allow users to execute without passing in DataConnect. */
+export function listCallSummaries(dc: DataConnect, vars: ListCallSummariesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListCallSummariesData>>;
+/** Generated Node Admin SDK operation action function for the 'ListCallSummaries' Query. Allow users to pass in custom DataConnect instances. */
+export function listCallSummaries(vars: ListCallSummariesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListCallSummariesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateCallAiSummary' Mutation. Allow users to execute without passing in DataConnect. */
+export function createCallAiSummary(dc: DataConnect, vars: CreateCallAiSummaryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateCallAiSummaryData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateCallAiSummary' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createCallAiSummary(vars: CreateCallAiSummaryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateCallAiSummaryData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateCallAiSuggestion' Mutation. Allow users to execute without passing in DataConnect. */
+export function createCallAiSuggestion(dc: DataConnect, vars: CreateCallAiSuggestionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateCallAiSuggestionData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateCallAiSuggestion' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createCallAiSuggestion(vars: CreateCallAiSuggestionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateCallAiSuggestionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ReviewCallAiSummary' Mutation. Allow users to execute without passing in DataConnect. */
+export function reviewCallAiSummary(dc: DataConnect, vars: ReviewCallAiSummaryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReviewCallAiSummaryData>>;
+/** Generated Node Admin SDK operation action function for the 'ReviewCallAiSummary' Mutation. Allow users to pass in custom DataConnect instances. */
+export function reviewCallAiSummary(vars: ReviewCallAiSummaryVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReviewCallAiSummaryData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DecideCallAiSuggestion' Mutation. Allow users to execute without passing in DataConnect. */
+export function decideCallAiSuggestion(dc: DataConnect, vars: DecideCallAiSuggestionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DecideCallAiSuggestionData>>;
+/** Generated Node Admin SDK operation action function for the 'DecideCallAiSuggestion' Mutation. Allow users to pass in custom DataConnect instances. */
+export function decideCallAiSuggestion(vars: DecideCallAiSuggestionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DecideCallAiSuggestionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetCallAiSuggestion' Query. Allow users to execute without passing in DataConnect. */
+export function getCallAiSuggestion(dc: DataConnect, vars: GetCallAiSuggestionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCallAiSuggestionData>>;
+/** Generated Node Admin SDK operation action function for the 'GetCallAiSuggestion' Query. Allow users to pass in custom DataConnect instances. */
+export function getCallAiSuggestion(vars: GetCallAiSuggestionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCallAiSuggestionData>>;
 
 /** Generated Node Admin SDK operation action function for the 'GetCallMedia' Query. Allow users to execute without passing in DataConnect. */
 export function getCallMedia(dc: DataConnect, vars: GetCallMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCallMediaData>>;

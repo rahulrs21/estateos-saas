@@ -9,7 +9,7 @@ Calls with customers, recorded against leads and contacts, with the rules that a
 | 6F.1 | Call records, manual call logging, the lead and contact call panel, settings and the do-not-call list (API) | Implemented and tested on emulators |
 | 6F.2 | Hub pages, provider connections and lines, signed webhooks, gated live dialling | Implemented and tested on emulators; no provider connected ([providers](TELEPHONY_PROVIDERS.md)) |
 | 6F.3 | Consent evidence, uploaded recordings and transcripts, private storage, audited access, retention | Implemented and tested on emulators ([privacy](CALL_PRIVACY_COMPLIANCE.md#recording-transcripts-and-consent)) |
-| 6F.4 | Claude call summaries and suggestions | Not started |
+| 6F.4 | Claude call summaries with checked evidence, review and suggestions | Implemented and tested on emulators; live Claude not run ([details](AI_CALL_INTELLIGENCE.md)) |
 | 6F.5 | Voice assistant configuration and test-mode simulator | Not started |
 | 6F.6 | Meetings, workflow triggers, reports | Not started |
 
@@ -136,6 +136,8 @@ All routes use the verified session; the company is resolved on the server. Muta
 | `/api/communications/calls/[callId]/transcripts` | POST | Upload a transcript (WebVTT, SRT or text) |
 | `/api/communications/recordings/[id]/content`, `/transcripts/[id]/content` | GET | Private, audited file access |
 | `/api/communications/recordings/[id]/delete`, `/transcripts/[id]/delete` | POST | Delete (owners and administrators) |
+| `/api/communications/calls/[callId]/summaries` | GET, POST | Claude summaries of a call; create one (`source`: TRANSCRIPT or NOTES) |
+| `/api/communications/summaries/[id]/review`, `/suggestions/[id]/decide` | POST | Review a summary; accept or dismiss a suggestion |
 
 ## Security
 

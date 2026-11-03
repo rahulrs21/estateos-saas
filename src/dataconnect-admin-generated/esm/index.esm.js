@@ -342,6 +342,18 @@ export const CallStatus = {
   CANCELLED: "CANCELLED",
 }
 
+export const CallSuggestionStatus = {
+  PENDING: "PENDING",
+  ACCEPTED: "ACCEPTED",
+  DISMISSED: "DISMISSED",
+}
+
+export const CallSummaryStatus = {
+  DRAFT: "DRAFT",
+  REVIEWED: "REVIEWED",
+  DISMISSED: "DISMISSED",
+}
+
 export const CallType = {
   SERVICE: "SERVICE",
   FOLLOW_UP: "FOLLOW_UP",
@@ -1328,6 +1340,42 @@ export function listAutomationEventsForTarget(dcOrVarsOrOptions, varsOrOptions, 
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeQuery('ListAutomationEventsForTarget', inputVars, inputOpts);
+}
+
+export function listCallSummaries(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListCallSummaries', inputVars, inputOpts);
+}
+
+export function createCallAiSummary(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateCallAiSummary', inputVars, inputOpts);
+}
+
+export function createCallAiSuggestion(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateCallAiSuggestion', inputVars, inputOpts);
+}
+
+export function reviewCallAiSummary(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ReviewCallAiSummary', inputVars, inputOpts);
+}
+
+export function decideCallAiSuggestion(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DecideCallAiSuggestion', inputVars, inputOpts);
+}
+
+export function getCallAiSuggestion(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetCallAiSuggestion', inputVars, inputOpts);
 }
 
 export function getCallMedia(dcOrVarsOrOptions, varsOrOptions, options) {

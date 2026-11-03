@@ -53,7 +53,7 @@ Local days and times use the company timezone (default Asia/Dubai). An opt-out a
 | Allowed calling codes | 971 | Up to 10 codes |
 | Recording (uploads of recordings and transcripts) | Off | Needs a notice of at least 20 characters and a legal basis |
 | Retention | 90 days | 1-3650 days |
-| Claude analysis | Off | — |
+| Claude call summaries | Off | — |
 | Live calling confirmation | None | Given or withdrawn only by its own operations (owners and administrators, audited), never by saving settings |
 
 ## Do-not-call list
@@ -106,7 +106,7 @@ EstateOS's own call flows never ask a provider to record. Provider recording and
 
 ### Claude analysis
 
-Not available yet (Phase 6F.4 adds it behind its own company switch).
+Off by default, behind its own company switch. Only redacted transcript or note lines are sent to Anthropic; summaries derived from a transcript are erased with it. See [AI_CALL_INTELLIGENCE.md](AI_CALL_INTELLIGENCE.md).
 
 ## Audit evidence
 

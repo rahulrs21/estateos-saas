@@ -1,0 +1,79 @@
+# Phase 6F.4: Claude call summaries and suggestions (docs/AI_CALL_INTELLIGENCE.md).
+# Summaries are created only by the server (NO_ACCESS, the requesting member
+# re-checked here), after Claude answered and EstateOS checked the evidence, so a
+# member cannot store a fabricated "AI summary". Reading follows call access;
+# reviewing and deciding suggestions need the call's agent or an OWNER or ADMIN.
+
+query ListCallSummaries($organizationId: UUID!, $callId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  call: callRecord(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $callId}}, {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}}) @check(expr: "this != null", message: "CALL_NOT_FOUND") {id leadId callStatus notes agentMembershipId}
+  summaries: callAiSummaries(where: {organizationId: {eq: $organizationId}, callId: {eq: $callId}, deletedAt: {isNull: true}}, orderBy: [{createdAt: DESC}, {id: ASC}], limit: 5) {
+    id sourceKind transcriptId summaryJson overallConfidence unverifiedCount model status createdAt createdBy {displayName} reviewedAt reviewedBy {displayName}
+    suggestions: callAiSuggestions_on_summary(orderBy: [{id: ASC}], limit: 10) {id kind title detail basis confidence verified status resultType resultId decidedAt decidedBy {displayName}}
+  }
+  transcripts: callTranscripts(where: {organizationId: {eq: $organizationId}, callId: {eq: $callId}, status: {eq: STORED}}, orderBy: [{createdAt: DESC}], limit: 5) {id language segmentCount createdAt}
+  settings: communicationSettings(key: {organizationId: $organizationId}) {aiAnalysisEnabled}
+}
+
+mutation CreateCallAiSummary($organizationId: UUID!, $id: UUID!, $callId: UUID!, $actorUid: String!, $sourceKind: String!, $hasTranscript: Boolean!, $transcriptId: UUID,
+  $summaryJson: String!, $overallConfidence: String!, $unverifiedCount: Int!, $model: String!, $promptVersion: String!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact @check(expr: "this.call != null && this.settings != null && this.settings.aiAnalysisEnabled && (!vars.hasTranscript || (has(this.transcript) && this.transcript != null))", message: "CALL_AI_NOT_AVAILABLE") {
+    call: callRecord(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $callId}, callStatus: {eq: COMPLETED}}, {_or: [
+      {agentMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) {id}
+    settings: communicationSettings(key: {organizationId: $organizationId}) {aiAnalysisEnabled}
+    transcript: callTranscript(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $transcriptId}, callId: {eq: $callId}, status: {eq: STORED}}}) @include(if: $hasTranscript) {id}
+  }
+  summary: callAiSummary_insert(data: {organizationId: $organizationId, id: $id, callId: $callId, sourceKind: $sourceKind, transcriptId: $transcriptId, summaryJson: $summaryJson,
+    overallConfidence: $overallConfidence, unverifiedCount: $unverifiedCount, model: $model, promptVersion: $promptVersion, createdByUid: $actorUid})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CALL_AI_SUMMARY_CHANGED, targetType: CALL_AI_SUMMARY, targetId: $id,
+    metadata_expr: "{'event': 'CREATED', 'callId': vars.callId, 'sourceKind': vars.sourceKind, 'unverified': vars.unverifiedCount}"})
+}
+
+# Server only: one suggestion of a summary just created (IDs derived from the summary, so a retry cannot duplicate them).
+mutation CreateCallAiSuggestion($organizationId: UUID!, $id: UUID!, $summaryId: UUID!, $callId: UUID!, $kind: String!, $title: String!, $detail: String!, $basis: String!, $confidence: String!, $verified: Boolean!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    summary: callAiSummary(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $summaryId}, callId: {eq: $callId}, deletedAt: {isNull: true}}}) @check(expr: "this != null", message: "CALL_AI_SUMMARY_CHANGED") {id}
+  }
+  callAiSuggestion_insert(data: {organizationId: $organizationId, id: $id, summaryId: $summaryId, callId: $callId, kind: $kind, title: $title, detail: $detail, basis: $basis, confidence: $confidence, verified: $verified})
+}
+
+# The agent (or an OWNER or ADMIN) marks the summary as reviewed or dismisses it.
+mutation ReviewCallAiSummary($organizationId: UUID!, $id: UUID!, $status: CallSummaryStatus!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.status in ['REVIEWED', 'DISMISSED']") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  summary: callAiSummary_update(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: DRAFT}, deletedAt: {isNull: true}}, {call: {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}}]}}, data: {status: $status, reviewedByUid_expr: "auth.uid", reviewedAt_expr: "request.time"}) @check(expr: "this != null", message: "CALL_AI_SUMMARY_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_AI_SUMMARY_CHANGED, targetType: CALL_AI_SUMMARY, targetId: $id, metadata_expr: "{'event': vars.status}"})
+}
+
+# A suggestion is decided once. The result (for example the follow-up created through the existing lead operation) is linked here.
+mutation DecideCallAiSuggestion($organizationId: UUID!, $id: UUID!, $status: CallSuggestionStatus!, $resultType: String, $resultId: UUID)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.status in ['ACCEPTED', 'DISMISSED'] && (!has(vars.resultType) || vars.resultType == null || vars.resultType in ['FOLLOW_UP', 'CONTENT_STUDIO', 'VIEWING_FORM'])") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  suggestion: callAiSuggestion_update(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, status: {eq: PENDING}, summary: {deletedAt: {isNull: true}}}, {call: {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}}]}}, data: {status: $status, resultType: $resultType, resultId: $resultId, decidedByUid_expr: "auth.uid", decidedAt_expr: "request.time"}) @check(expr: "this != null", message: "CALL_AI_SUGGESTION_DECIDED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CALL_AI_SUMMARY_CHANGED, targetType: CALL_AI_SUMMARY, targetId: $id, metadata_expr: "{'event': 'SUGGESTION_' + vars.status, 'resultType': has(vars.resultType) ? vars.resultType : null}"})
+}
+
+# The suggestion as the server needs it before acting on an acceptance (after the member's access was checked).
+query GetCallAiSuggestion($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+  suggestion: callAiSuggestion(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, summary: {deletedAt: {isNull: true}}}, {call: {_or: [
+    {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}}]}}) @check(expr: "this != null", message: "CALL_AI_SUGGESTION_DECIDED") {id kind title detail status callId call {leadId}}
+}

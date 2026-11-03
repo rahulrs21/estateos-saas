@@ -19,6 +19,7 @@ import {
   attestLiveCalling, confirmLineRegistration, createLine, createProvider, providerSettings, revokeLiveCalling, setLineActive, setProviderEnabled, updateLine, updateProvider, verifyProvider,
 } from "./providers";
 import { callMedia, deleteRecording, deleteTranscript, recordConsent, recordingFile, transcriptFile, uploadRecording, uploadTranscript, withdrawConsent } from "./media";
+import { callSummaries, decideSuggestion, generateCallSummary, reviewCallSummary } from "./intelligence";
 import { providerWebhookResponse } from "./webhooks";
 import { MAX_RECORDING_BYTES } from "../media";
 
@@ -164,3 +165,9 @@ export async function recordingContentResponse(request: Request, id: string) {
     }});
   } catch (error) { return errorResponse("recording.content", error); }
 }
+// --- Claude call summaries (6F.4) -------------------------------------------------------------
+
+export const callSummariesResponse = (request: Request, callId: string) => read(request, "summaries.get", context => callSummaries(context, callId));
+export const generateSummaryResponse = (request: Request, callId: string) => write(request, "summary.generate", (context, body) => generateCallSummary(request, context, callId, body), 201);
+export const reviewSummaryResponse = (request: Request, id: string) => write(request, "summary.review", (context, body) => reviewCallSummary(context, id, body));
+export const decideSuggestionResponse = (request: Request, id: string) => write(request, "suggestion.decide", (context, body) => decideSuggestion(context, id, body));
