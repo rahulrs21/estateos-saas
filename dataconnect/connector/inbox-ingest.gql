@@ -1,0 +1,57 @@
+# Phase 7A: inbound message ingestion (docs/UNIFIED_INBOX.md#ingestion). Server only
+# (NO_ACCESS): called after the source was verified (a provider signature, the
+# website form transaction, or the developer simulator) with the company taken
+# from the verified connection, never from a payload.
+
+# Contacts with exactly this normalized phone or email. Matching is never by name;
+# zero or several matches leave the conversation for a person to link.
+query MatchInboxIdentity($organizationId: UUID!, $hasPhone: Boolean!, $phone: String, $hasEmail: Boolean!, $email: String) @auth(level: NO_ACCESS) {
+  byPhone: contacts(where: {_and: [{organizationId: {eq: $organizationId}}, {_or: [{normalizedPhone: {eq: $phone}}, {normalizedAlternatePhone: {eq: $phone}}]}]}, limit: 3) @include(if: $hasPhone) {
+    id fullName leads: leads_on_contact(where: {archivedAt: {isNull: true}}, orderBy: [{updatedAt: DESC}], limit: 3) {id assignedMembershipId}
+  }
+  byEmail: contacts(where: {organizationId: {eq: $organizationId}, normalizedEmail: {eq: $email}}, limit: 3) @include(if: $hasEmail) {
+    id fullName leads: leads_on_contact(where: {archivedAt: {isNull: true}}, orderBy: [{updatedAt: DESC}], limit: 3) {id assignedMembershipId}
+  }
+}
+
+query FindInboxConversation($organizationId: UUID!, $hasConnection: Boolean!, $channelConnectionId: UUID, $externalThreadId: String!) @auth(level: NO_ACCESS) {
+  connected: inboxConversations(where: {organizationId: {eq: $organizationId}, channelConnectionId: {eq: $channelConnectionId}, externalThreadId: {eq: $externalThreadId}}, limit: 1) @include(if: $hasConnection) {
+    id status revision leadId contactId assignedMembershipId optedOut
+  }
+  internal: inboxConversations(where: {organizationId: {eq: $organizationId}, channelConnectionId: {isNull: true}, externalThreadId: {eq: $externalThreadId}}, limit: 1) @skip(if: $hasConnection) {
+    id status revision leadId contactId assignedMembershipId optedOut
+  }
+}
+
+# A new conversation with its first inbound message, and the workflow events, in one transaction.
+mutation CreateInboxConversationWithMessage($organizationId: UUID!, $conversationId: UUID!, $channelConnectionId: UUID, $channel: InboxChannel!, $externalThreadId: String!,
+  $customerIdentity: String!, $customerName: String, $subject: String, $contactId: UUID, $leadId: UUID, $assignedMembershipId: UUID, $messageId: UUID!, $externalMessageId: String!,
+  $messageType: InboxMessageType!, $content: String, $senderIdentity: String, $recipientIdentity: String, $providerTimestamp: Timestamp, $preview: String, $simulated: Boolean!, $optedOut: Boolean!)
+  @auth(level: NO_ACCESS) @transaction {
+  conversation: inboxConversation_insert(data: {organizationId: $organizationId, id: $conversationId, channelConnectionId: $channelConnectionId, channel: $channel, externalThreadId: $externalThreadId,
+    customerIdentity: $customerIdentity, customerName: $customerName, subject: $subject, contactId: $contactId, leadId: $leadId, assignedMembershipId: $assignedMembershipId,
+    lastMessageAt_expr: "request.time", lastInboundAt_expr: "request.time", lastMessagePreview: $preview, unreadCount: 1, optedOut: $optedOut, simulated: $simulated})
+  message: inboxMessage_insert(data: {organizationId: $organizationId, id: $messageId, conversationId: $conversationId, channelConnectionId: $channelConnectionId, externalMessageId: $externalMessageId,
+    direction: INBOUND, senderIdentity: $senderIdentity, recipientIdentity: $recipientIdentity, messageType: $messageType, content: $content, deliveryStatus: RECEIVED,
+    providerTimestamp: $providerTimestamp, simulated: $simulated})
+  created: automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'inbox.created:' + vars.conversationId", triggerType: "inbox.conversation.created", targetType: "CONVERSATION",
+    targetId: $conversationId, origin_expr: "vars.simulated ? 'SIMULATOR' : 'PROVIDER'", payload_expr: "{'leadId': vars.leadId, 'channel': vars.channel}"})
+  received: automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'inbox.message:' + vars.messageId", triggerType: "inbox.message.received", targetType: "CONVERSATION",
+    targetId: $conversationId, origin_expr: "vars.simulated ? 'SIMULATOR' : 'PROVIDER'", payload_expr: "{'leadId': vars.leadId, 'messageId': vars.messageId, 'channel': vars.channel}"})
+}
+
+# A further inbound message on an existing conversation: it reopens the conversation and counts as unread.
+mutation AppendInboxMessage($organizationId: UUID!, $conversationId: UUID!, $channelConnectionId: UUID, $messageId: UUID!, $externalMessageId: String!, $messageType: InboxMessageType!,
+  $content: String, $senderIdentity: String, $recipientIdentity: String, $providerTimestamp: Timestamp, $preview: String, $simulated: Boolean!, $optedOut: Boolean!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    conversation: inboxConversation(key: {organizationId: $organizationId, id: $conversationId}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {leadId channel optedOut}
+  }
+  message: inboxMessage_insert(data: {organizationId: $organizationId, id: $messageId, conversationId: $conversationId, channelConnectionId: $channelConnectionId, externalMessageId: $externalMessageId,
+    direction: INBOUND, senderIdentity: $senderIdentity, recipientIdentity: $recipientIdentity, messageType: $messageType, content: $content, deliveryStatus: RECEIVED,
+    providerTimestamp: $providerTimestamp, simulated: $simulated})
+  conversation: inboxConversation_update(key: {organizationId: $organizationId, id: $conversationId}, data: {status: OPEN, lastMessageAt_expr: "request.time", lastInboundAt_expr: "request.time",
+    lastMessagePreview: $preview, unreadCount_update: {inc: 1}, optedOut_expr: "vars.optedOut || response.before.conversation.optedOut", revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+  received: automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'inbox.message:' + vars.messageId", triggerType: "inbox.message.received", targetType: "CONVERSATION",
+    targetId: $conversationId, origin_expr: "vars.simulated ? 'SIMULATOR' : 'PROVIDER'", payload_expr: "{'leadId': response.before.conversation.leadId, 'messageId': vars.messageId, 'channel': response.before.conversation.channel}"})
+}

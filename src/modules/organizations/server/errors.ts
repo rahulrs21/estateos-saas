@@ -168,6 +168,18 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (/\b(?:CALL_AI_SUMMARY_CHANGED|CALL_AI_SUGGESTION_DECIDED)\b/.test(message)) {
       return new WorkspaceError("CONFLICT", 409, "This summary or suggestion was already handled, or you cannot change it. Reload the call.");
     }
+    if (/\b(?:INBOX_CONVERSATION_NOT_FOUND|INBOX_LINK_TARGET_NOT_FOUND)\b/.test(message)) {
+      return new WorkspaceError("NOT_FOUND", 404, "This conversation, lead or contact was not found, or you cannot use it.");
+    }
+    if (/\b(?:INBOX_CONVERSATION_CHANGED|INBOX_SETTINGS_CHANGED|OUTBOUND_MESSAGE_CHANGED)\b/.test(message)) {
+      return new WorkspaceError("CONFLICT", 409, "This changed since you opened it, or you cannot change it. Reload and try again.");
+    }
+    if (/\b(?:INBOX_ASSIGNMENT_FORBIDDEN|INBOX_ADMIN_REQUIRED)\b/.test(message)) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "You do not have permission to do this in the inbox.");
+    }
+    if (message.includes("INBOX_ASSIGNEE_INVALID")) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "Assign the conversation to an active member of your company.");
+    }
     if (message.includes("SIMULATION_ADMIN_REQUIRED")) {
       return new WorkspaceError("PERMISSION_DENIED", 403, "Only owners and administrators can use the communication simulator.");
     }

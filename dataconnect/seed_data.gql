@@ -5,6 +5,17 @@
 # 100 function arguments for the combined result).
 mutation ResetEstateOSWebsites @transaction {
   # Phase 6F communication records reference leads, contacts, follow-ups, viewings and memberships.
+  # Phase 7A inbox records reference leads, contacts and memberships.
+  inboxAttachment_deleteMany(all: true)
+  inboxMessage_deleteMany(all: true)
+  inboxAssignmentHistory_deleteMany(all: true)
+  inboxNote_deleteMany(all: true)
+  outboundMessageJob_deleteMany(all: true)
+  inboxEvent_deleteMany(all: true)
+  inboxEmailOptOut_deleteMany(all: true)
+  inboxConversation_deleteMany(all: true)
+  channelConnection_deleteMany(all: true)
+  inboxSettings_deleteMany(all: true)
   communicationSimulationRecord_deleteMany(all: true)
   communicationMeetingAttendee_deleteMany(all: true)
   communicationMeeting_deleteMany(all: true)

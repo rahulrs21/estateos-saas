@@ -68,12 +68,12 @@ function searchParams(request: Request) {
   return input;
 }
 
-async function read(request: Request, endpoint: string, work: (context: Context, query: Record<string, string>) => Promise<unknown>) {
+export async function read(request: Request, endpoint: string, work: (context: Context, query: Record<string, string>) => Promise<unknown>) {
   await connection();
   try { return authJson({data: await work(await readContext(request), searchParams(request))}); } catch (error) { return errorResponse(endpoint, error); }
 }
 
-async function write(request: Request, endpoint: string, work: (context: Context, body: unknown) => Promise<unknown>, status = 200, maxBytes = BODY_BYTES) {
+export async function write(request: Request, endpoint: string, work: (context: Context, body: unknown) => Promise<unknown>, status = 200, maxBytes = BODY_BYTES) {
   try { const {body, context} = await mutationContext(request, maxBytes); return authJson({data: await work(context, body)}, status); } catch (error) { return errorResponse(endpoint, error); }
 }
 

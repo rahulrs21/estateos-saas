@@ -1,0 +1,240 @@
+# Phase 7A: unified inbox (docs/UNIFIED_INBOX.md, docs/INBOX_SECURITY.md).
+# Additive tables only. Conversations from WhatsApp, email, website enquiries and
+# the developer simulator share one model. Provider secrets are never stored:
+# a connection names its secret (credentialReference); the value lives in the
+# server environment or Secret Manager. Nothing in Phase 7A sends a message to
+# a real customer: only the developer simulator's connection may "send".
+
+enum ChannelProvider { WHATSAPP_CLOUD GMAIL MICROSOFT_365 WEBSITE_FORM INTERNAL DEVELOPMENT_SIMULATOR }
+# VERIFIED needs a live check with the provider (Phase 7B/7C); 7A connections stop at CONFIGURED.
+enum ChannelConnectionStatus { NOT_CONFIGURED CONFIGURED VERIFIED DISABLED ERROR }
+enum InboxChannel { WHATSAPP EMAIL WEBSITE INTERNAL }
+enum InboxConversationStatus { OPEN PENDING RESOLVED CLOSED }
+enum InboxPriority { LOW NORMAL HIGH URGENT }
+enum InboxDirection { INBOUND OUTBOUND }
+# UNKNOWN keeps a provider message type EstateOS does not handle yet, shown safely as text.
+enum InboxMessageType { TEXT IMAGE DOCUMENT AUDIO VIDEO TEMPLATE SYSTEM UNKNOWN }
+# SENT, DELIVERED and READ come only from provider acknowledgements and receipts, never from queueing.
+enum InboxDeliveryStatus { DRAFT QUEUED SENT DELIVERED READ FAILED RECEIVED UNKNOWN }
+enum InboxEventStatus { RECEIVED PROCESSED DUPLICATE FAILED DEAD }
+enum OutboundStage { DRAFT VALIDATED PENDING_APPROVAL APPROVED QUEUED SENT FAILED CANCELLED }
+enum InboxAttachmentScan { PENDING CLEAN BLOCKED NOT_SCANNED }
+
+# A company's account with a channel provider. The company comes from this row
+# (by its ID in the webhook URL), never from a payload; the external account
+# reference (for example a WhatsApp phone number ID) belongs to one company only.
+type ChannelConnection @table(key: ["organization", "id"])
+  @unique(fields: ["provider", "externalAccountReference"])
+  @index(fields: ["organizationId", "provider"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  provider: ChannelProvider!
+  displayName: String! @col(dataType: "varchar(80)")
+  externalAccountReference: String @col(dataType: "varchar(200)")
+  connectionStatus: ChannelConnectionStatus! @default(value: NOT_CONFIGURED)
+  # The name of the secret (INBOX_…), never its value.
+  credentialReference: String @col(dataType: "varchar(64)")
+  sendingEnabled: Boolean! @default(value: false)
+  revision: Int! @default(value: 1)
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Company inbox rules; absent means the defaults.
+type InboxSettings @table(key: ["organization"]) {
+  organizationId: UUID!
+  organization: Organization!
+  revision: Int! @default(value: 1)
+  # Outbound messages wait for an OWNER, ADMIN or MANAGER (not their author, unless an OWNER).
+  approvalRequired: Boolean! @default(value: true)
+  retentionDays: Int! @default(value: 730)
+  unansweredMinutes: Int! @default(value: 120)
+  updatedBy: UserProfile
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# One conversation with one customer identity on one channel thread.
+type InboxConversation @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "channelConnectionId", "externalThreadId"])
+  @index(fields: ["organizationId", "lastMessageAt"], order: [ASC, DESC])
+  @index(fields: ["organizationId", "assignedMembershipId", "lastMessageAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "status", "lastMessageAt"], order: [ASC, ASC, DESC])
+  @index(fields: ["organizationId", "leadId"])
+  @index(fields: ["organizationId", "contactId"])
+  @index(fields: ["organizationId", "customerIdentity"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  channelConnectionId: UUID
+  channelConnection: ChannelConnection @ref(fields: ["organizationId", "channelConnectionId"], references: ["organizationId", "id"], constraintName: "inbox_conversation_connection_fkey")
+  channel: InboxChannel!
+  externalThreadId: String! @col(dataType: "varchar(200)")
+  # The normalized phone (E.164) or email the customer writes from.
+  customerIdentity: String! @col(dataType: "varchar(254)")
+  # The name the channel reported (untrusted, shown as text).
+  customerName: String @col(dataType: "varchar(160)")
+  subject: String @col(dataType: "varchar(300)")
+  contactId: UUID
+  contact: Contact @ref(fields: ["organizationId", "contactId"], references: ["organizationId", "id"], constraintName: "inbox_conversation_contact_fkey")
+  leadId: UUID
+  lead: Lead @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"], constraintName: "inbox_conversation_lead_fkey")
+  assignedMembershipId: UUID
+  assignedMembership: Membership @ref(fields: ["organizationId", "assignedMembershipId"], references: ["organizationId", "id"], constraintName: "inbox_conversation_assignee_fkey")
+  status: InboxConversationStatus! @default(value: OPEN)
+  priority: InboxPriority! @default(value: NORMAL)
+  lastMessageAt: Timestamp!
+  lastInboundAt: Timestamp
+  lastOutboundAt: Timestamp
+  lastMessagePreview: String @col(dataType: "varchar(200)")
+  unreadCount: Int! @default(value: 0)
+  # The customer asked not to be contacted on this channel.
+  optedOut: Boolean! @default(value: false)
+  simulated: Boolean! @default(value: false)
+  revision: Int! @default(value: 1)
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type InboxMessage @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "channelConnectionId", "externalMessageId"])
+  @index(fields: ["organizationId", "conversationId", "createdAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  conversationId: UUID!
+  conversation: InboxConversation! @ref(fields: ["organizationId", "conversationId"], references: ["organizationId", "id"], constraintName: "inbox_message_conversation_fkey")
+  # Copied from the conversation, so a provider message is stored once per connection.
+  channelConnectionId: UUID
+  externalMessageId: String! @col(dataType: "varchar(200)")
+  direction: InboxDirection!
+  senderIdentity: String @col(dataType: "varchar(254)")
+  recipientIdentity: String @col(dataType: "varchar(254)")
+  messageType: InboxMessageType! @default(value: TEXT)
+  # Plain text only (email HTML is converted on the server). Cleared by retention.
+  content: String @col(dataType: "varchar(8000)")
+  contentRedactedAt: Timestamp
+  deliveryStatus: InboxDeliveryStatus!
+  # A provider status EstateOS does not recognise, kept for diagnosis (bounded).
+  providerStatusRaw: String @col(dataType: "varchar(40)")
+  providerTimestamp: Timestamp
+  author: UserProfile
+  simulated: Boolean! @default(value: false)
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+type InboxAttachment @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "messageId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  messageId: UUID!
+  message: InboxMessage! @ref(fields: ["organizationId", "messageId"], references: ["organizationId", "id"], constraintName: "inbox_attachment_message_fkey")
+  conversationId: UUID!
+  fileName: String! @col(dataType: "varchar(200)")
+  mimeType: String! @col(dataType: "varchar(100)")
+  sizeBytes: Int!
+  # organizations/{org}/inbox/… in the private bucket; never a public URL.
+  storagePath: String! @col(dataType: "varchar(300)")
+  scanStatus: InboxAttachmentScan! @default(value: PENDING)
+  createdAt: Timestamp! @default(expr: "request.time")
+  deletedAt: Timestamp
+}
+
+type InboxAssignmentHistory @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "conversationId", "createdAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  conversationId: UUID!
+  conversation: InboxConversation! @ref(fields: ["organizationId", "conversationId"], references: ["organizationId", "id"], constraintName: "inbox_assignment_conversation_fkey")
+  fromMembershipId: UUID
+  toMembershipId: UUID
+  reason: String @col(dataType: "varchar(300)")
+  changedBy: UserProfile
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# Private notes for the team; never sent.
+type InboxNote @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "conversationId", "createdAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  conversationId: UUID!
+  conversation: InboxConversation! @ref(fields: ["organizationId", "conversationId"], references: ["organizationId", "id"], constraintName: "inbox_note_conversation_fkey")
+  body: String! @col(dataType: "varchar(4000)")
+  author: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# A verified incoming provider event, recorded once (dedupKey) before it is applied.
+# No raw payload is kept (it holds personal data); payloadDigest identifies it.
+type InboxEvent @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "dedupKey"])
+  @index(fields: ["organizationId", "status", "nextAttemptAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  channelConnectionId: UUID
+  kind: String! @col(dataType: "varchar(40)")
+  dedupKey: String! @col(dataType: "varchar(200)")
+  payloadDigest: String @col(dataType: "varchar(64)")
+  status: InboxEventStatus! @default(value: RECEIVED)
+  attempts: Int! @default(value: 0)
+  nextAttemptAt: Timestamp
+  errorCode: String @col(dataType: "varchar(64)")
+  conversationId: UUID
+  messageId: UUID
+  simulated: Boolean! @default(value: false)
+  receivedAt: Timestamp! @default(expr: "request.time")
+  processedAt: Timestamp
+}
+
+# An outbound message from draft to delivery. Every stage change is compare-and-set.
+type OutboundMessageJob @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "conversationId", "createdAt"])
+  @index(fields: ["organizationId", "stage", "updatedAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  conversationId: UUID!
+  conversation: InboxConversation! @ref(fields: ["organizationId", "conversationId"], references: ["organizationId", "id"], constraintName: "outbound_job_conversation_fkey")
+  stage: OutboundStage! @default(value: DRAFT)
+  # AGENT, CLAUDE or WORKFLOW.
+  source: String! @col(dataType: "varchar(12)")
+  content: String! @col(dataType: "varchar(4000)")
+  # Earlier versions of the draft (JSON array, bounded).
+  versionsJson: String! @default(value: "[]") @col(dataType: "varchar(20000)")
+  validationJson: String @col(dataType: "varchar(2000)")
+  templateName: String @col(dataType: "varchar(120)")
+  createdBy: UserProfile!
+  approvalRequestedAt: Timestamp
+  approvedBy: UserProfile
+  approvedAt: Timestamp
+  approvalNote: String @col(dataType: "varchar(300)")
+  selfApproved: Boolean! @default(value: false)
+  attempts: Int! @default(value: 0)
+  messageId: UUID
+  providerMessageId: String @col(dataType: "varchar(200)")
+  failureReason: String @col(dataType: "varchar(300)")
+  revision: Int! @default(value: 1)
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Email opt-outs (phone opt-outs use the Phase 6F CommunicationSuppression list).
+type InboxEmailOptOut @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "normalizedEmail", "withdrawnAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  normalizedEmail: String! @col(dataType: "varchar(254)")
+  source: String! @col(dataType: "varchar(30)")
+  conversationId: UUID
+  createdBy: UserProfile
+  createdAt: Timestamp! @default(expr: "request.time")
+  withdrawnAt: Timestamp
+}

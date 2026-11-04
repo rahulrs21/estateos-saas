@@ -1,0 +1,188 @@
+# Phase 7A: unified inbox conversations (docs/UNIFIED_INBOX.md#access).
+# Generated into dataconnect/connector/inbox.gql by scripts/build-inbox-connector.mjs (the V placeholder is
+# the visibility rule, repeated in every operation so the database enforces it):
+# OWNER and ADMIN see every conversation of the company; others see
+# conversations assigned to them or linked to a lead assigned to them; MANAGERs
+# also see the unassigned triage queue. Agents never see unassigned conversations.
+
+query ListInboxConversations($organizationId: UUID!, $limit: Int! = 25, $cursorAt: Timestamp, $seenIds: [UUID!], $status: InboxConversationStatus, $channel: InboxChannel,
+  $assignedMembershipId: UUID, $unassigned: Boolean, $needsMatching: Boolean, $minUnread: Int, $simulated: Boolean, $search: String, $leadId: UUID, $contactId: UUID)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 51 && (!has(vars.search) || vars.search == null || vars.search.size() <= 120)") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  conversations: inboxConversations(where: {_and: [
+    {organizationId: {eq: $organizationId}, status: {eq: $status}, channel: {eq: $channel}, assignedMembershipId: {eq: $assignedMembershipId, isNull: $unassigned}, contactId: {eq: $contactId, isNull: $needsMatching},
+      unreadCount: {ge: $minUnread}, simulated: {eq: $simulated}, leadId: {eq: $leadId}},
+    {_or: [{lastMessageAt: {lt: $cursorAt}}, {lastMessageAt: {eq: $cursorAt}, id: {nin: $seenIds}}]},
+    {_or: [{customerName: {pattern: {like: $search, ignoreCase: true}}}, {customerIdentity: {pattern: {like: $search, ignoreCase: true}}}, {subject: {pattern: {like: $search, ignoreCase: true}}},
+      {lastMessagePreview: {pattern: {like: $search, ignoreCase: true}}}, {contact: {fullName: {pattern: {like: $search, ignoreCase: true}}}}]},
+    {{V}}
+  ]}, orderBy: [{lastMessageAt: DESC}, {id: ASC}], limit: $limit) {
+    id channel customerIdentity customerName subject status priority lastMessageAt lastMessagePreview unreadCount optedOut simulated contactId leadId assignedMembershipId
+    contact {id fullName} lead {id fullName} assignedMembership {id userProfile {displayName}} channelConnection {provider displayName}
+  }
+}
+
+# Counts for the views, each with the same visibility rule.
+query InboxCounts($organizationId: UUID!, $simulated: Boolean)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  unread: inboxConversations(where: {_and: [{organizationId: {eq: $organizationId}, simulated: {eq: $simulated}, unreadCount: {gt: 0}, status: {in: [OPEN, PENDING]}}, {{V}}]}) {count: _count}
+  mine: inboxConversations(where: {_and: [{organizationId: {eq: $organizationId}, simulated: {eq: $simulated}, status: {in: [OPEN, PENDING]}, assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}}}, {{V}}]}) {count: _count}
+  unassigned: inboxConversations(where: {_and: [{organizationId: {eq: $organizationId}, simulated: {eq: $simulated}, status: {in: [OPEN, PENDING]}, assignedMembershipId: {isNull: true}}, {{V}}]}) {count: _count}
+  needsMatching: inboxConversations(where: {_and: [{organizationId: {eq: $organizationId}, simulated: {eq: $simulated}, status: {in: [OPEN, PENDING]}, contactId: {isNull: true}}, {{V}}]}) {count: _count}
+  open: inboxConversations(where: {_and: [{organizationId: {eq: $organizationId}, simulated: {eq: $simulated}, status: {eq: OPEN}}, {{V}}]}) {count: _count}
+  pending: inboxConversations(where: {_and: [{organizationId: {eq: $organizationId}, simulated: {eq: $simulated}, status: {eq: PENDING}}, {{V}}]}) {count: _count}
+  resolved: inboxConversations(where: {_and: [{organizationId: {eq: $organizationId}, simulated: {eq: $simulated}, status: {in: [RESOLVED, CLOSED]}}, {{V}}]}) {count: _count}
+}
+
+query GetInboxConversation($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}}, {{V}}]}}) {
+    id channel externalThreadId customerIdentity customerName subject status priority lastMessageAt lastInboundAt lastOutboundAt lastMessagePreview unreadCount optedOut simulated revision createdAt
+    contactId leadId assignedMembershipId channelConnectionId
+    contact {id fullName email phone normalizedEmail normalizedPhone normalizedAlternatePhone}
+    lead {id fullName status assignedMembershipId archivedAt assignedMembership {userProfile {displayName}}}
+    assignedMembership {id userProfile {displayName}}
+    channelConnection {id provider displayName connectionStatus sendingEnabled}
+    notes: inboxNotes_on_conversation(orderBy: [{createdAt: DESC}], limit: 50) {id body createdAt author {displayName}}
+    assignments: inboxAssignmentHistories_on_conversation(orderBy: [{createdAt: DESC}], limit: 20) {id fromMembershipId toMembershipId reason createdAt changedBy {displayName}}
+  }
+}
+
+query ListInboxMessages($organizationId: UUID!, $conversationId: UUID!, $limit: Int! = 30, $cursorAt: Timestamp, $seenIds: [UUID!])
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 101") {
+  conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $conversationId}}, {{V}}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {id}
+  messages: inboxMessages(where: {_and: [{organizationId: {eq: $organizationId}, conversationId: {eq: $conversationId}},
+    {_or: [{createdAt: {lt: $cursorAt}}, {createdAt: {eq: $cursorAt}, id: {nin: $seenIds}}]}]}, orderBy: [{createdAt: DESC}, {id: ASC}], limit: $limit) {
+    id direction senderIdentity recipientIdentity messageType content contentRedactedAt deliveryStatus providerStatusRaw providerTimestamp simulated createdAt author {displayName}
+    attachments: inboxAttachments_on_message(limit: 10) {id fileName mimeType sizeBytes scanStatus deletedAt}
+  }
+}
+
+# Assign or reassign. OWNER, ADMIN and MANAGER may assign any active member (or unassign);
+# an AGENT may only take a conversation they can see for themselves. The lead's own
+# assignment is never changed here.
+mutation AssignInboxConversation($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $hasTarget: Boolean!, $toMembershipId: UUID, $reason: String, $historyId: UUID!, $notify: Boolean!, $notificationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.hasTarget == (has(vars.toMembershipId) && vars.toMembershipId != null) && (!vars.notify || vars.hasTarget) && (!has(vars.reason) || vars.reason == null || vars.reason.size() <= 300)") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact @check(expr: "this.me.role in ['OWNER', 'ADMIN', 'MANAGER'] || (vars.hasTarget && has(this.self) && this.self != null)", message: "INBOX_ASSIGNMENT_FORBIDDEN") {
+    me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {id role}
+    self: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $toMembershipId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @include(if: $hasTarget) {id}
+  }
+  target: query @redact @check(expr: "!vars.hasTarget || (has(this.member) && this.member != null)", message: "INBOX_ASSIGNEE_INVALID") {
+    member: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $toMembershipId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}}) @include(if: $hasTarget) {id}
+  }
+  current: query @redact {
+    conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}, {{V}}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_CHANGED") {assignedMembershipId leadId}
+  }
+  conversation: inboxConversation_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+    data: {assignedMembershipId: $toMembershipId, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_CONVERSATION_CHANGED")
+  inboxAssignmentHistory_insert(data: {organizationId: $organizationId, id: $historyId, conversationId: $id, fromMembershipId_expr: "response.current.conversation.assignedMembershipId",
+    toMembershipId: $toMembershipId, reason: $reason, changedByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_ASSIGNED, targetType: CONVERSATION, targetId: $id,
+    metadata_expr: "{'to': vars.hasTarget ? dyn(vars.toMembershipId) : dyn(null), 'revision': vars.expectedRevision + 1}"})
+  notification: inAppNotification_insert(data: {organizationId: $organizationId, id: $notificationId, audience: MEMBER, recipientMembershipId: $toMembershipId, type: INBOX_ASSIGNED,
+    title: "Conversation assigned to you", body: "An inbox conversation was assigned to you.", actorUid_expr: "auth.uid"}) @include(if: $notify)
+  automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'inbox.assigned:' + vars.id + ':' + string(vars.expectedRevision)", triggerType: "inbox.conversation.assigned",
+    targetType: "CONVERSATION", targetId: $id, actorUid_expr: "auth.uid", origin: "CRM", payload_expr: "{'leadId': response.current.conversation.leadId}"}) @include(if: $hasTarget)
+}
+
+# Status (open, pending, resolved, closed; reopening is allowed) and priority.
+mutation SetInboxConversationState($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $status: InboxConversationStatus!, $priority: InboxPriority!, $emitResolved: Boolean!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.emitResolved == (vars.status == 'RESOLVED')") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  current: query @redact {
+    conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}, {{V}}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_CHANGED") {status leadId}
+  }
+  conversation: inboxConversation_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+    data: {status: $status, priority: $priority, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_CONVERSATION_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_CONVERSATION_CHANGED, targetType: CONVERSATION, targetId: $id,
+    metadata_expr: "{'from': response.current.conversation.status, 'status': vars.status, 'priority': vars.priority}"})
+  automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'inbox.resolved:' + vars.id + ':' + string(vars.expectedRevision)", triggerType: "inbox.conversation.resolved",
+    targetType: "CONVERSATION", targetId: $id, actorUid_expr: "auth.uid", origin: "CRM", payload_expr: "{'leadId': response.current.conversation.leadId}"}) @include(if: $emitResolved)
+}
+
+# Link to a lead (and its contact) or a contact the member may access, or unlink. Audited; the
+# lead's assignment is never changed. The server reports whether the customer identity matches.
+mutation LinkInboxConversation($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $hasLead: Boolean!, $leadId: UUID, $hasContact: Boolean!, $contactId: UUID, $identityMatches: Boolean!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && !(vars.hasLead && vars.hasContact) && vars.hasLead == (has(vars.leadId) && vars.leadId != null) && vars.hasContact == (has(vars.contactId) && vars.contactId != null)") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  current: query @redact {
+    conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}, {{V}}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_CHANGED") {id}
+  }
+  # Checked on the block: a check on a field skipped by @include is never invoked.
+  target: query @redact @check(expr: "(!vars.hasLead || (has(this.lead) && this.lead != null)) && (!vars.hasContact || (has(this.contact) && this.contact != null))", message: "INBOX_LINK_TARGET_NOT_FOUND") {
+    lead: lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}, {_or: [
+      {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @include(if: $hasLead) {id contactId}
+    contact: contact(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $contactId}}, {_or: [
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+      {leads_on_contact: {exist: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}}},
+      {createdByUid: {eq_expr: "auth.uid"}, leads_on_contact: {count: {eq: 0}}}
+    ]}]}}) @include(if: $hasContact) {id}
+  }
+  conversation: inboxConversation_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {
+    leadId: $leadId, contactId_expr: "vars.hasLead ? response.target.lead.contactId : (vars.hasContact ? vars.contactId : dyn(null))", revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+    @check(expr: "this != null", message: "INBOX_CONVERSATION_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_LINKED, targetType: CONVERSATION, targetId: $id,
+    metadata_expr: "{'leadId': vars.hasLead ? dyn(vars.leadId) : dyn(null), 'contactId': vars.hasContact ? dyn(vars.contactId) : dyn(null), 'identityMatches': vars.identityMatches}"})
+  activity: activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: INBOX_LINKED, leadId: $leadId, targetId: $id, metadata_expr: "{'conversationId': vars.id, 'identityMatches': vars.identityMatches}"}) @include(if: $hasLead)
+}
+
+mutation AddInboxNote($organizationId: UUID!, $id: UUID!, $conversationId: UUID!, $body: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.body.size() >= 1 && vars.body.size() <= 4000") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  current: query @redact {
+    conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $conversationId}}, {{V}}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {id}
+  }
+  inboxNote_insert(data: {organizationId: $organizationId, id: $id, conversationId: $conversationId, body: $body, authorUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_NOTE_ADDED, targetType: CONVERSATION, targetId: $conversationId, metadata_expr: "{'noteId': vars.id}"})
+}
+
+# Opening a conversation marks it read for the team.
+mutation MarkInboxConversationRead($organizationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  conversation: inboxConversation_update(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}}, {{V}}]}}, data: {unreadCount: 0}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND")
+}
+
+query GetInboxSettings($organizationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  settings: inboxSettings(key: {organizationId: $organizationId}) {revision approvalRequired retentionDays unansweredMinutes updatedAt}
+}
+
+mutation SaveInboxSettings($organizationId: UUID!, $expectedRevision: Int!, $approvalRequired: Boolean!, $retentionDays: Int!, $unansweredMinutes: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.retentionDays >= 30 && vars.retentionDays <= 3650 && vars.unansweredMinutes >= 15 && vars.unansweredMinutes <= 10080") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED")
+  before: query @redact @check(expr: "vars.expectedRevision == (this.settings == null ? 0 : this.settings.revision)", message: "INBOX_SETTINGS_CHANGED") {
+    settings: inboxSettings(key: {organizationId: $organizationId}) {revision}
+  }
+  settings: inboxSettings_upsert(data: {organizationId: $organizationId, approvalRequired: $approvalRequired, retentionDays: $retentionDays, unansweredMinutes: $unansweredMinutes, revision_expr: "vars.expectedRevision + 1", updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_SETTINGS_UPDATED, targetType: ORGANIZATION, targetId: $organizationId,
+    metadata_expr: "{'approvalRequired': vars.approvalRequired, 'retentionDays': vars.retentionDays, 'unansweredMinutes': vars.unansweredMinutes}"})
+}
+
+# The identities of a lead's contact or a contact the member may access, to tell them
+# whether the conversation's sender is that customer before they link it.
+query InboxLinkTarget($organizationId: UUID!, $hasLead: Boolean!, $leadId: UUID, $hasContact: Boolean!, $contactId: UUID)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  lead: lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}, {_or: [
+    {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}}) @include(if: $hasLead) {id fullName contact {id fullName normalizedEmail normalizedPhone normalizedAlternatePhone}}
+  contact: contact(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $contactId}}, {_or: [
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+    {leads_on_contact: {exist: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}}},
+    {createdByUid: {eq_expr: "auth.uid"}, leads_on_contact: {count: {eq: 0}}}
+  ]}]}}) @include(if: $hasContact) {id fullName normalizedEmail normalizedPhone normalizedAlternatePhone}
+}
+
+# Members a conversation can be assigned to (names only).
+query InboxAssignees($organizationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  members: memberships(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}, orderBy: [{createdAt: ASC}], limit: 200) {id role userProfile {displayName}}
+}
