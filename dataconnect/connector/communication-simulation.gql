@@ -8,7 +8,7 @@
 query CommunicationSimulationState($organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
   admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "SIMULATION_ADMIN_REQUIRED") {id}
   records: communicationSimulationRecords(where: {organizationId: {eq: $organizationId}, archivedAt: {isNull: true}}, orderBy: [{createdAt: DESC}], limit: 50) {
-    id leadId label createdAt lead {id fullName contactId phone}
+    id leadId label createdAt lead {id fullName contactId phone email}
   }
   calls: callRecords(where: {organizationId: {eq: $organizationId}, source: {eq: SIMULATED}}, orderBy: [{createdAt: DESC}, {id: ASC}], limit: 30) {
     id leadId direction callType callStatus outcome startedAt answeredAt durationSeconds revision createdAt lead {fullName}

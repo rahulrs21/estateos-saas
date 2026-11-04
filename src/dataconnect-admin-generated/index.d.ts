@@ -2079,6 +2079,7 @@ export interface CommunicationSimulationStateData {
       fullName: string;
       contactId?: UUIDString | null;
       phone?: string | null;
+      email?: string | null;
     };
   })[];
   calls: ({
@@ -2583,6 +2584,17 @@ export interface CreateInboxConversationWithMessageVariables {
   preview?: string | null;
   simulated: boolean;
   optedOut: boolean;
+}
+
+export interface CreateInboxSimulatorChannelData {
+  channelConnection_insert: ChannelConnection_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CreateInboxSimulatorChannelVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
 }
 
 export interface CreateIncomingProviderCallData {
@@ -6401,6 +6413,32 @@ export interface InboxSettings_Key {
   __typename?: 'InboxSettings_Key';
 }
 
+export interface InboxSimulatorChannelData {
+  admin?: {
+    id: UUIDString;
+  };
+  connections: ({
+    id: UUIDString;
+  })[];
+  conversations: ({
+    id: UUIDString;
+    channel: InboxChannel;
+    customerIdentity: string;
+    customerName?: string | null;
+    status: InboxConversationStatus;
+    unreadCount: number;
+    lastMessageAt: TimestampString;
+    lastMessagePreview?: string | null;
+    contactId?: UUIDString | null;
+    leadId?: UUIDString | null;
+  })[];
+}
+
+export interface InboxSimulatorChannelVariables {
+  organizationId: UUIDString;
+  actorUid: string;
+}
+
 export interface InitializeLeadPipelineData {
   defaultPipeline: Pipeline_Key;
   pipelineStage_insertMany: PipelineStage_Key[];
@@ -10001,6 +10039,17 @@ export interface MarkInboxConversationReadVariables {
   id: UUIDString;
 }
 
+export interface MarkInboxLeadConversationsSimulatedData {
+  inboxConversation_updateMany: number;
+  inboxMessage_updateMany: number;
+}
+
+export interface MarkInboxLeadConversationsSimulatedVariables {
+  organizationId: UUIDString;
+  actorUid: string;
+  leadId: UUIDString;
+}
+
 export interface MarkPendingWebsiteEnquiryRecoveredData {
   pending?: PendingWebsiteEnquiry_Key | null;
   audit: AuditLog_Key;
@@ -10757,6 +10806,21 @@ export interface ResetCommunicationSimulationVariables {
   actorUid: string;
 }
 
+export interface ResetInboxSimulationData {
+  attachments: number;
+  messages: number;
+  notes: number;
+  history: number;
+  jobs: number;
+  events: number;
+  conversations: number;
+}
+
+export interface ResetInboxSimulationVariables {
+  organizationId: UUIDString;
+  actorUid: string;
+}
+
 export interface ResolveProviderCallData {
   calls: ({
     id: UUIDString;
@@ -11494,6 +11558,10 @@ export interface SubmitWebsiteLeadCaptureData {
   leadCreatedEvent: AutomationEvent_Key;
   formEvent: AutomationEvent_Key;
   leadAssignedEvent: AutomationEvent_Key;
+  inboxConversation: InboxConversation_Key;
+  inboxMessage: InboxMessage_Key;
+  inboxCreatedEvent: AutomationEvent_Key;
+  inboxReceivedEvent: AutomationEvent_Key;
 }
 
 export interface SubmitWebsiteLeadCaptureVariables {
@@ -11509,6 +11577,7 @@ export interface SubmitWebsiteLeadCaptureVariables {
   contactId?: UUIDString | null;
   hasExistingContact: boolean;
   message?: string | null;
+  inboxPreview?: string;
   propertyInterest?: string | null;
   preferredLocation?: string | null;
   propertyType?: string | null;
@@ -13153,6 +13222,26 @@ export function createInboxConversationWithMessage(vars: CreateInboxConversation
 export function appendInboxMessage(dc: DataConnect, vars: AppendInboxMessageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AppendInboxMessageData>>;
 /** Generated Node Admin SDK operation action function for the 'AppendInboxMessage' Mutation. Allow users to pass in custom DataConnect instances. */
 export function appendInboxMessage(vars: AppendInboxMessageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AppendInboxMessageData>>;
+
+/** Generated Node Admin SDK operation action function for the 'InboxSimulatorChannel' Query. Allow users to execute without passing in DataConnect. */
+export function inboxSimulatorChannel(dc: DataConnect, vars: InboxSimulatorChannelVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxSimulatorChannelData>>;
+/** Generated Node Admin SDK operation action function for the 'InboxSimulatorChannel' Query. Allow users to pass in custom DataConnect instances. */
+export function inboxSimulatorChannel(vars: InboxSimulatorChannelVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxSimulatorChannelData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateInboxSimulatorChannel' Mutation. Allow users to execute without passing in DataConnect. */
+export function createInboxSimulatorChannel(dc: DataConnect, vars: CreateInboxSimulatorChannelVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateInboxSimulatorChannelData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateInboxSimulatorChannel' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createInboxSimulatorChannel(vars: CreateInboxSimulatorChannelVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateInboxSimulatorChannelData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MarkInboxLeadConversationsSimulated' Mutation. Allow users to execute without passing in DataConnect. */
+export function markInboxLeadConversationsSimulated(dc: DataConnect, vars: MarkInboxLeadConversationsSimulatedVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkInboxLeadConversationsSimulatedData>>;
+/** Generated Node Admin SDK operation action function for the 'MarkInboxLeadConversationsSimulated' Mutation. Allow users to pass in custom DataConnect instances. */
+export function markInboxLeadConversationsSimulated(vars: MarkInboxLeadConversationsSimulatedVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkInboxLeadConversationsSimulatedData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ResetInboxSimulation' Mutation. Allow users to execute without passing in DataConnect. */
+export function resetInboxSimulation(dc: DataConnect, vars: ResetInboxSimulationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ResetInboxSimulationData>>;
+/** Generated Node Admin SDK operation action function for the 'ResetInboxSimulation' Mutation. Allow users to pass in custom DataConnect instances. */
+export function resetInboxSimulation(vars: ResetInboxSimulationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ResetInboxSimulationData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListInboxConversations' Query. Allow users to execute without passing in DataConnect. */
 export function listInboxConversations(dc: DataConnect, vars: ListInboxConversationsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListInboxConversationsData>>;

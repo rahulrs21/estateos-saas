@@ -307,6 +307,71 @@ try {
   assert.equal((await sql(`query N($org: UUID!, $id: UUID!) { inboxNotes(where: {organizationId: {eq: $org}, conversationId: {eq: $id}}) { id } }`, {org: f.orgA, id: linked})).inboxNotes.length, 0, "and nothing was written");
   pass("Managers triage only the unassigned queue; another company cannot read or change these conversations");
 
+  // ------------------------------------------------------------ 7A.3: a website enquiry opens a linked conversation in the same transaction
+  await signIn("owner-a");
+  const form = await post("/api/lead-capture/forms", {name: "Inbox test form", status: "ACTIVE", consentText: "I agree to be contacted about my enquiry (synthetic).",
+    privacyPolicyUrl: "https://example.test/privacy", successMessage: "Thank you", fields: [
+      {key: "FULL_NAME", label: "Name", enabled: true, required: true}, {key: "EMAIL", label: "Email", enabled: true, required: false},
+      {key: "PHONE", label: "Phone", enabled: true, required: false}, {key: "MESSAGE", label: "Message", enabled: true, required: false}]});
+  assert.equal(form.status, 201, JSON.stringify(form.body));
+  const publicId = (await sql(`query F($org: UUID!) { leadCaptureForms(where: {organizationId: {eq: $org}, name: {eq: "Inbox test form"}}) { publicId } }`, {org: f.orgA})).leadCaptureForms[0].publicId;
+  const enquiry = await fetch(origin + "/api/public/lead-forms/" + encodeURIComponent(publicId), {method: "POST", headers: {"Content-Type": "application/json", "Idempotency-Key": "inbox-e2e-" + randomUUID()},
+    body: JSON.stringify({fields: {FULL_NAME: "Website Visitor Example", EMAIL: "web.visitor@example.test", PHONE: "+44 7700 900742", MESSAGE: "Do you have a three-bedroom villa with a garden?"}, consent: true, elapsedMs: 9000})});
+  assert.equal(enquiry.status, 201, await enquiry.text());
+  const websiteRows = (await sql(`query W($org: UUID!) { inboxConversations(where: {organizationId: {eq: $org}, channel: {eq: WEBSITE}}) { id leadId contactId customerIdentity simulated lastMessagePreview } }`, {org: f.orgA})).inboxConversations;
+  assert.equal(websiteRows.length, 1);
+  assert.ok(websiteRows[0].leadId && websiteRows[0].contactId, "linked to the new lead and its contact");
+  assert.equal(websiteRows[0].customerIdentity, "web.visitor@example.test");
+  assert.equal(websiteRows[0].simulated, false);
+  await load("/inbox/" + websiteRows[0].id.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5"), "document.querySelector('[aria-label=Messages]')?.innerText.includes('three-bedroom villa')");
+  const websiteEvents = (await sql(`query E($org: UUID!, $id: UUID!) { automationEvents(where: {organizationId: {eq: $org}, targetId: {eq: $id}}) { triggerType } }`, {org: f.orgA, id: websiteRows[0].id})).automationEvents.map(row => row.triggerType).sort();
+  assert.deepEqual(websiteEvents, ["inbox.conversation.created", "inbox.message.received"]);
+  pass("A website enquiry opens an inbox conversation linked to its new lead, with the visitor's message and the workflow events, in the same transaction");
+
+  // ------------------------------------------------------------ 7A.3: the developer inbox simulator
+  await signIn("agent-a");
+  assert.equal((await post("/api/dev/communication-tests/inbox/inbound", {channel: "WHATSAPP", text: "x"})).status, 403, "agents cannot use the simulator");
+  await signIn("owner-a");
+  const fictional = await post("/api/dev/communication-tests/leads");
+  assert.equal(fictional.status, 201, JSON.stringify(fictional.body));
+  const simLeadId = fictional.body.data.leadId;
+  const fromLead = await post("/api/dev/communication-tests/inbox/inbound", {channel: "WHATSAPP", leadId: simLeadId, text: "Hi, is the Marina apartment still available?"});
+  assert.equal(fromLead.status, 201, JSON.stringify(fromLead.body));
+  assert.equal(fromLead.body.data.status, "CREATED");
+  assert.equal(fromLead.body.data.match, "MATCHED", "the fictional lead's number matched exactly one contact");
+  const replay = await post("/api/dev/communication-tests/inbox/inbound", {channel: "WHATSAPP", leadId: simLeadId, text: "Hi, is the Marina apartment still available?", replayOf: fromLead.body.data.externalMessageId});
+  assert.equal(replay.body.data.status, "DUPLICATE", "a repeated provider delivery is ignored");
+  const reply = await post("/api/dev/communication-tests/inbox/inbound", {channel: "WHATSAPP", leadId: simLeadId, text: "Also, can I view it on Saturday?"});
+  assert.equal(reply.body.data.status, "APPENDED");
+  assert.equal(reply.body.data.conversationId, fromLead.body.data.conversationId, "a customer reply joins the same conversation");
+  const simMessages = (await sql(`query M($org: UUID!, $id: UUID!) { inboxMessages(where: {organizationId: {eq: $org}, conversationId: {eq: $id}}) { id simulated } }`, {org: f.orgA, id: fromLead.body.data.conversationId})).inboxMessages;
+  assert.equal(simMessages.length, 2, "two messages, not three");
+  assert.ok(simMessages.every(row => row.simulated));
+  const stranger = await post("/api/dev/communication-tests/inbox/inbound", {channel: "EMAIL", text: "Please send me your brochure.", subject: "Brochure"});
+  assert.equal(stranger.body.data.match, "UNKNOWN");
+  const strangerRow = (await api("/api/inbox/conversations/" + stranger.body.data.conversationId)).body.data;
+  assert.equal(strangerRow.contactId, null, "an unknown sender stays unlinked until a person matches it");
+  assert.equal(strangerRow.channel, "EMAIL");
+  const simWebsite = await post("/api/dev/communication-tests/inbox/website", {message: "Simulated website question about payment plans."});
+  assert.equal(simWebsite.status, 201, JSON.stringify(simWebsite.body));
+  await load("/inbox?view=ALL", "!!document.querySelector('[data-testid=conversation-list]')");
+  assert.doesNotMatch(await evaluate("document.querySelector('[data-testid=conversation-list]').innerText"), /SIMULATED/, "simulated conversations are not listed unless included");
+  await evaluate("document.querySelector('[data-testid=include-simulated] input').click()");
+  await waitFor("document.querySelector('[data-testid=conversation-list]').innerText.includes('SIMULATED')", "the simulated conversations");
+  await load("/dev/communication-tests", "document.body.innerText.includes('Inbox simulator')");
+  await screenshot("inbox-simulator");
+  pass("The simulator stores WhatsApp, email and website messages through the real pipelines: matched and unknown senders, a reply in the same conversation, and a duplicate delivery ignored");
+
+  await signIn("owner-b");
+  assert.equal((await api("/api/dev/communication-tests/inbox")).body.data.conversations.length, 0, "another company sees none of the simulated conversations");
+  assert.equal((await api("/api/inbox/conversations/" + fromLead.body.data.conversationId)).status, 404);
+  await signIn("owner-a");
+  const realBefore = (await sql(`query R($org: UUID!) { inboxConversations(where: {organizationId: {eq: $org}, simulated: {eq: false}}) { id } }`, {org: f.orgA})).inboxConversations.length;
+  assert.equal((await post("/api/dev/communication-tests/reset")).status, 200);
+  assert.equal((await sql(`query S($org: UUID!) { inboxConversations(where: {organizationId: {eq: $org}, simulated: {eq: true}}) { id } }`, {org: f.orgA})).inboxConversations.length, 0);
+  assert.equal((await sql(`query R($org: UUID!) { inboxConversations(where: {organizationId: {eq: $org}, simulated: {eq: false}}) { id } }`, {org: f.orgA})).inboxConversations.length, realBefore, "real conversations are untouched");
+  pass("Other companies cannot see simulated conversations; reset removes only simulated ones");
+
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");
   console.log(`\n${checks} inbox end-to-end checks passed.`);
 } catch (error) {

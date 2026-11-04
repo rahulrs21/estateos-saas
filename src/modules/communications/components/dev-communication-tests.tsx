@@ -13,6 +13,7 @@ import { formatLeadDate, LeadField, selectClassName } from "@/modules/leads/comp
 import { communicationsGet, communicationsSend, errorMessage } from "../client";
 import { CALL_OUTCOMES, CALL_OUTCOME_LABELS, CALL_STATUS_LABELS, type CallStatus } from "../model";
 import type { SimulatorView } from "../server/simulator";
+import { InboxSimulator } from "@/modules/inbox/components/inbox-simulator";
 
 const STATUS_STYLE: Record<string, "secondary" | "destructive" | "outline"> = {PASSED: "secondary", FAILED: "destructive", BLOCKED: "outline", NOT_RUN: "outline", NOT_REQUIRED: "outline"};
 const STATUS_TEXT: Record<string, string> = {PASSED: "Passed", FAILED: "Failed", BLOCKED: "Blocked", NOT_RUN: "Not run", NOT_REQUIRED: "Not required"};
@@ -106,6 +107,8 @@ export function DevCommunicationTests({organizationId}: {organizationId: string}
           <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void run(`r${call.id}`, `/api/dev/communication-tests/calls/${call.id}/events`, {status: call.callStatus}, "Event replayed.").then(result => result && setLog([result as {status: string; result: string}]))}>Replay last event</Button>
           <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void run(`o${call.id}`, `/api/dev/communication-tests/calls/${call.id}/events`, {status: "RINGING"}, "Event sent.").then(result => result && setLog([result as {status: string; result: string}]))}>Send late &ldquo;ringing&rdquo;</Button>
         </span></li>)}</ul> : <p className="text-sm text-muted-foreground">No simulated calls.</p>}</CardContent></Card>
+
+    <InboxSimulator organizationId={organizationId} leads={view.leads} onChanged={() => void load()} />
 
     <Card className="gap-4 py-5 shadow-xs ring-border"><CardHeader className="px-5"><CardTitle role="heading" aria-level={2}>Phase 6F verification</CardTitle>
       <CardDescription>From the last <code>npm run test:communications:verify</code> run{view.results ? ` (${formatLeadDate(view.results.runAt, true)})` : ""}. Simulated and integration results never make a feature production-ready on their own; real-provider verification stays blocked until a provider is connected and approved.</CardDescription></CardHeader>

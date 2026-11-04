@@ -4,6 +4,8 @@ import { read, write } from "@/modules/communications/server/http";
 import {
   addNote, assignConversation, assignees, customerContext, getConversation, inboxCounts, inboxSettings, linkConversation, listConversations, listMessages, markRead, saveInboxSettings, setConversationState,
 } from "./conversations";
+import { inboxSimulatorState, simulateInbound, simulateWebsiteEnquiry } from "./simulator";
+import { devToolsEnabled } from "@/modules/communications/dev/guard";
 
 /*
  * Inbox endpoints (docs/UNIFIED_INBOX.md#api). The same request policy as the
@@ -25,3 +27,9 @@ export const readMarkResponse = (request: Request, id: string) => write(request,
 export const settingsResponse = (request: Request) => read(request, "inbox.settings", context => inboxSettings(context));
 export const saveSettingsResponse = (request: Request) => write(request, "inbox.settings.save", saveInboxSettings);
 export const customerResponse = (request: Request, id: string) => read(request, "inbox.customer", context => customerContext(context, id));
+
+/** Developer inbox simulator: not found (before authentication) unless developer tools are enabled. */
+const notFound = () => new Response(null, {status: 404, headers: {"Cache-Control": "no-store"}});
+export const simulatorStateResponse = (request: Request) => devToolsEnabled() ? read(request, "inbox.simulator.state", context => inboxSimulatorState(context)) : notFound();
+export const simulatorInboundResponse = (request: Request) => devToolsEnabled() ? write(request, "inbox.simulator.inbound", simulateInbound, 201) : notFound();
+export const simulatorWebsiteResponse = (request: Request) => devToolsEnabled() ? write(request, "inbox.simulator.website", simulateWebsiteEnquiry, 201) : notFound();

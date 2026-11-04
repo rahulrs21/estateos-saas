@@ -56,7 +56,8 @@ export async function listConversations(context: Context, query: Record<string, 
     unassigned: view === "UNASSIGNED" ? true : undefined, needsMatching: view === "NEEDS_MATCHING" ? true : undefined, minUnread: view === "UNREAD" ? 1 : undefined,
   }, options));
   const rows = data.conversations.map(row => ({...row, id: canonicalUuid(row.id), contactId: id(row.contactId), leadId: id(row.leadId), assignedMembershipId: id(row.assignedMembershipId)}));
-  return {conversations: rows.slice(0, PAGE_SIZE), nextCursor: encodeCursor(nextCursor(rows, row => row.lastMessageAt, PAGE_SIZE)), view, role: data.me?.role ?? "AGENT"};
+  return {conversations: rows.slice(0, PAGE_SIZE), nextCursor: encodeCursor(nextCursor(rows, row => row.lastMessageAt, PAGE_SIZE)), view, role: data.me?.role ?? "AGENT",
+    simulated: {available: devToolsEnabled(), included: simulatedFilter(input.includeSimulated) === undefined}};
 }
 export type ConversationListView = Awaited<ReturnType<typeof listConversations>>;
 

@@ -1,7 +1,8 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { asServer, isDuplicate, sdk } from "@/modules/communications/server/data";
+import { asServer, isDuplicate, sdk, serverDataConnect } from "@/modules/communications/server/data";
+import { mapWorkspaceDataError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { stableUuid } from "@/modules/automations/ids";
 import { channelIdentity, matchDecision, type MatchCandidate } from "../identity";
@@ -73,19 +74,20 @@ export async function ingestInbound(input: InboundMessage): Promise<IngestResult
     const existing = await findConversation(input);
     try {
       if (existing) {
-        await asServer("AppendInboxMessage", dc => sdk.appendInboxMessage(dc, {organizationId: input.organizationId, conversationId: canonicalUuid(existing.id), messageId, ...message}));
+        // Called directly (not asServer) so a unique-key conflict is still recognisable as a duplicate.
+        await sdk.appendInboxMessage(serverDataConnect(), {organizationId: input.organizationId, conversationId: canonicalUuid(existing.id), messageId, ...message});
         return {status: "APPENDED", conversationId: canonicalUuid(existing.id), messageId, match: "EXISTING"};
       }
       const decision = input.link ? null : await matchIdentity(input.organizationId, identity);
       const link = input.link ?? (decision?.status === "MATCHED" ? {contactId: decision.contactId, leadId: decision.leadId, assignedMembershipId: decision.assignedMembershipId} : {contactId: null, leadId: null, assignedMembershipId: null});
       const conversationId = randomUUID();
-      await asServer("CreateInboxConversationWithMessage", dc => sdk.createInboxConversationWithMessage(dc, {
+      await sdk.createInboxConversationWithMessage(serverDataConnect(), {
         organizationId: input.organizationId, conversationId, channel: sdk.InboxChannel[input.channel], externalThreadId: input.externalThreadId.slice(0, 200),
         customerIdentity: identity.value, customerName: clip(input.from.name, 160), subject: clip(input.subject, 300), ...link, messageId, ...message,
-      }));
+      });
       return {status: "CREATED", conversationId, messageId, match: input.link ? "LINKED" : decision!.status};
     } catch (error) {
-      if (!isDuplicate(error)) throw error;
+      if (!isDuplicate(error)) throw mapWorkspaceDataError(error);
       // Either this message was already stored (a retried delivery), or another delivery created the
       // conversation a moment ago: look again, and append unless the message itself exists.
       const again = await findConversation(input);

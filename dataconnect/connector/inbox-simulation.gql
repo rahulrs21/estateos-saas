@@ -1,0 +1,45 @@
+# Phase 7A developer inbox simulator (docs/UNIFIED_INBOX.md#simulator). Server only:
+# reached only through /api/dev/communication-tests/inbox/** when developer tools
+# are enabled (local emulators, demo project, never production); every operation
+# re-checks that the actor is an active OWNER or ADMIN. Simulated messages use
+# the same ingestion as real ones, through the company's simulator connection.
+
+query InboxSimulatorChannel($organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "SIMULATION_ADMIN_REQUIRED") {id}
+  connections: channelConnections(where: {organizationId: {eq: $organizationId}, provider: {eq: DEVELOPMENT_SIMULATOR}}, limit: 1) {id}
+  conversations: inboxConversations(where: {organizationId: {eq: $organizationId}, simulated: {eq: true}}, orderBy: [{lastMessageAt: DESC}], limit: 20) {
+    id channel customerIdentity customerName status unreadCount lastMessageAt lastMessagePreview contactId leadId
+  }
+}
+
+mutation CreateInboxSimulatorChannel($organizationId: UUID!, $id: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "SIMULATION_ADMIN_REQUIRED") {id}
+  }
+  channelConnection_insert(data: {organizationId: $organizationId, id: $id, provider: DEVELOPMENT_SIMULATOR, displayName: "Developer simulator", connectionStatus: CONFIGURED, sendingEnabled: true, createdByUid: $actorUid})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CHANNEL_CONNECTION_CHANGED, targetType: CHANNEL_CONNECTION, targetId: $id, metadata_expr: "{'event': 'SIMULATOR_CREATED'}"})
+}
+
+# A website enquiry the simulator sent through the real public form path is labelled simulated.
+mutation MarkInboxLeadConversationsSimulated($organizationId: UUID!, $actorUid: String!, $leadId: UUID!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "SIMULATION_ADMIN_REQUIRED") {id}
+    record: communicationSimulationRecord(first: {where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}}}) @check(expr: "this != null", message: "SIMULATION_LEAD_REQUIRED") {id}
+  }
+  inboxConversation_updateMany(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}}, data: {simulated: true})
+  inboxMessage_updateMany(where: {organizationId: {eq: $organizationId}, conversation: {leadId: {eq: $leadId}}}, data: {simulated: true})
+}
+
+# Reset: removes simulated conversations with everything attached; real conversations are never reached.
+mutation ResetInboxSimulation($organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "SIMULATION_ADMIN_REQUIRED") {id}
+  }
+  attachments: inboxAttachment_deleteMany(where: {organizationId: {eq: $organizationId}, message: {conversation: {simulated: {eq: true}}}})
+  messages: inboxMessage_deleteMany(where: {organizationId: {eq: $organizationId}, conversation: {simulated: {eq: true}}})
+  notes: inboxNote_deleteMany(where: {organizationId: {eq: $organizationId}, conversation: {simulated: {eq: true}}})
+  history: inboxAssignmentHistory_deleteMany(where: {organizationId: {eq: $organizationId}, conversation: {simulated: {eq: true}}})
+  jobs: outboundMessageJob_deleteMany(where: {organizationId: {eq: $organizationId}, conversation: {simulated: {eq: true}}})
+  events: inboxEvent_deleteMany(where: {organizationId: {eq: $organizationId}, simulated: {eq: true}})
+  conversations: inboxConversation_deleteMany(where: {organizationId: {eq: $organizationId}, simulated: {eq: true}})
+}

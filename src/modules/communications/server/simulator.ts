@@ -50,7 +50,7 @@ export async function simulatorState(context: Context) {
   const results = await latestResults();
   const suites = results?.suites ?? [];
   return {
-    leads: data.records.map(row => ({registryId: canonicalUuid(row.id), leadId: canonicalUuid(row.leadId), label: row.label, name: row.lead.fullName, phone: row.lead.phone, contactId: row.lead.contactId ? canonicalUuid(row.lead.contactId) : null, createdAt: row.createdAt})),
+    leads: data.records.map(row => ({registryId: canonicalUuid(row.id), leadId: canonicalUuid(row.leadId), label: row.label, name: row.lead.fullName, phone: row.lead.phone, email: row.lead.email ?? null, contactId: row.lead.contactId ? canonicalUuid(row.lead.contactId) : null, createdAt: row.createdAt})),
     calls: data.calls.map(call => ({...call, id: canonicalUuid(call.id), leadId: call.leadId ? canonicalUuid(call.leadId) : null})),
     scenarios: SCENARIO_KEYS.map(key => ({key, label: SCENARIOS[key].label, steps: SCENARIOS[key].steps, answered: SCENARIOS[key].answered})),
     results: results ? {runAt: results.runAt, environment: results.environment, suites: suites.map(({tests, ...suite}) => ({...suite, tests: tests.length}))} : null,
@@ -67,7 +67,7 @@ export type SimulatorView = Awaited<ReturnType<typeof simulatorState>>;
 export async function createFictionalLead(context: Context) {
   requireSimulator(context);
   const tag = randomUUID().slice(0, 4).toUpperCase();
-  const created = await createLead({fullName: `[SIM] Test customer ${tag}`, phone: fictionalNumber(Number.parseInt(tag, 16)), source: SIMULATOR_LEAD_SOURCE}, context.organizationId) as {lead?: {id: string}};
+  const created = await createLead({fullName: `[SIM] Test customer ${tag}`, phone: fictionalNumber(Number.parseInt(tag, 16)), email: `sim-${tag.toLowerCase()}@example.test`, source: SIMULATOR_LEAD_SOURCE}, context.organizationId) as {lead?: {id: string}};
   if (!created.lead?.id) throw new WorkspaceError("CONFLICT", 409, "The fictional lead could not be created.");
   const leadId = canonicalUuid(created.lead.id);
   await asServer("RegisterSimulationLead", dc => sdk.registerSimulationLead(dc, {organizationId: context.organizationId, id: randomUUID(), actorUid: actor(context), leadId, label: `Simulator lead ${tag}`}));
@@ -151,6 +151,8 @@ export async function resetSimulation(context: Context) {
   const paths = [...files.recordings.map(row => row.storagePath), ...files.transcripts.map(row => row.transcriptReference)]
     .filter(path => path.startsWith(`organizations/${context.organizationId}/`));
   for (const path of paths) await bucket.file(path).delete({ignoreNotFound: true});
+  // Simulated inbox conversations (Phase 7A) first: they may link to the simulator leads archived below.
+  const inbox = await asServer("ResetInboxSimulation", dc => sdk.resetInboxSimulation(dc, {organizationId: context.organizationId, actorUid: actor(context)}));
   const result = await asServer("ResetCommunicationSimulation", dc => sdk.resetCommunicationSimulation(dc, {organizationId: context.organizationId, actorUid: actor(context)}));
-  return {calls: result.calls, meetings: result.meetings, leadsArchived: result.leads, filesRemoved: paths.length};
+  return {calls: result.calls, meetings: result.meetings, leadsArchived: result.leads, filesRemoved: paths.length, conversations: inbox.conversations};
 }

@@ -2237,6 +2237,34 @@ function appendInboxMessage(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.appendInboxMessage = appendInboxMessage;
 
+function inboxSimulatorChannel(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('InboxSimulatorChannel', inputVars, inputOpts);
+}
+exports.inboxSimulatorChannel = inboxSimulatorChannel;
+
+function createInboxSimulatorChannel(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateInboxSimulatorChannel', inputVars, inputOpts);
+}
+exports.createInboxSimulatorChannel = createInboxSimulatorChannel;
+
+function markInboxLeadConversationsSimulated(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('MarkInboxLeadConversationsSimulated', inputVars, inputOpts);
+}
+exports.markInboxLeadConversationsSimulated = markInboxLeadConversationsSimulated;
+
+function resetInboxSimulation(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ResetInboxSimulation', inputVars, inputOpts);
+}
+exports.resetInboxSimulation = resetInboxSimulation;
+
 function listInboxConversations(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

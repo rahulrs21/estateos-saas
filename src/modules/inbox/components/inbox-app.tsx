@@ -34,18 +34,21 @@ export function InboxApp({organizationId, conversationId}: {organizationId: stri
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  /** Developer tools only: simulated conversations are listed only when asked for. */
+  const [withSimulated, setWithSimulated] = useState(false);
+  const [simulatedAvailable, setSimulatedAvailable] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const params = useCallback((extra: Record<string, string> = {}) => {
-    const values = new URLSearchParams({view, ...(channel ? {channel} : {}), ...(query ? {search: query} : {}), ...extra});
+    const values = new URLSearchParams({view, ...(channel ? {channel} : {}), ...(query ? {search: query} : {}), ...(withSimulated ? {includeSimulated: "1"} : {}), ...extra});
     return values.toString();
-  }, [view, channel, query]);
+  }, [view, channel, query, withSimulated]);
 
   const load = useCallback(() => Promise.all([
     communicationsGet<ConversationListView>(`/api/inbox/conversations?${params()}`, "Conversations could not be loaded."),
-    communicationsGet<InboxCountsView>("/api/inbox/counts", "Counts could not be loaded."),
-  ]).then(([list, totals]) => { setRows(list.conversations); setCursor(list.nextCursor); setCounts(totals); setError(null); },
-    problem => setError(errorMessage(problem, "The inbox could not be loaded."))), [params]);
+    communicationsGet<InboxCountsView>(`/api/inbox/counts${withSimulated ? "?includeSimulated=1" : ""}`, "Counts could not be loaded."),
+  ]).then(([list, totals]) => { setRows(list.conversations); setCursor(list.nextCursor); setCounts(totals); setSimulatedAvailable(list.simulated.available); setError(null); },
+    problem => setError(errorMessage(problem, "The inbox could not be loaded."))), [params, withSimulated]);
 
   useEffect(() => { void load(); }, [load, refreshKey]);
   // A controlled refresh while the inbox is visible: on an interval and when the tab comes back.
@@ -91,6 +94,9 @@ export function InboxApp({organizationId, conversationId}: {organizationId: stri
             <button type="button" onClick={() => setChannel(item)} aria-current={channel === item ? "true" : undefined} className={cn("flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-muted", channel === item && "bg-muted font-medium")}>
               <Icon aria-hidden className="size-4 text-muted-foreground" />{CHANNEL_LABELS[item]}</button></li>; })}
         </ul></div>
+      {simulatedAvailable && <label className="flex items-start gap-2 rounded-md border border-dashed px-2.5 py-2 text-xs text-muted-foreground" data-testid="include-simulated">
+        <input type="checkbox" className="mt-0.5 size-4 accent-primary" checked={withSimulated} onChange={event => setWithSimulated(event.target.checked)} />
+        Include simulated conversations (developer tools)</label>}
     </nav>
 
     {/* Conversation list */}

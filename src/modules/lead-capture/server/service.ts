@@ -1,5 +1,6 @@
 import "server-only";
 
+import { preview } from "@/modules/inbox/policy";
 import { randomBytes, createHash } from "node:crypto";
 import { connectorConfig, type LeadCaptureFormStatus as SqlFormStatus } from "@dataconnect/admin-generated";
 import { getDataConnect } from "firebase-admin/data-connect";
@@ -220,7 +221,7 @@ async function ingestSubmission(dc: ReturnType<typeof adminDataConnect>, form: R
     fullName: parsed.fullName, email: parsed.email, phone: phone.phone,
     normalizedEmail, normalizedPhone: phone.normalizedPhone,
     contactId: existingContactId, hasExistingContact: Boolean(existingContactId),
-    message: parsed.message, propertyInterest, preferredLocation: parsed.preferredLocation,
+    message: parsed.message, inboxPreview: preview(parsed.message) || "Website enquiry (no message)", propertyInterest, preferredLocation: parsed.preferredLocation,
     propertyType: parsed.propertyType,
     // Omitted (not null) when the form has no transaction field, so the column default applies;
     // an explicit null would violate the NOT NULL column and fail the whole transaction.
