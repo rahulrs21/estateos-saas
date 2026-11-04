@@ -6,7 +6,7 @@
 # counted as a conversation.
 
 enum CallDirection { OUTBOUND INBOUND }
-enum CallSource { MANUAL PROVIDER }
+enum CallSource { MANUAL PROVIDER SIMULATED }
 # SERVICE: a call the customer asked for or that serves an existing request.
 # FOLLOW_UP: a follow-up on the customer's own enquiry. MARKETING: an
 # unsolicited promotional call (UAE telemarketing rules apply).
@@ -473,4 +473,22 @@ type CommunicationMeetingAttendee @table(key: ["organization", "id"])
   membershipId: UUID!
   membership: Membership! @ref(fields: ["organizationId", "membershipId"], references: ["organizationId", "id"], constraintName: "communication_meeting_attendee_member_fkey")
   createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# Developer simulation (docs/COMMUNICATION_TESTING.md). Only on local
+# emulators with ESTATEOS_DEV_TOOLS=1, never in production. Each fictional
+# lead the simulator creates is registered here; simulated calls (source
+# SIMULATED) are accepted only on registered leads, and cleanup reaches only
+# records linked to this registry.
+type CommunicationSimulationRecord @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "leadId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  leadId: UUID!
+  lead: Lead! @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"], constraintName: "communication_simulation_lead_fkey")
+  label: String! @col(dataType: "varchar(160)")
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
+  archivedAt: Timestamp
 }

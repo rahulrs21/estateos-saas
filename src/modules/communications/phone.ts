@@ -28,10 +28,23 @@ export function destinationProblems(number: string | null, allowedCallingCodes: 
   return problems;
 }
 
+type NumberRecord = {phone?: string | null; normalizedPhone?: string | null; alternatePhone?: string | null; normalizedAlternatePhone?: string | null};
+/** Contacts store a normalized form, and the database compares calls against it; other records (a lead without a contact) are normalized here. */
+const hasStoredForms = (record: NumberRecord) => "normalizedPhone" in record || "normalizedAlternatePhone" in record;
+
 /** The customer's numbers on record (primary first), normalized and without duplicates. */
-export function numbersOnRecord(record: {phone?: string | null; normalizedPhone?: string | null; alternatePhone?: string | null; normalizedAlternatePhone?: string | null}) {
-  const candidates = [record.normalizedPhone ?? normalizeCallNumber(record.phone), record.normalizedAlternatePhone ?? normalizeCallNumber(record.alternatePhone)];
+export function numbersOnRecord(record: NumberRecord) {
+  const candidates = hasStoredForms(record)
+    ? [record.normalizedPhone, record.normalizedAlternatePhone]
+    : [normalizeCallNumber(record.phone), normalizeCallNumber(record.alternatePhone)];
   return [...new Set(candidates.filter((value): value is string => Boolean(value && E164.test(value))))];
+}
+
+/** Phones on a contact that were saved without their international form (for example older imports): re-saving the contact fixes them. */
+export function numbersNeedingUpdate(record: NumberRecord) {
+  if (!hasStoredForms(record)) return 0;
+  return [[record.phone, record.normalizedPhone], [record.alternatePhone, record.normalizedAlternatePhone]]
+    .filter(([raw, stored]) => Boolean(raw?.trim()) && !(stored && E164.test(stored))).length;
 }
 
 /** "+971 50 123 4567"-style display without changing the stored value. */

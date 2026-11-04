@@ -5,7 +5,7 @@ import { mapWorkspaceDataError, WorkspaceError } from "@/modules/organizations/s
 import { finalCallTrigger, isAnswered, isConversation } from "../call-state";
 import { COMPLIANCE_MESSAGES, evaluateCall, rulesFrom, type CommunicationRules, type ComplianceIssue, type PriorCall, type SuppressionFact } from "../compliance";
 import { suppresses, type CallDirection, type CallOutcome, type CallSource, type CallStatus, type CallType } from "../model";
-import { displayNumber, numbersOnRecord } from "../phone";
+import { displayNumber, numbersNeedingUpdate, numbersOnRecord } from "../phone";
 import { asMember, asServer, isAdministrator, isDuplicate, sdk, type Context } from "./data";
 import { liveCallingStatus } from "./dial";
 import { callListSchema, idSchema, logCallSchema, parseInput, updateCallSchema } from "./validation";
@@ -96,6 +96,7 @@ export async function leadCallsView(context: Context, rawLeadId: string, query: 
   return {
     subject: {kind: "LEAD" as const, id: data.lead.id, name: data.lead.contact?.fullName ?? data.lead.fullName, archived: Boolean(data.lead.archivedAt)},
     numbers: await numberViews(context, numbers),
+    numbersNeedingUpdate: data.lead.contact ? numbersNeedingUpdate(data.lead.contact) : 0,
     calls: data.calls.map(call => presentCall(context, call)),
     lastAnsweredAt: data.lastAnswered[0]?.startedAt ?? null,
     total, offset, hasMore: offset + PAGE_SIZE < total,
@@ -116,6 +117,7 @@ export async function contactCallsView(context: Context, rawContactId: string, q
   return {
     subject: {kind: "CONTACT" as const, id: data.contact.id, name: data.contact.fullName, archived: false},
     numbers: await numberViews(context, numbersOnRecord(data.contact)),
+    numbersNeedingUpdate: numbersNeedingUpdate(data.contact),
     calls,
     lastAnsweredAt: calls.find(call => call.answered)?.startedAt ?? null,
     total, offset, hasMore: offset + PAGE_SIZE < total,

@@ -56,3 +56,21 @@ export function finalCallTrigger(direction: CallDirection, status: CallStatus): 
   if (direction === "INBOUND" && isFinal(status)) return "call.missed";
   return null;
 }
+
+/**
+ * What moving a call to `next` at `at` writes (provider webhooks and the
+ * developer simulator use the same rule): when it was answered, when it ended,
+ * its talk time, and its one final workflow event.
+ */
+export function statusChange(call: {direction: CallDirection; startedAt: string; answeredAt?: string | null}, next: CallStatus, at: string, reportedSeconds: number | null | undefined) {
+  const final = isFinal(next);
+  const answeredAt = next === "IN_PROGRESS" ? at
+    // Only the final status was reported: answered at the end minus the talk time, never before the call started.
+    : next === "COMPLETED" && !call.answeredAt ? new Date(Math.max(Date.parse(call.startedAt), Date.parse(at) - (reportedSeconds ?? 0) * 1000)).toISOString()
+    : null;
+  return {
+    answeredAt, endedAt: final ? at : null,
+    durationSeconds: final && next === "COMPLETED" ? reportedSeconds ?? null : final ? 0 : null,
+    trigger: final ? finalCallTrigger(call.direction, next) : null,
+  };
+}

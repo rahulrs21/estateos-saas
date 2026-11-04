@@ -642,6 +642,22 @@ export function registerCommunicationCases({sdk: generated, run, forbidden, dc})
       assert.equal(facts.call.callStatus, "COMPLETED");
       assert.equal(key(facts.call.agentMembershipId), key(f.memberAgentA));
       assert.equal(facts.answeredCalls.length, 1, "an answered call counts as contact with the lead");
+
+      // A stored Claude summary writes call.summary_ready in the same transaction; one made by a workflow step carries its lineage.
+      const summaryJson = JSON.stringify({suggestions: []});
+      const fromMember = randomUUID(), fromWorkflow = randomUUID(), workflowId = randomUUID(), executionId = randomUUID(), originalEventId = randomUUID();
+      const summary = (id, extra = {}) => server(sdk.createCallAiSummary, {organizationId: f.orgA, id, callId: answered.id, actorUid: "agent-a", sourceKind: "NOTES", hasTranscript: false, transcriptId: null,
+        summaryJson, overallConfidence: "LOW", unverifiedCount: 0, model: "synthetic", promptVersion: "call-summary-1", ...extra});
+      await summary(fromMember);
+      await summary(fromWorkflow, {originalEventId, parentExecutionId: executionId, originWorkflowId: workflowId, chainDepth: 1});
+      const ready = (await events(answered.id)).filter(row => row.triggerType === "call.summary_ready");
+      assert.equal(ready.length, 2);
+      assert.deepEqual(ready.map(row => row.origin).sort(), ["CRM", "WORKFLOW"]);
+      const lineage = (await dc.executeGraphql(`query L($org: UUID!, $workflow: UUID!) { automationEvents(where: {organizationId: {eq: $org}, originWorkflowId: {eq: $workflow}}) { chainDepth originWorkflowId triggerType } }`,
+        {variables: {org: f.orgA, workflow: workflowId}})).data.automationEvents[0];
+      assert.equal(lineage.triggerType, "call.summary_ready");
+      assert.equal(lineage.chainDepth, 1);
+      assert.equal(key(lineage.originWorkflowId), key(workflowId), "loop prevention sees which workflow made the summary");
     });
 
     it("schedules meetings for accessible leads only, with the link rules, and writes meeting.scheduled", async () => {
@@ -698,6 +714,63 @@ export function registerCommunicationCases({sdk: generated, run, forbidden, dc})
       assert.equal(manager.meetings.length, 0);
       await forbidden(sdk.communicationReport, "owner-b", {organizationId: f.orgA, ...range});
       await forbidden(sdk.communicationReport, "owner-a", {organizationId: f.orgA, from: range.from, to: new Date(Date.now() + 100 * 86_400_000).toISOString()});
+    });
+  });
+
+  describe("Developer communication simulator (server-only operations)", {concurrency: false}, () => {
+    const key = value => String(value).replaceAll("-", "").toLowerCase();
+    const server = async (operation, variables) => (await operation(dc, variables)).data;
+    const rejectsWith = (promise, token) => assert.rejects(promise, error => String(error?.message ?? error).includes(token), token);
+    let simLead, realLead, simCall;
+    const start = (extra = {}) => server(sdk.createSimulatedCall, {organizationId: f.orgA, id: randomUUID(), actorUid: "owner-a", leadId: simLead, direction: sdk.CallDirection.INBOUND,
+      callType: sdk.CallType.INBOUND_ENQUIRY, counterpartyNumber: null, startedAt: new Date(Date.now() - 60_000).toISOString(), ...extra});
+    const apply = extra => server(sdk.applySimulatedCallStatus, {organizationId: f.orgA, id: simCall, actorUid: "owner-a", expectedStatus: sdk.CallStatus.INITIATED, callStatus: sdk.CallStatus.RINGING,
+      answeredAt: null, endedAt: null, durationSeconds: null, outcome: null, emitFinal: false, finalTrigger: "call.completed", ...extra});
+
+    it("runs only for owners and administrators, only on registered fictional leads, and never as a member operation", async () => {
+      simLead = (await run(sdk.createLead, "owner-a", {organizationId: f.orgA, fullName: "[SIM] Test customer DB", phone: "+447700900321", normalizedPhone: "+447700900321", source: "EstateOS simulator"})).lead.id;
+      realLead = (await run(sdk.createLead, "owner-a", {organizationId: f.orgA, fullName: `Real customer ${randomUUID().slice(0, 6)}`})).lead.id;
+      await forbidden(sdk.registerSimulationLead, "owner-a", {organizationId: f.orgA, id: randomUUID(), actorUid: "owner-a", leadId: simLead, label: "x"});
+      await rejectsWith(server(sdk.registerSimulationLead, {organizationId: f.orgA, id: randomUUID(), actorUid: "agent-a", leadId: simLead, label: "x"}), "SIMULATION_ADMIN_REQUIRED");
+      await rejectsWith(server(sdk.registerSimulationLead, {organizationId: f.orgB, id: randomUUID(), actorUid: "owner-a", leadId: simLead, label: "x"}), "SIMULATION_ADMIN_REQUIRED");
+      await server(sdk.registerSimulationLead, {organizationId: f.orgA, id: randomUUID(), actorUid: "owner-a", leadId: simLead, label: "Simulator lead DB"});
+      await rejectsWith(start({leadId: realLead}), "SIMULATION_LEAD_REQUIRED");
+      await rejectsWith(start({actorUid: "manager-a"}), "SIMULATION_ADMIN_REQUIRED");
+      await forbidden(sdk.createSimulatedCall, "owner-a", {organizationId: f.orgA, id: randomUUID(), actorUid: "owner-a", leadId: simLead, direction: sdk.CallDirection.INBOUND, callType: sdk.CallType.INBOUND_ENQUIRY, counterpartyNumber: null, startedAt: new Date().toISOString()});
+      simCall = randomUUID();
+      await start({id: simCall});
+      const {call} = await run(sdk.getCallRecord, "owner-a", {organizationId: f.orgA, id: simCall});
+      assert.equal(call.source, "SIMULATED");
+      assert.equal(key(call.agentMembershipId), key(f.memberOwnerA));
+    });
+
+    it("applies statuses with compare-and-set and the call's one final event, on simulated calls only", async () => {
+      await apply({});
+      await rejectsWith(apply({}), "CALL_STATUS_CHANGED");
+      await apply({expectedStatus: sdk.CallStatus.RINGING, callStatus: sdk.CallStatus.NO_ANSWER, endedAt: new Date().toISOString(), durationSeconds: 0, emitFinal: true, finalTrigger: "call.missed"});
+      const events = (await dc.executeGraphql(`query E($org: UUID!, $id: UUID!) { automationEvents(where: {organizationId: {eq: $org}, targetId: {eq: $id}}) { triggerType origin } }`, {variables: {org: f.orgA, id: simCall}})).data.automationEvents;
+      assert.deepEqual(events.map(row => `${row.triggerType}/${row.origin}`).sort(), ["call.missed/SIMULATOR", "call.started/SIMULATOR"]);
+      const manual = randomUUID();
+      await run(sdk.logLeadCall, "owner-a", {organizationId: f.orgA, id: manual, leadId: realLead, direction: sdk.CallDirection.OUTBOUND, callType: sdk.CallType.FOLLOW_UP, callStatus: sdk.CallStatus.NO_ANSWER,
+        outcome: null, startedAt: new Date(Date.now() - 60_000).toISOString(), durationSeconds: 0, notes: null, counterpartyNumber: null, followUpRequired: false, hasViewing: false, viewingId: null, suppress: false, suppressionId: randomUUID()});
+      await rejectsWith(apply({id: manual, expectedStatus: sdk.CallStatus.NO_ANSWER, callStatus: sdk.CallStatus.COMPLETED}), "CALL_NOT_FOUND");
+    });
+
+    it("reset removes only simulated calls and simulator meetings, and archives only registered leads", async () => {
+      const realCalls = async () => (await run(sdk.listLeadCalls, "owner-a", {organizationId: f.orgA, leadId: realLead, limit: 20, offset: 0})).calls.length;
+      const before = await realCalls();
+      await rejectsWith(server(sdk.resetCommunicationSimulation, {organizationId: f.orgA, actorUid: "agent-a"}), "SIMULATION_ADMIN_REQUIRED");
+      const result = await server(sdk.resetCommunicationSimulation, {organizationId: f.orgA, actorUid: "owner-a"});
+      assert.ok(result.calls >= 1 && result.leads >= 1, JSON.stringify(result));
+      assert.equal(await realCalls(), before, "real calls are untouched");
+      const leads = (await dc.executeGraphql(`query L($org: UUID!, $sim: UUID!, $real: UUID!) { sim: lead(key: {organizationId: $org, id: $sim}) { archivedAt } real: lead(key: {organizationId: $org, id: $real}) { archivedAt } }`,
+        {variables: {org: f.orgA, sim: simLead, real: realLead}})).data;
+      assert.ok(leads.sim.archivedAt, "the fictional lead is archived, its history kept");
+      assert.equal(leads.real.archivedAt, null, "real leads are untouched");
+      assert.equal((await dc.executeGraphql(`query C($org: UUID!) { callRecords(where: {organizationId: {eq: $org}, source: {eq: SIMULATED}}) { id } }`, {variables: {org: f.orgA}})).data.callRecords.length, 0);
+      const state = await server(sdk.communicationSimulationState, {organizationId: f.orgA, actorUid: "owner-a"});
+      assert.equal(state.records.length, 0);
+      await rejectsWith(server(sdk.communicationSimulationState, {organizationId: f.orgA, actorUid: "owner-b"}), "SIMULATION_ADMIN_REQUIRED");
     });
   });
 }

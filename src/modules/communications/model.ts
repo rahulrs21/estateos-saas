@@ -8,8 +8,8 @@
 export const CALL_DIRECTIONS = ["OUTBOUND", "INBOUND"] as const;
 export type CallDirection = (typeof CALL_DIRECTIONS)[number];
 
-/** MANUAL: logged by the agent afterwards. PROVIDER: created from a verified provider's signed events. */
-export const CALL_SOURCES = ["MANUAL", "PROVIDER"] as const;
+/** MANUAL: logged by the agent afterwards. PROVIDER: created from a verified provider's signed events. SIMULATED: developer simulator only (synthetic, never real activity). */
+export const CALL_SOURCES = ["MANUAL", "PROVIDER", "SIMULATED"] as const;
 export type CallSource = (typeof CALL_SOURCES)[number];
 
 export const CALL_TYPES = ["SERVICE", "FOLLOW_UP", "MARKETING", "INBOUND_ENQUIRY"] as const;

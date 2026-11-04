@@ -16,7 +16,7 @@ query CommunicationReport($organizationId: UUID!, $from: Timestamp!, $to: Timest
     {organizerMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
     {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
   ]}]}, orderBy: [{startsAt: DESC}, {id: ASC}], limit: 2000) {
-    status organizerMembershipId organizerMembership {email userProfile {displayName}}
+    status organizerMembershipId organizerMembership {email userProfile {displayName}} lead {communicationSimulationRecord_on_lead {id}}
   }
   agents: memberships(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}, orderBy: [{createdAt: ASC}], limit: 200) {
     id email userProfile {displayName}

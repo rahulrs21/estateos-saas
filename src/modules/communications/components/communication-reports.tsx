@@ -18,13 +18,15 @@ function Stat({label, value, note}: {label: string; value: string | number; note
 /** Calls and meetings over a period: attempts, answered calls, conversations and outcomes kept apart. */
 export function CommunicationReports() {
   const [filters, setFilters] = useState<{from?: string; to?: string; agent?: string}>({});
+  /** Developer tools only: simulated records are never counted unless asked for. */
+  const [withSimulated, setWithSimulated] = useState(false);
   const [view, setView] = useState<CommunicationReportView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(() => {
-    const query = new URLSearchParams(Object.entries(filters).filter((entry): entry is [string, string] => Boolean(entry[1])));
+    const query = new URLSearchParams(Object.entries({...filters, includeSimulated: withSimulated ? "1" : undefined}).filter((entry): entry is [string, string] => Boolean(entry[1])));
     return communicationsGet<CommunicationReportView>(`/api/communications/reports?${query}`, "The report could not be loaded.")
       .then(result => { setView(result); setError(null); }, problem => setError(errorMessage(problem, "The report could not be loaded.")));
-  }, [filters]);
+  }, [filters, withSimulated]);
   useEffect(() => { void load(); }, [load]);
   function apply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,6 +46,9 @@ export function CommunicationReports() {
     {error ? <div className="space-y-2"><p role="alert" className="text-sm text-destructive">{error}</p><Button size="sm" variant="outline" onClick={() => void load()}><RefreshCw aria-hidden />Try again</Button></div>
       : !view ? <div role="status" className="animate-pulse rounded-xl border p-6 text-sm text-muted-foreground">Loading the report…</div>
       : <>
+        {view.simulated.available && <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground" data-testid="include-simulated">
+      <input type="checkbox" className="size-4 accent-primary" checked={withSimulated} onChange={event => setWithSimulated(event.target.checked)} />
+      Include simulated records (developer tools; {view.simulated.calls} calls, {view.simulated.meetings} meetings in this period). They are labelled SIMULATED and never count otherwise.</label>}
         {view.truncated && <p role="note" className="text-sm text-amber-700 dark:text-amber-300">This period has more than 5,000 calls; the figures cover the latest 5,000. Choose a shorter period.</p>}
         <section aria-label="Totals" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Stat label="Outgoing attempts" value={view.totals.attempts} note={`${view.totals.answered} answered${view.totals.attempts ? ` (${Math.round(view.totals.answered / view.totals.attempts * 100)}%)` : ""}`} />

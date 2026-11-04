@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  CALL_SUMMARY_JSON, CALL_SUMMARY_SYSTEM_PROMPT, SUGGESTION_KINDS, callSummaryZod, checkSummary, minimizePersonalData, sourceLines, sourceText, type CallSummaryOutput,
+  CALL_SUMMARY_JSON, CALL_SUMMARY_SYSTEM_PROMPT, SUGGESTION_KINDS, callSummaryWireZod, callSummaryZod, checkSummary, minimizePersonalData, sourceLines, sourceText, summaryFromWire, type CallSummaryOutput,
 } from "../src/modules/communications/intelligence";
 
 // A synthetic transcript of a fictional customer; nothing here is real.
@@ -75,4 +75,32 @@ test("the output schema allows only the listed suggestion kinds and no extra fie
   assert.equal(callSummaryZod.safeParse({...recorded, updateLead: {budgetMax: 1}}).success, false, "no fields beyond the schema");
   assert.equal(CALL_SUMMARY_JSON.additionalProperties, false);
   assert.equal(callSummaryZod.safeParse({...recorded, requirements: [{...recorded.requirements[0], evidence: Array(5).fill({ref: "T1", quote: "x"})}]}).success, false, "evidence lists are bounded");
+});
+
+test("Claude's flat answer maps to the stored summary, and the output schema stays small enough to compile", () => {
+  const lines = sourceLines({kind: "TRANSCRIPT", segments});
+  const point = (section: string, text: string, ref: string, quote: string, basis: "STATED" | "INFERRED" = "STATED") => ({section, text, basis, confidence: "HIGH", ref, quote});
+  const wire = callSummaryWireZod.parse({
+    points: [point("REASON", "Enquiry about Marina Heights", "T1", "calling about Marina Heights"), point("REASON", "Second reason is dropped", "T1", "x"),
+      point("REQUIREMENT", "Two-bedroom apartment", "T2", "I want a two-bedroom apartment"), point("BUDGET", "AED 2.1 million", "T2", "my budget is 2.1 million dirhams"),
+      point("NEXT_STEP", "Arrange a viewing", "T5", "", "INFERRED")],
+    suggestions: [{kind: "SHARE_PAYMENT_PLAN", title: "Share the payment plan", text: "Send it", basis: "STATED", confidence: "HIGH", ref: "T3", quote: "send me the payment plan"}],
+    overallConfidence: "HIGH", limitations: "Short call.",
+  });
+  const mapped = summaryFromWire(wire);
+  assert.equal(mapped.reasonForCall?.text, "Enquiry about Marina Heights", "at most one reason");
+  assert.equal(mapped.requirements.length, 1);
+  assert.deepEqual(mapped.budget?.evidence, [{ref: "T2", quote: "my budget is 2.1 million dirhams"}]);
+  assert.deepEqual(mapped.nextSteps[0].evidence, [], "an empty quote is no evidence");
+  const checked = checkSummary(mapped, lines);
+  assert.equal(checked.budget?.verified, true);
+  assert.equal(checked.nextSteps[0].verified, false, "a point without a quote is not verified");
+  assert.equal(callSummaryWireZod.safeParse({...wire, points: [{...wire.points[0], section: "SEND_WHATSAPP"}]}).success, false, "unknown sections are rejected");
+  assert.equal(callSummaryWireZod.safeParse({...wire, updateLead: true}).success, false);
+  // The API refused the earlier per-section schema with nested evidence lists as too large to compile:
+  // keep one level of arrays (points and suggestions) of flat objects.
+  const nested = (schema: unknown, depth = 0): number => !schema || typeof schema !== "object" ? depth
+    : Math.max(depth, ...Object.values(schema as Record<string, unknown>).map(value => nested(value, (value as {type?: string})?.type === "array" ? depth + 1 : depth)));
+  assert.equal(nested(CALL_SUMMARY_JSON), 1);
+  assert.ok(JSON.stringify(CALL_SUMMARY_JSON).length < 1500, "a compact schema");
 });

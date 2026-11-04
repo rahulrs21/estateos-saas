@@ -1,0 +1,87 @@
+# Developer communication simulator (docs/COMMUNICATION_TESTING.md).
+# Server only: the routes exist only with ESTATEOS_DEV_TOOLS=1 on local
+# emulators outside production, and every operation re-checks that the actor
+# is an active OWNER or ADMIN of the company. Simulated calls (source
+# SIMULATED) are created only on leads in the simulator registry; cleanup
+# reaches only simulated calls and records linked to registered leads.
+
+query CommunicationSimulationState($organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "SIMULATION_ADMIN_REQUIRED") {id}
+  records: communicationSimulationRecords(where: {organizationId: {eq: $organizationId}, archivedAt: {isNull: true}}, orderBy: [{createdAt: DESC}], limit: 50) {
+    id leadId label createdAt lead {id fullName contactId phone}
+  }
+  calls: callRecords(where: {organizationId: {eq: $organizationId}, source: {eq: SIMULATED}}, orderBy: [{createdAt: DESC}, {id: ASC}], limit: 30) {
+    id leadId direction callType callStatus outcome startedAt answeredAt durationSeconds revision createdAt lead {fullName}
+  }
+  archived: communicationSimulationRecords(where: {organizationId: {eq: $organizationId}, archivedAt: {isNull: false}}, limit: 1) {id}
+}
+
+mutation RegisterSimulationLead($organizationId: UUID!, $id: UUID!, $actorUid: String!, $leadId: UUID!, $label: String!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "SIMULATION_ADMIN_REQUIRED") {id}
+    lead: lead(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}}) @check(expr: "this != null", message: "SIMULATION_LEAD_REQUIRED") {id}
+  }
+  communicationSimulationRecord_insert(data: {organizationId: $organizationId, id: $id, leadId: $leadId, label: $label, createdByUid: $actorUid})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: COMMUNICATION_SIMULATION_CHANGED, targetType: COMMUNICATION_SIMULATION, targetId: $id, metadata_expr: "{'event': 'LEAD_REGISTERED', 'leadId': vars.leadId}"})
+}
+
+# A simulated call starts on a registered lead, attributed to the acting member, with the call.started workflow event.
+mutation CreateSimulatedCall($organizationId: UUID!, $id: UUID!, $actorUid: String!, $leadId: UUID!, $direction: CallDirection!, $callType: CallType!, $counterpartyNumber: String, $startedAt: Timestamp!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "SIMULATION_ADMIN_REQUIRED") {id}
+    record: communicationSimulationRecord(first: {where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, archivedAt: {isNull: true}, lead: {archivedAt: {isNull: true}}}}) @check(expr: "this != null", message: "SIMULATION_LEAD_REQUIRED") {lead {contactId}}
+  }
+  call: callRecord_insert(data: {organizationId: $organizationId, id: $id, leadId: $leadId, contactId_expr: "response.before.record.lead.contactId", agentMembershipId_expr: "response.before.admin.id",
+    direction: $direction, source: SIMULATED, callType: $callType, callStatus: INITIATED, counterpartyNumber: $counterpartyNumber,
+    recipientNumber_expr: "vars.direction == 'OUTBOUND' ? vars.counterpartyNumber : dyn(null)", callerNumber_expr: "vars.direction == 'INBOUND' ? vars.counterpartyNumber : dyn(null)",
+    startedAt: $startedAt, notes: "Simulated call (developer simulator; no call was placed).", createdByUid: $actorUid, updatedByUid: $actorUid})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: COMMUNICATION_SIMULATION_CHANGED, targetType: CALL, targetId: $id, metadata_expr: "{'event': 'CALL_SIMULATED', 'direction': vars.direction}"})
+  automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'call:' + vars.id + ':started'", triggerType: "call.started", targetType: "CALL", targetId: $id, actorUid: $actorUid, origin: "SIMULATOR",
+    payload_expr: "{'leadId': vars.leadId, 'simulated': true}"})
+}
+
+# The same compare-and-set move as ApplyProviderCallStatus, for simulated calls only, with the call's one final workflow event.
+mutation ApplySimulatedCallStatus($organizationId: UUID!, $id: UUID!, $actorUid: String!, $expectedStatus: CallStatus!, $callStatus: CallStatus!, $answeredAt: Timestamp, $endedAt: Timestamp,
+  $durationSeconds: Int, $outcome: CallOutcome, $emitFinal: Boolean!, $finalTrigger: String!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "SIMULATION_ADMIN_REQUIRED") {id}
+    call: callRecord(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, source: {eq: SIMULATED}}}) @check(expr: "this != null", message: "CALL_NOT_FOUND") {answeredAt endedAt durationSeconds leadId}
+  }
+  call: callRecord_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, source: {eq: SIMULATED}, callStatus: {eq: $expectedStatus}}}, data: {callStatus: $callStatus, outcome: $outcome,
+    answeredAt_expr: "has(vars.answeredAt) && vars.answeredAt != null ? vars.answeredAt : response.before.call.answeredAt",
+    endedAt_expr: "has(vars.endedAt) && vars.endedAt != null ? vars.endedAt : response.before.call.endedAt",
+    durationSeconds_expr: "has(vars.durationSeconds) && vars.durationSeconds != null ? vars.durationSeconds : response.before.call.durationSeconds",
+    revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "CALL_STATUS_CHANGED")
+  automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'call:' + vars.id + ':final'", triggerType: $finalTrigger, targetType: "CALL", targetId: $id, actorUid: $actorUid, origin: "SIMULATOR",
+    payload_expr: "{'leadId': response.before.call.leadId, 'simulated': true}"}) @include(if: $emitFinal)
+}
+
+# Files of simulated calls, removed from storage before the rows.
+query SimulatedCallFiles($organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "SIMULATION_ADMIN_REQUIRED") {id}
+  recordings: callRecordings(where: {organizationId: {eq: $organizationId}, call: {source: {eq: SIMULATED}}}, limit: 500) {storagePath}
+  transcripts: callTranscripts(where: {organizationId: {eq: $organizationId}, call: {source: {eq: SIMULATED}}}, limit: 500) {transcriptReference}
+}
+
+# Reset: deletes simulated calls with everything attached to them and meetings on registered leads,
+# then archives the registered leads (their history stays for audit). Workflow events and executions
+# are kept as history; their events are marked origin SIMULATOR.
+mutation ResetCommunicationSimulation($organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "SIMULATION_ADMIN_REQUIRED") {id}
+  }
+  suggestions: callAiSuggestion_deleteMany(where: {organizationId: {eq: $organizationId}, call: {source: {eq: SIMULATED}}})
+  summaries: callAiSummary_deleteMany(where: {organizationId: {eq: $organizationId}, call: {source: {eq: SIMULATED}}})
+  transcripts: callTranscript_deleteMany(where: {organizationId: {eq: $organizationId}, call: {source: {eq: SIMULATED}}})
+  recordings: callRecording_deleteMany(where: {organizationId: {eq: $organizationId}, call: {source: {eq: SIMULATED}}})
+  consents: callConsentEvidence_deleteMany(where: {organizationId: {eq: $organizationId}, call: {source: {eq: SIMULATED}}})
+  calls: callRecord_deleteMany(where: {organizationId: {eq: $organizationId}, source: {eq: SIMULATED}})
+  attendees: communicationMeetingAttendee_deleteMany(where: {organizationId: {eq: $organizationId}, meeting: {lead: {communicationSimulationRecord_on_lead: {organizationId: {eq: $organizationId}}}}})
+  meetings: communicationMeeting_deleteMany(where: {organizationId: {eq: $organizationId}, lead: {communicationSimulationRecord_on_lead: {organizationId: {eq: $organizationId}}}})
+  leads: lead_updateMany(where: {organizationId: {eq: $organizationId}, archivedAt: {isNull: true}, communicationSimulationRecord_on_lead: {organizationId: {eq: $organizationId}}}, data: {archivedAt_expr: "request.time"})
+  records: communicationSimulationRecord_updateMany(where: {organizationId: {eq: $organizationId}, archivedAt: {isNull: true}}, data: {archivedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: COMMUNICATION_SIMULATION_CHANGED, targetType: COMMUNICATION_SIMULATION, targetId: $organizationId, metadata_expr: "{'event': 'RESET'}"})
+}

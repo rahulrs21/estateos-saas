@@ -5,6 +5,7 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { isMissed } from "../call-state";
 import { callTotals, outcomeCounts, totalsByAgent, type MetricCall } from "../metrics";
 import { CALL_DIRECTIONS, CALL_OUTCOMES, CALL_SOURCES, CALL_STATUSES, type CallDirection, type CallOutcome, type CallStatus } from "../model";
+import { devToolsEnabled } from "../dev/guard";
 import { presentCall } from "./calls";
 import { asMember, isAdministrator, sdk, type Context } from "./data";
 import { idSchema, parseInput } from "./validation";
@@ -26,6 +27,8 @@ const listSchema = z.strictObject({
   callStatus: z.enum(CALL_STATUSES).optional(),
   outcome: z.enum(CALL_OUTCOMES).optional(),
   source: z.enum(CALL_SOURCES).optional(),
+  /** Developer simulator records are never counted unless developer tools are on and they are asked for. */
+  includeSimulated: z.enum(["1"]).optional(),
   agent: idSchema.optional(),
   from: date,
   to: date,
@@ -35,6 +38,9 @@ const listSchema = z.strictObject({
 /** A Dubai calendar day as an instant (the hub shows Dubai dates). */
 const dubaiDay = (value: string, nextDay = false) => new Date(Date.parse(`${value}T00:00:00+04:00`) + (nextDay ? DAY_MS : 0)).toISOString();
 
+/** Simulated records are shown only on request and only where developer tools are enabled (never in production). */
+export const includeSimulated = (flag: string | undefined) => flag === "1" && devToolsEnabled();
+
 export async function listCalls(context: Context, query: unknown) {
   const filters = parseInput(listSchema, query);
   if (filters.agent && !isAdministrator(context)) throw new WorkspaceError("PERMISSION_DENIED", 403, "Only owners and administrators can filter by agent.");
@@ -42,6 +48,7 @@ export async function listCalls(context: Context, query: unknown) {
     organizationId: context.organizationId, limit: PAGE_SIZE, offset: filters.offset,
     direction: filters.direction ? sdk.CallDirection[filters.direction] : undefined, callStatus: filters.callStatus ? sdk.CallStatus[filters.callStatus] : undefined,
     outcome: filters.outcome ? sdk.CallOutcome[filters.outcome] : undefined, source: filters.source ? sdk.CallSource[filters.source] : undefined,
+    excludeSource: includeSimulated(filters.includeSimulated) ? undefined : sdk.CallSource.SIMULATED,
     agentMembershipId: filters.agent, startedFrom: filters.from ? dubaiDay(filters.from) : undefined, startedBefore: filters.to ? dubaiDay(filters.to, true) : undefined,
   }, options));
   const total = data.total[0]?.count ?? 0;
@@ -53,11 +60,14 @@ export async function listCalls(context: Context, query: unknown) {
 }
 export type CallListView = Awaited<ReturnType<typeof listCalls>>;
 
-export async function communicationDashboard(context: Context) {
+export async function communicationDashboard(context: Context, query: Record<string, string> = {}) {
+  const withSimulated = includeSimulated(query.includeSimulated);
   const now = new Date();
   const data = await asMember(context, "CommunicationDashboard", (dc, options) => sdk.communicationDashboard(dc, {
     organizationId: context.organizationId, since: new Date(now.getTime() - DASHBOARD_DAYS * DAY_MS).toISOString(), now: now.toISOString(), until: new Date(now.getTime() + 7 * DAY_MS).toISOString(),
   }, options));
+  const simulated = data.calls.filter(call => call.source === "SIMULATED").length;
+  if (!withSimulated) data.calls = data.calls.filter(call => call.source !== "SIMULATED");
   const metricCalls: MetricCall[] = data.calls.map(call => ({
     direction: call.direction as CallDirection, callStatus: call.callStatus as CallStatus, answeredAt: call.answeredAt ?? null, outcome: (call.outcome ?? null) as CallOutcome | null,
     durationSeconds: call.durationSeconds, agentId: call.agentMembershipId, agentName: call.agentMembership.userProfile?.displayName || call.agentMembership.email,
@@ -65,6 +75,7 @@ export async function communicationDashboard(context: Context) {
   const calls = data.calls.map(call => presentCall(context, {...call, notes: null, revision: 0, followUp: null, viewing: null}));
   return {
     periodDays: DASHBOARD_DAYS,
+    simulated: {available: devToolsEnabled(), included: withSimulated, count: simulated},
     truncated: data.calls.length >= DASHBOARD_LIMIT,
     companyWide: isAdministrator(context),
     totals: callTotals(metricCalls),

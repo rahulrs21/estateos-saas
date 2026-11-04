@@ -15,8 +15,8 @@ import { generateStructured, type StructuredResult } from "@/modules/ai/structur
 import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import {
-  CALL_SUMMARY_JSON, CALL_SUMMARY_PROMPT_VERSION, CALL_SUMMARY_SYSTEM_PROMPT, SUGGESTION_KINDS, callSummaryTask, callSummaryZod, checkSummary, sourceLines, sourceText,
-  type CallSummaryOutput, type CheckedSummary, type SourceLine, type SuggestionKind,
+  CALL_SUMMARY_JSON, CALL_SUMMARY_PROMPT_VERSION, CALL_SUMMARY_SYSTEM_PROMPT, SUGGESTION_KINDS, callSummaryTask, callSummaryWireZod, checkSummary, sourceLines, sourceText, summaryFromWire,
+  type CallSummaryWire, type CheckedSummary, type SourceLine, type SuggestionKind,
 } from "../intelligence";
 import type { TranscriptSegment } from "../media";
 import { asMember, asServer, isAdministrator, sdk, type Context } from "./data";
@@ -96,18 +96,18 @@ export async function claudeSummary(context: Context, input: {kind: "TRANSCRIPT"
   const startedAt = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new WorkspaceError("AI_TIMEOUT", 504, "Claude took too long to respond. Try again.")), config.requestTimeoutMs + 5_000);
-  let result: StructuredResult<CallSummaryOutput>;
+  let result: StructuredResult<CallSummaryWire>;
   try {
     result = await generateStructured({
       config, maxOutputTokens: Math.min(config.maxOutputTokens, MAX_OUTPUT_TOKENS), system: CALL_SUMMARY_SYSTEM_PROMPT, factsText: facts, instructionsText: input.task,
-      jsonSchema: CALL_SUMMARY_JSON, zod: callSummaryZod, createStream: modelStreamFactory(config), signal: controller.signal, mapError: logAndMapProviderError, messages: SUMMARY_MESSAGES,
+      jsonSchema: CALL_SUMMARY_JSON, zod: callSummaryWireZod, createStream: modelStreamFactory(config), signal: controller.signal, mapError: logAndMapProviderError, messages: SUMMARY_MESSAGES,
     });
   } finally { clearTimeout(timeout); }
   if (result.status !== "SUCCEEDED" && result.usage.modelRequests === 0) await reservation.release();
   const usage = await recordCommunicationAiUsage(context, config, {result: result as StructuredResult<unknown>, durationMs: Date.now() - startedAt, feature: "CALL_AI", contentType: input.contentType, promptVersion: CALL_SUMMARY_PROMPT_VERSION});
   console.info(JSON.stringify({event: "ai.call_summary", contentType: input.contentType, status: result.status, errorCode: result.error?.code ?? null, model: usage.model, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, durationMs: Date.now() - startedAt}));
   if (result.status !== "SUCCEEDED" || !result.output) throw result.error ?? new WorkspaceError("AI_UNAVAILABLE", 503, "Claude could not produce a summary. Try again.");
-  return {checked: checkSummary(result.output, input.lines), model: usage.model};
+  return {checked: checkSummary(summaryFromWire(result.output), input.lines), model: usage.model};
 }
 
 interface Lineage {originalEventId: string; parentExecutionId: string; originWorkflowId: string; chainDepth: number}

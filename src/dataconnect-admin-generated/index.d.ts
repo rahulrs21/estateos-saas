@@ -119,6 +119,7 @@ export enum ActivityKind {
   MEETING_UPDATED = "MEETING_UPDATED",
   MEETING_COMPLETED = "MEETING_COMPLETED",
   MEETING_SUMMARY_CHANGED = "MEETING_SUMMARY_CHANGED",
+  COMMUNICATION_SIMULATION_CHANGED = "COMMUNICATION_SIMULATION_CHANGED",
 }
 export enum AgentAvailabilityStatus {
   AVAILABLE = "AVAILABLE",
@@ -234,6 +235,7 @@ export enum AuditTargetType {
   VOICE_ASSISTANT = "VOICE_ASSISTANT",
   VOICE_TEST_SESSION = "VOICE_TEST_SESSION",
   MEETING = "MEETING",
+  COMMUNICATION_SIMULATION = "COMMUNICATION_SIMULATION",
 }
 export enum AutomationApprovalStatus {
   PENDING = "PENDING",
@@ -321,6 +323,7 @@ export enum CallOutcome {
 export enum CallSource {
   MANUAL = "MANUAL",
   PROVIDER = "PROVIDER",
+  SIMULATED = "SIMULATED",
 }
 export enum CallStatus {
   INITIATED = "INITIATED",
@@ -975,6 +978,25 @@ export interface ApplyProviderCallStatusVariables {
   durationSeconds?: number | null;
   emitFinal?: boolean;
   finalTrigger?: string;
+}
+
+export interface ApplySimulatedCallStatusData {
+  call?: CallRecord_Key | null;
+  automationEvent_insert: AutomationEvent_Key;
+}
+
+export interface ApplySimulatedCallStatusVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  expectedStatus: CallStatus;
+  callStatus: CallStatus;
+  answeredAt?: TimestampString | null;
+  endedAt?: TimestampString | null;
+  durationSeconds?: number | null;
+  outcome?: CallOutcome | null;
+  emitFinal: boolean;
+  finalTrigger: string;
 }
 
 export interface ApproveAutomationWorkflowData {
@@ -1896,6 +1918,11 @@ export interface CommunicationReportData {
         displayName: string;
       };
     };
+    lead?: {
+      communicationSimulationRecord_on_lead?: {
+        id: UUIDString;
+      };
+    };
   })[];
   agents: ({
     id: UUIDString;
@@ -1916,6 +1943,54 @@ export interface CommunicationReportVariables {
 export interface CommunicationSettings_Key {
   organizationId: UUIDString;
   __typename?: 'CommunicationSettings_Key';
+}
+
+export interface CommunicationSimulationRecord_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'CommunicationSimulationRecord_Key';
+}
+
+export interface CommunicationSimulationStateData {
+  admin?: {
+    id: UUIDString;
+  };
+  records: ({
+    id: UUIDString;
+    leadId: UUIDString;
+    label: string;
+    createdAt: TimestampString;
+    lead: {
+      id: UUIDString;
+      fullName: string;
+      contactId?: UUIDString | null;
+      phone?: string | null;
+    };
+  })[];
+  calls: ({
+    id: UUIDString;
+    leadId?: UUIDString | null;
+    direction: CallDirection;
+    callType: CallType;
+    callStatus: CallStatus;
+    outcome?: CallOutcome | null;
+    startedAt: TimestampString;
+    answeredAt?: TimestampString | null;
+    durationSeconds: number;
+    revision: number;
+    createdAt: TimestampString;
+    lead?: {
+      fullName: string;
+    };
+  })[];
+  archived: ({
+    id: UUIDString;
+  })[];
+}
+
+export interface CommunicationSimulationStateVariables {
+  organizationId: UUIDString;
+  actorUid: string;
 }
 
 export interface CommunicationSuppression_Key {
@@ -2755,6 +2830,23 @@ export interface CreatePropertyVariables {
   assignedMembershipId?: UUIDString | null;
   occupancyStatus: OccupancyStatus;
   inventoryStatus: InventoryStatus;
+}
+
+export interface CreateSimulatedCallData {
+  call: CallRecord_Key;
+  auditLog_insert: AuditLog_Key;
+  automationEvent_insert: AutomationEvent_Key;
+}
+
+export interface CreateSimulatedCallVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  leadId: UUIDString;
+  direction: CallDirection;
+  callType: CallType;
+  counterpartyNumber?: string | null;
+  startedAt: TimestampString;
 }
 
 export interface CreateVoiceAssistantConfigData {
@@ -6839,6 +6931,7 @@ export interface ListCallsVariables {
   callStatus?: CallStatus | null;
   outcome?: CallOutcome | null;
   source?: CallSource | null;
+  excludeSource?: CallSource | null;
   agentMembershipId?: UUIDString | null;
   startedFrom?: TimestampString | null;
   startedBefore?: TimestampString | null;
@@ -9821,6 +9914,19 @@ export interface RegenerateAiContentDraftVariables {
   generatedAt: TimestampString;
 }
 
+export interface RegisterSimulationLeadData {
+  communicationSimulationRecord_insert: CommunicationSimulationRecord_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface RegisterSimulationLeadVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  leadId: UUIDString;
+  label: string;
+}
+
 export interface ReinviteRevokedInvitationData {
   invitation?: Invitation_Key | null;
   membership?: Membership_Key | null;
@@ -9982,6 +10088,25 @@ export interface ReserveAutomationAiCallVariables {
   jobToken: UUIDString;
   periodKey: string;
   dailyLimit: number;
+}
+
+export interface ResetCommunicationSimulationData {
+  suggestions: number;
+  summaries: number;
+  transcripts: number;
+  recordings: number;
+  consents: number;
+  calls: number;
+  attendees: number;
+  meetings: number;
+  leads: number;
+  records: number;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface ResetCommunicationSimulationVariables {
+  organizationId: UUIDString;
+  actorUid: string;
 }
 
 export interface ResolveProviderCallData {
@@ -10595,6 +10720,23 @@ export interface SettleAutomationExecutionVariables {
   runAt: TimestampString;
   completedAt?: TimestampString | null;
   durationMs?: number | null;
+}
+
+export interface SimulatedCallFilesData {
+  admin?: {
+    id: UUIDString;
+  };
+  recordings: ({
+    storagePath: string;
+  })[];
+  transcripts: ({
+    transcriptReference: string;
+  })[];
+}
+
+export interface SimulatedCallFilesVariables {
+  organizationId: UUIDString;
+  actorUid: string;
 }
 
 export interface StartAutomationExecutionData {
@@ -12185,6 +12327,36 @@ export function communicationDashboard(vars: CommunicationDashboardVariables, op
 export function communicationReport(dc: DataConnect, vars: CommunicationReportVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CommunicationReportData>>;
 /** Generated Node Admin SDK operation action function for the 'CommunicationReport' Query. Allow users to pass in custom DataConnect instances. */
 export function communicationReport(vars: CommunicationReportVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CommunicationReportData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CommunicationSimulationState' Query. Allow users to execute without passing in DataConnect. */
+export function communicationSimulationState(dc: DataConnect, vars: CommunicationSimulationStateVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CommunicationSimulationStateData>>;
+/** Generated Node Admin SDK operation action function for the 'CommunicationSimulationState' Query. Allow users to pass in custom DataConnect instances. */
+export function communicationSimulationState(vars: CommunicationSimulationStateVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CommunicationSimulationStateData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RegisterSimulationLead' Mutation. Allow users to execute without passing in DataConnect. */
+export function registerSimulationLead(dc: DataConnect, vars: RegisterSimulationLeadVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RegisterSimulationLeadData>>;
+/** Generated Node Admin SDK operation action function for the 'RegisterSimulationLead' Mutation. Allow users to pass in custom DataConnect instances. */
+export function registerSimulationLead(vars: RegisterSimulationLeadVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RegisterSimulationLeadData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateSimulatedCall' Mutation. Allow users to execute without passing in DataConnect. */
+export function createSimulatedCall(dc: DataConnect, vars: CreateSimulatedCallVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateSimulatedCallData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateSimulatedCall' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createSimulatedCall(vars: CreateSimulatedCallVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateSimulatedCallData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ApplySimulatedCallStatus' Mutation. Allow users to execute without passing in DataConnect. */
+export function applySimulatedCallStatus(dc: DataConnect, vars: ApplySimulatedCallStatusVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ApplySimulatedCallStatusData>>;
+/** Generated Node Admin SDK operation action function for the 'ApplySimulatedCallStatus' Mutation. Allow users to pass in custom DataConnect instances. */
+export function applySimulatedCallStatus(vars: ApplySimulatedCallStatusVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ApplySimulatedCallStatusData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SimulatedCallFiles' Query. Allow users to execute without passing in DataConnect. */
+export function simulatedCallFiles(dc: DataConnect, vars: SimulatedCallFilesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SimulatedCallFilesData>>;
+/** Generated Node Admin SDK operation action function for the 'SimulatedCallFiles' Query. Allow users to pass in custom DataConnect instances. */
+export function simulatedCallFiles(vars: SimulatedCallFilesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SimulatedCallFilesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ResetCommunicationSimulation' Mutation. Allow users to execute without passing in DataConnect. */
+export function resetCommunicationSimulation(dc: DataConnect, vars: ResetCommunicationSimulationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ResetCommunicationSimulationData>>;
+/** Generated Node Admin SDK operation action function for the 'ResetCommunicationSimulation' Mutation. Allow users to pass in custom DataConnect instances. */
+export function resetCommunicationSimulation(vars: ResetCommunicationSimulationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ResetCommunicationSimulationData>>;
 
 /** Generated Node Admin SDK operation action function for the 'GetVoiceAssistant' Query. Allow users to execute without passing in DataConnect. */
 export function getVoiceAssistant(dc: DataConnect, vars: GetVoiceAssistantVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetVoiceAssistantData>>;

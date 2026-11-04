@@ -318,6 +318,24 @@ try {
         nextRevision: 4, currentVersionNumber: 1, status: sdk.WebsitePageStatus.PUBLISHED, snapshot: JSON.stringify({schemaVersion: 1, title: "Persistence snapshot"}), sourceFingerprint: "0".repeat(64), checklist: "{}" });
       await sdk.recordWebsitePageEnquiry(dc, { organizationId: demoOrg, pageId, publicationId, formId: persistenceForm, leadId: manualLead, utmSource: "persistence" });
     } finally { await deleteApp(app); } }
+  // Phase 6F: a logged call (with its workflow event) and a scheduled meeting must survive too.
+  const persistenceCallId = randomUUID(), persistenceMeetingId = randomUUID();
+  await asMember(owner, (dc, options) => sdk.logLeadCall(dc, { organizationId: demoOrg, id: persistenceCallId, leadId: manualLead, direction: sdk.CallDirection.INBOUND, callType: sdk.CallType.INBOUND_ENQUIRY,
+    callStatus: sdk.CallStatus.COMPLETED, outcome: sdk.CallOutcome.INTERESTED, startedAt: new Date(Date.now() - 600_000).toISOString(), durationSeconds: 95, notes: "Persistence call notes",
+    counterpartyNumber: null, followUpRequired: false, hasViewing: false, viewingId: null, suppress: false, suppressionId: randomUUID(), emitEvent: true }, options));
+  const meetingStart = Date.now() + 86_400_000;
+  await asMember(owner, (dc, options) => sdk.createMeeting(dc, { organizationId: demoOrg, id: persistenceMeetingId, hasLead: true, leadId: manualLead, hasContact: false, contactId: null,
+    title: "Persistence meeting", provider: sdk.MeetingProvider.IN_PERSON, meetingUrl: null, location: "Office", startsAt: new Date(meetingStart).toISOString(), endsAt: new Date(meetingStart + 1_800_000).toISOString(), agenda: null }, options));
+  // The developer simulator's synthetic call (server-only operations) must survive too, still marked SIMULATED.
+  const simulatedCallId = randomUUID();
+  { const { app, dc } = dataConnect();
+    try {
+      await sdk.registerSimulationLead(dc, { organizationId: demoOrg, id: randomUUID(), actorUid: owner, leadId: manualLead, label: "Persistence simulator lead" });
+      await sdk.createSimulatedCall(dc, { organizationId: demoOrg, id: simulatedCallId, actorUid: owner, leadId: manualLead, direction: sdk.CallDirection.INBOUND, callType: sdk.CallType.INBOUND_ENQUIRY,
+        counterpartyNumber: null, startedAt: new Date(Date.now() - 120_000).toISOString() });
+      await sdk.applySimulatedCallStatus(dc, { organizationId: demoOrg, id: simulatedCallId, actorUid: owner, expectedStatus: sdk.CallStatus.INITIATED, callStatus: sdk.CallStatus.NO_ANSWER,
+        answeredAt: null, endedAt: new Date().toISOString(), durationSeconds: 0, outcome: null, emitFinal: true, finalTrigger: "call.missed" });
+    } finally { await deleteApp(app); } }
   // 31 files plus the photos the conflict seed added to the other company's demo properties.
   const filesBeforeKill = (await listStorageObjects(storageHost, bucketName)).length;
   assert.ok(filesBeforeKill > 31);
@@ -350,6 +368,22 @@ try {
     try {
       const queued = (await sdk.listAutomationEventsForTarget(dc, { organizationId: demoOrg, targetId: manualLead })).data.events;
       assert.ok(queued.some(event => event.triggerType === "lead.created" && event.status === "PENDING"), "queued outbox events survive an abrupt stop, still waiting for the worker");
+      const callEvents = (await sdk.listAutomationEventsForTarget(dc, { organizationId: demoOrg, targetId: persistenceCallId })).data.events;
+      assert.ok(callEvents.some(event => event.triggerType === "call.completed"), "the call's workflow event survives an abrupt stop");
+    } finally { await deleteApp(app); } }
+  const callAfterRestart = await asMember(owner, async (dc, options) => (await sdk.getCallRecord(dc, { organizationId: demoOrg, id: persistenceCallId }, options)).data.call);
+  assert.equal(callAfterRestart?.notes, "Persistence call notes", "logged calls survive an abrupt stop");
+  assert.equal(callAfterRestart?.durationSeconds, 95);
+  const meetingAfterRestart = await asMember(owner, async (dc, options) => (await sdk.getMeeting(dc, { organizationId: demoOrg, id: persistenceMeetingId }, options)).data.meeting);
+  assert.equal(meetingAfterRestart?.title, "Persistence meeting", "meetings survive an abrupt stop");
+  assert.equal(meetingAfterRestart?.status, "SCHEDULED");
+  const simulatedAfterRestart = await asMember(owner, async (dc, options) => (await sdk.getCallRecord(dc, { organizationId: demoOrg, id: simulatedCallId }, options)).data.call);
+  assert.equal(simulatedAfterRestart?.source, "SIMULATED", "simulated calls survive an abrupt stop, still marked as simulated");
+  assert.equal(simulatedAfterRestart?.callStatus, "NO_ANSWER");
+  { const { app, dc } = dataConnect();
+    try {
+      const simulatedEvents = (await sdk.listAutomationEventsForTarget(dc, { organizationId: demoOrg, targetId: simulatedCallId })).data.events.map(event => event.triggerType).sort();
+      assert.deepEqual(simulatedEvents, ["call.missed", "call.started"], "the simulated call's workflow events survive an abrupt stop");
     } finally { await deleteApp(app); } }
 
   log("seed:demo refuses production.");

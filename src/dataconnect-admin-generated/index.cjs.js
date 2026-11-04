@@ -112,6 +112,7 @@ const ActivityKind = {
   MEETING_UPDATED: "MEETING_UPDATED",
   MEETING_COMPLETED: "MEETING_COMPLETED",
   MEETING_SUMMARY_CHANGED: "MEETING_SUMMARY_CHANGED",
+  COMMUNICATION_SIMULATION_CHANGED: "COMMUNICATION_SIMULATION_CHANGED",
 }
 exports.ActivityKind = ActivityKind;
 
@@ -251,6 +252,7 @@ const AuditTargetType = {
   VOICE_ASSISTANT: "VOICE_ASSISTANT",
   VOICE_TEST_SESSION: "VOICE_TEST_SESSION",
   MEETING: "MEETING",
+  COMMUNICATION_SIMULATION: "COMMUNICATION_SIMULATION",
 }
 exports.AuditTargetType = AuditTargetType;
 
@@ -362,6 +364,7 @@ exports.CallOutcome = CallOutcome;
 const CallSource = {
   MANUAL: "MANUAL",
   PROVIDER: "PROVIDER",
+  SIMULATED: "SIMULATED",
 }
 exports.CallSource = CallSource;
 
@@ -1957,6 +1960,48 @@ function communicationReport(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeQuery('CommunicationReport', inputVars, inputOpts);
 }
 exports.communicationReport = communicationReport;
+
+function communicationSimulationState(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('CommunicationSimulationState', inputVars, inputOpts);
+}
+exports.communicationSimulationState = communicationSimulationState;
+
+function registerSimulationLead(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RegisterSimulationLead', inputVars, inputOpts);
+}
+exports.registerSimulationLead = registerSimulationLead;
+
+function createSimulatedCall(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateSimulatedCall', inputVars, inputOpts);
+}
+exports.createSimulatedCall = createSimulatedCall;
+
+function applySimulatedCallStatus(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ApplySimulatedCallStatus', inputVars, inputOpts);
+}
+exports.applySimulatedCallStatus = applySimulatedCallStatus;
+
+function simulatedCallFiles(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('SimulatedCallFiles', inputVars, inputOpts);
+}
+exports.simulatedCallFiles = simulatedCallFiles;
+
+function resetCommunicationSimulation(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ResetCommunicationSimulation', inputVars, inputOpts);
+}
+exports.resetCommunicationSimulation = resetCommunicationSimulation;
 
 function getVoiceAssistant(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);

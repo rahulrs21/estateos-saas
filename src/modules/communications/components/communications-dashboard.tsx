@@ -41,8 +41,10 @@ export function CommunicationsDashboard() {
   const [error, setError] = useState<string | null>(null);
   /** When the data was loaded: overdue follow-ups are judged against it (never the clock during render). */
   const [loadedAt, setLoadedAt] = useState(0);
-  const load = useCallback(() => communicationsGet<CommunicationDashboardView>("/api/communications/dashboard", "Communications could not be loaded.")
-    .then(result => { setView(result); setLoadedAt(Date.now()); setError(null); }, problem => setError(errorMessage(problem, "Communications could not be loaded."))), []);
+  /** Developer tools only: simulated calls are never counted unless asked for. */
+  const [withSimulated, setWithSimulated] = useState(false);
+  const load = useCallback(() => communicationsGet<CommunicationDashboardView>(`/api/communications/dashboard${withSimulated ? "?includeSimulated=1" : ""}`, "Communications could not be loaded.")
+    .then(result => { setView(result); setLoadedAt(Date.now()); setError(null); }, problem => setError(errorMessage(problem, "Communications could not be loaded."))), [withSimulated]);
   useEffect(() => { void load(); }, [load]);
 
   if (error) return <div role="alert" className="space-y-3 rounded-xl border p-6"><p className="text-sm text-destructive">{error}</p><Button variant="outline" size="sm" onClick={() => void load()}><RefreshCw aria-hidden="true" />Try again</Button></div>;
@@ -50,6 +52,9 @@ export function CommunicationsDashboard() {
   const {totals} = view;
   const recorded = totals.attempts + totals.incoming + totals.inProgress;
   return <div className="space-y-5">
+    {view.simulated.available && <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground" data-testid="include-simulated">
+      <input type="checkbox" className="size-4 accent-primary" checked={withSimulated} onChange={event => setWithSimulated(event.target.checked)} />
+      Include simulated records (developer tools; {view.simulated.count} in this period). They are labelled SIMULATED and never count otherwise.</label>}
     <p className="text-xs text-muted-foreground">Last {view.periodDays} days · {view.companyWide ? "all company calls" : "calls you handled and calls on your leads"}{view.truncated ? " · based on the most recent 1,000 calls" : ""}. Logged and provider calls are counted the same way; a dial attempt is not a conversation.</p>
     {recorded === 0 ? <div className="rounded-xl border border-dashed p-8 text-center"><p className="text-sm font-medium">No calls recorded in the last {view.periodDays} days</p><p className="mt-1 text-sm text-muted-foreground">Calls appear here when agents log them from a lead or contact, or when a verified provider reports them.</p><Link href="/leads" className="mt-3 inline-block text-sm font-medium text-primary hover:underline">Open leads</Link></div>
       : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">

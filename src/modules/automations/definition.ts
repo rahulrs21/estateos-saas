@@ -49,7 +49,7 @@ const LEAD_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
 const LISTING_STATUSES = ["DRAFT", "PENDING_REVIEW", "APPROVED", "ACTIVE", "PAUSED", "CLOSED", "ARCHIVED", "UNDER_OFFER", "SOLD", "RENTED", "WITHDRAWN", "EXPIRED"] as const;
 
 const EVENT_FACTS = {
-  "event.origin": {kind: "string", label: "Event origin", options: ["CRM", "WEBSITE", "WORKFLOW", "SCHEDULE", "MANUAL", "PROVIDER"]},
+  "event.origin": {kind: "string", label: "Event origin", options: ["CRM", "WEBSITE", "WORKFLOW", "SCHEDULE", "MANUAL", "PROVIDER", "SIMULATOR"]},
   "event.occurredAt": {kind: "date", label: "Event time"},
 } as const satisfies Record<string, FactDefinition>;
 const LEAD_FACTS = {
@@ -91,7 +91,7 @@ const CALL_FACTS = {
   "call.status": {kind: "string", label: "Call status", options: ["INITIATED", "RINGING", "IN_PROGRESS", "COMPLETED", "FAILED", "BUSY", "NO_ANSWER", "CANCELLED"]},
   "call.outcome": {kind: "string", label: "Call outcome", options: ["INTERESTED", "NOT_INTERESTED", "CALLBACK_REQUESTED", "VIEWING_REQUESTED", "NO_DECISION", "WRONG_NUMBER", "DO_NOT_CALL_REQUESTED", "OFFER_REJECTED"]},
   "call.durationSeconds": {kind: "number", label: "Call duration (seconds)"},
-  "call.source": {kind: "string", label: "How the call was recorded", options: ["MANUAL", "PROVIDER"]},
+  "call.source": {kind: "string", label: "How the call was recorded", options: ["MANUAL", "PROVIDER", "SIMULATED"]},
   "call.agentId": {kind: "string", label: "Call agent"},
 } as const satisfies Record<string, FactDefinition>;
 const MEETING_FACTS = {

@@ -56,7 +56,7 @@ export function CallDetail({callId, organizationId}: {callId: string; organizati
       {live && call.canEdit && <Button variant="destructive" size="sm" disabled={ending} onClick={() => void hangUp()}><PhoneOff aria-hidden="true" />Hang up</Button>}
     </PageHeader>
     <div className="flex flex-wrap gap-2">
-      <Badge variant="outline">{call.source === "MANUAL" ? "Logged manually" : `Reported by ${call.provider?.name ?? "the calling provider"}`}</Badge>
+      <Badge variant={call.source === "SIMULATED" ? "destructive" : "outline"}>{call.source === "MANUAL" ? "Logged manually" : call.source === "SIMULATED" ? "SIMULATED (developer test, not a real call)" : `Reported by ${call.provider?.name ?? "the calling provider"}`}</Badge>
       {call.outcome && <Badge variant="secondary">{CALL_OUTCOME_LABELS[call.outcome]}</Badge>}
       {call.answered ? <Badge variant="outline">Answered</Badge> : <Badge variant="outline">Not answered</Badge>}
       {call.conversation && <Badge variant="outline">Conversation recorded</Badge>}

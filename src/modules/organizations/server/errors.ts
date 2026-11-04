@@ -168,6 +168,12 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (/\b(?:CALL_AI_SUMMARY_CHANGED|CALL_AI_SUGGESTION_DECIDED)\b/.test(message)) {
       return new WorkspaceError("CONFLICT", 409, "This summary or suggestion was already handled, or you cannot change it. Reload the call.");
     }
+    if (message.includes("SIMULATION_ADMIN_REQUIRED")) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "Only owners and administrators can use the communication simulator.");
+    }
+    if (message.includes("SIMULATION_LEAD_REQUIRED")) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "Simulated calls can only be made on the simulator's own fictional leads.");
+    }
     if (message.includes("MEETING_TARGET_NOT_FOUND")) {
       return new WorkspaceError("NOT_FOUND", 404, "This lead or contact was not found, or you cannot schedule meetings for it.");
     }

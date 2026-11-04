@@ -83,7 +83,7 @@ function LogCallDialog({subject, organizationId, view, onLogged}: {subject: Subj
             {MANUAL_CALL_STATUSES.map(item => <option key={item} value={item}>{CALL_STATUS_LABELS[item]}</option>)}</select></LeadField>
           <LeadField id={`${prefix}-number`} label="Number used">{view.numbers.length ? <select id={`${prefix}-number`} name="number" className={selectClassName}>
             {view.numbers.map(item => <option key={item.choice} value={item.choice}>{item.number}{item.choice === "ALTERNATE" ? " (alternate)" : ""}</option>)}</select>
-            : <p className="text-xs leading-5 text-muted-foreground">No valid number on record.</p>}</LeadField>
+            : <p className="text-xs leading-5 text-muted-foreground">No valid number on record{view.numbersNeedingUpdate ? " in international format" : ""}. The call is logged without a number.</p>}</LeadField>
           <LeadField id={`${prefix}-started`} label="Started (Dubai time)"><Input id={`${prefix}-started`} name="startedAt" type="datetime-local" required defaultValue={toDubaiDateTimeInput(new Date().toISOString())} /></LeadField>
           {answered && <div className="space-y-2"><span className="text-xs font-medium">Duration</span><div className="flex items-center gap-2">
             <Input aria-label="Minutes" name="minutes" type="number" min={0} max={240} defaultValue={0} /><span className="text-xs text-muted-foreground">min</span>
@@ -180,7 +180,7 @@ export function CallItem({call, organizationId, showLead, onChanged}: {call: Cal
         <h3 className="text-sm font-medium">{CALL_DIRECTION_LABELS[call.direction]} · {CALL_STATUS_LABELS[call.callStatus]}{call.answered && call.durationSeconds > 0 && <span className="font-normal text-muted-foreground"> · {formatDuration(call.durationSeconds)}</span>}</h3>
         <div className="flex flex-wrap items-center gap-1.5">
           {call.outcome && <Badge variant="secondary">{CALL_OUTCOME_LABELS[call.outcome]}</Badge>}
-          {call.source === "MANUAL" && <Badge variant="outline">Logged manually</Badge>}
+          {call.source === "MANUAL" && <Badge variant="outline">Logged manually</Badge>}{call.source === "SIMULATED" && <Badge variant="destructive">Simulated</Badge>}
           {call.canEdit && <EditCallDialog call={call} organizationId={organizationId} onSaved={onChanged} />}
           <Link href={`/communications/calls/${call.id}`} className={buttonVariants({variant: "ghost", size: "sm"})} aria-label={`Details of the call on ${formatLeadDate(call.startedAt, true)}`}>Details</Link>
         </div>
@@ -231,7 +231,8 @@ export function CallPanel({subject, organizationId}: {subject: Subject; organiza
           {view.numbers.length ? <ul className="space-y-1.5" aria-label="Numbers on record">{view.numbers.map(item => <li key={item.choice} className="flex flex-wrap items-center gap-2 text-sm">
             <span className="font-medium">{item.number}</span>{item.choice === "ALTERNATE" && <span className="text-xs text-muted-foreground">Alternate</span>}
             {item.doNotCall && <Badge variant="destructive">Do not call</Badge>}{!item.doNotCall && item.noMarketing && <Badge variant="secondary">No marketing calls</Badge>}
-          </li>)}</ul> : <p className="text-sm text-muted-foreground">No valid phone number on record. Add one with its country code to call this customer.</p>}
+          </li>)}</ul> : !view.numbersNeedingUpdate && <p className="text-sm text-muted-foreground">No valid phone number on record. Add one with its country code to call this customer.</p>}
+          {view.numbersNeedingUpdate > 0 && <p role="note" className="text-sm text-amber-700 dark:text-amber-300">{view.numbersNeedingUpdate === 1 ? "A phone number on this record was" : "Phone numbers on this record were"} saved without the international format, so calls cannot be matched to {view.numbersNeedingUpdate === 1 ? "it" : "them"}. Edit and save the contact to fix this; calls can still be logged without a number.</p>}
           <p className="text-xs leading-5 text-muted-foreground">Last answered call: {view.lastAnsweredAt ? formatLeadDate(view.lastAnsweredAt, true) : "none yet"} · {view.total} {view.total === 1 ? "call" : "calls"} recorded</p>
         </div>
         <div className="flex flex-wrap gap-2 sm:justify-end">

@@ -5,7 +5,9 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { agentReport, callTotals, meetingTotals, outcomeCounts, type MetricCall, type MetricMeeting } from "../metrics";
 import type { CallDirection, CallOutcome, CallStatus } from "../model";
+import { devToolsEnabled } from "../dev/guard";
 import { asMember, isAdministrator, sdk, type Context } from "./data";
+import { includeSimulated } from "./hub";
 import { idSchema, parseInput } from "./validation";
 
 /*
@@ -18,7 +20,7 @@ const CALL_LIMIT = 5000;
 const DAY = 86_400_000;
 const DUBAI_OFFSET = 4 * 3_600_000;
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const reportSchema = z.strictObject({from: dateSchema.optional(), to: dateSchema.optional(), agent: idSchema.optional()});
+const reportSchema = z.strictObject({from: dateSchema.optional(), to: dateSchema.optional(), agent: idSchema.optional(), includeSimulated: z.enum(["1"]).optional()});
 
 /** The start of a Dubai calendar day, as an instant. */
 const dubaiDayStart = (date: string) => Date.parse(`${date}T00:00:00Z`) - DUBAI_OFFSET;
@@ -39,6 +41,14 @@ export async function communicationReport(context: Context, query: Record<string
     // Absent (not null) means every agent: an explicit null filter matches nothing.
     organizationId: context.organizationId, from: new Date(start).toISOString(), to: new Date(end).toISOString(), agentMembershipId: agentMembershipId ?? undefined,
   }, options));
+  // Developer simulator records never count unless developer tools are on and they were asked for.
+  const withSimulated = includeSimulated(input.includeSimulated);
+  const simulatedCalls = data.calls.filter(call => call.source === "SIMULATED").length;
+  const simulatedMeetings = data.meetings.filter(meeting => meeting.lead?.communicationSimulationRecord_on_lead).length;
+  if (!withSimulated) {
+    data.calls = data.calls.filter(call => call.source !== "SIMULATED");
+    data.meetings = data.meetings.filter(meeting => !meeting.lead?.communicationSimulationRecord_on_lead);
+  }
   const calls: MetricCall[] = data.calls.map(call => ({
     direction: call.direction as CallDirection, callStatus: call.callStatus as CallStatus, answeredAt: call.answeredAt ?? null, outcome: (call.outcome ?? null) as CallOutcome | null,
     durationSeconds: call.durationSeconds, agentId: canonicalUuid(call.agentMembershipId), agentName: call.agentMembership.userProfile?.displayName || call.agentMembership.email,
@@ -48,6 +58,7 @@ export async function communicationReport(context: Context, query: Record<string
   }));
   return {
     from, to, companyWide, agent: agentMembershipId, truncated: data.calls.length >= CALL_LIMIT,
+    simulated: {available: devToolsEnabled(), included: withSimulated, calls: simulatedCalls, meetings: simulatedMeetings},
     manualCalls: data.calls.filter(call => call.source === "MANUAL").length,
     totals: callTotals(calls), outcomes: outcomeCounts(calls), meetings: meetingTotals(meetings), byAgent: agentReport(calls, meetings),
     agents: data.agents.map(agent => ({id: canonicalUuid(agent.id), name: agent.userProfile?.displayName || agent.email})),

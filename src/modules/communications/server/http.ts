@@ -22,6 +22,8 @@ import { callMedia, deleteRecording, deleteTranscript, recordConsent, recordingF
 import { callSummaries, decideSuggestion, generateCallSummary, reviewCallSummary } from "./intelligence";
 import { createMeeting, decideMeetingSuggestion, getMeeting, listMeetings, meetingAttendeeOptions, setMeetingStatus, summarizeMeeting, updateMeeting } from "./meetings";
 import { communicationReport } from "./reports";
+import { createFictionalLead, resetSimulation, simulateCall, simulateEvent, simulatorState } from "./simulator";
+import { devToolsEnabled } from "../dev/guard";
 import { endVoiceTest, interruptVoiceTurn, saveVoiceAssistant, startVoiceTest, voiceAssistantView, voiceTestSession, voiceTurn } from "./voice";
 import { providerWebhookResponse } from "./webhooks";
 import { MAX_RECORDING_BYTES } from "../media";
@@ -86,7 +88,7 @@ export const suppressionsResponse = (request: Request) => read(request, "suppres
 export const addSuppressionResponse = (request: Request) => write(request, "suppressions.add", addSuppression, 201);
 export const withdrawSuppressionResponse = (request: Request, id: string) => write(request, "suppressions.withdraw", (context, body) => withdrawSuppression(context, id, body));
 export const listCallsResponse = (request: Request) => read(request, "calls.list", listCalls);
-export const dashboardResponse = (request: Request) => read(request, "dashboard", context => communicationDashboard(context));
+export const dashboardResponse = (request: Request) => read(request, "dashboard", (context, query) => communicationDashboard(context, query));
 export const dialResponse = (request: Request) => write(request, "call.dial", startLiveCall);
 export const endCallResponse = (request: Request, id: string) => write(request, "call.end", context => endLiveCall(context, id));
 export const providersResponse = (request: Request) => read(request, "providers.get", context => providerSettings(context));
@@ -191,3 +193,11 @@ export const meetingStatusResponse = (request: Request, id: string) => write(req
 export const summarizeMeetingResponse = (request: Request, id: string) => write(request, "meetings.summary", context => summarizeMeeting(request, context, id), 201);
 export const decideMeetingSuggestionResponse = (request: Request, id: string, index: string) => write(request, "meetings.suggestion", (context, body) => decideMeetingSuggestion(context, id, index, body));
 export const reportResponse = (request: Request) => read(request, "reports", communicationReport);
+
+/** Developer simulator endpoints: not found (before authentication) unless developer tools are enabled. */
+const notFound = () => new Response(null, {status: 404, headers: {"Cache-Control": "no-store"}});
+export const simulatorStateResponse = (request: Request) => devToolsEnabled() ? read(request, "simulator.state", context => simulatorState(context)) : notFound();
+export const simulatorLeadResponse = (request: Request) => devToolsEnabled() ? write(request, "simulator.lead", context => createFictionalLead(context), 201) : notFound();
+export const simulatorCallResponse = (request: Request) => devToolsEnabled() ? write(request, "simulator.call", simulateCall, 201) : notFound();
+export const simulatorEventResponse = (request: Request, id: string) => devToolsEnabled() ? write(request, "simulator.event", (context, body) => simulateEvent(context, id, body)) : notFound();
+export const simulatorResetResponse = (request: Request) => devToolsEnabled() ? write(request, "simulator.reset", context => resetSimulation(context)) : notFound();

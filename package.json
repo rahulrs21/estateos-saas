@@ -46,10 +46,11 @@
     "test:dataconnect": "node scripts/test-dataconnect.mjs",
     "test:websites": "node scripts/test-maps.mjs tests/websites.test.ts",
     "test:automations": "node scripts/test-maps.mjs tests/automations.test.ts",
-    "test:communications": "node scripts/test-maps.mjs tests/communications.test.ts tests/communication-providers.test.ts tests/call-intelligence.test.ts tests/voice-assistant.test.ts tests/meetings-workflows.test.ts",
+    "test:communications": "node scripts/test-maps.mjs tests/communications.test.ts tests/communication-providers.test.ts tests/call-intelligence.test.ts tests/voice-assistant.test.ts tests/meetings-workflows.test.ts tests/communication-simulator.test.ts",
     "test:websites:e2e": "node scripts/test-ai-e2e.mjs websites",
     "test:automations:e2e": "node scripts/test-ai-e2e.mjs automations",
-    "test:communications:e2e": "node scripts/test-ai-e2e.mjs communications"
+    "test:communications:e2e": "node scripts/test-ai-e2e.mjs communications",
+    "test:communications:verify": "node scripts/test-communications-verify.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",

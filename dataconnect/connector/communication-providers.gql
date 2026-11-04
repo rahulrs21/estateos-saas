@@ -246,11 +246,11 @@ mutation StartLeadCall($organizationId: UUID!, $id: UUID!, $leadId: UUID!, $phon
 # --- Hub ------------------------------------------------------------------------------------
 
 # Calls the caller may read, newest first. Absent filters are ignored.
-query ListCalls($organizationId: UUID!, $limit: Int! = 25, $offset: Int! = 0, $direction: CallDirection, $callStatus: CallStatus, $outcome: CallOutcome, $source: CallSource,
+query ListCalls($organizationId: UUID!, $limit: Int! = 25, $offset: Int! = 0, $direction: CallDirection, $callStatus: CallStatus, $outcome: CallOutcome, $source: CallSource, $excludeSource: CallSource,
   $agentMembershipId: UUID, $startedFrom: Timestamp, $startedBefore: Timestamp)
   @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
   me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
-  calls: callRecords(where: {_and: [{organizationId: {eq: $organizationId}, direction: {eq: $direction}, callStatus: {eq: $callStatus}, outcome: {eq: $outcome}, source: {eq: $source},
+  calls: callRecords(where: {_and: [{organizationId: {eq: $organizationId}, direction: {eq: $direction}, callStatus: {eq: $callStatus}, outcome: {eq: $outcome}, source: {eq: $source, ne: $excludeSource},
     agentMembershipId: {eq: $agentMembershipId}, startedAt: {ge: $startedFrom, lt: $startedBefore}}, {_or: [
     {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
     {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
@@ -259,7 +259,7 @@ query ListCalls($organizationId: UUID!, $limit: Int! = 25, $offset: Int! = 0, $d
     id leadId contactId direction source callType callStatus outcome counterpartyNumber startedAt answeredAt durationSeconds notes followUpRequired followUpId viewingId revision agentMembershipId
     agentMembership {id email userProfile {displayName}} lead {id fullName} contact {id fullName} followUp {id title dueAt status} viewing {id scheduledAt status}
   }
-  total: callRecords(where: {_and: [{organizationId: {eq: $organizationId}, direction: {eq: $direction}, callStatus: {eq: $callStatus}, outcome: {eq: $outcome}, source: {eq: $source},
+  total: callRecords(where: {_and: [{organizationId: {eq: $organizationId}, direction: {eq: $direction}, callStatus: {eq: $callStatus}, outcome: {eq: $outcome}, source: {eq: $source, ne: $excludeSource},
     agentMembershipId: {eq: $agentMembershipId}, startedAt: {ge: $startedFrom, lt: $startedBefore}}, {_or: [
     {agentMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
     {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},

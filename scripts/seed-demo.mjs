@@ -241,7 +241,8 @@ try {
 
     for (const contact of fixtures.contacts) {
       ids.contacts[contact.key] = await ensure(fixtureKeys.contact(contact), "Contact", async () => (await sdk.createContact(dc, {
-        ...scope, fullName: contact.fullName, email: contact.email, phone: contact.phone, normalizedPhone: normalizedPhone(contact.phone),
+        // Stored in the compact form the app saves; the database derives normalizedPhone from it.
+        ...scope, fullName: contact.fullName, email: contact.email, phone: normalizedPhone(contact.phone), normalizedPhone: normalizedPhone(contact.phone),
         nationality: contact.nationality, preferredLanguage: contact.preferredLanguage,
       }, as)).data.contact.id, async () => (await natural()).contacts.find(row => row.normalizedEmail === contact.email.toLowerCase())?.id);
     }

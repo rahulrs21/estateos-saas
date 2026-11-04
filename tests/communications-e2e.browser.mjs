@@ -62,6 +62,9 @@ await new Promise(done => reservation.listen(0, "127.0.0.1", done));
 const port = reservation.address().port;
 await new Promise(done => reservation.close(done));
 const origin = `http://127.0.0.1:${port}`;
+/** AI_E2E_LIVE=1 (set by scripts/test-ai-e2e.mjs with the key from .env.local) runs only the live-Claude checks. */
+const live = process.env.AI_E2E_LIVE === "1" && Boolean(process.env.AI_E2E_ANTHROPIC_API_KEY);
+const LIVE_DONE = Symbol("live checks finished");
 let serverLog = "";
 function startNext() {
   const child = spawn(process.execPath, [join(root, "node_modules/next/dist/bin/next"), "dev", "--hostname", "127.0.0.1", "--port", String(port)], {
@@ -73,8 +76,11 @@ function startNext() {
       NEXT_PUBLIC_FIREBASE_API_KEY: "demo-key", NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "127.0.0.1", NEXT_PUBLIC_FIREBASE_APP_ID: "demo-app",
       RATE_LIMIT_BACKEND: "sql-connect", ESTATEOS_AI_ENABLED: "true",
       // Well-formed but invalid, so Anthropic itself rejects any call.
-      ANTHROPIC_API_KEY: `sk-ant-api03-e2e-invalid-${"x".repeat(40)}`, ANTHROPIC_MODEL: "claude-sonnet-5-5", AI_E2E_ANTHROPIC_API_KEY: "",
+      // Well-formed but invalid unless live: Anthropic itself rejects any call.
+      ANTHROPIC_API_KEY: live ? process.env.AI_E2E_ANTHROPIC_API_KEY : `sk-ant-api03-e2e-invalid-${"x".repeat(40)}`, ANTHROPIC_MODEL: live ? process.env.AI_E2E_ANTHROPIC_MODEL || "claude-sonnet-5-5" : "claude-sonnet-5-5", AI_E2E_ANTHROPIC_API_KEY: "",
       COMMS_E2E_TWILIO_TOKEN: providerToken, AUTOMATION_WORKER_SECRET: workerSecret, FIREBASE_STORAGE_BUCKET: BUCKET,
+      // The developer simulator (local emulators and a demo project only).
+      ESTATEOS_DEV_TOOLS: "1",
     },
   });
   child.stdout.on("data", data => { serverLog = (serverLog + data).slice(-30000); });
@@ -209,6 +215,82 @@ try {
   assert.equal((await api("/api/communications/settings")).status, 401);
   assert.equal((await post("/api/communications/calls", {})).status, 401);
   pass("Unauthenticated call history, settings and logging are rejected");
+
+  if (live) {
+    // ---------------------------------------------------------- LIVE Claude: summaries of a synthetic, consented transcript
+    await signIn("owner-a");
+    const rules = (await api("/api/communications/settings")).body.data;
+    const enabled = await post("/api/communications/settings", {...rules.rules, expectedRevision: rules.revision, liveCallingAttestedAt: undefined, liveCallingAttestationVersion: undefined,
+      recordingEnabled: true, recordingNoticeText: "This call may be recorded and transcribed for quality and record keeping (synthetic).", recordingLegalBasis: "Customer consent (synthetic test)", aiAnalysisEnabled: true}, f.orgA, "PUT");
+    assert.equal(enabled.status, 200, JSON.stringify(enabled.body));
+    const liveLead = await post("/api/leads", {fullName: "Live Claude Test " + randomUUID().slice(0, 6), phone: "050 123 0999", assignedMembershipId: f.memberAgentA});
+    assert.equal(liveLead.status, 201, JSON.stringify(liveLead.body));
+    const liveLeadId = liveLead.body.data.lead.id;
+    await signIn("agent-a");
+    const liveCall = await post("/api/communications/calls", {requestId: randomUUID(), leadId: liveLeadId, direction: "OUTBOUND", callType: "FOLLOW_UP", callStatus: "COMPLETED", outcome: "INTERESTED",
+      startedAt: new Date(Date.now() - 600_000).toISOString(), durationSeconds: 240, notes: "Customer interested in Marina two-bedroom units; wants floor plans. Budget not discussed."});
+    assert.equal(liveCall.status, 201, JSON.stringify(liveCall.body));
+    const liveCallId = liveCall.body.data.call.id;
+    assert.equal((await post(`/api/communications/calls/${liveCallId}/consents`, {status: "GIVEN", method: "VERBAL_ON_CALL", note: "Synthetic consent"})).status, 201);
+    const consent = (await api(`/api/communications/calls/${liveCallId}/media`)).body.data.consents[0].id;
+    // Fictional conversation. The budget is deliberately NOT stated, so a correct summary must not give one.
+    const liveVtt = ["WEBVTT", "",
+      "00:00:01.000 --> 00:00:06.000", "<v Agent>Good afternoon, thank you for your enquiry about the Marina apartments.", "",
+      "00:00:07.000 --> 00:00:14.000", "<v Customer>Yes, I am looking for a two-bedroom apartment in Dubai Marina for my family.", "",
+      "00:00:15.000 --> 00:00:21.000", "<v Customer>I have not decided on a budget yet, I need to speak to my bank first.", "",
+      "00:00:22.000 --> 00:00:28.000", "<v Customer>A balcony with a sea view would be nice, and we want to move in by June.", "",
+      "00:00:29.000 --> 00:00:35.000", "<v Agent>I will email you the floor plans today and we can arrange a viewing on Saturday morning.", "",
+      "00:00:36.000 --> 00:00:40.000", "<v Customer>Saturday works. Please also send the payment plan.", ""].join("\n");
+    const liveTranscript = await post(`/api/communications/calls/${liveCallId}/transcripts`, {consentEvidenceId: consent, sourceName: "Synthetic transcript (live Claude test)", content: liveVtt});
+    assert.equal(liveTranscript.status, 201, JSON.stringify(liveTranscript.body));
+    const generated = await post(`/api/communications/calls/${liveCallId}/summaries`, {source: "TRANSCRIPT"});
+    assert.equal(generated.status, 201, JSON.stringify(generated.body));
+    const stored = (await api(`/api/communications/calls/${liveCallId}/summaries`)).body.data.summaries[0];
+    const summary = stored.summary;
+    const items = [summary.reasonForCall, summary.budget, ...summary.requirements, ...summary.locations, ...summary.preferences, ...summary.questions, ...summary.agreements, ...summary.nextSteps].filter(Boolean);
+    const text = JSON.stringify(summary).toLowerCase();
+    console.log("LIVE SUMMARY " + JSON.stringify({overallConfidence: summary.overallConfidence, unverified: stored.unverifiedCount, budget: summary.budget, requirements: summary.requirements.map(item => item.text),
+      locations: summary.locations.map(item => item.text), agreements: summary.agreements.map(item => item.text), nextSteps: summary.nextSteps.map(item => item.text), suggestions: stored.suggestions.map(item => item.kind)}));
+    assert.equal(summary.budget, null, "no budget is invented when none was stated");
+    assert.match(text, /two-bedroom|2-bedroom|two bedroom|2 bedroom/, "the stated requirement is captured");
+    assert.match(text, /marina/);
+    assert.ok(items.length >= 3, "the summary has substance");
+    const verified = items.filter(item => item.verified).length;
+    assert.ok(verified / items.length >= 0.8, `most points quote the transcript (${verified}/${items.length})`);
+    assert.ok(stored.suggestions.length >= 1 && stored.suggestions.every(item => item.status === "PENDING"), "suggestions wait for a person");
+    const liveUsage = (await sql(`query U($org: UUID!) { aiUsageRecords(where: {organizationId: {eq: $org}, contentType: {eq: "CALL_SUMMARY"}, status: {eq: SUCCEEDED}}) { inputTokens outputTokens estimatedCostUsd model } }`, {org: f.orgA})).aiUsageRecords;
+    assert.ok(liveUsage.length === 1 && liveUsage[0].inputTokens > 0 && liveUsage[0].outputTokens > 0, JSON.stringify(liveUsage));
+    console.log("LIVE USAGE " + JSON.stringify(liveUsage[0]));
+    pass("live Claude: a summary of a synthetic consented transcript quotes it, captures the stated needs, invents no budget and leaves suggestions for a person");
+
+    const notesSummary = await post(`/api/communications/calls/${liveCallId}/summaries`, {source: "NOTES"});
+    assert.equal(notesSummary.status, 201, JSON.stringify(notesSummary.body));
+    const fromNotes = (await api(`/api/communications/calls/${liveCallId}/summaries`)).body.data.summaries.find(row => row.sourceKind === "NOTES").summary;
+    console.log("LIVE NOTES SUMMARY " + JSON.stringify({budget: fromNotes.budget, requirements: fromNotes.requirements.map(item => item.text), limitations: fromNotes.limitations}));
+    assert.equal(fromNotes.budget, null, "the notes say the budget was not discussed");
+    pass("live Claude: a summary of the agent's short notes stays within them and reports no budget");
+
+    // One live voice-assistant turn (test mode; no approved facts, so it may only qualify the caller or hand over).
+    await signIn("owner-a");
+    const voiceSaved = await post("/api/communications/voice-assistant", {expectedRevision: 0, status: "TEST_ONLY", assistantName: "Live Test Assistant",
+      disclosureText: "Hello, you are speaking with an AI virtual assistant for our agency.", greeting: "How can I help you today?", questions: ["Are you looking to buy or rent?"],
+      handoffMessage: "A colleague will call you back shortly.", projectIds: [], listingIds: [], maxTurns: 4, maxSessionMinutes: 5, maxReplyTokens: 2000}, f.orgA, "PUT");
+    assert.equal(voiceSaved.status, 200, JSON.stringify(voiceSaved.body));
+    const session = await post("/api/communications/voice-assistant/sessions");
+    assert.equal(session.status, 201, JSON.stringify(session.body));
+    const sessionPath = `/api/communications/voice-assistant/sessions/${session.body.data.id}`;
+    const opened = (await api(sessionPath)).body.data;
+    const turn = await post(`${sessionPath}/turns`, {utterance: "Hi, I would like to buy a two-bedroom apartment. What prices do you have?", turnId: randomUUID(), expectedRevision: opened.revision});
+    assert.equal(turn.status, 200, JSON.stringify(turn.body));
+    const afterTurn = (await api(sessionPath)).body.data;
+    const reply = afterTurn.turns.at(-1);
+    console.log("LIVE VOICE " + JSON.stringify({kind: reply.kind, text: reply.text, checks: reply.checks ?? [], status: afterTurn.status, error: turn.body.data.error ?? null}));
+    assert.equal(afterTurn.turns[0].kind, "DISCLOSURE");
+    assert.notEqual(reply.kind, "FALLBACK", "Claude answered (the request was accepted)");
+    assert.ok(!/AED\s*[\d,.]+|\d[\d,.]*\s*(million|k\b)/i.test(reply.text), "no price is stated without approved facts");
+    pass("live Claude: the voice assistant answers a test caller after the AI disclosure without inventing prices");
+    throw LIVE_DONE;
+  }
 
   // ------------------------------------------------------------ OWNER: a fictional lead with a number, assigned to the agent
   await signIn("owner-a");
@@ -403,6 +485,24 @@ try {
   assert.deepEqual(events.map(row => row.result), ["APPLIED", "APPLIED", "FINAL"], "the duplicate was dropped before recording; the late event was ignored");
   pass("Signed provider events create the incoming call on the lead, apply once each, and ignore retries and late events");
 
+  // Concurrent callbacks: the same and conflicting deliveries at once still give one call, one final status and one workflow event.
+  const RACE = "CA" + "9".repeat(32);
+  const race = (CallStatus, extra = {}) => event(CallStatus, {CallSid: RACE, ...extra});
+  const burst = await Promise.all([...Array.from({length: 4}, () => deliver(race("ringing"))), ...Array.from({length: 3}, () => deliver(race("completed", {CallDuration: "42"}))), deliver(race("no-answer"))]);
+  // A delivery that lost a race may be asked to retry (5xx), as providers do; none is accepted twice.
+  assert.ok(burst.every(result => result.status === 200 || result.status >= 500), JSON.stringify(burst.map(result => result.status)));
+  await deliver(race("completed", {CallDuration: "42"})); // the provider's retry
+  const raced = (await sql(`query P($org: UUID!, $sid: String!) { callRecords(where: {organizationId: {eq: $org}, providerCallId: {eq: $sid}}) { id callStatus } }`, {org: f.orgA, sid: RACE})).callRecords;
+  assert.equal(raced.length, 1, "one call however many deliveries arrive at once");
+  assert.ok(["COMPLETED", "NO_ANSWER"].includes(raced[0].callStatus), raced[0].callStatus);
+  const raceEvents = (await sql(`query E($org: UUID!, $id: UUID!) { automationEvents(where: {organizationId: {eq: $org}, targetId: {eq: $id}}) { triggerType } }`, {org: f.orgA, id: raced[0].id})).automationEvents.map(row => row.triggerType).sort();
+  assert.deepEqual(raceEvents.filter(type => type !== "call.started"), [raced[0].callStatus === "COMPLETED" ? "call.completed" : "call.missed"], "exactly one final workflow event");
+  assert.equal(raceEvents.filter(type => type === "call.started").length, 1);
+  pass("Concurrent duplicate and conflicting callbacks give one call, one final status and one workflow event");
+  // Test cleanup, so the later checks see only the calls they expect.
+  await dc.executeGraphql(`mutation D($org: UUID!, $id: UUID!, $sid: String!) { callProviderEvent_deleteMany(where: {organizationId: {eq: $org}, providerCallId: {eq: $sid}}) callRecord_delete(key: {organizationId: $org, id: $id}) }`,
+    {variables: {org: f.orgA, id: raced[0].id, sid: RACE}});
+
   assert.equal((await deliver(event("completed"), {signature: "forged-signature"})).status, 401);
   assert.equal((await deliver(event("busy", {CallSid: "CA" + "2".repeat(32)}), {token: "wrong-token-0000000000"})).status, 401);
   const unsigned = await fetch(hook, {method: "POST", body: new URLSearchParams(event("busy")).toString(), headers: {"Content-Type": "application/x-www-form-urlencoded"}});
@@ -411,7 +511,7 @@ try {
   const elsewhere = `${origin}/api/communications/webhooks/twilio/${randomUUID()}`;
   assert.equal((await deliver(event("busy"), {url: elsewhere})).status, 404, "an unknown connection");
   assert.equal((await deliver(event("busy"), {url: `${origin}/api/communications/webhooks/pbx/${connection.id}`})).status, 404, "no webhooks for providers without a verified contract");
-  assert.equal((await sql(`query C($org: UUID!) { callRecords(where: {organizationId: {eq: $org}, source: {eq: PROVIDER}}) { id } }`, {org: f.orgA})).callRecords.length, 1, "refused requests changed nothing");
+  assert.equal((await sql(`query C($org: UUID!) { callRecords(where: {organizationId: {eq: $org}, source: {eq: PROVIDER}, providerCallId: {ne: "${RACE}"}}) { id } }`, {org: f.orgA})).callRecords.length, 1, "refused requests changed nothing");
   const MISSED = "CA" + "4".repeat(32);
   await deliver({...event("ringing"), CallSid: MISSED});
   await deliver({...event("no-answer"), CallSid: MISSED});
@@ -765,6 +865,42 @@ try {
   assert.equal((await api(`/api/communications/meetings/${meetingId}`)).status, 404);
   pass("An agent schedules a meeting from the lead with a checked link, opens it in the provider's app, records it as held once with the workflow events; Claude failure stores nothing; others cannot see it");
 
+  // ------------------------------------------------------------ 6F.6: the call.summarize workflow step
+  await signIn("owner-a");
+  const summarizer = await post("/api/automations", {definition: {schemaVersion: 1, name: "E2E summarise answered calls", description: "Template H without the wait", trigger: "call.completed",
+    conditions: {field: "call.outcome", operator: "eq", value: "CALLBACK_REQUESTED"}, steps: [{id: "summarise", type: "call.summarize"}]}});
+  assert.equal(summarizer.status, 201, JSON.stringify(summarizer.body));
+  for (const [action, extra] of [["submit"], ["approve", {versionNumber: 1}], ["activate"]]) {
+    const revision = (await api(`/api/automations/${summarizer.body.data.id}`)).body.data.workflow.revision;
+    assert.equal((await post(`/api/automations/${summarizer.body.data.id}/transition`, {action, expectedRevision: revision, ...extra})).status, 200, action);
+  }
+  await signIn("agent-a");
+  const summarizedCall = await post("/api/communications/calls", {requestId: randomUUID(), leadId: lead.id, direction: "OUTBOUND", callType: "FOLLOW_UP", callStatus: "COMPLETED", outcome: "CALLBACK_REQUESTED",
+    startedAt: new Date(Date.now() - 90_000).toISOString(), durationSeconds: 75, notes: "Customer asked for a call back tomorrow about two-bedroom units (synthetic)."});
+  assert.equal(summarizedCall.status, 201, JSON.stringify(summarizedCall.body));
+  await tickNow(); await tickNow();
+  await signIn("owner-a");
+  const history = await api(`/api/automations/executions?workflowId=${summarizer.body.data.id}`);
+  assert.equal(history.status, 200, JSON.stringify(history.body).slice(0, 500));
+  const runs = history.body.data.executions;
+  assert.equal(runs.length, 1, "the answered call started the workflow once");
+  const workflowUsage = (await sql(`query U($org: UUID!) { aiUsageRecords(where: {organizationId: {eq: $org}, contentType: {eq: "CALL_SUMMARY"}, userUid: {eq: "owner-a"}}) { status errorCode } }`, {org: f.orgA})).aiUsageRecords;
+  assert.ok(workflowUsage.some(row => row.status === "FAILED"), "the step asked Claude as the workflow's executor (refused in invalid-key mode) and the usage is recorded");
+  assert.equal((await api(`/api/communications/calls/${summarizedCall.body.data.call.id}/summaries`)).body.data.summaries.length, 0, "nothing is stored when Claude fails");
+  pass("An answered call starts a workflow whose call.summarize step asks Claude as the executor; with the key refused nothing is stored and the usage is recorded");
+
+  // ------------------------------------------------------------ numbers saved in display form (as older demo data)
+  const displayContact = randomUUID();
+  await dc.executeGraphql(`mutation C($org: UUID!, $id: UUID!) { contact_insert(data: {organizationId: $org, id: $id, fullName: "E2E Display Number", phone: "+44 7700 900077", createdByUid: "owner-a"}) }`, {variables: {org: f.orgA, id: displayContact}});
+  const displayView = (await api(`/api/communications/contacts/${displayContact}/calls`)).body.data;
+  assert.deepEqual(displayView.numbers, [], "a number the database cannot match is not offered");
+  assert.equal(displayView.numbersNeedingUpdate, 1);
+  const withoutNumber = await post(`/api/communications/calls`, {requestId: randomUUID(), contactId: displayContact, direction: "INBOUND", callType: "INBOUND_ENQUIRY", callStatus: "COMPLETED",
+    startedAt: new Date(Date.now() - 60_000).toISOString(), durationSeconds: 30, notes: "Synthetic"});
+  assert.equal(withoutNumber.status, 201, JSON.stringify(withoutNumber.body));
+  await load(`/contacts/${displayContact}`, "document.querySelector('#calls')?.innerText.includes('Edit and save the contact')");
+  pass("A phone saved in display form is flagged with how to fix it instead of failing on save; the call is still logged");
+
   // ------------------------------------------------------------ 6F.6: reports
   await signIn("agent-a");
   // The test meeting is tomorrow, so the period runs to the day after (Dubai dates).
@@ -782,10 +918,67 @@ try {
   await screenshot("communication-reports");
   pass("Reports separate attempts, answers, conversations and meetings; agents see only their own figures; owners see the company");
 
+  // ------------------------------------------------------------ developer simulator (synthetic records only)
+  await signIn("agent-a");
+  assert.equal((await api("/api/dev/communication-tests")).status, 403, "agents cannot use the simulator");
+  await load("/dev/communication-tests", "document.body.innerText.includes('Only owners and administrators can use the communication simulator')");
+  await signIn("owner-a");
+  const realCallsBefore = (await sql(`query C($org: UUID!) { callRecords(where: {organizationId: {eq: $org}, source: {ne: SIMULATED}}) { id } }`, {org: f.orgA})).callRecords.length;
+  const dashboardBefore = (await api("/api/communications/dashboard")).body.data.totals;
+  assert.equal((await post("/api/dev/communication-tests/calls", {leadId: lead.id, direction: "INBOUND", scenario: "MISSED"})).status, 400, "simulated calls are refused on real leads");
+  await load("/dev/communication-tests", "document.body.innerText.includes('Fictional leads')");
+  await clickText("Create fictional lead", "button");
+  await waitFor("!!document.querySelector('[aria-label=\"Fictional leads\"]')?.innerText.includes('[SIM] Test customer')", "the fictional lead");
+  const simLeadId = (await api("/api/dev/communication-tests")).body.data.leads[0].leadId;
+  await evaluate("(()=>{const f=document.querySelector('form[aria-label=\"Simulate a call\"]');f.querySelector('[name=direction]').value='INBOUND';})()");
+  await evaluate(`(()=>{const e=document.querySelector('[name=scenario]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,'MISSED');e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await pause(200);
+  await clickText("Run scenario", "button");
+  await waitFor("document.querySelector('[aria-label=\"Event log\"]')?.innerText.includes('NO_ANSWER')", "the scenario log");
+  const simLog = await evaluate("document.querySelector('[aria-label=\"Event log\"]').innerText");
+  assert.match(simLog, /RINGING\s*APPLIED/);
+  assert.match(simLog, /NO_ANSWER\s*APPLIED\s*workflow event call\.missed/);
+  const simCall = (await api("/api/dev/communication-tests")).body.data.calls[0];
+  assert.equal(simCall.callStatus, "NO_ANSWER");
+  const simTasks = async () => (await sql(`query F($org: UUID!, $lead: UUID!) { leadFollowUps(where: {organizationId: {eq: $org}, leadId: {eq: $lead}}) { id title } }`, {org: f.orgA, lead: simLeadId})).leadFollowUps;
+  await tickNow(); await tickNow();
+  assert.equal((await simTasks()).length, 1, "the missed-call workflow created one call-back task for the simulated missed call");
+  const replay = await post(`/api/dev/communication-tests/calls/${simCall.id}/events`, {status: "NO_ANSWER"});
+  assert.equal(replay.body.data.result, "DUPLICATE");
+  const late = await post(`/api/dev/communication-tests/calls/${simCall.id}/events`, {status: "RINGING"});
+  assert.equal(late.body.data.result, "FINAL", "a late event cannot reopen the call");
+  await tickNow();
+  assert.equal((await simTasks()).length, 1, "replayed and late events create no further tasks");
+  await screenshot("dev-communication-simulator");
+  pass("The developer simulator creates fictional leads, plays a missed call through the provider state machine, starts the missed-call workflow once, and ignores replayed and late events");
+
+  await load(`/leads/${simLeadId}`, "document.querySelector('#calls')?.innerText.includes('Simulated')");
+  const dashboardAfter = (await api("/api/communications/dashboard")).body.data;
+  assert.deepEqual(dashboardAfter.totals, dashboardBefore, "simulated calls never count in the dashboard by default");
+  assert.ok(dashboardAfter.simulated.available && dashboardAfter.simulated.count >= 1);
+  assert.equal((await api("/api/communications/dashboard?includeSimulated=1")).body.data.totals.missed, dashboardBefore.missed + 1, "they count only when explicitly included");
+  const listed = (await api("/api/communications/calls")).body.data.calls;
+  assert.ok(!listed.some(call => call.source === "SIMULATED"), "the call list leaves them out too");
+  assert.ok((await api("/api/communications/calls?includeSimulated=1")).body.data.calls.some(call => call.source === "SIMULATED"));
+  assert.equal((await api("/api/communications/reports?includeSimulated=1")).body.data.simulated.included, true);
+  pass("Simulated calls are labelled on the lead and left out of dashboards, lists and reports unless explicitly included");
+
+  await signIn("owner-b");
+  assert.equal((await api("/api/dev/communication-tests")).body.data.calls.length, 0, "another company sees none of them");
+  assert.equal((await post("/api/dev/communication-tests/calls", {leadId: simLeadId, direction: "INBOUND", scenario: "MISSED"}, f.orgB)).status, 400, "nor can it simulate on another company's lead");
+  await signIn("owner-a");
+  const reset = await post("/api/dev/communication-tests/reset");
+  assert.equal(reset.status, 200, JSON.stringify(reset.body));
+  assert.equal((await api("/api/dev/communication-tests")).body.data.calls.length, 0);
+  assert.equal((await sql(`query C($org: UUID!) { callRecords(where: {organizationId: {eq: $org}, source: {ne: SIMULATED}}) { id } }`, {org: f.orgA})).callRecords.length, realCallsBefore, "real calls are untouched by the reset");
+  assert.ok((await sql(`query L($org: UUID!, $id: UUID!) { lead(key: {organizationId: $org, id: $id}) { archivedAt } }`, {org: f.orgA, id: simLeadId})).lead.archivedAt, "the fictional lead is archived");
+  pass("Other companies cannot see or use the simulator's records; reset removes only simulator data");
+
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");
   console.log(`\n${checks} communication end-to-end checks passed.`);
 } catch (error) {
-  failure = error;
+  if (error !== LIVE_DONE) failure = error;
+  else console.log(`\n${checks} live Claude communication checks passed.`);
 } finally {
   try { socket?.close(); } catch { /* closed */ }
   stop(browser); stop(server);

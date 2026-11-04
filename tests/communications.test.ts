@@ -5,7 +5,7 @@ import { DEFAULT_RULES, evaluateCall, localMoment, rulesFrom, type CallCheck, ty
 import { CALL_OUTCOMES, SUPPRESSING_OUTCOMES, parseCallingCodes, suppresses } from "../src/modules/communications/model";
 import { audioFacts, detectLanguage, parseTranscript, timestamp, TranscriptFormatError } from "../src/modules/communications/media";
 import { callTotals, outcomeCounts, totalsByAgent, type MetricCall } from "../src/modules/communications/metrics";
-import { destinationProblems, displayNumber, normalizeCallNumber, numbersOnRecord } from "../src/modules/communications/phone";
+import { destinationProblems, displayNumber, normalizeCallNumber, numbersNeedingUpdate, numbersOnRecord } from "../src/modules/communications/phone";
 
 // Synthetic numbers and times only (no real customer data).
 const NUMBER = "+971501234567";
@@ -52,6 +52,12 @@ test("numbers come from the record, normalized to E.164 with allowed calling cod
   assert.equal(normalizeCallNumber(null), null);
   assert.deepEqual(numbersOnRecord({phone: "050 123 4567", alternatePhone: "+971501234567"}), [NUMBER], "duplicates removed");
   assert.deepEqual(numbersOnRecord({normalizedPhone: NUMBER, normalizedAlternatePhone: "+447700900123"}), [NUMBER, "+447700900123"]);
+  // The stored normalized number is what the database compares calls against: a phone on file without
+  // it (saved in display form, for example "+44 7700 900049") is not offered, and is flagged instead.
+  assert.deepEqual(numbersOnRecord({phone: "+44 7700 900049", normalizedPhone: null, alternatePhone: null, normalizedAlternatePhone: null}), []);
+  assert.equal(numbersNeedingUpdate({phone: "+44 7700 900049", normalizedPhone: null, alternatePhone: null, normalizedAlternatePhone: null}), 1);
+  assert.equal(numbersNeedingUpdate({phone: NUMBER, normalizedPhone: NUMBER, alternatePhone: null, normalizedAlternatePhone: null}), 0);
+  assert.equal(numbersNeedingUpdate({phone: "050 123 4567"}), 0, "records without stored forms (a lead without a contact) are normalized on the fly");
   assert.deepEqual(destinationProblems(NUMBER, ["971"]), []);
   assert.deepEqual(destinationProblems("+447700900123", ["971"]), ["COUNTRY_NOT_ALLOWED"]);
   assert.deepEqual(destinationProblems("+9719001234567", ["971"]), ["PREMIUM_RATE_NUMBER"]);

@@ -258,8 +258,9 @@ Shared enums gained values at the end only (`ActivityKind`: `CALL_LOGGED`, `CALL
 
 | Command | What it covers |
 | --- | --- |
-| `npm run test:communications` | Call states, numbers and destination rules, suppressing outcomes, every compliance rule including timezones and frequency limits, metrics, provider signatures and the live-call blockers (16 tests) |
-| `npm run test:dataconnect` | The stored operations: record-level access, number on record, atomic suppressions, idempotent IDs, compare-and-set edits, follow-up links, contact calls, settings bounds and tenant isolation; providers, lines, the live-call gate, webhook operations and hub access (14 cases) |
-| `npm run test:communications:e2e` | The real app in a browser: the panel, logging from the lead with a follow-up, persistence after reload, duplicates, warnings, opt-out, edits, manager, cross-company and forged-header denials, the contact page and the do-not-call list; provider settings, signed and refused webhooks, refused live calls and the hub pages (15 checks) |
+| `npm run test:communications` (38 tests) | Call states and the workflow event of each finished call; numbers and destination rules; suppressing outcomes; every compliance rule including timezones and frequency limits; metrics and per-agent reports; Twilio and Retell signatures and the live-call blockers; audio and transcript checks; call-summary evidence checks and redaction; the voice assistant rules; meeting links |
+| `npm run test:dataconnect` (27 communication cases) | The stored operations: record-level access, number on record, atomic suppressions, idempotent IDs, compare-and-set edits, follow-up links, contact calls, settings bounds and tenant isolation. Also: providers, lines, the live-call gate, webhook operations; consent, recordings and transcripts; summaries and suggestions; the voice assistant; workflow events in the same transaction; meetings; report scope |
+| `npm run test:communications:e2e` (32 checks) | The real app in a browser, covering 6F.1 to 6F.6 with synthetic data, isolated emulators and the invalid-key Claude path. It includes the missed-call workflow creating exactly one task, meetings from the lead page, and reports by role |
+| `npm run test:persistence` | Calls (with their workflow event) and meetings survive an abrupt stop of the local database |
 
-All data is synthetic; no real number is called.
+All data is synthetic; no real number is called. How Phase 6F is verified without a provider, the developer simulator and the verification dashboard are in [COMMUNICATION_TESTING.md](COMMUNICATION_TESTING.md).
