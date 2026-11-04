@@ -1,4 +1,4 @@
-import type { ConversationStatus, Role } from "./model";
+import type { ConversationStatus, DeliveryStatus, Role } from "./model";
 
 export type { Role } from "./model";
 
@@ -53,4 +53,30 @@ export function nextCursor<T extends {id: string}>(rows: readonly T[], at: (row:
   const page = rows.slice(0, pageSize);
   const last = at(page[page.length - 1]);
   return {at: last, seen: page.filter(row => at(row) === last).map(row => row.id)};
+}
+
+/*
+ * Delivery receipts move an outbound message forward only (docs/CHANNEL_ADAPTERS.md#delivery-receipts):
+ * QUEUED → SENT → DELIVERED → READ, or FAILED before it is delivered. Late or
+ * repeated receipts change nothing; an unrecognised status is kept as raw text only.
+ */
+const DELIVERY_ORDER: Partial<Record<DeliveryStatus, number>> = {QUEUED: 1, SENT: 2, DELIVERED: 3, READ: 4};
+export type DeliveryDecision = {apply: true; status: DeliveryStatus} | {apply: false; reason: "DUPLICATE" | "OUT_OF_ORDER" | "FINAL" | "NOT_OUTBOUND" | "RAW_ONLY"};
+export function deliveryTransition(current: DeliveryStatus, next: DeliveryStatus): DeliveryDecision {
+  if (current === next) return {apply: false, reason: "DUPLICATE"};
+  if (!(current in DELIVERY_ORDER) && current !== "FAILED") return {apply: false, reason: "NOT_OUTBOUND"};
+  if (current === "FAILED") return {apply: false, reason: "FINAL"};
+  if (next === "UNKNOWN") return {apply: false, reason: "RAW_ONLY"};
+  if (next === "FAILED") return current === "QUEUED" || current === "SENT" ? {apply: true, status: next} : {apply: false, reason: "OUT_OF_ORDER"};
+  const from = DELIVERY_ORDER[current]!, to = DELIVERY_ORDER[next];
+  if (to === undefined) return {apply: false, reason: "OUT_OF_ORDER"};
+  return to > from ? {apply: true, status: next} : {apply: false, reason: "OUT_OF_ORDER"};
+}
+
+/** Failed inbox events are retried by the worker with growing delays, then left DEAD for review. */
+export const MAX_EVENT_ATTEMPTS = 5;
+const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
+export function eventRetry(attemptsSoFar: number, now: number): {dead: true} | {dead: false; nextAttemptAt: string} {
+  if (attemptsSoFar + 1 >= MAX_EVENT_ATTEMPTS) return {dead: true};
+  return {dead: false, nextAttemptAt: new Date(now + RETRY_DELAYS_MS[Math.min(attemptsSoFar, RETRY_DELAYS_MS.length - 1)]).toISOString()};
 }

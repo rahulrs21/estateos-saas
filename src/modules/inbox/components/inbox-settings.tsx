@@ -1,0 +1,159 @@
+"use client";
+
+import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
+import { Copy, Plus, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { communicationsGet, communicationsSend, errorMessage } from "@/modules/communications/client";
+import { formatLeadDate, LeadField, LeadFormMessage, selectClassName } from "@/modules/leads/components/lead-ui";
+import { CAPABILITIES, type Capability, type CapabilityState } from "../adapters/types";
+import type { ConnectionsView } from "../server/connections";
+import type { inboxSettings } from "../server/conversations";
+
+type SettingsView = Awaited<ReturnType<typeof inboxSettings>>;
+type Connection = ConnectionsView["connections"][number];
+type Send = (path: string, method: "POST" | "PUT", body: unknown, success: string) => Promise<boolean>;
+
+const STATUS_LABELS: Record<string, string> = {NOT_CONFIGURED: "Not configured", CONFIGURED: "Configured, not verified", VERIFIED: "Verified", DISABLED: "Disabled", ERROR: "Error"};
+const CAPABILITY_LABELS: Record<Capability, string> = {
+  VALIDATE_CONNECTION: "Check connection", RECEIVE_EVENTS: "Receive messages", NORMALIZE_MESSAGE: "Read message content", SYNC_HISTORY: "Import history",
+  SEND_MESSAGE: "Send messages", DELIVERY_RECEIPTS: "Delivery receipts", RESOLVE_MESSAGE_ID: "Match provider message IDs", HEALTH_CHECK: "Health check", DISCONNECT: "Disconnect",
+};
+const STATE_LABELS: Record<CapabilityState, string> = {SUPPORTED: "Built", PLANNED: "Planned (later phase)", UNSUPPORTED: "Not offered"};
+
+function Section({title, description, action, children}: {title: string; description: ReactNode; action?: ReactNode; children: ReactNode}) {
+  return <Card className="gap-4 py-5 shadow-xs ring-border"><CardHeader className="px-5"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 space-y-1"><CardTitle role="heading" aria-level={2}>{title}</CardTitle><CardDescription>{description}</CardDescription></div>{action}</div></CardHeader><CardContent className="px-5">{children}</CardContent></Card>;
+}
+
+function FormDialog({trigger, title, description, submitLabel, children, onSubmit}: {trigger: ReactNode; title: string; description: string; submitLabel: string; children: ReactNode; onSubmit: (form: FormData) => Promise<boolean>}) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError(""); setPending(true);
+    try { if (await onSubmit(new FormData(event.currentTarget))) setOpen(false); }
+    catch (problem) { setError(errorMessage(problem, "The change could not be saved.")); }
+    finally { setPending(false); }
+  }
+  return <Dialog open={open} onOpenChange={value => { if (!pending) { setOpen(value); setError(""); } }}>
+    <DialogTrigger render={<Button variant="outline" size="sm" />}>{trigger}</DialogTrigger>
+    <DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader>
+      <form onSubmit={submit} className="space-y-4"><fieldset disabled={pending} className="space-y-4">{children}<Button type="submit">{pending ? "Saving…" : submitLabel}</Button></fieldset><LeadFormMessage message={error} /></form>
+    </DialogContent>
+  </Dialog>;
+}
+
+const text = (form: FormData, name: string) => String(form.get(name) ?? "").trim();
+
+function RulesSection({settings, send}: {settings: SettingsView; send: Send}) {
+  const prefix = useId();
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError(""); setPending(true);
+    const form = new FormData(event.currentTarget);
+    try {
+      await send("/api/inbox/settings", "PUT", {expectedRevision: settings.revision, approvalRequired: form.get("approvalRequired") === "on",
+        retentionDays: Number(text(form, "retentionDays")), unansweredMinutes: Number(text(form, "unansweredMinutes"))}, "Inbox rules saved.");
+    } catch (problem) { setError(errorMessage(problem, "The rules could not be saved.")); }
+    finally { setPending(false); }
+  }
+  return <Section title="Inbox rules" description="How your team's conversations are handled. Only owners and administrators can change these.">
+    <form onSubmit={submit} className="space-y-4"><fieldset disabled={!settings.canEdit || pending} className="grid gap-4 sm:grid-cols-2">
+      <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" name="approvalRequired" defaultChecked={settings.approvalRequired} className="mt-1" />
+        <span><span className="font-medium">Outbound messages need approval</span><span className="block text-xs text-muted-foreground">An owner, administrator or manager approves each reply before it can be sent. The author cannot approve their own reply unless they are the owner.</span></span></label>
+      <LeadField id={`${prefix}-retention`} label="Keep message content for (days)" hint="After this, message text and files are removed; a record that a message existed remains. 30 to 3650 days.">
+        <Input id={`${prefix}-retention`} name="retentionDays" type="number" min={30} max={3650} required defaultValue={settings.retentionDays} /></LeadField>
+      <LeadField id={`${prefix}-unanswered`} label="Unanswered after (minutes)" hint="A conversation counts as unanswered when the customer's last message waited this long. Workflows can react to it.">
+        <Input id={`${prefix}-unanswered`} name="unansweredMinutes" type="number" min={15} max={10080} required defaultValue={settings.unansweredMinutes} /></LeadField>
+      {settings.canEdit && <div className="sm:col-span-2"><Button type="submit">{pending ? "Saving…" : "Save rules"}</Button></div>}
+    </fieldset><LeadFormMessage message={error} /></form>
+  </Section>;
+}
+
+function ConnectionFields({view, connection}: {view: ConnectionsView; connection?: Connection}) {
+  const prefix = useId();
+  const [provider, setProvider] = useState(connection?.provider ?? view.providers[0]?.provider ?? "WHATSAPP_CLOUD");
+  const info = view.providers.find(item => item.provider === provider);
+  return <>
+    {!connection && <LeadField id={`${prefix}-provider`} label="Provider"><select id={`${prefix}-provider`} name="provider" className={selectClassName} value={provider} onChange={event => setProvider(event.target.value as typeof provider)}>
+      {view.providers.map(item => <option key={item.provider} value={item.provider}>{item.label}</option>)}</select></LeadField>}
+    <LeadField id={`${prefix}-name`} label="Name"><Input id={`${prefix}-name`} name="displayName" required minLength={2} maxLength={80} defaultValue={connection?.displayName ?? ""} placeholder="Sales WhatsApp" /></LeadField>
+    <LeadField id={`${prefix}-account`} label="Account" hint={`The ${info?.accountLabel ?? "account identifier"}. Not secret; each account can belong to one company only.`}>
+      <Input id={`${prefix}-account`} name="externalAccountReference" maxLength={200} defaultValue={connection?.externalAccountReference ?? ""} autoComplete="off" /></LeadField>
+    <LeadField id={`${prefix}-secret`} label="Server secret name" hint={provider === "WHATSAPP_CLOUD"
+      ? "The NAME of the server secret holding the Meta app secret, for example INBOX_WHATSAPP_APP_SECRET. The webhook verify token goes in a second secret with _VERIFY_TOKEN added to that name. Never paste a secret or a password here."
+      : "The NAME of the server secret this connection will use. Email accounts are connected with OAuth in a later phase: never enter a mailbox password into EstateOS."}>
+      <Input id={`${prefix}-secret`} name="credentialReference" maxLength={64} defaultValue={connection?.credentialReference ?? ""} autoComplete="off" pattern="INBOX_[A-Z0-9_]{3,56}" /></LeadField>
+  </>;
+}
+
+function Capabilities({capabilities}: {capabilities: Record<Capability, CapabilityState>}) {
+  return <details className="text-xs"><summary className="cursor-pointer text-muted-foreground">What EstateOS can do with this channel</summary>
+    <ul className="mt-2 grid gap-1 sm:grid-cols-2">{CAPABILITIES.map(capability => <li key={capability} className="flex items-center justify-between gap-2 rounded border px-2 py-1">
+      <span>{CAPABILITY_LABELS[capability]}</span><Badge variant={capabilities[capability] === "SUPPORTED" ? "secondary" : "outline"}>{STATE_LABELS[capabilities[capability]]}</Badge></li>)}</ul></details>;
+}
+
+function ConnectionsSection({view, send}: {view: ConnectionsView; send: Send}) {
+  const copy = (value: string) => { void navigator.clipboard?.writeText(value).then(() => toast.success("Webhook address copied.")); };
+  return <Section title="Channels" description="Company accounts with WhatsApp and email providers. Adding one here does not connect it: EstateOS verifies a connection and sends messages only after the live integration is built and approved (Phase 7B for WhatsApp, 7C for email)."
+    action={<FormDialog trigger={<><Plus aria-hidden="true" />Add channel</>} title="Add a channel" description="Saving does not contact the provider and does not enable sending." submitLabel="Add channel"
+      onSubmit={form => send("/api/inbox/connections", "POST", {provider: text(form, "provider"), displayName: text(form, "displayName"), externalAccountReference: text(form, "externalAccountReference") || null, credentialReference: text(form, "credentialReference") || null}, "Channel added.")}>
+      <ConnectionFields view={view} /></FormDialog>}>
+    {!view.connections.length ? <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No channel is set up. Website enquiries still arrive in the inbox.</p>
+      : <ul className="space-y-3">{view.connections.map(connection => <li key={connection.id} className="space-y-2 rounded-lg border p-4" data-testid="inbox-connection">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div><p className="text-sm font-medium">{connection.displayName}</p><p className="text-xs text-muted-foreground">{connection.label}</p></div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {connection.simulator ? <Badge variant="destructive">Developer tools only</Badge> : <Badge variant="outline">{STATUS_LABELS[connection.connectionStatus] ?? connection.connectionStatus}</Badge>}
+            {!connection.simulator && <Badge variant="outline">{connection.secretAvailable ? "Secret set on server" : "Secret not set on server"}</Badge>}
+            <Badge variant="outline">{connection.canSend ? "Sends to simulated conversations only" : "Sending off"}</Badge>
+          </div>
+        </div>
+        {!connection.simulator && <p className="text-xs text-muted-foreground">Account: {connection.externalAccountReference ?? "not set"} · Secret name: {connection.credentialReference ?? "not set"}
+          {connection.verifyTokenName ? ` · Verify token secret: ${connection.verifyTokenName} (${connection.verifyTokenAvailable ? "set" : "not set"})` : ""}
+          {connection.lastEventAt ? ` · Last verified event ${formatLeadDate(connection.lastEventAt, true)}` : ""}</p>}
+        {connection.webhookUrl && <p className="flex flex-wrap items-center gap-2 text-xs"><span className="text-muted-foreground">Webhook address for the provider:</span><code className="break-all rounded bg-muted px-1.5 py-0.5">{connection.webhookUrl}</code>
+          <Button variant="ghost" size="sm" onClick={() => copy(connection.webhookUrl!)} aria-label="Copy webhook address"><Copy aria-hidden="true" /></Button></p>}
+        {!connection.webhookUrl && !connection.simulator && <p className="text-xs text-muted-foreground">EstateOS does not receive messages from this provider yet (planned with OAuth in Phase 7C). It accepts no webhooks for it.</p>}
+        <Capabilities capabilities={connection.capabilities} />
+        {!connection.simulator && <div className="flex flex-wrap gap-2">
+          <FormDialog trigger="Edit" title="Edit channel" description="Saving does not contact the provider." submitLabel="Save"
+            onSubmit={form => send(`/api/inbox/connections/${connection.id}`, "PUT", {expectedRevision: connection.revision, displayName: text(form, "displayName"), externalAccountReference: text(form, "externalAccountReference") || null, credentialReference: text(form, "credentialReference") || null}, "Channel saved.")}>
+            <ConnectionFields view={view} connection={connection} /></FormDialog>
+          <Button variant="outline" size="sm" onClick={() => void send(`/api/inbox/connections/${connection.id}/enabled`, "POST", {expectedRevision: connection.revision, enabled: connection.connectionStatus === "DISABLED"}, connection.connectionStatus === "DISABLED" ? "Channel enabled." : "Channel disabled; its webhooks are refused.").catch(() => undefined)}>
+            {connection.connectionStatus === "DISABLED" ? "Enable" : "Disable"}</Button>
+        </div>}
+      </li>)}</ul>}
+  </Section>;
+}
+
+export function InboxSettingsView({organizationId}: {organizationId: string}) {
+  const [settings, setSettings] = useState<SettingsView | null>(null);
+  const [connections, setConnections] = useState<ConnectionsView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => communicationsGet<SettingsView>("/api/inbox/settings", "Inbox settings could not be loaded.")
+    .then(async rules => ({rules, channels: rules.canEdit ? await communicationsGet<ConnectionsView>("/api/inbox/connections", "Channels could not be loaded.") : null}))
+    .then(({rules, channels}) => { setSettings(rules); setConnections(channels); setError(null); }, problem => setError(errorMessage(problem, "Inbox settings could not be loaded."))), []);
+  useEffect(() => { void load(); }, [load]);
+
+  /** Sends a change, then reloads so the page shows what was stored. */
+  const send: Send = async (path, method, body, success) => {
+    try { await communicationsSend(path, organizationId, method, body); toast.success(success); return true; }
+    catch (problem) { toast.error(errorMessage(problem, "The change could not be saved.")); throw problem; }
+    finally { void load(); }
+  };
+
+  if (error) return <div role="alert" className="space-y-3 rounded-xl border p-6"><p className="text-sm text-destructive">{error}</p><Button variant="outline" size="sm" onClick={() => void load()}><RefreshCw aria-hidden="true" />Try again</Button></div>;
+  if (!settings || (settings.canEdit && !connections)) return <div role="status" className="animate-pulse rounded-xl border p-6 text-sm text-muted-foreground">Loading inbox settings...</div>;
+  return <div className="space-y-5">
+    {!settings.canEdit && <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">These are your company&apos;s inbox rules. Only owners and administrators can change them or manage channels.</p>}
+    <RulesSection key={`rules-${settings.revision}`} settings={settings} send={send} />
+    {connections && <ConnectionsSection view={connections} send={send} />}
+  </div>;
+}

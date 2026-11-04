@@ -36,9 +36,10 @@ export type EventResult = "APPLIED" | "DUPLICATE" | "NO_CHANGE" | "FINAL" | "OUT
 const reject = (status: number) => new Response(null, {status, headers: {"Cache-Control": "no-store"}});
 const log = (event: string, detail: Record<string, unknown>) => console.warn(JSON.stringify({event: `communications.webhook.${event}`, ...detail}));
 
-async function readBody(request: Request): Promise<string | null> {
+/** The raw body, read with a cap (also used by the inbox webhooks). Null when it is too large. */
+export async function readBody(request: Request, maxBytes = MAX_BODY_BYTES): Promise<string | null> {
   const declared = Number(request.headers.get("content-length") ?? 0);
-  if (declared > MAX_BODY_BYTES || !request.body) return declared > MAX_BODY_BYTES ? null : "";
+  if (declared > maxBytes || !request.body) return declared > maxBytes ? null : "";
   // Read with a running cap, so a body without a length (chunked) cannot grow without limit.
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -47,7 +48,7 @@ async function readBody(request: Request): Promise<string | null> {
     const {done, value} = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > MAX_BODY_BYTES) { await reader.cancel().catch(() => undefined); return null; }
+    if (size > maxBytes) { await reader.cancel().catch(() => undefined); return null; }
     chunks.push(value);
   }
   const bytes = new Uint8Array(size);

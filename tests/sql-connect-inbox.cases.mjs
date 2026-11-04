@@ -140,5 +140,105 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       assert.equal(settings.retentionDays, 365);
       assert.equal((await run(sdk.getInboxSettings, "owner-b", {organizationId: f.orgB})).settings, null, "another company has its own (absent) settings");
     });
+
+    // --- 7A.4: channel connections, durable events, receipts, attachments ---------------------
+    const ACCOUNT = `1000000${Date.now()}`.slice(0, 15);
+    let connectionId;
+    const connection = async () => (await run(sdk.listChannelConnections, "owner-a", {organizationId: f.orgA})).connections.find(row => key(row.id) === key(connectionId));
+
+    it("keeps channel connections to administrators, one company per provider account, never verified or sending", async () => {
+      const input = {organizationId: f.orgA, provider: sdk.ChannelProvider.WHATSAPP_CLOUD, displayName: "Test WhatsApp", externalAccountReference: ACCOUNT, credentialReference: "INBOX_TEST_WA_SECRET"};
+      await assert.rejects(run(sdk.createChannelConnection, "agent-a", {...input, id: randomUUID()}), "agents cannot add channels");
+      await assert.rejects(run(sdk.createChannelConnection, "manager-a", {...input, id: randomUUID()}), "managers cannot add channels");
+      await forbidden(sdk.createChannelConnection, "owner-a", {...input, id: randomUUID(), provider: sdk.ChannelProvider.DEVELOPMENT_SIMULATOR});
+      await forbidden(sdk.createChannelConnection, "owner-a", {...input, id: randomUUID(), credentialReference: "EAAG-a-pasted-token"});
+      await forbidden(sdk.listChannelConnections, "owner-b", {organizationId: f.orgA});
+      connectionId = randomUUID();
+      await run(sdk.createChannelConnection, "owner-a", {...input, id: connectionId});
+      let row = await connection();
+      assert.equal(row.connectionStatus, "CONFIGURED", "configured is as far as Phase 7A goes");
+      assert.equal(row.sendingEnabled, false);
+      await assert.rejects(run(sdk.createChannelConnection, "owner-b", {...input, organizationId: f.orgB, id: randomUUID()}), "another company cannot claim the same provider account");
+
+      await rejectsWith(run(sdk.updateChannelConnection, "admin-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision + 1, displayName: "Stale", externalAccountReference: ACCOUNT, credentialReference: "INBOX_TEST_WA_SECRET"}), "CHANNEL_CONNECTION_CHANGED");
+      await run(sdk.setChannelConnectionEnabled, "admin-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, enabled: false});
+      row = await connection();
+      await run(sdk.updateChannelConnection, "admin-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, displayName: "Sales WhatsApp", externalAccountReference: ACCOUNT, credentialReference: "INBOX_TEST_WA_SECRET"});
+      row = await connection();
+      assert.equal(row.connectionStatus, "DISABLED", "editing a disabled channel keeps it disabled");
+      await run(sdk.setChannelConnectionEnabled, "admin-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, enabled: true});
+      assert.equal((await connection()).connectionStatus, "CONFIGURED");
+
+      const simulator = randomUUID();
+      await server(sdk.createInboxSimulatorChannel, {organizationId: f.orgA, id: simulator, actorUid: "owner-a"});
+      await rejectsWith(run(sdk.updateChannelConnection, "owner-a", {organizationId: f.orgA, id: simulator, expectedRevision: 1, displayName: "Renamed", externalAccountReference: "1234567", credentialReference: "INBOX_TEST_WA_SECRET"}), "CHANNEL_CONNECTION_CHANGED");
+      await rejectsWith(run(sdk.setChannelConnectionEnabled, "owner-a", {organizationId: f.orgA, id: simulator, expectedRevision: 1, enabled: false}), "CHANNEL_CONNECTION_CHANGED");
+
+      const lookup = await server(sdk.inboxWebhookConnection, {id: connectionId});
+      assert.equal(key(lookup.connections[0].organizationId), key(f.orgA), "the webhook company comes from the connection row");
+      await forbidden(sdk.inboxWebhookConnection, "owner-a", {id: connectionId});
+    });
+
+    it("records each event once, retries failures by compare-and-set, and applies receipts forward only", async () => {
+      const event = {organizationId: f.orgA, hasConnection: true, channelConnectionId: connectionId, kind: "STATUS", payloadDigest: "0".repeat(64), normalizedJson: "{\"test\":true}", simulated: false};
+      const eventId = randomUUID(), dedupKey = `status:${randomUUID()}`;
+      await server(sdk.recordInboxEvent, {...event, id: eventId, dedupKey});
+      await assert.rejects(server(sdk.recordInboxEvent, {...event, id: randomUUID(), dedupKey}), "a replayed event is refused by its key");
+      await forbidden(sdk.recordInboxEvent, "owner-a", {...event, id: randomUUID(), dedupKey: `status:${randomUUID()}`});
+      assert.ok((await connection()).lastEventAt, "the connection shows when it last had a verified event");
+
+      const past = new Date(Date.now() - 60_000).toISOString();
+      await server(sdk.failInboxEvent, {organizationId: f.orgA, id: eventId, expectedAttempts: 0, errorCode: "TEST", nextAttemptAt: past});
+      const stale = await server(sdk.failInboxEvent, {organizationId: f.orgA, id: eventId, expectedAttempts: 0, errorCode: "TEST", nextAttemptAt: past});
+      assert.equal(stale.inboxEvent_update, null, "a second worker with the old attempt count changes nothing");
+      const pending = async () => (await server(sdk.pendingInboxEvents, {now: new Date().toISOString(), staleBefore: new Date(Date.now() - 120_000).toISOString(), limit: 100})).events.map(row => key(row.id));
+      assert.ok((await pending()).includes(key(eventId)));
+      await server(sdk.completeInboxEvent, {organizationId: f.orgA, id: eventId, status: sdk.InboxEventStatus.PROCESSED, errorCode: "UNMATCHED"});
+      assert.ok(!(await pending()).includes(key(eventId)));
+      const stored = (await dc.executeGraphql(`query S($org: UUID!, $id: UUID!) { inboxEvent(key: {organizationId: $org, id: $id}) { status attempts normalizedJson processedAt } }`, {variables: {org: f.orgA, id: eventId}})).data.inboxEvent;
+      assert.equal(stored.status, "PROCESSED");
+      assert.equal(stored.normalizedJson, null, "the normalized copy is removed once applied");
+
+      // An outbound message as the Phase 7A.5 pipeline will store it (test setup only).
+      const outbound = randomUUID();
+      await dc.executeGraphql(`mutation O($org: UUID!, $id: UUID!, $conversation: UUID!, $connection: UUID!) { inboxMessage_insert(data: {organizationId: $org, id: $id, conversationId: $conversation,
+        channelConnectionId: $connection, externalMessageId: "wamid.outbound-test", direction: OUTBOUND, messageType: TEXT, content: "Synthetic reply", deliveryStatus: SENT}) }`,
+        {variables: {org: f.orgA, id: outbound, conversation: linked, connection: connectionId}});
+      const found = (await server(sdk.inboxMessageByExternalId, {organizationId: f.orgA, channelConnectionId: connectionId, externalMessageId: "wamid.outbound-test"})).messages[0];
+      assert.equal(found.deliveryStatus, "SENT");
+      const apply = (expectedStatus, deliveryStatus, emitFailed = false, id = outbound) => server(sdk.applyInboxDeliveryStatus, {organizationId: f.orgA, id, conversationId: linked,
+        expectedStatus, deliveryStatus, raw: deliveryStatus.toLowerCase(), providerTimestamp: null, emitFailed, simulated: false});
+      await apply(sdk.InboxDeliveryStatus.SENT, sdk.InboxDeliveryStatus.DELIVERED);
+      await rejectsWith(apply(sdk.InboxDeliveryStatus.SENT, sdk.InboxDeliveryStatus.READ), "INBOX_DELIVERY_CHANGED");
+      await apply(sdk.InboxDeliveryStatus.DELIVERED, sdk.InboxDeliveryStatus.FAILED, true);
+      assert.ok((await events(linked)).includes("inbox.message.failed"), "a failure is a workflow event in the same transaction");
+      const inbound = (await run(sdk.listInboxMessages, "agent-a", {organizationId: f.orgA, conversationId: linked, limit: 30})).messages.find(row => row.direction === "INBOUND");
+      await rejectsWith(apply(sdk.InboxDeliveryStatus.RECEIVED, sdk.InboxDeliveryStatus.READ, false, inbound.id), "INBOX_DELIVERY_CHANGED");
+      await forbidden(sdk.applyInboxDeliveryStatus, "owner-a", {organizationId: f.orgA, id: outbound, conversationId: linked, expectedStatus: sdk.InboxDeliveryStatus.FAILED, deliveryStatus: sdk.InboxDeliveryStatus.READ, emitFailed: false, simulated: false});
+    });
+
+    it("opens attachments only for members who see the conversation, when stored and not blocked, and audits each access", async () => {
+      const messages = (await run(sdk.listInboxMessages, "agent-a", {organizationId: f.orgA, conversationId: linked, limit: 30})).messages;
+      const messageId = messages.find(row => row.direction === "INBOUND").id;
+      const attachment = {organizationId: f.orgA, messageId, conversationId: linked, fileName: "brochure.pdf", mimeType: "application/pdf", sizeBytes: 1200, providerMediaId: null, scanStatus: sdk.InboxAttachmentScan.NOT_SCANNED};
+      await rejectsWith(server(sdk.createInboxAttachment, {...attachment, id: randomUUID(), conversationId: unknown, storagePath: null}), "INBOX_MESSAGE_NOT_FOUND");
+      const stored = randomUUID(), remote = randomUUID(), blocked = randomUUID();
+      await server(sdk.createInboxAttachment, {...attachment, id: stored, storagePath: `organizations/${f.orgA}/inbox/attachments/${stored}.pdf`});
+      await server(sdk.createInboxAttachment, {...attachment, id: remote, storagePath: null, providerMediaId: "MEDIA-TEST", sizeBytes: 0});
+      await server(sdk.createInboxAttachment, {...attachment, id: blocked, storagePath: `organizations/${f.orgA}/inbox/attachments/${blocked}.pdf`, scanStatus: sdk.InboxAttachmentScan.BLOCKED});
+      await forbidden(sdk.createInboxAttachment, "owner-a", {...attachment, id: randomUUID(), storagePath: null});
+
+      const opened = await run(sdk.openInboxAttachment, "agent-a", {organizationId: f.orgA, conversationId: linked, id: stored});
+      assert.equal(opened.file.attachment.storagePath, `organizations/${f.orgA}/inbox/attachments/${stored}.pdf`);
+      const audits = (await dc.executeGraphql(`query A($org: UUID!, $id: UUID!) { auditLogs(where: {organizationId: {eq: $org}, targetId: {eq: $id}, action: {eq: INBOX_ATTACHMENT_ACCESSED}}) { actorUid } }`, {variables: {org: f.orgA, id: linked}})).data.auditLogs;
+      assert.equal(audits.length, 1, "the access is audited");
+      await rejectsWith(run(sdk.openInboxAttachment, "shared-agent", {organizationId: f.orgA, conversationId: linked, id: stored}), "INBOX_ATTACHMENT_NOT_FOUND");
+      await rejectsWith(run(sdk.openInboxAttachment, "agent-a", {organizationId: f.orgA, conversationId: unknown, id: stored}), "INBOX_ATTACHMENT_NOT_FOUND");
+      await forbidden(sdk.openInboxAttachment, "owner-b", {organizationId: f.orgA, conversationId: linked, id: stored});
+      await rejectsWith(run(sdk.openInboxAttachment, "agent-a", {organizationId: f.orgA, conversationId: linked, id: remote}), "INBOX_ATTACHMENT_UNAVAILABLE");
+      await rejectsWith(run(sdk.openInboxAttachment, "owner-a", {organizationId: f.orgA, conversationId: linked, id: blocked}), "INBOX_ATTACHMENT_UNAVAILABLE");
+      const listed = (await run(sdk.listInboxMessages, "agent-a", {organizationId: f.orgA, conversationId: linked, limit: 30})).messages.find(row => key(row.id) === key(messageId));
+      assert.equal(listed.attachments.length, 3);
+    });
   });
 }

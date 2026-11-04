@@ -9,7 +9,10 @@ import { fictionalNumber } from "@/modules/communications/dev/scenarios";
 import { listLeadCaptureForms, submitPublicLead } from "@/modules/lead-capture/server/service";
 import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
-import { ingestInbound } from "./ingest";
+import { getFirebaseAdminStorageBucket } from "@/lib/firebase/admin";
+import { attachmentFileName, attachmentPath, sniffAttachment } from "../attachments";
+import type { NormalizedAttachment } from "../adapters/types";
+import { receiveEvent } from "./webhooks";
 
 /*
  * Developer inbox simulator (docs/UNIFIED_INBOX.md#simulator). Developer tools
@@ -21,6 +24,21 @@ import { ingestInbound } from "./ingest";
  */
 
 const actor = (context: Context) => context.request.user.uid;
+/** Simulator files are small (2 MB); the general attachment limit is 25 MB. */
+const SIM_FILE_BYTES = 2 * 1024 * 1024;
+const SIM_FILE_BASE64 = Math.ceil(SIM_FILE_BYTES / 3) * 4 + 8;
+export const SIMULATOR_BODY_BYTES = SIM_FILE_BASE64 + 16 * 1024;
+
+async function storeSimulatorFile(context: Context, input: {fileName: string; dataBase64: string}): Promise<NormalizedAttachment> {
+  const bytes = Buffer.from(input.dataBase64, "base64");
+  if (!bytes.byteLength || bytes.byteLength > SIM_FILE_BYTES) throw new WorkspaceError("VALIDATION_ERROR", 400, "Simulator attachments must be between 1 byte and 2 MB.");
+  const type = sniffAttachment(bytes, input.fileName);
+  if (!type) throw new WorkspaceError("VALIDATION_ERROR", 415, "This file type is not accepted. Attach an image, PDF, Office document, audio or video file.");
+  const attachmentId = randomUUID();
+  const storagePath = attachmentPath(canonicalUuid(context.organizationId), attachmentId, type.extension);
+  await getFirebaseAdminStorageBucket().file(storagePath).save(bytes, {resumable: false, metadata: {contentType: type.mimeType, cacheControl: "private, no-store", metadata: {estateosInboxAttachmentId: attachmentId}}});
+  return {providerMediaId: null, mimeType: type.mimeType, fileName: attachmentFileName(input.fileName, type), sizeBytes: bytes.byteLength, stored: {attachmentId, storagePath}};
+}
 
 async function simulatorChannel(context: Context) {
   const data = await asServer("InboxSimulatorChannel", dc => sdk.inboxSimulatorChannel(dc, {organizationId: context.organizationId, actorUid: actor(context)}));
@@ -45,6 +63,8 @@ const inboundSchema = z.strictObject({
   subject: z.string().trim().max(200).optional(),
   /** Deliver an earlier simulated message again, exactly as a provider retry would. */
   replayOf: z.string().max(200).optional(),
+  /** A small file to attach (checked by content like any attachment). */
+  attachment: z.strictObject({fileName: z.string().trim().min(1).max(200), dataBase64: z.string().min(4).max(SIM_FILE_BASE64)}).optional(),
 });
 
 export async function simulateInbound(context: Context, body: unknown) {
@@ -66,13 +86,19 @@ export async function simulateInbound(context: Context, body: unknown) {
   }
   const identity = input.channel === "WHATSAPP" ? phone.replace(/\s/g, "") : email;
   const externalMessageId = input.replayOf ?? `sim-${randomUUID()}`;
-  const result = await ingestInbound({
-    organizationId: context.organizationId, channelConnectionId: channel.id, channel: input.channel,
-    externalThreadId: input.channel === "WHATSAPP" ? `wa:${identity}` : `mail:${identity}:${(input.subject ?? "").toLowerCase().slice(0, 80)}`,
-    externalMessageId, from: input.channel === "WHATSAPP" ? {phone, name} : {email, name}, to: "simulator", subject: input.channel === "EMAIL" ? input.subject ?? "(no subject)" : null,
-    messageType: "TEXT", content: input.text, providerTimestamp: new Date().toISOString(), simulated: true,
-  });
-  return {...result, externalMessageId};
+  const attachments = input.attachment && !input.replayOf ? [await storeSimulatorFile(context, input.attachment)] : [];
+  const kind = attachments[0]?.mimeType.split("/")[0];
+  // The same durable path as a verified provider webhook: recorded once, then applied.
+  const outcome = await receiveEvent({organizationId: context.organizationId, id: channel.id, provider: "DEVELOPMENT_SIMULATOR"}, {
+    kind: "MESSAGE", accountId: "simulator", channel: input.channel, externalMessageId,
+    threadId: input.channel === "WHATSAPP" ? `wa:${identity}` : `mail:${identity}:${(input.subject ?? "").toLowerCase().slice(0, 80)}`,
+    from: input.channel === "WHATSAPP" ? {phone, name} : {email, name}, to: "simulator", subject: input.channel === "EMAIL" ? input.subject ?? "(no subject)" : null,
+    messageType: kind === "image" ? "IMAGE" : kind === "audio" ? "AUDIO" : kind === "video" ? "VIDEO" : attachments.length ? "DOCUMENT" : "TEXT",
+    text: input.text, timestamp: new Date().toISOString(), attachments,
+  }, {payloadDigest: null, simulated: true});
+  if (outcome.status === "PROCESSED") return {status: outcome.created ? "CREATED" : "APPENDED", conversationId: outcome.conversationId, messageId: outcome.messageId, match: outcome.result, eventId: outcome.eventId, externalMessageId};
+  if (outcome.status === "DUPLICATE") return {status: "DUPLICATE", conversationId: outcome.conversationId ?? null, eventId: outcome.eventId, externalMessageId};
+  throw new WorkspaceError("INBOX_EVENT_FAILED", 503, `The simulated event was recorded but could not be applied (${outcome.errorCode}); the worker will retry it.`);
 }
 
 const websiteSchema = z.strictObject({message: z.string().trim().min(1).max(4000), formId: idSchema.optional()});

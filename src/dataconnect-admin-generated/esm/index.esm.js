@@ -120,6 +120,7 @@ export const ActivityKind = {
   CHANNEL_CONNECTION_CHANGED: "CHANNEL_CONNECTION_CHANGED",
   INBOX_OUTBOUND_CHANGED: "INBOX_OUTBOUND_CHANGED",
   INBOX_SETTINGS_UPDATED: "INBOX_SETTINGS_UPDATED",
+  INBOX_ATTACHMENT_ACCESSED: "INBOX_ATTACHMENT_ACCESSED",
 }
 
 export const AgentAvailabilityStatus = {
@@ -383,6 +384,23 @@ export const CallType = {
   INBOUND_ENQUIRY: "INBOUND_ENQUIRY",
 }
 
+export const ChannelConnectionStatus = {
+  NOT_CONFIGURED: "NOT_CONFIGURED",
+  CONFIGURED: "CONFIGURED",
+  VERIFIED: "VERIFIED",
+  DISABLED: "DISABLED",
+  ERROR: "ERROR",
+}
+
+export const ChannelProvider = {
+  WHATSAPP_CLOUD: "WHATSAPP_CLOUD",
+  GMAIL: "GMAIL",
+  MICROSOFT_365: "MICROSOFT_365",
+  WEBSITE_FORM: "WEBSITE_FORM",
+  INTERNAL: "INTERNAL",
+  DEVELOPMENT_SIMULATOR: "DEVELOPMENT_SIMULATOR",
+}
+
 export const CommunicationConnectionStatus = {
   NOT_CONFIGURED: "NOT_CONFIGURED",
   CONFIGURED: "CONFIGURED",
@@ -483,6 +501,13 @@ export const InAppNotificationType = {
   INBOX_ASSIGNED: "INBOX_ASSIGNED",
 }
 
+export const InboxAttachmentScan = {
+  PENDING: "PENDING",
+  CLEAN: "CLEAN",
+  BLOCKED: "BLOCKED",
+  NOT_SCANNED: "NOT_SCANNED",
+}
+
 export const InboxChannel = {
   WHATSAPP: "WHATSAPP",
   EMAIL: "EMAIL",
@@ -511,6 +536,14 @@ export const InboxDeliveryStatus = {
 export const InboxDirection = {
   INBOUND: "INBOUND",
   OUTBOUND: "OUTBOUND",
+}
+
+export const InboxEventStatus = {
+  RECEIVED: "RECEIVED",
+  PROCESSED: "PROCESSED",
+  DUPLICATE: "DUPLICATE",
+  FAILED: "FAILED",
+  DEAD: "DEAD",
 }
 
 export const InboxMessageType = {
@@ -1959,6 +1992,84 @@ export function appendInboxMessage(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeMutation('AppendInboxMessage', inputVars, inputOpts);
 }
 
+export function listChannelConnections(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListChannelConnections', inputVars, inputOpts);
+}
+
+export function createChannelConnection(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateChannelConnection', inputVars, inputOpts);
+}
+
+export function updateChannelConnection(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateChannelConnection', inputVars, inputOpts);
+}
+
+export function setChannelConnectionEnabled(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetChannelConnectionEnabled', inputVars, inputOpts);
+}
+
+export function inboxWebhookConnection(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('InboxWebhookConnection', inputVars, inputOpts);
+}
+
+export function recordInboxEvent(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RecordInboxEvent', inputVars, inputOpts);
+}
+
+export function completeInboxEvent(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CompleteInboxEvent', inputVars, inputOpts);
+}
+
+export function failInboxEvent(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('FailInboxEvent', inputVars, inputOpts);
+}
+
+export function pendingInboxEvents(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('PendingInboxEvents', inputVars, inputOpts);
+}
+
+export function inboxMessageByExternalId(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('InboxMessageByExternalId', inputVars, inputOpts);
+}
+
+export function applyInboxDeliveryStatus(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ApplyInboxDeliveryStatus', inputVars, inputOpts);
+}
+
+export function createInboxAttachment(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateInboxAttachment', inputVars, inputOpts);
+}
+
+export function channelAccountInUse(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ChannelAccountInUse', inputVars, inputOpts);
+}
+
 export function inboxSimulatorChannel(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
@@ -2029,6 +2140,12 @@ export function addInboxNote(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeMutation('AddInboxNote', inputVars, inputOpts);
+}
+
+export function openInboxAttachment(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('OpenInboxAttachment', inputVars, inputOpts);
 }
 
 export function markInboxConversationRead(dcOrVarsOrOptions, varsOrOptions, options) {

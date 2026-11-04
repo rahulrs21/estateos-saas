@@ -37,7 +37,7 @@ import { MAX_RECORDING_BYTES } from "../media";
 
 const BODY_BYTES = 16 * 1024;
 
-function errorResponse(endpoint: string, error: unknown) {
+export function errorResponse(endpoint: string, error: unknown) {
   if (!(error instanceof WorkspaceError)) {
     const detail = process.env.NODE_ENV !== "production" && error instanceof Error ? error.message.slice(0, 300) : undefined;
     console.error(JSON.stringify({event: "communications.unexpected_error", endpoint, name: error instanceof Error ? error.name : typeof error, ...(detail ? {detail} : {})}));
@@ -45,7 +45,7 @@ function errorResponse(endpoint: string, error: unknown) {
   return leadErrorResponse(error);
 }
 
-async function readContext(request: Request) {
+export async function readContext(request: Request) {
   await authorizeLeadRead(request);
   return requireActiveOrganizationRequest();
 }

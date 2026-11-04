@@ -100,7 +100,7 @@ export async function listMessages(context: Context, rawId: string, query: Recor
   const data = await asMember(context, "ListInboxMessages", (dc, options) => sdk.listInboxMessages(dc, {
     organizationId: context.organizationId, conversationId, limit: MESSAGE_PAGE + 1, cursorAt: cursor?.at, seenIds: cursor?.seen,
   }, options));
-  const rows = data.messages.map(row => ({...row, id: canonicalUuid(row.id), attachments: row.attachments.map(item => ({...item, id: canonicalUuid(item.id)}))}));
+  const rows = data.messages.map(row => ({...row, id: canonicalUuid(row.id), attachments: row.attachments.map(({storagePath, ...item}) => ({...item, id: canonicalUuid(item.id), available: Boolean(storagePath) && item.scanStatus !== "BLOCKED"}))}));
   return {messages: rows.slice(0, MESSAGE_PAGE).reverse(), earlierCursor: encodeCursor(nextCursor(rows, row => row.createdAt, MESSAGE_PAGE))};
 }
 export type MessageListView = Awaited<ReturnType<typeof listMessages>>;

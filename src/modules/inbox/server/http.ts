@@ -1,10 +1,14 @@
 import "server-only";
 
-import { read, write } from "@/modules/communications/server/http";
+import { connection } from "next/server";
+import { errorResponse, read, readContext, write } from "@/modules/communications/server/http";
+import { attachmentFile } from "./attachments";
+import { createConnection, listConnections, setConnectionEnabled, updateConnection } from "./connections";
+import { inboxWebhookHandshake, inboxWebhookResponse } from "./webhooks";
 import {
   addNote, assignConversation, assignees, customerContext, getConversation, inboxCounts, inboxSettings, linkConversation, listConversations, listMessages, markRead, saveInboxSettings, setConversationState,
 } from "./conversations";
-import { inboxSimulatorState, simulateInbound, simulateWebsiteEnquiry } from "./simulator";
+import { SIMULATOR_BODY_BYTES, inboxSimulatorState, simulateInbound, simulateWebsiteEnquiry } from "./simulator";
 import { devToolsEnabled } from "@/modules/communications/dev/guard";
 
 /*
@@ -28,8 +32,39 @@ export const settingsResponse = (request: Request) => read(request, "inbox.setti
 export const saveSettingsResponse = (request: Request) => write(request, "inbox.settings.save", saveInboxSettings);
 export const customerResponse = (request: Request, id: string) => read(request, "inbox.customer", context => customerContext(context, id));
 
+// --- Channel connections (OWNER or ADMIN) -----------------------------------------------------
+export const connectionsResponse = (request: Request) => read(request, "inbox.connections", context => listConnections(context));
+export const createConnectionResponse = (request: Request) => write(request, "inbox.connections.create", createConnection, 201);
+export const updateConnectionResponse = (request: Request, id: string) => write(request, "inbox.connections.update", (context, body) => updateConnection(context, id, body));
+export const connectionEnabledResponse = (request: Request, id: string) => write(request, "inbox.connections.enabled", (context, body) => setConnectionEnabled(context, id, body));
+
+/** Streams an attachment as a download to a member who may see the conversation; every access is audited. */
+export async function attachmentResponse(request: Request, conversationId: string, id: string) {
+  await connection();
+  try {
+    const file = await attachmentFile(await readContext(request), conversationId, id);
+    const body = new Uint8Array(file.bytes.byteLength);
+    body.set(file.bytes);
+    const ascii = file.fileName.replace(/[^A-Za-z0-9._ -]/g, "_");
+    return new Response(body, {headers: {
+      "Content-Type": file.mimeType, "Content-Length": String(body.byteLength), "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+    }});
+  } catch (error) { return errorResponse("inbox.attachment", error); }
+}
+
+// --- Provider webhooks (no session: the provider signature authenticates the request) ---------
+export async function webhookPostResponse(request: Request, provider: string, connectionId: string) {
+  try { return await inboxWebhookResponse(request, provider, connectionId); }
+  catch (error) { console.error(JSON.stringify({event: "inbox.webhook.unexpected_error", name: error instanceof Error ? error.name : typeof error})); return new Response(null, {status: 500, headers: {"Cache-Control": "no-store"}}); }
+}
+export async function webhookGetResponse(request: Request, provider: string, connectionId: string) {
+  try { return await inboxWebhookHandshake(request, provider, connectionId); }
+  catch { return new Response(null, {status: 500, headers: {"Cache-Control": "no-store"}}); }
+}
+
 /** Developer inbox simulator: not found (before authentication) unless developer tools are enabled. */
 const notFound = () => new Response(null, {status: 404, headers: {"Cache-Control": "no-store"}});
 export const simulatorStateResponse = (request: Request) => devToolsEnabled() ? read(request, "inbox.simulator.state", context => inboxSimulatorState(context)) : notFound();
-export const simulatorInboundResponse = (request: Request) => devToolsEnabled() ? write(request, "inbox.simulator.inbound", simulateInbound, 201) : notFound();
+export const simulatorInboundResponse = (request: Request) => devToolsEnabled() ? write(request, "inbox.simulator.inbound", simulateInbound, 201, SIMULATOR_BODY_BYTES) : notFound();
 export const simulatorWebsiteResponse = (request: Request) => devToolsEnabled() ? write(request, "inbox.simulator.website", simulateWebsiteEnquiry, 201) : notFound();

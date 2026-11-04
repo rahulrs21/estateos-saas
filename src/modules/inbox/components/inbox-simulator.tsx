@@ -34,12 +34,22 @@ export function InboxSimulator({organizationId, leads, onChanged}: {organization
     } catch (problem) { toast.error(errorMessage(problem, "The simulated message could not be stored.")); }
     finally { setBusy(null); void load(); }
   }
-  function inbound(event: FormEvent<HTMLFormElement>) {
+  async function inbound(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const leadId = String(form.get("leadId") ?? "");
+    const file = form.get("file");
+    let attachment: {fileName: string; dataBase64: string} | undefined;
+    if (file instanceof File && file.size > 0) {
+      // The server checks the content, whatever the name or type says; simulator files are limited to 2 MB.
+      if (file.size > 2 * 1024 * 1024) { toast.error("Simulator attachments must be 2 MB or smaller."); return; }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+      attachment = {fileName: file.name, dataBase64: btoa(binary)};
+    }
     void send("inbound", "/api/dev/communication-tests/inbox/inbound", {channel, ...(leadId ? {leadId} : {}), text: String(form.get("text") ?? ""),
-      ...(channel === "EMAIL" ? {subject: String(form.get("subject") ?? "") || undefined} : {})});
+      ...(channel === "EMAIL" ? {subject: String(form.get("subject") ?? "") || undefined} : {}), ...(attachment ? {attachment} : {})});
   }
   function website(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -49,7 +59,7 @@ export function InboxSimulator({organizationId, leads, onChanged}: {organization
   return <Card className="gap-4 py-5 shadow-xs ring-border"><CardHeader className="px-5"><CardTitle role="heading" aria-level={2}>Inbox simulator</CardTitle>
     <CardDescription>Incoming messages through the real ingestion pipeline on the simulator connection, from fictional senders; website enquiries through the real public form path. Everything is labelled SIMULATED and nothing is delivered anywhere.</CardDescription></CardHeader>
     <CardContent className="space-y-5 px-5">
-      <form onSubmit={inbound} className="grid gap-4 sm:grid-cols-2" aria-label="Simulate an incoming message">
+      <form onSubmit={event => void inbound(event)} className="grid gap-4 sm:grid-cols-2" aria-label="Simulate an incoming message">
         <LeadField id="sim-inbox-channel" label="Channel"><select id="sim-inbox-channel" className={selectClassName} value={channel} onChange={event => setChannel(event.target.value as "WHATSAPP" | "EMAIL")}>
           <option value="WHATSAPP">WhatsApp</option><option value="EMAIL">Email</option></select></LeadField>
         <LeadField id="sim-inbox-sender" label="Sender"><select id="sim-inbox-sender" name="leadId" className={selectClassName}>
@@ -57,10 +67,12 @@ export function InboxSimulator({organizationId, leads, onChanged}: {organization
         {channel === "EMAIL" && <LeadField id="sim-inbox-subject" label="Subject"><Input id="sim-inbox-subject" name="subject" maxLength={200} defaultValue="Question about a property" /></LeadField>}
         <div className="sm:col-span-2"><LeadField id="sim-inbox-text" label="Message"><textarea id="sim-inbox-text" name="text" required maxLength={4000} rows={3} className={textareaClassName}
           defaultValue="Hello, I am interested in a two-bedroom apartment. Is it still available?" /></LeadField></div>
+        <div className="sm:col-span-2"><LeadField id="sim-inbox-file" label="Attachment (optional)" hint="An image, PDF, Office document, audio or video file up to 2 MB, checked by its content. Stored privately like a real attachment.">
+          <Input id="sim-inbox-file" name="file" type="file" /></LeadField></div>
         <div className="flex flex-wrap gap-2 sm:col-span-2">
           <Button type="submit" disabled={busy !== null}>{busy === "inbound" && <Loader2 aria-hidden className="animate-spin" />}Receive message</Button>
           <Button type="button" variant="outline" disabled={busy !== null || !last?.result.externalMessageId}
-            onClick={() => last && void send("replay", "/api/dev/communication-tests/inbox/inbound", {...last.body, replayOf: last.result.externalMessageId})}>Deliver the last message again</Button>
+            onClick={() => last && void send("replay", "/api/dev/communication-tests/inbox/inbound", {...last.body, attachment: undefined, replayOf: last.result.externalMessageId})}>Deliver the last message again</Button>
         </div>
       </form>
       <form onSubmit={website} className="flex flex-wrap items-end gap-2" aria-label="Simulate a website enquiry">

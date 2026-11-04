@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
@@ -32,6 +32,10 @@ const providerToken = randomBytes(24).toString("hex");
 /** A test-only worker secret and bucket for the isolated test server (recordings and the retention sweep). */
 const workerSecret = randomBytes(36).toString("base64url");
 const BUCKET = "demo-estateos-test.appspot.com";
+/** Test-only WhatsApp app secret and verify token, generated per run (never a real Meta credential). */
+const waSecret = randomBytes(24).toString("hex");
+const waVerifyToken = randomBytes(12).toString("hex");
+const WA_ACCOUNT = "1" + String(Date.now()).slice(-14);
 const pass = message => { checks++; console.log(`✔ ${message}`); };
 
 // ---------------------------------------------------------------- fixtures
@@ -78,6 +82,7 @@ function startNext() {
       // Well-formed but invalid unless live: Anthropic itself rejects any call.
       ANTHROPIC_API_KEY: live ? process.env.AI_E2E_ANTHROPIC_API_KEY : `sk-ant-api03-e2e-invalid-${"x".repeat(40)}`, ANTHROPIC_MODEL: live ? process.env.AI_E2E_ANTHROPIC_MODEL || "claude-sonnet-5-5" : "claude-sonnet-5-5", AI_E2E_ANTHROPIC_API_KEY: "",
       COMMS_E2E_TWILIO_TOKEN: providerToken, AUTOMATION_WORKER_SECRET: workerSecret, FIREBASE_STORAGE_BUCKET: BUCKET,
+      INBOX_E2E_WA_SECRET: waSecret, INBOX_E2E_WA_SECRET_VERIFY_TOKEN: waVerifyToken,
       // The developer simulator (local emulators and a demo project only).
       ESTATEOS_DEV_TOOLS: "1",
     },
@@ -371,6 +376,138 @@ try {
   assert.equal((await sql(`query S($org: UUID!) { inboxConversations(where: {organizationId: {eq: $org}, simulated: {eq: true}}) { id } }`, {org: f.orgA})).inboxConversations.length, 0);
   assert.equal((await sql(`query R($org: UUID!) { inboxConversations(where: {organizationId: {eq: $org}, simulated: {eq: false}}) { id } }`, {org: f.orgA})).inboxConversations.length, realBefore, "real conversations are untouched");
   pass("Other companies cannot see simulated conversations; reset removes only simulated ones");
+
+  // ------------------------------------------------------------ 7A.4: channel settings (administrators only; never verified or sending)
+  await signIn("agent-a");
+  assert.equal((await api("/api/inbox/connections")).status, 403, "agents cannot manage channels");
+  await signIn("owner-a");
+  await load("/inbox/settings", "[...document.querySelectorAll('button')].some(b=>b.textContent.trim().startsWith('Add channel'))");
+  await clickText("Add channel", "button");
+  await waitFor("!!document.querySelector('[role=dialog] [name=displayName]')", "the add channel dialog");
+  await setField("displayName", "Sales WhatsApp (test)");
+  await setField("externalAccountReference", WA_ACCOUNT);
+  await setField("credentialReference", "INBOX_E2E_WA_SECRET");
+  await evaluate("document.querySelector('[role=dialog] button[type=submit]').click()");
+  await waitFor("[...document.querySelectorAll('[data-testid=inbox-connection]')].some(e=>e.innerText.includes('Sales WhatsApp (test)'))", "the new channel");
+  const channelText = await evaluate("[...document.querySelectorAll('[data-testid=inbox-connection]')].find(e=>e.innerText.includes('Sales WhatsApp')).innerText");
+  assert.match(channelText, /Configured, not verified/);
+  assert.match(channelText, /Secret set on server/);
+  assert.match(channelText, /Sending off/);
+  assert.match(channelText, /INBOX_E2E_WA_SECRET_VERIFY_TOKEN \(set\)/);
+  assert.match(channelText, /\/api\/inbox\/webhooks\/whatsapp\//, "the webhook address is shown to the administrator");
+  assert.doesNotMatch(await evaluate("document.body.innerText"), new RegExp(waSecret), "the secret itself is never shown");
+  await screenshot("inbox-settings");
+  const channels = (await api("/api/inbox/connections")).body.data.connections;
+  const waConnection = channels.find(row => row.displayName === "Sales WhatsApp (test)");
+  assert.equal(JSON.stringify(channels).includes(waSecret), false, "the API never returns the secret");
+  await signIn("owner-b");
+  const claimed = await post("/api/inbox/connections", {provider: "WHATSAPP_CLOUD", displayName: "Someone else", externalAccountReference: WA_ACCOUNT, credentialReference: "INBOX_E2E_WA_SECRET"}, f.orgB);
+  assert.equal(claimed.status, 409, "another company cannot claim the same WhatsApp number");
+  const pasted = await post("/api/inbox/connections", {provider: "GMAIL", displayName: "Mailbox", externalAccountReference: "sales@example.test", credentialReference: "my-password-123"}, f.orgB);
+  assert.equal(pasted.status, 400, "a pasted password or token is refused: only a secret name is accepted");
+  pass("Administrators add a WhatsApp channel: configured but not verified, sending off, only the secret's name stored; one company per number");
+
+  // ------------------------------------------------------------ 7A.4: signed webhooks (test secret on the isolated server only)
+  const hook = `${origin}/api/inbox/webhooks/whatsapp/${waConnection.id}`;
+  const sign = body => "sha256=" + createHmac("sha256", waSecret).update(body).digest("hex");
+  const deliver = (body, signature = sign(body), url = hook) => fetch(url, {method: "POST", headers: {"Content-Type": "application/json", "X-Hub-Signature-256": signature}, body, signal: AbortSignal.timeout(120000)});
+  const waBody = (value, account = WA_ACCOUNT) => JSON.stringify({object: "whatsapp_business_account", entry: [{id: "WABA-E2E", changes: [{field: "messages", value: {messaging_product: "whatsapp", metadata: {display_phone_number: "447700900001", phone_number_id: account}, ...value}}]}]});
+  const nowSeconds = () => String(Math.floor(Date.now() / 1000));
+  const handshake = await fetch(`${hook}?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(waVerifyToken)}&hub.challenge=8274651`);
+  assert.equal(handshake.status, 200);
+  assert.equal(await handshake.text(), "8274651");
+  assert.equal((await fetch(`${hook}?hub.mode=subscribe&hub.verify_token=wrong-token&hub.challenge=8274651`)).status, 403);
+  const inbound = waBody({contacts: [{wa_id: "447700900701", profile: {name: "Fictional WhatsApp customer"}}],
+    messages: [{from: "447700900701", id: "wamid.E2E-1", timestamp: nowSeconds(), type: "text", text: {body: "Signed webhook: is the villa still available?"}}]});
+  assert.equal((await deliver(inbound, null)).status, 401, "unsigned");
+  assert.equal((await deliver(inbound, "sha256=" + "0".repeat(64))).status, 401, "wrong signature");
+  assert.equal((await deliver(inbound.replace("villa", "flat"), sign(inbound))).status, 401, "tampered body");
+  const otherAccount = waBody({messages: [{from: "447700900701", id: "wamid.E2E-X", timestamp: nowSeconds(), type: "text", text: {body: "x"}}]}, "999999999999");
+  assert.equal((await deliver(otherAccount)).status, 403, "a payload for another phone number ID is refused");
+  assert.equal((await deliver(inbound, sign(inbound), `${origin}/api/inbox/webhooks/whatsapp/${randomUUID()}`)).status, 404, "unknown connection");
+  assert.equal((await deliver(inbound, sign(inbound), `${origin}/api/inbox/webhooks/gmail/${waConnection.id}`)).status, 404, "another provider's route");
+  assert.equal((await sql(`query C($org: UUID!, $c: UUID!) { inboxMessages(where: {organizationId: {eq: $org}, channelConnectionId: {eq: $c}}) { id } }`, {org: f.orgA, c: waConnection.id})).inboxMessages.length, 0, "nothing was stored from refused requests");
+  assert.equal((await deliver(inbound)).status, 200);
+  assert.equal((await deliver(inbound)).status, 200, "a provider retry is acknowledged");
+  const waConversations = (await sql(`query C($org: UUID!, $c: UUID!) { inboxConversations(where: {organizationId: {eq: $org}, channelConnectionId: {eq: $c}}) { id leadId assignedMembershipId externalThreadId inboxMessages_on_conversation { id content } } }`, {org: f.orgA, c: waConnection.id})).inboxConversations;
+  assert.equal(waConversations.length, 1);
+  assert.equal(waConversations[0].inboxMessages_on_conversation.length, 1, "the retry did not store a second message");
+  assert.equal(waConversations[0].leadId.replaceAll("-", ""), lead.id.replaceAll("-", ""), "the sender's exact number matched the lead's contact");
+  assert.equal(waConversations[0].assignedMembershipId.replaceAll("-", ""), f.memberAgentA.replaceAll("-", ""), "and the lead's agent has it");
+  const waEvents = (await sql(`query E($org: UUID!, $c: UUID!) { inboxEvents(where: {organizationId: {eq: $org}, channelConnectionId: {eq: $c}}) { status normalizedJson payloadDigest } }`, {org: f.orgA, c: waConnection.id})).inboxEvents;
+  assert.equal(waEvents.length, 1, "the event is recorded once");
+  assert.equal(waEvents[0].status, "PROCESSED");
+  assert.equal(waEvents[0].normalizedJson, null, "no message content is kept on the event once applied");
+  const media = waBody({messages: [{from: "447700900701", id: "wamid.E2E-2", timestamp: nowSeconds(), type: "document", document: {id: "MEDIA-E2E-1", mime_type: "application/pdf", filename: "passport.pdf", caption: "My documents"}}],
+    statuses: [{id: "wamid.NOT-SENT-BY-ESTATEOS", status: "delivered", timestamp: nowSeconds()}]});
+  assert.equal((await deliver(media)).status, 200);
+  await signIn("agent-a");
+  const waConversationId = waConversations[0].id.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+  await load("/inbox/" + waConversationId, "document.querySelector('[aria-label=Messages]')?.innerText.includes('My documents')");
+  const mediaText = await evaluate("document.querySelector('[data-testid=inbox-attachment]').innerText");
+  assert.match(mediaText, /passport\.pdf/);
+  assert.match(mediaText, /not downloaded/, "provider files are not fetched in Phase 7A");
+  assert.equal(await evaluate("document.querySelectorAll('[data-testid=inbox-attachment] a').length"), 0, "no download link for a file EstateOS does not have");
+  const statusEvents = (await sql(`query E($org: UUID!, $c: UUID!) { inboxEvents(where: {organizationId: {eq: $org}, channelConnectionId: {eq: $c}, kind: {eq: "STATUS"}}) { status errorCode } }`, {org: f.orgA, c: waConnection.id})).inboxEvents;
+  assert.deepEqual(statusEvents, [{status: "PROCESSED", errorCode: "UNMATCHED"}], "a receipt for a message EstateOS did not send changes nothing");
+  await screenshot("inbox-webhook-conversation");
+  pass("Signed WhatsApp webhooks: handshake, unsigned, wrong, tampered, wrong-account and unknown-connection requests refused; a verified message is matched, stored once and assigned; media stays a reference");
+
+  // Durable retries: an event recorded but not applied (as after a crash) is applied by the worker tick.
+  const retryId = randomUUID();
+  const normalized = JSON.stringify({provider: "WHATSAPP_CLOUD", event: {kind: "MESSAGE", accountId: WA_ACCOUNT, channel: "WHATSAPP", externalMessageId: "wamid.E2E-RETRY", threadId: "wa:+447700900799",
+    from: {phone: "+447700900799", name: null}, to: null, subject: null, messageType: "TEXT", text: "Retried after an interrupted request", timestamp: null, attachments: []}});
+  await sql(`mutation R($org: UUID!, $id: UUID!, $c: UUID!, $json: String!) { inboxEvent_insert(data: {organizationId: $org, id: $id, channelConnectionId: $c, kind: "MESSAGE", dedupKey: "message:e2e-retry",
+    normalizedJson: $json, status: FAILED, attempts: 1, nextAttemptAt_expr: "request.time - duration('60s')"}) }`, {org: f.orgA, id: retryId, c: waConnection.id, json: normalized});
+  const tick = await fetch(origin + "/api/internal/automations/tick", {method: "POST", headers: {Authorization: `Bearer ${workerSecret}`}, signal: AbortSignal.timeout(180000)});
+  const tickBody = await tick.json();
+  assert.equal(tick.status, 200, JSON.stringify(tickBody));
+  assert.ok(tickBody.data.inbox.processed >= 1, JSON.stringify(tickBody.data.inbox));
+  const retried = (await sql(`query E($org: UUID!, $id: UUID!) { inboxEvent(key: {organizationId: $org, id: $id}) { status attempts messageId normalizedJson } }`, {org: f.orgA, id: retryId})).inboxEvent;
+  assert.equal(retried.status, "PROCESSED");
+  assert.equal(retried.attempts, 2);
+  assert.ok(retried.messageId && retried.normalizedJson === null);
+  pass("The worker applies a recorded event whose first attempt did not finish, and removes its stored copy");
+
+  await signIn("owner-a");
+  const disabled = await post(`/api/inbox/connections/${waConnection.id}/enabled`, {expectedRevision: waConnection.revision, enabled: false});
+  assert.equal(disabled.status, 200, JSON.stringify(disabled.body));
+  const late = waBody({messages: [{from: "447700900701", id: "wamid.E2E-3", timestamp: nowSeconds(), type: "text", text: {body: "after disabling"}}]});
+  assert.equal((await deliver(late)).status, 404, "a disabled channel accepts nothing");
+  pass("Disabling a channel refuses its webhooks");
+
+  // ------------------------------------------------------------ 7A.4: attachments are checked by content, private and downloaded only by permitted members
+  const pdf = Buffer.from("%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n");
+  const withFile = await post("/api/dev/communication-tests/inbox/inbound", {channel: "EMAIL", text: "Here is the signed offer.", subject: "Offer", attachment: {fileName: "offer.pdf", dataBase64: pdf.toString("base64")}});
+  assert.equal(withFile.status, 201, JSON.stringify(withFile.body));
+  const disguised = await post("/api/dev/communication-tests/inbox/inbound", {channel: "EMAIL", text: "x", subject: "Offer", attachment: {fileName: "offer.pdf", dataBase64: Buffer.from("MZ\x90\x00 not a pdf").toString("base64")}});
+  assert.equal(disguised.status, 415, "a program named as a PDF is refused");
+  const fileConversation = withFile.body.data.conversationId;
+  const listed = (await api(`/api/inbox/conversations/${fileConversation}/messages`)).body.data.messages;
+  const fileRow = listed.flatMap(row => row.attachments)[0];
+  assert.equal(fileRow.available, true);
+  assert.equal("storagePath" in fileRow, false, "storage paths never reach the browser");
+  const stored = (await sql(`query A($org: UUID!, $id: UUID!) { inboxAttachment(key: {organizationId: $org, id: $id}) { storagePath scanStatus } }`, {org: f.orgA, id: fileRow.id})).inboxAttachment;
+  assert.match(stored.storagePath, new RegExp(`^organizations/${f.orgA}/inbox/attachments/`));
+  assert.equal(stored.scanStatus, "NOT_SCANNED");
+  assert.equal((await getStorage(authApp).bucket(BUCKET).file(stored.storagePath).exists())[0], true, "the file is in the private bucket");
+  const download = await evaluate(`(async()=>{const r=await fetch(${JSON.stringify(`/api/inbox/conversations/${fileConversation}/attachments/${fileRow.id}`)});
+    return {status:r.status,type:r.headers.get('content-type'),disposition:r.headers.get('content-disposition'),nosniff:r.headers.get('x-content-type-options'),cache:r.headers.get('cache-control'),text:await r.text()};})()`);
+  assert.equal(download.status, 200, JSON.stringify(download));
+  assert.equal(download.type, "application/pdf");
+  assert.match(download.disposition, /^attachment;/);
+  assert.equal(download.nosniff, "nosniff");
+  assert.match(download.cache, /no-store/);
+  assert.equal(download.text, pdf.toString());
+  const audited = (await sql(`query A($org: UUID!) { auditLogs(where: {organizationId: {eq: $org}, action: {eq: INBOX_ATTACHMENT_ACCESSED}}) { actorUid } }`, {org: f.orgA})).auditLogs;
+  assert.ok(audited.some(row => row.actorUid === "owner-a"), "the download is audited");
+  await signIn("agent-a");
+  assert.equal((await api(`/api/inbox/conversations/${fileConversation}/attachments/${fileRow.id}`)).status, 404, "an agent who cannot see the conversation cannot download its files");
+  await signIn("owner-b");
+  assert.equal((await api(`/api/inbox/conversations/${fileConversation}/attachments/${fileRow.id}`)).status, 404, "nor can another company");
+  pass("Attachments are checked by content, stored privately, downloaded with safe headers only by permitted members, and every download is audited");
+  await signIn("owner-a");
+  assert.equal((await post("/api/dev/communication-tests/reset")).status, 200);
 
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");
   console.log(`\n${checks} inbox end-to-end checks passed.`);

@@ -36,6 +36,8 @@ type ChannelConnection @table(key: ["organization", "id"])
   # The name of the secret (INBOX_…), never its value.
   credentialReference: String @col(dataType: "varchar(64)")
   sendingEnabled: Boolean! @default(value: false)
+  # The last verified webhook event (shown to administrators; never proof of a working connection).
+  lastEventAt: Timestamp
   revision: Int! @default(value: 1)
   createdBy: UserProfile!
   createdAt: Timestamp! @default(expr: "request.time")
@@ -136,8 +138,10 @@ type InboxAttachment @table(key: ["organization", "id"])
   fileName: String! @col(dataType: "varchar(200)")
   mimeType: String! @col(dataType: "varchar(100)")
   sizeBytes: Int!
-  # organizations/{org}/inbox/… in the private bucket; never a public URL.
-  storagePath: String! @col(dataType: "varchar(300)")
+  # organizations/{org}/inbox/… in the private bucket; never a public URL. Null while a provider
+  # file has not been fetched (provider downloads need a live connector, Phase 7B).
+  storagePath: String @col(dataType: "varchar(300)")
+  providerMediaId: String @col(dataType: "varchar(200)")
   scanStatus: InboxAttachmentScan! @default(value: PENDING)
   createdAt: Timestamp! @default(expr: "request.time")
   deletedAt: Timestamp
@@ -182,6 +186,8 @@ type InboxEvent @table(key: ["organization", "id"])
   kind: String! @col(dataType: "varchar(40)")
   dedupKey: String! @col(dataType: "varchar(200)")
   payloadDigest: String @col(dataType: "varchar(64)")
+  # The normalized event (never the raw payload), kept only until it is applied so the worker can retry it.
+  normalizedJson: String @col(dataType: "varchar(12000)")
   status: InboxEventStatus! @default(value: RECEIVED)
   attempts: Int! @default(value: 0)
   nextAttemptAt: Timestamp

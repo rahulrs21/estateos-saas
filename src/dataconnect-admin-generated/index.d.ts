@@ -127,6 +127,7 @@ export enum ActivityKind {
   CHANNEL_CONNECTION_CHANGED = "CHANNEL_CONNECTION_CHANGED",
   INBOX_OUTBOUND_CHANGED = "INBOX_OUTBOUND_CHANGED",
   INBOX_SETTINGS_UPDATED = "INBOX_SETTINGS_UPDATED",
+  INBOX_ATTACHMENT_ACCESSED = "INBOX_ATTACHMENT_ACCESSED",
 }
 export enum AgentAvailabilityStatus {
   AVAILABLE = "AVAILABLE",
@@ -361,6 +362,21 @@ export enum CallType {
   MARKETING = "MARKETING",
   INBOUND_ENQUIRY = "INBOUND_ENQUIRY",
 }
+export enum ChannelConnectionStatus {
+  NOT_CONFIGURED = "NOT_CONFIGURED",
+  CONFIGURED = "CONFIGURED",
+  VERIFIED = "VERIFIED",
+  DISABLED = "DISABLED",
+  ERROR = "ERROR",
+}
+export enum ChannelProvider {
+  WHATSAPP_CLOUD = "WHATSAPP_CLOUD",
+  GMAIL = "GMAIL",
+  MICROSOFT_365 = "MICROSOFT_365",
+  WEBSITE_FORM = "WEBSITE_FORM",
+  INTERNAL = "INTERNAL",
+  DEVELOPMENT_SIMULATOR = "DEVELOPMENT_SIMULATOR",
+}
 export enum CommunicationConnectionStatus {
   NOT_CONFIGURED = "NOT_CONFIGURED",
   CONFIGURED = "CONFIGURED",
@@ -447,6 +463,12 @@ export enum InAppNotificationType {
   INBOX_MESSAGE = "INBOX_MESSAGE",
   INBOX_ASSIGNED = "INBOX_ASSIGNED",
 }
+export enum InboxAttachmentScan {
+  PENDING = "PENDING",
+  CLEAN = "CLEAN",
+  BLOCKED = "BLOCKED",
+  NOT_SCANNED = "NOT_SCANNED",
+}
 export enum InboxChannel {
   WHATSAPP = "WHATSAPP",
   EMAIL = "EMAIL",
@@ -472,6 +494,13 @@ export enum InboxDeliveryStatus {
 export enum InboxDirection {
   INBOUND = "INBOUND",
   OUTBOUND = "OUTBOUND",
+}
+export enum InboxEventStatus {
+  RECEIVED = "RECEIVED",
+  PROCESSED = "PROCESSED",
+  DUPLICATE = "DUPLICATE",
+  FAILED = "FAILED",
+  DEAD = "DEAD",
 }
 export enum InboxMessageType {
   TEXT = "TEXT",
@@ -1049,6 +1078,23 @@ export interface AppendInboxMessageVariables {
   preview?: string | null;
   simulated: boolean;
   optedOut: boolean;
+}
+
+export interface ApplyInboxDeliveryStatusData {
+  message?: InboxMessage_Key | null;
+  failed: AutomationEvent_Key;
+}
+
+export interface ApplyInboxDeliveryStatusVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  conversationId: UUIDString;
+  expectedStatus: InboxDeliveryStatus;
+  deliveryStatus: InboxDeliveryStatus;
+  raw?: string | null;
+  providerTimestamp?: TimestampString | null;
+  emitFailed: boolean;
+  simulated: boolean;
 }
 
 export interface ApplyProviderCallStatusData {
@@ -1834,6 +1880,18 @@ export interface ChangeLeadStatusVariables {
   status: LeadStatus;
 }
 
+export interface ChannelAccountInUseData {
+  connections: ({
+    organizationId: UUIDString;
+    id: UUIDString;
+  } & ChannelConnection_Key)[];
+}
+
+export interface ChannelAccountInUseVariables {
+  provider: ChannelProvider;
+  externalAccountReference: string;
+}
+
 export interface ChannelConnection_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -2112,6 +2170,19 @@ export interface CommunicationSuppression_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'CommunicationSuppression_Key';
+}
+
+export interface CompleteInboxEventData {
+  inboxEvent_update?: InboxEvent_Key | null;
+}
+
+export interface CompleteInboxEventVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  status: InboxEventStatus;
+  errorCode?: string | null;
+  conversationId?: UUIDString | null;
+  messageId?: UUIDString | null;
 }
 
 export interface CompleteLeadFollowUpData {
@@ -2397,6 +2468,20 @@ export interface CreateCallTranscriptVariables {
   generatedAt: TimestampString;
 }
 
+export interface CreateChannelConnectionData {
+  connection: ChannelConnection_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CreateChannelConnectionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  provider: ChannelProvider;
+  displayName: string;
+  externalAccountReference?: string | null;
+  credentialReference?: string | null;
+}
+
 export interface CreateCommunicationPhoneLineData {
   line: CommunicationPhoneLine_Key;
   auditLog_insert: AuditLog_Key;
@@ -2553,6 +2638,23 @@ export interface CreateGeneratedWebsitePageVariables {
   structuredPageData: string;
   validation?: string | null;
   model: string;
+}
+
+export interface CreateInboxAttachmentData {
+  inboxAttachment_insert: InboxAttachment_Key;
+}
+
+export interface CreateInboxAttachmentVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  messageId: UUIDString;
+  conversationId: UUIDString;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  storagePath?: string | null;
+  providerMediaId?: string | null;
+  scanStatus: InboxAttachmentScan;
 }
 
 export interface CreateInboxConversationWithMessageData {
@@ -3313,6 +3415,18 @@ export interface ExpireCallTranscriptData {
 export interface ExpireCallTranscriptVariables {
   organizationId: UUIDString;
   id: UUIDString;
+}
+
+export interface FailInboxEventData {
+  inboxEvent_update?: InboxEvent_Key | null;
+}
+
+export interface FailInboxEventVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedAttempts: number;
+  errorCode: string;
+  nextAttemptAt: TimestampString;
 }
 
 export interface FeedGenerationJob_Key {
@@ -6396,6 +6510,22 @@ export interface InboxLinkTargetVariables {
   contactId?: UUIDString | null;
 }
 
+export interface InboxMessageByExternalIdData {
+  messages: ({
+    id: UUIDString;
+    conversationId: UUIDString;
+    direction: InboxDirection;
+    deliveryStatus: InboxDeliveryStatus;
+    simulated: boolean;
+  })[];
+}
+
+export interface InboxMessageByExternalIdVariables {
+  organizationId: UUIDString;
+  channelConnectionId: UUIDString;
+  externalMessageId: string;
+}
+
 export interface InboxMessage_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -6437,6 +6567,21 @@ export interface InboxSimulatorChannelData {
 export interface InboxSimulatorChannelVariables {
   organizationId: UUIDString;
   actorUid: string;
+}
+
+export interface InboxWebhookConnectionData {
+  connections: ({
+    organizationId: UUIDString;
+    id: UUIDString;
+    provider: ChannelProvider;
+    connectionStatus: ChannelConnectionStatus;
+    credentialReference?: string | null;
+    externalAccountReference?: string | null;
+  } & ChannelConnection_Key)[];
+}
+
+export interface InboxWebhookConnectionVariables {
+  id: UUIDString;
 }
 
 export interface InitializeLeadPipelineData {
@@ -7483,6 +7628,32 @@ export interface ListCallsVariables {
   startedBefore?: TimestampString | null;
 }
 
+export interface ListChannelConnectionsData {
+  admin?: {
+    id: UUIDString;
+  };
+  connections: ({
+    id: UUIDString;
+    provider: ChannelProvider;
+    displayName: string;
+    externalAccountReference?: string | null;
+    connectionStatus: ChannelConnectionStatus;
+    credentialReference?: string | null;
+    sendingEnabled: boolean;
+    lastEventAt?: TimestampString | null;
+    revision: number;
+    createdAt: TimestampString;
+    updatedAt: TimestampString;
+    createdBy: {
+      displayName: string;
+    };
+  })[];
+}
+
+export interface ListChannelConnectionsVariables {
+  organizationId: UUIDString;
+}
+
 export interface ListCommunicationProvidersData {
   admin?: {
     id: UUIDString;
@@ -7834,7 +8005,7 @@ export interface ListInboxMessagesData {
       mimeType: string;
       sizeBytes: number;
       scanStatus: InboxAttachmentScan;
-      deletedAt?: TimestampString | null;
+      storagePath?: string | null;
     })[];
   })[];
 }
@@ -10107,6 +10278,28 @@ export interface MoveLeadStageVariables {
   pipelineStageId: UUIDString;
 }
 
+export interface OpenInboxAttachmentData {
+  file?: {
+    conversation?: {
+      id: UUIDString;
+    };
+    attachment?: {
+      fileName: string;
+      mimeType: string;
+      sizeBytes: number;
+      storagePath?: string | null;
+      scanStatus: InboxAttachmentScan;
+    };
+  };
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface OpenInboxAttachmentVariables {
+  organizationId: UUIDString;
+  conversationId: UUIDString;
+  id: UUIDString;
+}
+
 export interface OrganizationPortalConnection_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -10174,6 +10367,24 @@ export interface PaymentPlan_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'PaymentPlan_Key';
+}
+
+export interface PendingInboxEventsData {
+  events: ({
+    organizationId: UUIDString;
+    id: UUIDString;
+    channelConnectionId?: UUIDString | null;
+    kind: string;
+    normalizedJson?: string | null;
+    attempts: number;
+    simulated: boolean;
+  } & InboxEvent_Key)[];
+}
+
+export interface PendingInboxEventsVariables {
+  now: TimestampString;
+  staleBefore: TimestampString;
+  limit: number;
 }
 
 export interface PendingWebsiteEnquiry_Key {
@@ -10488,6 +10699,23 @@ export interface RecordFeedGenerationJobVariables {
   byteSize: number;
   errorSummary?: string | null;
   startedAt: TimestampString;
+}
+
+export interface RecordInboxEventData {
+  inboxEvent_insert: InboxEvent_Key;
+  channelConnection_update?: ChannelConnection_Key | null;
+}
+
+export interface RecordInboxEventVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  hasConnection: boolean;
+  channelConnectionId?: UUIDString | null;
+  kind: string;
+  dedupKey: string;
+  payloadDigest?: string | null;
+  normalizedJson: string;
+  simulated: boolean;
 }
 
 export interface RecordInvitationDeliveryData {
@@ -11245,6 +11473,18 @@ export interface SetAutomationWorkflowNextRunVariables {
   nextRunAt?: TimestampString | null;
 }
 
+export interface SetChannelConnectionEnabledData {
+  connection?: ChannelConnection_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SetChannelConnectionEnabledVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  enabled: boolean;
+}
+
 export interface SetCommunicationProviderEnabledData {
   connection?: CommunicationProviderConnection_Key | null;
   auditLog_insert: AuditLog_Key;
@@ -11738,6 +11978,20 @@ export interface UpdateCallRecordVariables {
   followUpRequired: boolean;
   suppress: boolean;
   suppressionId: UUIDString;
+}
+
+export interface UpdateChannelConnectionData {
+  connection?: ChannelConnection_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface UpdateChannelConnectionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  displayName: string;
+  externalAccountReference?: string | null;
+  credentialReference?: string | null;
 }
 
 export interface UpdateCommunicationPhoneLineData {
@@ -13223,6 +13477,71 @@ export function appendInboxMessage(dc: DataConnect, vars: AppendInboxMessageVari
 /** Generated Node Admin SDK operation action function for the 'AppendInboxMessage' Mutation. Allow users to pass in custom DataConnect instances. */
 export function appendInboxMessage(vars: AppendInboxMessageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AppendInboxMessageData>>;
 
+/** Generated Node Admin SDK operation action function for the 'ListChannelConnections' Query. Allow users to execute without passing in DataConnect. */
+export function listChannelConnections(dc: DataConnect, vars: ListChannelConnectionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListChannelConnectionsData>>;
+/** Generated Node Admin SDK operation action function for the 'ListChannelConnections' Query. Allow users to pass in custom DataConnect instances. */
+export function listChannelConnections(vars: ListChannelConnectionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListChannelConnectionsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateChannelConnection' Mutation. Allow users to execute without passing in DataConnect. */
+export function createChannelConnection(dc: DataConnect, vars: CreateChannelConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateChannelConnectionData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateChannelConnection' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createChannelConnection(vars: CreateChannelConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateChannelConnectionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateChannelConnection' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateChannelConnection(dc: DataConnect, vars: UpdateChannelConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateChannelConnectionData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateChannelConnection' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateChannelConnection(vars: UpdateChannelConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateChannelConnectionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SetChannelConnectionEnabled' Mutation. Allow users to execute without passing in DataConnect. */
+export function setChannelConnectionEnabled(dc: DataConnect, vars: SetChannelConnectionEnabledVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetChannelConnectionEnabledData>>;
+/** Generated Node Admin SDK operation action function for the 'SetChannelConnectionEnabled' Mutation. Allow users to pass in custom DataConnect instances. */
+export function setChannelConnectionEnabled(vars: SetChannelConnectionEnabledVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetChannelConnectionEnabledData>>;
+
+/** Generated Node Admin SDK operation action function for the 'InboxWebhookConnection' Query. Allow users to execute without passing in DataConnect. */
+export function inboxWebhookConnection(dc: DataConnect, vars: InboxWebhookConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxWebhookConnectionData>>;
+/** Generated Node Admin SDK operation action function for the 'InboxWebhookConnection' Query. Allow users to pass in custom DataConnect instances. */
+export function inboxWebhookConnection(vars: InboxWebhookConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxWebhookConnectionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RecordInboxEvent' Mutation. Allow users to execute without passing in DataConnect. */
+export function recordInboxEvent(dc: DataConnect, vars: RecordInboxEventVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordInboxEventData>>;
+/** Generated Node Admin SDK operation action function for the 'RecordInboxEvent' Mutation. Allow users to pass in custom DataConnect instances. */
+export function recordInboxEvent(vars: RecordInboxEventVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordInboxEventData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CompleteInboxEvent' Mutation. Allow users to execute without passing in DataConnect. */
+export function completeInboxEvent(dc: DataConnect, vars: CompleteInboxEventVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CompleteInboxEventData>>;
+/** Generated Node Admin SDK operation action function for the 'CompleteInboxEvent' Mutation. Allow users to pass in custom DataConnect instances. */
+export function completeInboxEvent(vars: CompleteInboxEventVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CompleteInboxEventData>>;
+
+/** Generated Node Admin SDK operation action function for the 'FailInboxEvent' Mutation. Allow users to execute without passing in DataConnect. */
+export function failInboxEvent(dc: DataConnect, vars: FailInboxEventVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FailInboxEventData>>;
+/** Generated Node Admin SDK operation action function for the 'FailInboxEvent' Mutation. Allow users to pass in custom DataConnect instances. */
+export function failInboxEvent(vars: FailInboxEventVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FailInboxEventData>>;
+
+/** Generated Node Admin SDK operation action function for the 'PendingInboxEvents' Query. Allow users to execute without passing in DataConnect. */
+export function pendingInboxEvents(dc: DataConnect, vars: PendingInboxEventsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PendingInboxEventsData>>;
+/** Generated Node Admin SDK operation action function for the 'PendingInboxEvents' Query. Allow users to pass in custom DataConnect instances. */
+export function pendingInboxEvents(vars: PendingInboxEventsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PendingInboxEventsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'InboxMessageByExternalId' Query. Allow users to execute without passing in DataConnect. */
+export function inboxMessageByExternalId(dc: DataConnect, vars: InboxMessageByExternalIdVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxMessageByExternalIdData>>;
+/** Generated Node Admin SDK operation action function for the 'InboxMessageByExternalId' Query. Allow users to pass in custom DataConnect instances. */
+export function inboxMessageByExternalId(vars: InboxMessageByExternalIdVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxMessageByExternalIdData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ApplyInboxDeliveryStatus' Mutation. Allow users to execute without passing in DataConnect. */
+export function applyInboxDeliveryStatus(dc: DataConnect, vars: ApplyInboxDeliveryStatusVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ApplyInboxDeliveryStatusData>>;
+/** Generated Node Admin SDK operation action function for the 'ApplyInboxDeliveryStatus' Mutation. Allow users to pass in custom DataConnect instances. */
+export function applyInboxDeliveryStatus(vars: ApplyInboxDeliveryStatusVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ApplyInboxDeliveryStatusData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateInboxAttachment' Mutation. Allow users to execute without passing in DataConnect. */
+export function createInboxAttachment(dc: DataConnect, vars: CreateInboxAttachmentVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateInboxAttachmentData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateInboxAttachment' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createInboxAttachment(vars: CreateInboxAttachmentVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateInboxAttachmentData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ChannelAccountInUse' Query. Allow users to execute without passing in DataConnect. */
+export function channelAccountInUse(dc: DataConnect, vars: ChannelAccountInUseVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ChannelAccountInUseData>>;
+/** Generated Node Admin SDK operation action function for the 'ChannelAccountInUse' Query. Allow users to pass in custom DataConnect instances. */
+export function channelAccountInUse(vars: ChannelAccountInUseVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ChannelAccountInUseData>>;
+
 /** Generated Node Admin SDK operation action function for the 'InboxSimulatorChannel' Query. Allow users to execute without passing in DataConnect. */
 export function inboxSimulatorChannel(dc: DataConnect, vars: InboxSimulatorChannelVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxSimulatorChannelData>>;
 /** Generated Node Admin SDK operation action function for the 'InboxSimulatorChannel' Query. Allow users to pass in custom DataConnect instances. */
@@ -13282,6 +13601,11 @@ export function linkInboxConversation(vars: LinkInboxConversationVariables, opti
 export function addInboxNote(dc: DataConnect, vars: AddInboxNoteVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AddInboxNoteData>>;
 /** Generated Node Admin SDK operation action function for the 'AddInboxNote' Mutation. Allow users to pass in custom DataConnect instances. */
 export function addInboxNote(vars: AddInboxNoteVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AddInboxNoteData>>;
+
+/** Generated Node Admin SDK operation action function for the 'OpenInboxAttachment' Mutation. Allow users to execute without passing in DataConnect. */
+export function openInboxAttachment(dc: DataConnect, vars: OpenInboxAttachmentVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<OpenInboxAttachmentData>>;
+/** Generated Node Admin SDK operation action function for the 'OpenInboxAttachment' Mutation. Allow users to pass in custom DataConnect instances. */
+export function openInboxAttachment(vars: OpenInboxAttachmentVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<OpenInboxAttachmentData>>;
 
 /** Generated Node Admin SDK operation action function for the 'MarkInboxConversationRead' Mutation. Allow users to execute without passing in DataConnect. */
 export function markInboxConversationRead(dc: DataConnect, vars: MarkInboxConversationReadVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkInboxConversationReadData>>;

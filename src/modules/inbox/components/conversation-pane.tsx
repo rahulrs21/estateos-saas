@@ -18,15 +18,20 @@ import type { ConversationView, CustomerContextView, MessageListView } from "../
 type Message = MessageListView["messages"][number];
 type Assignee = {id: string; name: string; role: string};
 
-function MessageBubble({message}: {message: Message}) {
+function MessageBubble({message, conversationId}: {message: Message; conversationId: string}) {
   const inbound = message.direction === "INBOUND";
   return <li className={inbound ? "flex justify-start" : "flex justify-end"} data-direction={message.direction}>
     <div className={`max-w-[85%] space-y-1 rounded-lg px-3 py-2 text-sm ${inbound ? "bg-muted" : "bg-primary text-primary-foreground"}`}>
       {message.contentRedactedAt ? <p className="italic opacity-80">Removed under the company&apos;s retention period.</p>
         // Text only: messages are never rendered as HTML, so markup or scripts in them are inert.
         : <p dir="auto" className="whitespace-pre-wrap break-words">{message.content ?? `[${message.messageType.toLowerCase()} message]`}</p>}
-      {message.attachments.length > 0 && <ul className="space-y-0.5 text-xs opacity-90">{message.attachments.map(item => <li key={item.id} className="flex items-center gap-1">
-        <Paperclip aria-hidden className="size-3" />{item.fileName} ({Math.ceil(item.sizeBytes / 1024)} KB){item.scanStatus === "BLOCKED" && " · blocked"}</li>)}</ul>}
+      {message.attachments.length > 0 && <ul className="space-y-0.5 text-xs opacity-90" aria-label="Attachments">{message.attachments.map(item => <li key={item.id} className="flex flex-wrap items-center gap-1" data-testid="inbox-attachment">
+        <Paperclip aria-hidden className="size-3" />
+        {/* Downloaded through an authorized, audited route; never opened inline. */}
+        {item.available ? <a className="underline underline-offset-2" href={`/api/inbox/conversations/${conversationId}/attachments/${item.id}`} download>{item.fileName}</a> : <span>{item.fileName}</span>}
+        {item.sizeBytes > 0 && <span>({Math.max(1, Math.ceil(item.sizeBytes / 1024))} KB)</span>}
+        {item.scanStatus === "BLOCKED" ? <span>· blocked by the file check</span> : !item.available ? <span>· not downloaded (needs a connected provider)</span> : item.scanStatus === "NOT_SCANNED" && <span>· not virus-scanned</span>}
+      </li>)}</ul>}
       <div className="flex flex-wrap items-center gap-1.5 text-[11px] opacity-75">
         <span>{formatLeadDate(message.providerTimestamp ?? message.createdAt, true)}</span>
         {!inbound && <span>· {DELIVERY_LABELS[message.deliveryStatus as DeliveryStatus] ?? message.deliveryStatus}{message.author?.displayName ? ` · ${message.author.displayName}` : ""}</span>}
@@ -189,7 +194,7 @@ export function ConversationPane({conversationId, organizationId, refreshKey, on
 
       <Card className="gap-3 py-4 shadow-xs ring-border"><CardContent className="space-y-3 px-4">
         {earlier && <Button size="sm" variant="ghost" className="w-full" onClick={() => void loadEarlier()}>Load earlier messages</Button>}
-        {messages.length ? <ol className="space-y-2" aria-label="Messages">{messages.map(message => <MessageBubble key={message.id} message={message} />)}</ol>
+        {messages.length ? <ol className="space-y-2" aria-label="Messages">{messages.map(message => <MessageBubble key={message.id} message={message} conversationId={conversation.id} />)}</ol>
           : <p className="text-sm text-muted-foreground">No messages.</p>}
         <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground" data-testid="sending-disabled">
           {conversation.channelConnection?.sendingEnabled ? "Replies are prepared as drafts and need approval before they are sent." : `Sending is not connected for this channel. Replies cannot leave EstateOS until ${conversation.channel === "WEBSITE" ? "an email or WhatsApp channel is connected" : "the provider is connected and approved"}.`}

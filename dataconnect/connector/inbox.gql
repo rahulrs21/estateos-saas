@@ -106,7 +106,7 @@ query ListInboxMessages($organizationId: UUID!, $conversationId: UUID!, $limit: 
   messages: inboxMessages(where: {_and: [{organizationId: {eq: $organizationId}, conversationId: {eq: $conversationId}},
     {_or: [{createdAt: {lt: $cursorAt}}, {createdAt: {eq: $cursorAt}, id: {nin: $seenIds}}]}]}, orderBy: [{createdAt: DESC}, {id: ASC}], limit: $limit) {
     id direction senderIdentity recipientIdentity messageType content contentRedactedAt deliveryStatus providerStatusRaw providerTimestamp simulated createdAt author {displayName}
-    attachments: inboxAttachments_on_message(limit: 10) {id fileName mimeType sizeBytes scanStatus deletedAt}
+    attachments: inboxAttachments_on_message(where: {deletedAt: {isNull: true}}, orderBy: [{createdAt: ASC}], limit: 10) {id fileName mimeType sizeBytes scanStatus storagePath}
   }
 }
 
@@ -209,6 +209,24 @@ mutation AddInboxNote($organizationId: UUID!, $id: UUID!, $conversationId: UUID!
   }
   inboxNote_insert(data: {organizationId: $organizationId, id: $id, conversationId: $conversationId, body: $body, authorUid_expr: "auth.uid"})
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_NOTE_ADDED, targetType: CONVERSATION, targetId: $conversationId, metadata_expr: "{'noteId': vars.id}"})
+}
+
+# Opening an attachment: the member must see its conversation, and the file must be stored and not
+# blocked by a scan. Every access is audited in the same transaction, before the server streams it.
+mutation OpenInboxAttachment($organizationId: UUID!, $conversationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  file: query @check(expr: "this.conversation != null && this.attachment != null", message: "INBOX_ATTACHMENT_NOT_FOUND") {
+    conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $conversationId}}, {_or: [
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+      {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+      {assignedMembershipId: {isNull: true}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {eq: MANAGER}}}}}
+    ]}]}}) {id}
+    attachment: inboxAttachment(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, conversationId: {eq: $conversationId}, deletedAt: {isNull: true}}})
+      @check(expr: "this == null || (this.storagePath != null && this.scanStatus != 'BLOCKED')", message: "INBOX_ATTACHMENT_UNAVAILABLE") {fileName mimeType sizeBytes storagePath scanStatus}
+  }
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_ATTACHMENT_ACCESSED, targetType: CONVERSATION, targetId: $conversationId, metadata_expr: "{'attachmentId': vars.id}"})
 }
 
 # Opening a conversation marks it read for the team.

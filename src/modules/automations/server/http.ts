@@ -14,6 +14,7 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { decideApproval, listApprovals } from "./approvals";
 import { runAutomationTick } from "./engine";
 import { runCommunicationMaintenance } from "@/modules/communications/server/media";
+import { retryInboxEvents } from "@/modules/inbox/server/webhooks";
 import { generateWorkflowDraft } from "./generate";
 import { completeWorkTask, listMyTasks } from "./tasks";
 import {
@@ -144,6 +145,11 @@ export async function tickResponse(request: Request) {
   const given = Buffer.from(presented);
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return Response.json({error: {code: "UNAUTHENTICATED", message: "Not allowed."}}, {status: 401});
   try {
+    // Inbox events whose application failed are retried first, so the workflow events they write run in this tick (docs/UNIFIED_INBOX.md#ingestion).
+    const inbox = await retryInboxEvents().catch(error => {
+      console.error(JSON.stringify({event: "inbox.retry_failed", name: error instanceof Error ? error.name : typeof error}));
+      return null;
+    });
     const result = await runAutomationTick();
     if (result.errors.length) console.error(JSON.stringify({event: "automations.tick_errors", count: result.errors.length, first: result.errors[0]?.slice(0, 600)}));
     // The same worker removes call recordings and transcripts past retention (docs/CALL_PRIVACY_COMPLIANCE.md#retention); its failure never fails the automation tick.
@@ -151,7 +157,7 @@ export async function tickResponse(request: Request) {
       console.error(JSON.stringify({event: "communications.maintenance_failed", name: error instanceof Error ? error.name : typeof error}));
       return null;
     });
-    return Response.json({data: {...result, errors: result.errors.length, communications}}, {headers: {"Cache-Control": "no-store"}});
+    return Response.json({data: {...result, errors: result.errors.length, communications, inbox}}, {headers: {"Cache-Control": "no-store"}});
   } catch (error) {
     console.error(JSON.stringify({event: "automations.tick_failed", name: error instanceof Error ? error.name : typeof error, detail: error instanceof Error ? error.message.slice(0, 200) : undefined}));
     return Response.json({error: {code: "TICK_FAILED", message: "The automation tick failed; it will be retried."}}, {status: 503});

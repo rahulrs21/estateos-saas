@@ -177,6 +177,18 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (/\b(?:INBOX_ASSIGNMENT_FORBIDDEN|INBOX_ADMIN_REQUIRED)\b/.test(message)) {
       return new WorkspaceError("PERMISSION_DENIED", 403, "You do not have permission to do this in the inbox.");
     }
+    if (message.includes("CHANNEL_CONNECTION_LIMIT")) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "A company can have up to 10 inbox channels. Disable or reuse an existing one.");
+    }
+    if (message.includes("CHANNEL_CONNECTION_CHANGED")) {
+      return new WorkspaceError("CONFLICT", 409, "This channel changed since you opened it, or it cannot be changed here. Reload and try again.");
+    }
+    if (/\b(?:INBOX_ATTACHMENT_NOT_FOUND|INBOX_MESSAGE_NOT_FOUND)\b/.test(message)) {
+      return new WorkspaceError("NOT_FOUND", 404, "This attachment was not found, or you cannot open it.");
+    }
+    if (message.includes("INBOX_ATTACHMENT_UNAVAILABLE")) {
+      return new WorkspaceError("CONFLICT", 409, "This attachment cannot be opened: it was not downloaded from the provider, or the file check blocked it.");
+    }
     if (message.includes("INBOX_ASSIGNEE_INVALID")) {
       return new WorkspaceError("VALIDATION_ERROR", 400, "Assign the conversation to an active member of your company.");
     }
