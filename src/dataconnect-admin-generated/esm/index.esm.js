@@ -2037,6 +2037,12 @@ export function inboxAssignees(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeQuery('InboxAssignees', inputVars, inputOpts);
 }
 
+export function inboxCustomerContext(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('InboxCustomerContext', inputVars, inputOpts);
+}
+
 export function listPropertyMapPins(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

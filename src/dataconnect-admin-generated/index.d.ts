@@ -6257,6 +6257,92 @@ export interface InboxCountsVariables {
   simulated?: boolean | null;
 }
 
+export interface InboxCustomerContextData {
+  conversation?: {
+    id: UUIDString;
+  };
+  lead?: {
+    id: UUIDString;
+    fullName: string;
+    status: LeadStatus;
+    priority: LeadPriority;
+    propertyInterest?: string | null;
+    preferredLocation?: string | null;
+    propertyType?: string | null;
+    transactionType: TransactionType;
+    bedroomPreference?: string | null;
+    budgetMin?: number | null;
+    budgetMax?: number | null;
+    currency: string;
+    archivedAt?: TimestampString | null;
+    assignedMembership?: {
+      id: UUIDString;
+      userProfile?: {
+        displayName: string;
+      };
+    };
+    followUps: ({
+      id: UUIDString;
+      title: string;
+      dueAt: TimestampString;
+    })[];
+    viewings: ({
+      id: UUIDString;
+      scheduledAt: TimestampString;
+      status: LeadPropertyViewingStatus;
+      property: {
+        propertyReference: string;
+        community?: string | null;
+      };
+    })[];
+    interests: ({
+      id: UUIDString;
+      status: LeadPropertyInterestStatus;
+      property: {
+        propertyReference: string;
+      };
+    })[];
+    calls: ({
+      id: UUIDString;
+      direction: CallDirection;
+      callStatus: CallStatus;
+      outcome?: CallOutcome | null;
+      startedAt: TimestampString;
+      durationSeconds: number;
+      source: CallSource;
+    })[];
+    activities: ({
+      id: UUIDString;
+      kind: ActivityKind;
+      note?: string | null;
+      createdAt: TimestampString;
+    })[];
+  };
+  contact?: {
+    id: UUIDString;
+    fullName: string;
+    email?: string | null;
+    phone?: string | null;
+    preferredLanguage: string;
+  };
+  others: ({
+    id: UUIDString;
+    channel: InboxChannel;
+    status: InboxConversationStatus;
+    lastMessageAt: TimestampString;
+    lastMessagePreview?: string | null;
+  })[];
+}
+
+export interface InboxCustomerContextVariables {
+  organizationId: UUIDString;
+  conversationId: UUIDString;
+  hasLead: boolean;
+  leadId?: UUIDString | null;
+  hasContact: boolean;
+  contactId?: UUIDString | null;
+}
+
 export interface InboxEmailOptOut_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -13132,6 +13218,11 @@ export function inboxLinkTarget(vars: InboxLinkTargetVariables, options?: Operat
 export function inboxAssignees(dc: DataConnect, vars: InboxAssigneesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxAssigneesData>>;
 /** Generated Node Admin SDK operation action function for the 'InboxAssignees' Query. Allow users to pass in custom DataConnect instances. */
 export function inboxAssignees(vars: InboxAssigneesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxAssigneesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'InboxCustomerContext' Query. Allow users to execute without passing in DataConnect. */
+export function inboxCustomerContext(dc: DataConnect, vars: InboxCustomerContextVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxCustomerContextData>>;
+/** Generated Node Admin SDK operation action function for the 'InboxCustomerContext' Query. Allow users to pass in custom DataConnect instances. */
+export function inboxCustomerContext(vars: InboxCustomerContextVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxCustomerContextData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListPropertyMapPins' Query. Allow users to execute without passing in DataConnect. */
 export function listPropertyMapPins(dc: DataConnect, vars: ListPropertyMapPinsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListPropertyMapPinsData>>;

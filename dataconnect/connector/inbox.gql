@@ -261,3 +261,40 @@ query InboxAssignees($organizationId: UUID!)
   me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
   members: memberships(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}, orderBy: [{createdAt: ASC}], limit: 200) {id role userProfile {displayName}}
 }
+
+# The customer panel: the linked lead (normal lead access) with its open follow-ups, viewings,
+# property interests, Phase 6F calls and recent activity, and the contact's other visible conversations.
+query InboxCustomerContext($organizationId: UUID!, $conversationId: UUID!, $hasLead: Boolean!, $leadId: UUID, $hasContact: Boolean!, $contactId: UUID)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $conversationId}}, {_or: [
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+      {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+      {assignedMembershipId: {isNull: true}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {eq: MANAGER}}}}}
+    ]}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {id}
+  lead: lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}}, {_or: [
+    {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+  ]}]}}) @include(if: $hasLead) {
+    id fullName status priority propertyInterest preferredLocation propertyType transactionType bedroomPreference budgetMin budgetMax currency archivedAt
+    assignedMembership {id userProfile {displayName}}
+    followUps: leadFollowUps_on_lead(where: {status: {eq: PENDING}}, orderBy: [{dueAt: ASC}], limit: 5) {id title dueAt}
+    viewings: leadPropertyViewings_on_lead(orderBy: [{scheduledAt: DESC}], limit: 5) {id scheduledAt status property {propertyReference community}}
+    interests: leadPropertyInterests_on_lead(limit: 5) {id status property {propertyReference}}
+    calls: callRecords_on_lead(orderBy: [{startedAt: DESC}], limit: 5) {id direction callStatus outcome startedAt durationSeconds source}
+    activities: activities_on_lead(orderBy: [{createdAt: DESC}], limit: 8) {id kind note createdAt}
+  }
+  contact: contact(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $contactId}}, {_or: [
+    {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+    {leads_on_contact: {exist: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}}},
+    {createdByUid: {eq_expr: "auth.uid"}, leads_on_contact: {count: {eq: 0}}}
+  ]}]}}) @include(if: $hasContact) {id fullName email phone preferredLanguage}
+  others: inboxConversations(where: {_and: [{organizationId: {eq: $organizationId}, contactId: {eq: $contactId}, id: {ne: $conversationId}}, {_or: [
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+      {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+      {assignedMembershipId: {isNull: true}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {eq: MANAGER}}}}}
+    ]}]}, orderBy: [{lastMessageAt: DESC}], limit: 10) @include(if: $hasContact) {
+    id channel status lastMessageAt lastMessagePreview
+  }
+}

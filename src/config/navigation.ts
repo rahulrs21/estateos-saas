@@ -1,7 +1,7 @@
 import {
   Gauge, Globe,
   BarChart3, Bot, BriefcaseBusiness, Building2, CalendarCheck2, ContactRound,
-  FolderKanban, Handshake, House, LayoutDashboard, Megaphone, MessagesSquare,
+  FolderKanban, Handshake, House, Inbox, LayoutDashboard, Megaphone, MessagesSquare,
   Settings2, ShieldCheck, UsersRound, WalletCards, Wand2, Workflow, type LucideIcon,
 } from "lucide-react";
 
@@ -45,6 +45,7 @@ export const navigationGroups: NavigationGroup[] = [
       { title: "Tasks", href: "/workspace/tasks", icon: CalendarCheck2, description: "Your open follow-ups and work tasks, including those workflows create." },
       { title: "Websites", href: "/websites", icon: Globe, description: "Build landing pages from CRM records, with Claude, review and publishing." },
       { title: "Marketing", href: "/workspace/marketing", icon: Megaphone, description: "Plan campaigns and understand where your inquiries come from." },
+      { title: "Inbox", href: "/inbox", icon: Inbox, description: "Customer conversations from WhatsApp, email and website enquiries in one place." },
       { title: "Communications", href: "/communications", icon: MessagesSquare, description: "Calls with customers, call history and the calling rules your company follows." },
     ],
   },

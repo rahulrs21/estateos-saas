@@ -2,7 +2,7 @@ import "server-only";
 
 import { read, write } from "@/modules/communications/server/http";
 import {
-  addNote, assignConversation, assignees, getConversation, inboxCounts, inboxSettings, linkConversation, listConversations, listMessages, markRead, saveInboxSettings, setConversationState,
+  addNote, assignConversation, assignees, customerContext, getConversation, inboxCounts, inboxSettings, linkConversation, listConversations, listMessages, markRead, saveInboxSettings, setConversationState,
 } from "./conversations";
 
 /*
@@ -24,3 +24,4 @@ export const noteResponse = (request: Request, id: string) => write(request, "in
 export const readMarkResponse = (request: Request, id: string) => write(request, "inbox.read", context => markRead(context, id));
 export const settingsResponse = (request: Request) => read(request, "inbox.settings", context => inboxSettings(context));
 export const saveSettingsResponse = (request: Request) => write(request, "inbox.settings.save", saveInboxSettings);
+export const customerResponse = (request: Request, id: string) => read(request, "inbox.customer", context => customerContext(context, id));

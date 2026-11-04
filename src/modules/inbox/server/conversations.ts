@@ -193,3 +193,17 @@ export async function saveInboxSettings(context: Context, body: unknown) {
   await asMember(context, "SaveInboxSettings", (dc, options) => sdk.saveInboxSettings(dc, {organizationId: context.organizationId, ...input}, options));
   return {revision: input.expectedRevision + 1};
 }
+
+/** The customer panel: the linked lead and contact as the member may see them, and the contact's other conversations. */
+export async function customerContext(context: Context, rawId: string) {
+  const conversation = await getConversation(context, rawId);
+  const data = await asMember(context, "InboxCustomerContext", (dc, options) => sdk.inboxCustomerContext(dc, {
+    organizationId: context.organizationId, conversationId: conversation.id, hasLead: Boolean(conversation.leadId), leadId: conversation.leadId,
+    hasContact: Boolean(conversation.contactId), contactId: conversation.contactId,
+  }, options));
+  return {
+    lead: data.lead ?? null, leadHidden: Boolean(conversation.leadId) && !data.lead, contact: data.contact ?? null,
+    others: (data.others ?? []).map(row => ({...row, id: canonicalUuid(row.id)})),
+  };
+}
+export type CustomerContextView = Awaited<ReturnType<typeof customerContext>>;
