@@ -26,7 +26,7 @@ query FindInboxConversation($organizationId: UUID!, $hasConnection: Boolean!, $c
 # A new conversation with its first inbound message, and the workflow events, in one transaction.
 mutation CreateInboxConversationWithMessage($organizationId: UUID!, $conversationId: UUID!, $channelConnectionId: UUID, $channel: InboxChannel!, $externalThreadId: String!,
   $customerIdentity: String!, $customerName: String, $subject: String, $contactId: UUID, $leadId: UUID, $assignedMembershipId: UUID, $messageId: UUID!, $externalMessageId: String!,
-  $messageType: InboxMessageType!, $content: String, $senderIdentity: String, $recipientIdentity: String, $providerTimestamp: Timestamp, $preview: String, $simulated: Boolean!, $optedOut: Boolean!)
+  $messageType: InboxMessageType!, $content: String, $senderIdentity: String, $recipientIdentity: String, $providerTimestamp: Timestamp, $preview: String, $simulated: Boolean!, $optedOut: Boolean!, $suppressNumber: Boolean! = false, $suppressEmail: Boolean! = false, $optOutId: UUID, $optOutIdentity: String! = "")
   @auth(level: NO_ACCESS) @transaction {
   conversation: inboxConversation_insert(data: {organizationId: $organizationId, id: $conversationId, channelConnectionId: $channelConnectionId, channel: $channel, externalThreadId: $externalThreadId,
     customerIdentity: $customerIdentity, customerName: $customerName, subject: $subject, contactId: $contactId, leadId: $leadId, assignedMembershipId: $assignedMembershipId,
@@ -38,11 +38,16 @@ mutation CreateInboxConversationWithMessage($organizationId: UUID!, $conversatio
     targetId: $conversationId, origin_expr: "vars.simulated ? 'SIMULATOR' : 'PROVIDER'", payload_expr: "{'leadId': vars.leadId, 'channel': vars.channel}"})
   received: automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'inbox.message:' + vars.messageId", triggerType: "inbox.message.received", targetType: "CONVERSATION",
     targetId: $conversationId, origin_expr: "vars.simulated ? 'SIMULATOR' : 'PROVIDER'", payload_expr: "{'leadId': vars.leadId, 'messageId': vars.messageId, 'channel': vars.channel}"})
+  # A STOP-style reply on a real (not simulated) conversation adds the customer to the do-not-contact list (7A.6):
+  # WhatsApp numbers to the Phase 6F suppression list, email addresses to the inbox email opt-outs. Repeats re-activate the same row.
+  suppression: communicationSuppression_upsert(data: {organizationId: $organizationId, id: $optOutId, normalizedNumber: $optOutIdentity, scope: ALL, reason: OPT_OUT, source: "INBOX_OPT_OUT",
+    note: "The customer replied with an opt-out keyword in the inbox.", withdrawnAt: null, withdrawnByUid: null, withdrawalReason: null}) @include(if: $suppressNumber)
+  emailOptOut: inboxEmailOptOut_upsert(data: {organizationId: $organizationId, id: $optOutId, normalizedEmail: $optOutIdentity, source: "INBOX_REPLY", conversationId: $conversationId, withdrawnAt: null}) @include(if: $suppressEmail)
 }
 
 # A further inbound message on an existing conversation: it reopens the conversation and counts as unread.
 mutation AppendInboxMessage($organizationId: UUID!, $conversationId: UUID!, $channelConnectionId: UUID, $messageId: UUID!, $externalMessageId: String!, $messageType: InboxMessageType!,
-  $content: String, $senderIdentity: String, $recipientIdentity: String, $providerTimestamp: Timestamp, $preview: String, $simulated: Boolean!, $optedOut: Boolean!)
+  $content: String, $senderIdentity: String, $recipientIdentity: String, $providerTimestamp: Timestamp, $preview: String, $simulated: Boolean!, $optedOut: Boolean!, $suppressNumber: Boolean! = false, $suppressEmail: Boolean! = false, $optOutId: UUID, $optOutIdentity: String! = "")
   @auth(level: NO_ACCESS) @transaction {
   before: query @redact {
     conversation: inboxConversation(key: {organizationId: $organizationId, id: $conversationId}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {leadId channel optedOut}
@@ -54,4 +59,9 @@ mutation AppendInboxMessage($organizationId: UUID!, $conversationId: UUID!, $cha
     lastMessagePreview: $preview, unreadCount_update: {inc: 1}, optedOut_expr: "vars.optedOut || response.before.conversation.optedOut", revision_update: {inc: 1}, updatedAt_expr: "request.time"})
   received: automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'inbox.message:' + vars.messageId", triggerType: "inbox.message.received", targetType: "CONVERSATION",
     targetId: $conversationId, origin_expr: "vars.simulated ? 'SIMULATOR' : 'PROVIDER'", payload_expr: "{'leadId': response.before.conversation.leadId, 'messageId': vars.messageId, 'channel': response.before.conversation.channel}"})
+  # A STOP-style reply on a real (not simulated) conversation adds the customer to the do-not-contact list (7A.6):
+  # WhatsApp numbers to the Phase 6F suppression list, email addresses to the inbox email opt-outs. Repeats re-activate the same row.
+  suppression: communicationSuppression_upsert(data: {organizationId: $organizationId, id: $optOutId, normalizedNumber: $optOutIdentity, scope: ALL, reason: OPT_OUT, source: "INBOX_OPT_OUT",
+    note: "The customer replied with an opt-out keyword in the inbox.", withdrawnAt: null, withdrawnByUid: null, withdrawalReason: null}) @include(if: $suppressNumber)
+  emailOptOut: inboxEmailOptOut_upsert(data: {organizationId: $organizationId, id: $optOutId, normalizedEmail: $optOutIdentity, source: "INBOX_REPLY", conversationId: $conversationId, withdrawnAt: null}) @include(if: $suppressEmail)
 }

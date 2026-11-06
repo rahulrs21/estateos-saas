@@ -67,6 +67,12 @@ export async function ingestInbound(input: InboundMessage): Promise<IngestResult
     senderIdentity: identity.value, recipientIdentity: clip(input.to, 254), providerTimestamp: input.providerTimestamp ?? null, preview: clip(preview(content || `[${input.messageType.toLowerCase()}]`), 200),
     simulated: Boolean(input.simulated), optedOut: isOptOutMessage(content),
   };
+  // A real customer's opt-out also goes on the do-not-contact list (docs/INBOX_SECURITY.md#opt-out); simulated senders only flag their conversation.
+  const listOptOut = message.optedOut && !message.simulated && (input.channel === "WHATSAPP" || input.channel === "EMAIL");
+  const optOut = {
+    suppressNumber: listOptOut && identity.kind === "PHONE", suppressEmail: listOptOut && identity.kind === "EMAIL",
+    optOutId: listOptOut ? stableUuid("inbox-opt-out", input.organizationId, identity.value) : null, optOutIdentity: listOptOut ? identity.value : "",
+  };
   // A stable message ID per provider message, so a retried delivery finds the same row.
   const messageId = stableUuid("inbox-message", input.organizationId, input.channelConnectionId ?? "internal", message.externalMessageId);
 
@@ -75,7 +81,7 @@ export async function ingestInbound(input: InboundMessage): Promise<IngestResult
     try {
       if (existing) {
         // Called directly (not asServer) so a unique-key conflict is still recognisable as a duplicate.
-        await sdk.appendInboxMessage(serverDataConnect(), {organizationId: input.organizationId, conversationId: canonicalUuid(existing.id), messageId, ...message});
+        await sdk.appendInboxMessage(serverDataConnect(), {organizationId: input.organizationId, conversationId: canonicalUuid(existing.id), messageId, ...message, ...optOut});
         return {status: "APPENDED", conversationId: canonicalUuid(existing.id), messageId, match: "EXISTING"};
       }
       const decision = input.link ? null : await matchIdentity(input.organizationId, identity);
@@ -83,7 +89,7 @@ export async function ingestInbound(input: InboundMessage): Promise<IngestResult
       const conversationId = randomUUID();
       await sdk.createInboxConversationWithMessage(serverDataConnect(), {
         organizationId: input.organizationId, conversationId, channel: sdk.InboxChannel[input.channel], externalThreadId: input.externalThreadId.slice(0, 200),
-        customerIdentity: identity.value, customerName: clip(input.from.name, 160), subject: clip(input.subject, 300), ...link, messageId, ...message,
+        customerIdentity: identity.value, customerName: clip(input.from.name, 160), subject: clip(input.subject, 300), ...link, messageId, ...message, ...optOut,
       });
       return {status: "CREATED", conversationId, messageId, match: input.link ? "LINKED" : decision!.status};
     } catch (error) {

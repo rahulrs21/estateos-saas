@@ -1,8 +1,132 @@
 # Unified inbox
 
-Status: **Phase 7A in progress.** 7A.1–7A.5 are built. This document covers replies, approval, the Claude assistant and inbox workflows (7A.5). The overview, access, matching, ingestion, simulator and API sections are completed in 7A.6.
+Status: **Phase 7A complete (foundation).** WhatsApp, email and website conversations live in one inbox at `/inbox`, linked to the CRM. They come with replies that need approval, a Claude assistant and workflow triggers.
 
-Related: [CHANNEL_ADAPTERS.md](CHANNEL_ADAPTERS.md), [WHATSAPP_INTEGRATION_PLAN.md](WHATSAPP_INTEGRATION_PLAN.md), [EMAIL_INTEGRATION_PLAN.md](EMAIL_INTEGRATION_PLAN.md), [WORKFLOW_APPROVALS.md](WORKFLOW_APPROVALS.md), [AI_SECURITY.md](AI_SECURITY.md).
+No real provider is connected and nothing is sent outside EstateOS:
+- WhatsApp sending is Phase 7B;
+- Gmail and Microsoft 365 are Phase 7C;
+- both need approval.
+
+Related:
+- [INBOX_SECURITY.md](INBOX_SECURITY.md): permissions, privacy, retention and opt-out;
+- [CHANNEL_ADAPTERS.md](CHANNEL_ADAPTERS.md): providers, webhooks, durable events and receipts;
+- [WHATSAPP_INTEGRATION_PLAN.md](WHATSAPP_INTEGRATION_PLAN.md) and [EMAIL_INTEGRATION_PLAN.md](EMAIL_INTEGRATION_PLAN.md);
+- [WORKFLOW_APPROVALS.md](WORKFLOW_APPROVALS.md) and [AI_SECURITY.md](AI_SECURITY.md).
+
+## Database
+
+The schema is in `dataconnect/schema/inbox.gql`. All tables are additive and keyed by company, with composite foreign keys. The enums are append-only.
+
+| Table | Holds |
+| --- | --- |
+| `ChannelConnection` | A company's provider account: provider, external account ID (unique per provider), the secret's name, status (never VERIFIED in 7A), and whether sending is enabled (true only for the developer simulator) |
+| `InboxSettings` | Approval required (default on), retention days (730), unanswered minutes (120) and whether Claude may analyse conversations (default off) |
+| `InboxConversation` | One customer identity on one channel thread. Holds the linked contact and lead, assignee, status, priority, unread count, last inbound and outbound times, preview, opted-out and simulated flags, and a revision for compare-and-set |
+| `InboxMessage` | Direction, sender and recipient, type, plain-text content (removed by retention), delivery status, the raw provider status, and the simulated flag. Unique per connection and provider message ID |
+| `InboxAttachment` | A private file (or a provider reference not yet downloaded), with its type, size and scan status |
+| `InboxAssignmentHistory`, `InboxNote` | Who assigned whom and why; private team notes |
+| `InboxEvent` | Each verified provider event, recorded once (dedup key) before it is applied, with retries |
+| `OutboundMessageJob` | A reply from draft to delivery (see [Outbound](#outbound)) |
+| `InboxAiInsight` | A checked Claude analysis |
+| `InboxEmailOptOut` | Email addresses that opted out (WhatsApp numbers use the 6F `CommunicationSuppression` list) |
+
+Indexes cover the list orders (company and last message; assignee; status), lead, contact and identity lookups, message history by conversation, events due a retry, and the retention scan. The hosted database is unchanged; rolling these tables out there needs approval.
+
+## Interface
+
+- **`/inbox`** has three columns. They collapse to one on mobile, with a back button.
+  - **Left:** channel filters, search, and the views (All, Unread, Assigned to me, Unassigned, Needs matching, Open, Pending, Resolved) with counts.
+  - **Middle:** the conversation list (25 per page, cursor "Load more").
+  - **Main:**
+    - the conversation: header controls for status, priority, assignee and the customer link;
+    - message history (30 per page, "Load earlier"), with delivery badges, attachments and SIMULATED labels;
+    - the reply panel and the Claude assistant;
+    - internal notes;
+    - the customer panel: the lead and contact, follow-ups, viewings, property interests, calls, recent activity, and the customer's other conversations.
+- **Refresh.** There is no real-time push. The list refreshes every 30 seconds while visible, when the tab becomes visible, and on demand; the inbox badge updates with it.
+- **`/inbox/settings`** (owners and administrators): the inbox rules and the channel connections with their capability matrix and webhook addresses.
+- **States.** Every screen has loading, error and empty states. No conversation is ever invented.
+
+## Access
+
+OWNERs and ADMINs see every conversation. MANAGERs see their own and the unassigned triage queue. AGENTs see conversations assigned to them or linked to their leads. The rule is enforced inside every database operation; see [INBOX_SECURITY.md](INBOX_SECURITY.md#visibility).
+
+## Matching
+
+A sender is linked automatically only by an exact normalized phone number (E.164) or email address on **exactly one** contact. When that contact has exactly one active lead, the conversation joins that lead and goes to the lead's agent; the lead itself is not changed.
+
+Zero or several matches leave the conversation in **Needs matching**. A member then links it by hand to a lead or contact they can access, and is told whether the sender's number or email is on that record. The link is audited. Names never decide a match.
+
+## Ingestion
+
+Every inbound message goes through `ingestInbound` (`src/modules/inbox/server/ingest.ts`), whether from a verified webhook, the developer simulator or the website form. It:
+1. finds or creates the conversation (unique per connection and thread);
+2. inserts the message, with a stable ID per provider message, so a retried delivery is a duplicate;
+3. writes the workflow events in the same transaction.
+
+A message that consists only of an opt-out keyword flags the conversation and, for real customers, adds them to the do-not-contact list ([INBOX_SECURITY.md](INBOX_SECURITY.md#opt-out)).
+
+Website enquiries are written inside the lead-capture transaction itself. Each creates a WEBSITE conversation linked to the new lead and contact, with the visitor's message. Older submissions are not backfilled.
+
+## Simulator
+
+`/dev/communication-tests` has an inbox section, available only with developer tools on (local emulators or a demo project, never production) and only to owners and administrators. It sends WhatsApp and email messages through the real pipeline on the company's `DEVELOPMENT_SIMULATOR` connection:
+- from the simulator's fictional leads (`+44 7700 900xxx`, `@example.test`) or from unknown fictional senders;
+- optionally with a small attachment;
+- optionally replaying an earlier delivery, to show duplicate handling.
+
+It also sends website enquiries through the real public form. Simulated records are labelled SIMULATED, hidden from the inbox unless included, and removed by **Reset**, which never touches real records. Simulated replies can be sent and given receipts ([Outbound](#outbound)).
+
+## API
+
+All routes are under `/api/inbox`. Reads need a verified session; changes also need same-origin, the CSRF token and the matching company header.
+
+| Route | Methods |
+| --- | --- |
+| `/conversations`, `/counts`, `/assignees`, `/settings` | GET (settings also PUT, owners and administrators) |
+| `/conversations/{id}` and `/messages`, `/customer` | GET |
+| `/conversations/{id}/assign`, `/state`, `/link`, `/notes`, `/read` | POST |
+| `/conversations/{id}/attachments/{attachmentId}` | GET (download, audited) |
+| `/conversations/{id}/replies` | GET, POST; `/replies/{replyId}` PUT (edit); `/replies/{replyId}/{check\|submit\|decide\|cancel\|send}` POST |
+| `/conversations/{id}/assistant` | POST (Claude analysis); `/assistant/apply` POST (reviewed requirements to the lead) |
+| `/connections`, `/connections/{id}`, `/connections/{id}/enabled` | Owners and administrators |
+| `/webhooks/{provider}/{connectionId}` | GET handshake, POST events (signature-verified, no session) |
+
+Developer tools: `/api/dev/communication-tests/inbox` (state) and `/inbound`, `/website`, `/receipt`. These answer 404 unless developer tools are enabled.
+
+## Local testing
+
+| Command | Covers |
+| --- | --- |
+| `npm run test:inbox` | Unit: identity, policy, adapters and signatures, attachments, outbound rules, the assistant's checks, the workflow registry, retention |
+| `npm run test:dataconnect` | Emulator: visibility for every role, tenant isolation, ingestion and duplicates, events and receipts, attachments, replies and approval, simulator-only delivery, insights, workflows, opt-outs, retention |
+| `npm run test:inbox:e2e` | The real app in a headless browser on isolated emulators. `AI_E2E_LIVE=1` adds the live Claude checks (two paid calls) |
+| `npm run test:persistence` | Conversations, messages, replies and analyses survive hard kills of `dev:local` |
+
+To try it by hand:
+1. Run `npm run dev:local`.
+2. Open `/dev/communication-tests` as an owner, create a fictional lead and send a WhatsApp message from it.
+3. Open the conversation in `/inbox`.
+4. Write a reply, check it and request approval.
+5. Approve it as another owner, administrator or manager.
+6. Send it with **Send (simulator)**, then simulate its receipts.
+
+Turn on Claude in Inbox settings to use the assistant (it needs `ANTHROPIC_API_KEY` in `.env.local` and uses the company's AI allowance).
+
+## Known limitations
+
+- **No live provider.**
+  - WhatsApp webhooks are verified (and were tested against Meta's dashboard test event), but there is no sending, template messaging or media download.
+  - Gmail and Microsoft 365 are interfaces only.
+  - Connections never reach VERIFIED.
+- **Templates.** WhatsApp replies outside the 24-hour window need approved templates, which are Phase 7B. Until then, such replies fail the checks.
+- **No malware scanner** is connected (`NOT_SCANNED`).
+- **No real-time push**, only the controlled refresh.
+- **Email opt-outs** have no withdrawal page.
+- **Managers** see assigned and unassigned conversations, not a team's (there is no team model, as in 6F).
+- **Notifications.** The "reply waiting for approval" notification goes to owners and administrators; managers see waiting replies in the conversations they can open.
+- **Matched listings** come from the lead's recorded requirements. Requirements found in the conversation help only after a member applies them to the lead.
+- **Retention** clears message text but keeps internal notes and audit logs.
 
 ## Outbound
 

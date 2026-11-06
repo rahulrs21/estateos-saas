@@ -86,7 +86,8 @@ type CommunicationSuppression @table(key: ["organization", "id"])
   note: String @col(dataType: "varchar(500)")
   # Plain identifier: the call whose outcome created the suppression.
   callId: UUID
-  createdBy: UserProfile!
+  # Null when the customer opted out themselves (an inbox STOP reply, source INBOX_OPT_OUT, Phase 7A.6).
+  createdBy: UserProfile
   createdAt: Timestamp! @default(expr: "request.time")
   withdrawnAt: Timestamp
   withdrawnBy: UserProfile

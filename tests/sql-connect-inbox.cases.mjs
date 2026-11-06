@@ -411,5 +411,69 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       const state = (await server(sdk.automationConversationState, {organizationId: f.orgA, id: simulated})).conversation;
       assert.equal(key(state.assignedMembershipId), key(f.memberAgentA), "the conversation is unchanged");
     });
+
+    // --- 7A.6: opt-outs and retention ----------------------------------------------------------
+    it("puts a real customer's STOP on the do-not-contact list in the same transaction, once, and re-activates it on a repeat", async () => {
+      const optOutId = randomUUID();
+      const stop = (conversationId, identity, extra) => server(sdk.appendInboxMessage, {organizationId: f.orgA, conversationId, channelConnectionId: null, messageId: randomUUID(), externalMessageId: `wamid.stop-${randomUUID()}`,
+        messageType: sdk.InboxMessageType.TEXT, content: "STOP", senderIdentity: identity, recipientIdentity: null, providerTimestamp: null, preview: "STOP", simulated: false, optedOut: true,
+        optOutId, optOutIdentity: identity, ...extra});
+      const numbers = async () => (await dc.executeGraphql(`query S($org: UUID!, $n: String!) { communicationSuppressions(where: {organizationId: {eq: $org}, normalizedNumber: {eq: $n}}) { id scope reason source createdByUid withdrawnAt } }`,
+        {variables: {org: f.orgA, n: PHONE}})).data.communicationSuppressions;
+      await stop(linked, PHONE, {suppressNumber: true});
+      let rows = await numbers();
+      assert.equal(rows.length, 1);
+      assert.deepEqual({scope: rows[0].scope, reason: rows[0].reason, source: rows[0].source, createdByUid: rows[0].createdByUid ?? null}, {scope: "ALL", reason: "OPT_OUT", source: "INBOX_OPT_OUT", createdByUid: null}, "the customer opted out themselves");
+      assert.equal((await run(sdk.getInboxConversation, "agent-a", {organizationId: f.orgA, id: linked})).conversation.optedOut, true);
+      assert.equal((await server(sdk.inboxContactRestrictions, {organizationId: f.orgA, identity: PHONE})).numbers.length, 1, "replies to this number are refused");
+      await dc.executeGraphql(`mutation W($org: UUID!, $id: UUID!) { communicationSuppression_update(key: {organizationId: $org, id: $id}, data: {withdrawnAt_expr: "request.time", withdrawalReason: "Test withdrawal"}) }`, {variables: {org: f.orgA, id: rows[0].id}});
+      await stop(linked, PHONE, {suppressNumber: true});
+      rows = await numbers();
+      assert.equal(rows.length, 1, "a repeated STOP reuses the same entry");
+      assert.equal(rows[0].withdrawnAt ?? null, null, "and makes it active again");
+      assert.equal((await server(sdk.inboxContactRestrictions, {organizationId: f.orgB, identity: PHONE})).numbers.length, 0, "another company's list is separate");
+
+      const mail = randomUUID(), address = "optout.customer@example.test";
+      await create({conversationId: mail, channel: sdk.InboxChannel.EMAIL, customerIdentity: address, senderIdentity: address, content: "Hello"});
+      await stop(mail, address, {suppressEmail: true, content: "unsubscribe", optOutId: randomUUID()});
+      assert.equal((await server(sdk.inboxContactRestrictions, {organizationId: f.orgA, identity: address})).emails.length, 1, "email opt-outs go to the inbox email list");
+      await forbidden(sdk.appendInboxMessage, "owner-a", {organizationId: f.orgA, conversationId: mail, channelConnectionId: null, messageId: randomUUID(), externalMessageId: "x", messageType: sdk.InboxMessageType.TEXT,
+        simulated: false, optedOut: true, suppressEmail: true, optOutId: randomUUID(), optOutIdentity: address});
+    });
+
+    it("removes message content past retention for one company, keeping a record that each message existed", async () => {
+      const old = new Date(Date.now() - 40 * 86_400_000).toISOString(), before = new Date(Date.now() - 30 * 86_400_000).toISOString();
+      const conversation = randomUUID(), oldMessage = randomUUID(), newMessage = randomUUID(), file = randomUUID(), insight = randomUUID();
+      await create({conversationId: conversation, customerIdentity: "+447700900615", senderIdentity: "+447700900615", messageId: newMessage, content: "Recent message"});
+      await dc.executeGraphql(`mutation O($org: UUID!, $c: UUID!, $m: UUID!, $f: UUID!, $i: UUID!, $at: Timestamp!, $path: String!) {
+        inboxMessage_insert(data: {organizationId: $org, id: $m, conversationId: $c, externalMessageId: "wamid.old-retention", direction: INBOUND, messageType: DOCUMENT, content: "Old private text", deliveryStatus: RECEIVED, createdAt: $at})
+        inboxAttachment_insert(data: {organizationId: $org, id: $f, messageId: $m, conversationId: $c, fileName: "old.pdf", mimeType: "application/pdf", sizeBytes: 10, storagePath: $path, scanStatus: NOT_SCANNED})
+        inboxAiInsight_insert(data: {organizationId: $org, id: $i, conversationId: $c, insightJson: "{}", model: "test", promptVersion: "x", source: "CLAUDE", createdByUid: "owner-a", createdAt: $at}) }`,
+        {variables: {org: f.orgA, c: conversation, m: oldMessage, f: file, i: insight, at: old, path: `organizations/${f.orgA}/inbox/attachments/${file}.pdf`}});
+      const rules = (await sdk.inboxRetentionRules(dc)).data.rules;
+      assert.ok(rules.some(row => key(row.organizationId) === key(f.orgA) && row.retentionDays === 365), "companies with their own rules are listed");
+      await forbidden(sdk.inboxRetentionRules, "owner-a", undefined);
+      const candidates = (await server(sdk.inboxRetentionCandidates, {organizationId: f.orgA, before, limit: 100})).messages;
+      const found = candidates.find(row => key(row.id) === key(oldMessage));
+      assert.ok(found && found.attachments[0].storagePath.endsWith(`${file}.pdf`));
+      assert.ok(!candidates.some(row => key(row.id) === key(newMessage)), "recent messages are not candidates");
+      assert.ok(!(await server(sdk.inboxRetentionCandidates, {excluded: [f.orgA], before, limit: 100})).messages.some(row => key(row.id) === key(oldMessage)), "the default pass skips companies with their own rules");
+      await forbidden(sdk.applyInboxRetention, "owner-a", {organizationId: f.orgA, ids: [oldMessage], before});
+      await server(sdk.applyInboxRetention, {organizationId: f.orgB, ids: [oldMessage], before});
+      const read = async () => (await dc.executeGraphql(`query R($org: UUID!, $m: UUID!, $n: UUID!, $f: UUID!, $i: UUID!) { old: inboxMessage(key: {organizationId: $org, id: $m}) {content contentRedactedAt}
+        recent: inboxMessage(key: {organizationId: $org, id: $n}) {content contentRedactedAt} file: inboxAttachment(key: {organizationId: $org, id: $f}) {storagePath deletedAt} insight: inboxAiInsight(key: {organizationId: $org, id: $i}) {id} }`,
+        {variables: {org: f.orgA, m: oldMessage, n: newMessage, f: file, i: insight}})).data;
+      assert.equal((await read()).old.content, "Old private text", "another company's pass changes nothing here");
+      const applied = await server(sdk.applyInboxRetention, {organizationId: f.orgA, ids: [oldMessage, newMessage], before});
+      assert.equal(applied.messages, 1, "only the message past retention");
+      const after = await read();
+      assert.equal(after.old.content, null);
+      assert.ok(after.old.contentRedactedAt, "the message itself remains, marked as removed");
+      assert.equal(after.recent.content, "Recent message");
+      assert.equal(after.file.storagePath, null);
+      assert.ok(after.file.deletedAt);
+      assert.equal(after.insight, null, "old Claude analyses are deleted");
+      assert.equal((await server(sdk.applyInboxRetention, {organizationId: f.orgA, ids: [oldMessage], before})).messages, 0, "a repeated pass changes nothing");
+    });
   });
 }

@@ -100,3 +100,29 @@ query UnansweredInboxCandidates($organizationId: UUID!, $from: Timestamp!, $to: 
 query AutomationConversationState($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
   conversation: inboxConversation(key: {organizationId: $organizationId, id: $id}) {id assignedMembershipId status}
 }
+
+# --- Retention (server only, 7A.6) -------------------------------------------------------------
+
+# Companies with their own inbox rules (others use the default of 730 days).
+query InboxRetentionRules @auth(level: NO_ACCESS) {
+  rules: inboxSettingss(limit: 1000) {organizationId retentionDays}
+}
+
+# Messages whose content is past the retention date, oldest first, with their stored files. One company
+# (organizationId) or every company except those with their own rules (excluded).
+query InboxRetentionCandidates($organizationId: UUID, $excluded: [UUID!], $before: Timestamp!, $limit: Int! = 100) @auth(level: NO_ACCESS) {
+  messages: inboxMessages(where: {organizationId: {eq: $organizationId, nin: $excluded}, contentRedactedAt: {isNull: true}, createdAt: {lt: $before}}, orderBy: [{createdAt: ASC}], limit: $limit) {
+    organizationId id
+    attachments: inboxAttachments_on_message(where: {deletedAt: {isNull: true}}, limit: 10) {id storagePath}
+  }
+}
+
+# Removes message text and attachment references past retention, keeping a record that each message existed;
+# clears old previews, the text of finished replies and old Claude analyses. Files are deleted by the server first.
+mutation ApplyInboxRetention($organizationId: UUID!, $ids: [UUID!]!, $before: Timestamp!) @auth(level: NO_ACCESS) @transaction {
+  messages: inboxMessage_updateMany(where: {organizationId: {eq: $organizationId}, id: {in: $ids}, createdAt: {lt: $before}, contentRedactedAt: {isNull: true}}, data: {content: null, contentRedactedAt_expr: "request.time"})
+  attachments: inboxAttachment_updateMany(where: {organizationId: {eq: $organizationId}, messageId: {in: $ids}, deletedAt: {isNull: true}}, data: {storagePath: null, deletedAt_expr: "request.time"})
+  previews: inboxConversation_updateMany(where: {organizationId: {eq: $organizationId}, lastMessageAt: {lt: $before}, lastMessagePreview: {isNull: false}}, data: {lastMessagePreview: null})
+  replies: outboundMessageJob_updateMany(where: {organizationId: {eq: $organizationId}, updatedAt: {lt: $before}, stage: {in: [SENT, FAILED, CANCELLED]}, content: {ne: ""}}, data: {content: "", versionsJson: "[]", validationJson: null})
+  insights: inboxAiInsight_deleteMany(where: {organizationId: {eq: $organizationId}, createdAt: {lt: $before}})
+}

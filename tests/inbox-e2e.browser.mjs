@@ -469,6 +469,21 @@ try {
   assert.ok(retried.messageId && retried.normalizedJson === null);
   pass("The worker applies a recorded event whose first attempt did not finish, and removes its stored copy");
 
+  // ------------------------------------------------------------ 7A.6: a real customer's STOP reaches the do-not-contact list
+  const stopBody = waBody({contacts: [{wa_id: "447700900702", profile: {name: "Fictional opt-out"}}], messages: [{from: "447700900702", id: "wamid.E2E-STOP", timestamp: nowSeconds(), type: "text", text: {body: "STOP"}}]});
+  assert.equal((await deliver(stopBody)).status, 200);
+  const optOuts = (await sql(`query S($org: UUID!) { communicationSuppressions(where: {organizationId: {eq: $org}, normalizedNumber: {eq: "+447700900702"}, withdrawnAt: {isNull: true}}) { scope reason source createdByUid } }`, {org: f.orgA})).communicationSuppressions;
+  assert.deepEqual(optOuts.map(row => [row.scope, row.reason, row.source, row.createdByUid ?? null]), [["ALL", "OPT_OUT", "INBOX_OPT_OUT", null]], "the customer is on the do-not-contact list");
+  assert.equal((await deliver(stopBody)).status, 200, "a repeated delivery is fine");
+  assert.equal((await sql(`query S($org: UUID!) { communicationSuppressions(where: {organizationId: {eq: $org}, normalizedNumber: {eq: "+447700900702"}}) { id } }`, {org: f.orgA})).communicationSuppressions.length, 1, "and adds nothing");
+  await signIn("owner-a");
+  const stopConversation = (await sql(`query C($org: UUID!) { inboxConversations(where: {organizationId: {eq: $org}, customerIdentity: {eq: "+447700900702"}}) { id optedOut } }`, {org: f.orgA})).inboxConversations[0];
+  assert.equal(stopConversation.optedOut, true);
+  const blockedDraft = await post(`/api/inbox/conversations/${stopConversation.id}/replies`, {content: "Can we call you?"});
+  const blockedCheck = await post(`/api/inbox/conversations/${stopConversation.id}/replies/${blockedDraft.body.data.id}/check`, {expectedRevision: 1});
+  assert.deepEqual(blockedCheck.body.data.problems.filter(problem => problem.blocksApproval).map(problem => problem.code).sort(), ["OPTED_OUT", "SUPPRESSED"]);
+  pass("A real customer's STOP through a signed webhook adds them to the do-not-contact list once, and replies to them cannot be approved");
+
   await signIn("owner-a");
   const disabled = await post(`/api/inbox/connections/${waConnection.id}/enabled`, {expectedRevision: waConnection.revision, enabled: false});
   assert.equal(disabled.status, 200, JSON.stringify(disabled.body));
@@ -762,6 +777,28 @@ try {
     assert.equal((await post(`/api/automations/${id}/transition`, {action: "pause", expectedRevision: revision})).status, 200);
   }
   pass("An inbox.reassign step waits for an owner or administrator, then moves only the conversation; the lead keeps its agent");
+
+  // ------------------------------------------------------------ 7A.6: retention removes old message content and files
+  const currentRules = (await api("/api/inbox/settings")).body.data;
+  assert.equal((await post("/api/inbox/settings", {expectedRevision: currentRules.revision, approvalRequired: true, retentionDays: 30, unansweredMinutes: 15, aiEnabled: true}, f.orgA, "PUT")).status, 200);
+  const retentionPdf = Buffer.from("%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n");
+  const oldMail = await post("/api/dev/communication-tests/inbox/inbound", {channel: "EMAIL", text: "Old private details about my finances.", subject: "Old enquiry", attachment: {fileName: "old.pdf", dataBase64: retentionPdf.toString("base64")}});
+  assert.equal(oldMail.status, 201, JSON.stringify(oldMail.body));
+  const oldConversation = oldMail.body.data.conversationId;
+  const oldFile = (await sql(`query A($org: UUID!, $id: UUID!) { inboxAttachments(where: {organizationId: {eq: $org}, conversationId: {eq: $id}}) { id storagePath } }`, {org: f.orgA, id: oldConversation})).inboxAttachments[0];
+  // Test setup: the message is dated 40 days ago.
+  await sql(`mutation B($org: UUID!, $id: UUID!, $at: Timestamp!) { inboxMessage_updateMany(where: {organizationId: {eq: $org}, conversationId: {eq: $id}}, data: {createdAt: $at}) }`, {org: f.orgA, id: oldConversation, at: minutesAgo(40 * 1440)});
+  const retentionTick = await (await fetch(origin + "/api/internal/automations/tick", {method: "POST", headers: {Authorization: `Bearer ${workerSecret}`}, signal: AbortSignal.timeout(120000)})).json();
+  assert.ok(retentionTick.data.inboxRetention?.redacted >= 1, JSON.stringify(retentionTick.data.inboxRetention));
+  const purged = (await api(`/api/inbox/conversations/${oldConversation}/messages`)).body.data.messages[0];
+  assert.equal(purged.content, null, "the text is removed");
+  assert.ok(purged.contentRedactedAt, "a record that the message existed remains");
+  assert.equal(purged.attachments.length, 0, "its attachments are no longer listed");
+  assert.equal((await getStorage(authApp).bucket(BUCKET).file(oldFile.storagePath).exists())[0], false, "the file is deleted from storage");
+  assert.equal((await api(`/api/inbox/conversations/${oldConversation}/attachments/${oldFile.id}`)).status, 404);
+  assert.equal((await api(`/api/inbox/conversations/${simConversation}/messages`)).body.data.messages.some(row => row.content), true, "recent conversations keep their content");
+  await load(`/inbox/${oldConversation}`, "document.body.innerText.includes('Removed under the company')");
+  pass("Retention removes message text and files past the company's period, keeping a record of each message; recent conversations are untouched");
   assert.equal((await post("/api/dev/communication-tests/reset")).status, 200);
 
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");

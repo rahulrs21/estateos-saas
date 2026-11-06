@@ -1,7 +1,9 @@
 import "server-only";
 
 import { connection } from "next/server";
-import { errorResponse, read, readContext, write } from "@/modules/communications/server/http";
+import { enforceRateLimit } from "@/lib/rate-limit/server";
+import type { Context } from "@/modules/communications/server/data";
+import { errorResponse, read, readContext, write as baseWrite } from "@/modules/communications/server/http";
 import { attachmentFile } from "./attachments";
 import { createConnection, listConnections, setConnectionEnabled, updateConnection } from "./connections";
 import { inboxWebhookHandshake, inboxWebhookResponse } from "./webhooks";
@@ -19,6 +21,15 @@ import { devToolsEnabled } from "@/modules/communications/dev/guard";
  * same-origin, the CSRF token and the company header matching the session's
  * company. The company always comes from the session.
  */
+
+/** Inbox changes are limited per member (docs/INBOX_SECURITY.md#rate-limits); Claude, webhooks and the simulator have their own limits too. */
+const WRITE_LIMIT = {scope: "inbox.write.member", limit: 120, windowSeconds: 60};
+function write(request: Request, endpoint: string, work: (context: Context, body: unknown) => Promise<unknown>, status = 200, maxBytes?: number) {
+  return baseWrite(request, endpoint, async (context, body) => {
+    await enforceRateLimit([{rule: WRITE_LIMIT, subject: context.membership.id}], "You are making inbox changes too quickly. Wait a moment and try again.");
+    return work(context, body);
+  }, status, maxBytes);
+}
 
 export const listConversationsResponse = (request: Request) => read(request, "inbox.list", listConversations);
 export const countsResponse = (request: Request) => read(request, "inbox.counts", inboxCounts);

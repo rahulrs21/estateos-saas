@@ -155,7 +155,7 @@ async function rowCounts() {
   await client.connect();
   try {
     const counts = {};
-    for (const table of ["organization", "membership", "developer", "project", "property", "property_listing", "lead", "audit_log"]) {
+    for (const table of ["organization", "membership", "developer", "project", "property", "property_listing", "lead", "audit_log", "inbox_conversation", "inbox_message", "outbound_message_job", "inbox_ai_insight"]) {
       counts[table] = (await client.query(`SELECT count(*)::int AS n FROM public."${table}"`)).rows[0].n;
     }
     return counts;
@@ -336,6 +336,18 @@ try {
       await sdk.applySimulatedCallStatus(dc, { organizationId: demoOrg, id: simulatedCallId, actorUid: owner, expectedStatus: sdk.CallStatus.INITIATED, callStatus: sdk.CallStatus.NO_ANSWER,
         answeredAt: null, endedAt: new Date().toISOString(), durationSeconds: 0, outcome: null, emitFinal: true, finalTrigger: "call.missed" });
     } finally { await deleteApp(app); } }
+  // Phase 7A inbox: a conversation with its message, a reply draft and a Claude analysis (fictional sender).
+  const inboxConversationId = randomUUID(), inboxMessageId = randomUUID(), inboxDraftId = randomUUID(), inboxInsightId = randomUUID();
+  { const { app, dc } = dataConnect();
+    try {
+      await sdk.createInboxConversationWithMessage(dc, { organizationId: demoOrg, conversationId: inboxConversationId, channelConnectionId: null, channel: sdk.InboxChannel.WHATSAPP, externalThreadId: "persistence-thread",
+        customerIdentity: "+447700900950", customerName: "Persistence customer", subject: null, contactId: null, leadId: manualLead, assignedMembershipId: null, messageId: inboxMessageId,
+        externalMessageId: "wamid.persistence", messageType: sdk.InboxMessageType.TEXT, content: "Persistence inbox message", senderIdentity: "+447700900950", recipientIdentity: null,
+        providerTimestamp: null, preview: "Persistence inbox message", simulated: false, optedOut: false });
+      await sdk.saveInboxAiInsight(dc, { organizationId: demoOrg, id: inboxInsightId, conversationId: inboxConversationId, actorUid: owner, insightJson: JSON.stringify({summary: "Persistence summary"}),
+        unverifiedCount: 0, coveredUntil: null, model: "persistence", promptVersion: "inbox-assistant-1", source: "CLAUDE", hasDraft: false, draftJobId: null, draftContent: "" });
+    } finally { await deleteApp(app); } }
+  await asMember(owner, (dc, options) => sdk.createInboxReplyDraft(dc, { organizationId: demoOrg, id: inboxDraftId, conversationId: inboxConversationId, content: "Persistence reply draft" }, options));
   // 31 files plus the photos the conflict seed added to the other company's demo properties.
   const filesBeforeKill = (await listStorageObjects(storageHost, bucketName)).length;
   assert.ok(filesBeforeKill > 31);
@@ -384,6 +396,21 @@ try {
     try {
       const simulatedEvents = (await sdk.listAutomationEventsForTarget(dc, { organizationId: demoOrg, targetId: simulatedCallId })).data.events.map(event => event.triggerType).sort();
       assert.deepEqual(simulatedEvents, ["call.missed", "call.started"], "the simulated call's workflow events survive an abrupt stop");
+    } finally { await deleteApp(app); } }
+
+  const inboxAfterRestart = await asMember(owner, async (dc, options) => ({
+    conversation: (await sdk.getInboxConversation(dc, { organizationId: demoOrg, id: inboxConversationId }, options)).data.conversation,
+    messages: (await sdk.listInboxMessages(dc, { organizationId: demoOrg, conversationId: inboxConversationId, limit: 10 }, options)).data.messages,
+    replies: (await sdk.listInboxReplies(dc, { organizationId: demoOrg, conversationId: inboxConversationId }, options)).data.conversation,
+  }));
+  assert.equal(inboxAfterRestart.conversation?.customerName, "Persistence customer", "inbox conversations survive an abrupt stop");
+  assert.deepEqual(inboxAfterRestart.messages.map(row => row.content), ["Persistence inbox message"], "with their messages");
+  assert.equal(inboxAfterRestart.replies.jobs.find(row => row.id.replaceAll("-", "") === inboxDraftId.replaceAll("-", ""))?.stage, "DRAFT", "reply drafts survive, still drafts");
+  assert.equal(inboxAfterRestart.replies.insights[0]?.id.replaceAll("-", ""), inboxInsightId.replaceAll("-", ""), "Claude analyses survive");
+  { const { app, dc } = dataConnect();
+    try {
+      const inboxEvents = (await sdk.listAutomationEventsForTarget(dc, { organizationId: demoOrg, targetId: inboxConversationId })).data.events.map(event => event.triggerType).sort();
+      assert.deepEqual(inboxEvents, ["inbox.conversation.created", "inbox.message.received"], "the inbox workflow events survive an abrupt stop");
     } finally { await deleteApp(app); } }
 
   log("seed:demo refuses production.");

@@ -2329,6 +2329,27 @@ function automationConversationState(dcOrVarsOrOptions, varsOrOptions, options) 
 }
 exports.automationConversationState = automationConversationState;
 
+function inboxRetentionRules(dcOrOptions, options) {
+  const { dc: dcInstance, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrOptions, options, undefined);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('InboxRetentionRules', undefined, inputOpts);
+}
+exports.inboxRetentionRules = inboxRetentionRules;
+
+function inboxRetentionCandidates(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('InboxRetentionCandidates', inputVars, inputOpts);
+}
+exports.inboxRetentionCandidates = inboxRetentionCandidates;
+
+function applyInboxRetention(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ApplyInboxRetention', inputVars, inputOpts);
+}
+exports.applyInboxRetention = applyInboxRetention;
+
 function matchInboxIdentity(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

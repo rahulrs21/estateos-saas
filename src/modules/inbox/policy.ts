@@ -80,3 +80,17 @@ export function eventRetry(attemptsSoFar: number, now: number): {dead: true} | {
   if (attemptsSoFar + 1 >= MAX_EVENT_ATTEMPTS) return {dead: true};
   return {dead: false, nextAttemptAt: new Date(now + RETRY_DELAYS_MS[Math.min(attemptsSoFar, RETRY_DELAYS_MS.length - 1)]).toISOString()};
 }
+
+/** Retention (docs/INBOX_SECURITY.md#retention): message content older than the company's period is removed. */
+export const DEFAULT_RETENTION_DAYS = 730;
+export const retentionCutoff = (retentionDays: number | null | undefined, now: number) => new Date(now - (retentionDays ?? DEFAULT_RETENTION_DAYS) * 86_400_000).toISOString();
+
+/** Only files under the company's own inbox folder are ever deleted (canonical, hyphenated company ID). */
+export function ownedAttachmentPath(organizationId: string, path: string | null | undefined) {
+  if (!path) return null;
+  const compact = organizationId.replaceAll("-", "").toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(compact)) return null;
+  const canonical = `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}-${compact.slice(20)}`;
+  const prefix = `organizations/${canonical}/inbox/`;
+  return path.startsWith(prefix) && !path.includes("..") && !path.includes("\\") ? path : null;
+}

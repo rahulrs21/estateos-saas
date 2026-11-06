@@ -1088,6 +1088,8 @@ export interface AppendInboxMessageData {
   message: InboxMessage_Key;
   conversation?: InboxConversation_Key | null;
   received: AutomationEvent_Key;
+  suppression: CommunicationSuppression_Key;
+  emailOptOut: InboxEmailOptOut_Key;
 }
 
 export interface AppendInboxMessageVariables {
@@ -1104,6 +1106,10 @@ export interface AppendInboxMessageVariables {
   preview?: string | null;
   simulated: boolean;
   optedOut: boolean;
+  suppressNumber?: boolean;
+  suppressEmail?: boolean;
+  optOutId?: UUIDString | null;
+  optOutIdentity?: string;
 }
 
 export interface ApplyInboxDeliveryStatusData {
@@ -1121,6 +1127,20 @@ export interface ApplyInboxDeliveryStatusVariables {
   providerTimestamp?: TimestampString | null;
   emitFailed: boolean;
   simulated: boolean;
+}
+
+export interface ApplyInboxRetentionData {
+  messages: number;
+  attachments: number;
+  previews: number;
+  replies: number;
+  insights: number;
+}
+
+export interface ApplyInboxRetentionVariables {
+  organizationId: UUIDString;
+  ids: UUIDString[];
+  before: TimestampString;
 }
 
 export interface ApplyProviderCallStatusData {
@@ -2752,6 +2772,8 @@ export interface CreateInboxConversationWithMessageData {
   message: InboxMessage_Key;
   created: AutomationEvent_Key;
   received: AutomationEvent_Key;
+  suppression: CommunicationSuppression_Key;
+  emailOptOut: InboxEmailOptOut_Key;
 }
 
 export interface CreateInboxConversationWithMessageVariables {
@@ -2776,6 +2798,10 @@ export interface CreateInboxConversationWithMessageVariables {
   preview?: string | null;
   simulated: boolean;
   optedOut: boolean;
+  suppressNumber?: boolean;
+  suppressEmail?: boolean;
+  optOutId?: UUIDString | null;
+  optOutIdentity?: string;
 }
 
 export interface CreateInboxReplyDraftData {
@@ -6737,6 +6763,31 @@ export interface InboxReplyFactsVariables {
   id: UUIDString;
 }
 
+export interface InboxRetentionCandidatesData {
+  messages: ({
+    organizationId: UUIDString;
+    id: UUIDString;
+    attachments: ({
+      id: UUIDString;
+      storagePath?: string | null;
+    })[];
+  } & InboxMessage_Key)[];
+}
+
+export interface InboxRetentionCandidatesVariables {
+  organizationId?: UUIDString | null;
+  excluded?: UUIDString[] | null;
+  before: TimestampString;
+  limit?: number;
+}
+
+export interface InboxRetentionRulesData {
+  rules: ({
+    organizationId: UUIDString;
+    retentionDays: number;
+  } & InboxSettings_Key)[];
+}
+
 export interface InboxSettings_Key {
   organizationId: UUIDString;
   __typename?: 'InboxSettings_Key';
@@ -7952,7 +8003,7 @@ export interface ListCommunicationSuppressionsData {
     note?: string | null;
     callId?: UUIDString | null;
     createdAt: TimestampString;
-    createdBy: {
+    createdBy?: {
       displayName: string;
     };
   })[];
@@ -13899,6 +13950,21 @@ export function unansweredInboxCandidates(vars: UnansweredInboxCandidatesVariabl
 export function automationConversationState(dc: DataConnect, vars: AutomationConversationStateVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationConversationStateData>>;
 /** Generated Node Admin SDK operation action function for the 'AutomationConversationState' Query. Allow users to pass in custom DataConnect instances. */
 export function automationConversationState(vars: AutomationConversationStateVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationConversationStateData>>;
+
+/** Generated Node Admin SDK operation action function for the 'InboxRetentionRules' Query. Allow users to execute without passing in DataConnect. */
+export function inboxRetentionRules(dc: DataConnect, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxRetentionRulesData>>;
+/** Generated Node Admin SDK operation action function for the 'InboxRetentionRules' Query. Allow users to pass in custom DataConnect instances. */
+export function inboxRetentionRules(options?: OperationOptions): Promise<ExecuteOperationResponse<InboxRetentionRulesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'InboxRetentionCandidates' Query. Allow users to execute without passing in DataConnect. */
+export function inboxRetentionCandidates(dc: DataConnect, vars: InboxRetentionCandidatesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxRetentionCandidatesData>>;
+/** Generated Node Admin SDK operation action function for the 'InboxRetentionCandidates' Query. Allow users to pass in custom DataConnect instances. */
+export function inboxRetentionCandidates(vars: InboxRetentionCandidatesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxRetentionCandidatesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ApplyInboxRetention' Mutation. Allow users to execute without passing in DataConnect. */
+export function applyInboxRetention(dc: DataConnect, vars: ApplyInboxRetentionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ApplyInboxRetentionData>>;
+/** Generated Node Admin SDK operation action function for the 'ApplyInboxRetention' Mutation. Allow users to pass in custom DataConnect instances. */
+export function applyInboxRetention(vars: ApplyInboxRetentionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ApplyInboxRetentionData>>;
 
 /** Generated Node Admin SDK operation action function for the 'MatchInboxIdentity' Query. Allow users to execute without passing in DataConnect. */
 export function matchInboxIdentity(dc: DataConnect, vars: MatchInboxIdentityVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MatchInboxIdentityData>>;

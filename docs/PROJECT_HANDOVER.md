@@ -2,7 +2,7 @@
 
 EstateOS is a multi-tenant, AI-ready real estate CRM SaaS for brokerages, starting with Dubai and the UAE. Each company has an isolated workspace, team and role-based permissions. Read [AGENTS.md](../AGENTS.md) first; it contains the binding development rules.
 
-_Last updated: 2026-11-04 (Phase 6F verification: developer simulator, verification dashboard, live Claude checks)._
+_Last updated: 2026-11-06 (Phase 7A unified inbox foundation complete on branch `feature/unified-inbox`)._
 
 ## Technology
 
@@ -28,9 +28,11 @@ Next.js App Router (Next 16, see the version notice in AGENTS.md), React 19, Typ
 | 6D | AI landing page and website builder: single-page campaigns from CRM records; Claude generation, templates, blank and duplicate; validated component registry; Elementor-style full-screen editor (drag-and-drop elements, inline text editing, Content / Style / Advanced section settings, per-device spacing and visibility, background photos, videos and colours, navigator, context menu, shortcuts) with desktop, tablet and mobile previews; 25 section types, rich templates and curated stock photos and videos labelled as illustrative; self-hosted heading and body fonts; linked CRM data; lead form connection through the existing capture path; UAE checklist; review, approval, immutable publications, rollback; public pages with SEO; pending-enquiry recovery | **Implemented; see verification status below**. [Details](AI_PAGE_BUILDER.md), [registry](PAGE_COMPONENT_REGISTRY.md), [publishing](WEBSITE_PUBLISHING.md) |
 | 6E | Workflow automation and approvals: allowlisted triggers from a transactional outbox, declarative conditions, LOW/MEDIUM risk policy in code, visual editor with templates A–F and a dry-run tester, Claude workflow drafts, durable PostgreSQL engine (leases, idempotent steps, retries, dead letters, restart recovery), executor identity, approvals with revalidation and separation of duties, due-task triggers, local worker and a Cloud Scheduler design, dashboard, My tasks | **Implemented; see verification status below**. [Engine](AUTOMATION_ENGINE.md), [builder](WORKFLOW_BUILDER.md), [approvals](WORKFLOW_APPROVALS.md), [security](WORKFLOW_SECURITY.md), [operations](AUTOMATION_OPERATIONS.md) |
 | 6F | Communication hub (in progress): call records with connection status separate from outcome, manual call logging and history on lead and contact pages, follow-up links, the do-not-call list, server-side UAE calling rules (TDRA approval, 09:00-18:00 marketing hours, frequency limits) and settings. No provider is connected; EstateOS places, records and transcribes no calls | **6F.1-6F.6 implemented and tested on emulators (hub pages, provider connections and lines, signed Twilio and Retell webhooks, the gated live-call path, consent-gated recording and transcript uploads with private audited access and retention, Claude call summaries with checked evidence and human-reviewed suggestions, the voice assistant in test mode only with checked replies and human handoff, meetings with links to the provider apps, call and meeting workflow triggers with templates G-I, and agent reports); 6F.7 final verification pending**. [AI call intelligence](AI_CALL_INTELLIGENCE.md), [voice assistant](AI_VOICE_ARCHITECTURE.md), [testing and simulation](COMMUNICATION_TESTING.md), [Hub](COMMUNICATION_HUB.md), [providers](TELEPHONY_PROVIDERS.md), [privacy and compliance](CALL_PRIVACY_COMPLIANCE.md) |
+| 7A | Unified inbox foundation: WhatsApp, email and website conversations in `/inbox`, linked to leads and contacts; exact-identity matching; assignment, status, notes and the customer panel; channel connections (secret names only), signed WhatsApp webhooks, durable deduplicated events, receipts and private attachments; replies with server checks and approval (no self-approval unless OWNER); Claude analyses and reply drafts with checked quotes; inbox workflow triggers, `inbox.draft_reply`, `inbox.reassign` and template J; opt-outs and retention. **No provider sends**: only the developer simulator delivers, to simulated conversations | **Implemented and tested on emulators; see verification status below**. [Inbox](UNIFIED_INBOX.md), [security](INBOX_SECURITY.md), [adapters](CHANNEL_ADAPTERS.md), [WhatsApp plan](WHATSAPP_INTEGRATION_PLAN.md), [email plan](EMAIL_INTEGRATION_PLAN.md) |
+| 7B, 7C | Live WhatsApp Cloud sending and templates; Gmail and Microsoft 365 connectors | Not started; need approval and provider accounts |
 | 6F+ | Organization AI usage dashboard; multi-page agency websites and custom domains | Not started |
 | 7 | Marketing campaigns and advertising integrations | Not started |
-| 8 | Communications (WhatsApp, email, calling) | Not started |
+| 8 | Further communications (SMS, campaigns) | Not started |
 | 9 | Deals and finance | Not started |
 | 10 | Subscriptions and platform administration | Not started |
 
@@ -54,6 +56,7 @@ Live publishing requires, per provider: partner/API approval, the official speci
 | `src/modules/websites/` | Landing page builder: registry, linked data, templates, checklist, AI mapping and renderer (pure), `server/` services and `components/`; public pages at `src/app/site/`, real 404s in `src/proxy.ts` |
 | `src/modules/automations/` | Workflow automation: pure definition, conditions, policy, scheduling, templates and Claude mapping; `server/` engine, actions, approvals, tasks and HTTP; `components/` editor, graph, dashboard, approvals and My tasks. Worker: `scripts/automation-worker.mjs` |
 | `src/modules/communications/` | Communication hub: pure call states, phone, compliance, dial-policy and metrics rules; `providers/` Twilio, Retell and placeholder adapters; `server/` calls, settings, providers, webhooks, dial, hub and HTTP; `components/` call panel and hub pages |
+| `src/modules/inbox/` | Unified inbox: pure model, identity, policy, outbound, assistant and attachment rules; `adapters/` (WhatsApp Cloud, email interfaces, the developer simulator); `server/` conversations, ingestion, webhooks, connections, replies, assistant, retention, simulator and HTTP; `components/` inbox, conversation, reply panel, settings and simulator. Templated connectors: `scripts/sql-templates/` (run `node scripts/build-inbox-connector.mjs`) |
 | `docs/` | Architecture, database, permissions and per-phase documents |
 
 ## Working locally
@@ -276,8 +279,63 @@ Verified on 2026-11-02 (local and isolated emulators only; nothing deployed, no 
   - clicking through trigger and condition changes in the visual editor (the editor has them; the browser test covers templates, reordering, adding steps and saving);
   - waiting out real delays, expiries and due times: the tests move stored timestamps into the past instead.
 
+## Phase 7A verification status
+
+Verified on 2026-11-06 on branch `feature/unified-inbox` (commits 7A.1 a78745e to 7A.6). Local and isolated emulators only: nothing was deployed, the hosted database is unchanged, and no paid service or provider account was created or used by EstateOS.
+
+- **Unit tests:** `npm test` passes 571 tests. The inbox suites (`npm run test:inbox`) cover:
+  - identity matching and policy;
+  - WhatsApp signatures and normalization;
+  - attachment sniffing and outbound stages;
+  - approval separation and the reply checks;
+  - the simulator adapter;
+  - the assistant's checks (quotes, budgets, listings, invented numbers, removed contact details);
+  - the workflow registry and template J;
+  - retention.
+- **Emulator integration:** `npm run test:dataconnect` passes 391 tests, including the inbox cases:
+  - visibility for every role and tenant isolation;
+  - transactional ingestion with workflow events, and duplicates;
+  - channel connections (one company per account);
+  - durable events and forward-only receipts;
+  - attachment access with audit;
+  - replies, approval and self-approval rules;
+  - delivery limited to simulated conversations, SENT only on acknowledgement;
+  - insights, workflow facts and guarded reassignments;
+  - opt-outs and retention.
+- **Browser (`npm run test:inbox:e2e`):** 23 checks on the real app with real sessions, covering every scenario in the Phase 7A brief:
+  - agent, owner, manager and cross-company access, with the views, search, pagination and safe text;
+  - website enquiries and the simulator;
+  - signed webhooks, including bad signatures, the wrong account and duplicates;
+  - worker retries and private attachments;
+  - Claude failing safely;
+  - the draft → check → approval by another member → simulator send → receipts flow;
+  - real channels never sending;
+  - the 24-hour window and opt-outs;
+  - requirements applied to the lead through the lead update;
+  - template J creating one task;
+  - an approved `inbox.reassign` leaving the lead untouched;
+  - STOP adding the number to the do-not-contact list once;
+  - retention removing text and files.
+- **Live Claude:** `AI_E2E_LIVE=1 npm run test:inbox:e2e` passed with two real calls (approved; model claude-sonnet-5-5). They checked the summary, the open question, the requirements with verified quotes and a draft-only reply. An instruction embedded in a customer message was ignored.
+- **Persistence:** `npm run test:persistence` passes, with a conversation, its message, a reply draft, an analysis and their workflow events surviving hard kills.
+- **Lint, type check, build** pass. The automations (25) and communications (38) browser suites still pass.
+- **Not verified:**
+  - **A real customer message from Meta.** The webhook was verified against Meta's dashboard: the handshake, and the dashboard test event refused as expected because Meta's sample uses a placeholder phone number ID. Real customer messages need the Meta app to be published.
+  - **Any sending, template or media download through a provider.**
+  - **Gmail and Microsoft 365**, which are interfaces only.
+  - **Malware scanning**: no scanner is connected.
+  - **The hosted rollout** of the inbox schema and operations.
+
 ## Next recommended work
 
+1. Inbox: restart `npm run dev:local` (after `npm run db:backup`) to apply the Phase 7A tables and operations locally. Then decide on Phase 7B (WhatsApp sending and templates):
+   - a verified Meta Business portfolio;
+   - a dedicated number not on the WhatsApp app;
+   - approved templates;
+   - the per-message pricing;
+   - a system-user token in Secret Manager.
+
+   See [WHATSAPP_INTEGRATION_PLAN.md](WHATSAPP_INTEGRATION_PLAN.md#phase-7b-what-is-needed-to-go-live).
 1. Restart `npm run dev:local` (after `npm run db:backup`) to apply the AI Copilot and Content Studio tables locally. Then approve and run the hosted SQL Connect rollout for the additive AI schema and operations, and store `ANTHROPIC_API_KEY` in Secret Manager for App Hosting. See [AI Copilot](AI_COPILOT.md#local-and-hosted-environments).
 1. Before production, decide AI allowances, the retention period for usage records, Anthropic data-retention terms and staff disclosure. See [AI security](AI_SECURITY.md#anthropic-data-handling).
 1. Before the first real landing page goes live: have the agency's compliance owner review the [UAE advertising considerations](WEBSITE_PUBLISHING.md#uae-advertising-considerations), approve the hosted rollout of the additive website schema and operations, and set `APP_ORIGIN` to the public origin.

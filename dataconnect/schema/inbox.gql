@@ -103,7 +103,9 @@ type InboxConversation @table(key: ["organization", "id"])
 
 type InboxMessage @table(key: ["organization", "id"])
   @unique(fields: ["organizationId", "channelConnectionId", "externalMessageId"])
-  @index(fields: ["organizationId", "conversationId", "createdAt"], order: [ASC, ASC, DESC]) {
+  @index(fields: ["organizationId", "conversationId", "createdAt"], order: [ASC, ASC, DESC])
+  # The retention worker finds content past the company's retention period (7A.6).
+  @index(fields: ["organizationId", "contentRedactedAt", "createdAt"]) {
   organizationId: UUID!
   organization: Organization!
   id: UUID! @default(expr: "uuidV4()")
