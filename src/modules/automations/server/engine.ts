@@ -10,7 +10,7 @@ import { periodKey, sha256, stableUuid, stepKey } from "../ids";
 import { riskOf } from "../policy";
 import { nextAllowedTime, nextScheduledTime, withinHours } from "../scheduling";
 import { PermanentStepError, runAction, type StepOutcome, type StepRun } from "./actions";
-import { NO_TARGET_HASH, leadStateHash } from "./approvals";
+import { NO_TARGET_HASH, conversationStateHash, leadStateHash } from "./approvals";
 import { AutomationDbError, ExecutorUnavailableError, adminDataConnect, executorContext, raw, sdk, type Context } from "./data";
 import { loadRunState, type AutomationEventRow } from "./facts";
 
@@ -136,7 +136,7 @@ async function queueSchedules(dc: Dc, organizationId: string, claimToken: string
   }
 }
 
-const SCAN_TRIGGERS = ["lead.followup_due", "task.overdue"];
+const SCAN_TRIGGERS = ["lead.followup_due", "task.overdue", "inbox.conversation.unanswered"];
 const SCAN_EVERY_MS = 60_000;
 const SCAN_LIMIT = 50;
 
@@ -153,10 +153,10 @@ async function scanDueTasks(dc: Dc, organizationId: string, claimToken: string, 
   // Due times are set in the future when tasks are created, so the window can start exactly where the last scan ended.
   const since = Math.max(Math.min(...scanning.map(workflow => Date.parse(workflow.activatedAt!))), now.getTime() - 86_400_000, lastScanAt ? Date.parse(lastScanAt) : 0);
   const {followUps, workTasks} = await raw(() => sdk.listAutomationDueTasks(dc, {organizationId, since: new Date(since).toISOString(), now: now.toISOString()}));
-  const emit = async (triggerType: string, id: string, dueAt: string, payload: Record<string, unknown>) => {
+  const emit = async (triggerType: string, id: string, dueAt: string, payload: Record<string, unknown>, targetType = "TASK") => {
     const key = `${triggerType}:${canonicalUuid(id)}:${new Date(dueAt).toISOString()}`;
     try {
-      await raw(() => sdk.insertAutomationEvent(dc, {organizationId, id: stableUuid("automation-scan", key), deduplicationKey: key, triggerType, targetType: "TASK", targetId: canonicalUuid(id),
+      await raw(() => sdk.insertAutomationEvent(dc, {organizationId, id: stableUuid("automation-scan", key), deduplicationKey: key, triggerType, targetType, targetId: canonicalUuid(id),
         actorUid: null, origin: "SCHEDULE", originalEventId: null, parentExecutionId: null, originWorkflowId: null, chainDepth: 0, payload}));
     } catch (error) { if (!(error instanceof AutomationDbError && error.duplicate)) throw error; }
   };
@@ -166,8 +166,20 @@ async function scanDueTasks(dc: Dc, organizationId: string, claimToken: string, 
     if (wants.has("task.overdue")) await emit("task.overdue", row.id, row.dueAt, payload);
   }
   if (wants.has("task.overdue")) for (const row of workTasks) await emit("task.overdue", row.id, row.dueAt, {kind: "WORK_TASK", leadId: row.leadId ? canonicalUuid(row.leadId) : null});
+  // Conversations whose customer has waited longer than the company's unanswered time (7A.5): one event per customer message.
+  const unansweredLimits: number[] = [];
+  if (wants.has("inbox.conversation.unanswered")) {
+    const minutes = (await raw(() => sdk.inboxUnansweredMinutes(dc, {organizationId}))).settings?.unansweredMinutes ?? 120;
+    const threshold = minutes * 60_000;
+    const {conversations} = await raw(() => sdk.unansweredInboxCandidates(dc, {organizationId, from: new Date(since - threshold).toISOString(), to: new Date(now.getTime() - threshold).toISOString(), limit: SCAN_LIMIT}));
+    for (const row of conversations) {
+      if (!row.lastInboundAt || (row.lastOutboundAt && Date.parse(row.lastOutboundAt) >= Date.parse(row.lastInboundAt))) continue;
+      await emit("inbox.conversation.unanswered", row.id, row.lastInboundAt, {leadId: row.leadId ? canonicalUuid(row.leadId) : null}, "CONVERSATION");
+    }
+    if (conversations.length >= SCAN_LIMIT) unansweredLimits.push(Date.parse(conversations[conversations.length - 1].lastInboundAt!) + threshold - 1);
+  }
   // A full page means more are due: record coverage up to the last one seen (ties are re-read; their keys deduplicate).
-  const full = [followUps, workTasks].filter(rows => rows.length >= SCAN_LIMIT).map(rows => Date.parse(rows[rows.length - 1].dueAt) - 1);
+  const full = [...[followUps, workTasks].filter(rows => rows.length >= SCAN_LIMIT).map(rows => Date.parse(rows[rows.length - 1].dueAt) - 1), ...unansweredLimits];
   const scannedAt = full.length ? new Date(Math.min(...full)) : now;
   await raw(() => sdk.markAutomationScan(dc, {organizationId, claimToken, scannedAt: scannedAt.toISOString()}));
 }
@@ -295,7 +307,7 @@ async function runJob(dc: Dc, organizationId: string, jobId: string, executionId
       try {
         const run = {context, organizationId, now, execution: {id: executionId, workflowId: canonicalUuid(execution.workflowId), chainDepth: execution.chainDepth, workflowVersionId: canonicalUuid(execution.workflowVersion.id)},
           event, workflowName: workflow.name, position, state};
-        if (action.type === "lead.reassign" || action.type === "approval.request") {
+        if (action.type === "lead.reassign" || action.type === "inbox.reassign" || action.type === "approval.request") {
           const result = await approvalStep(job, run, action, stepId, resuming);
           if (result === "STOPPED") return ran;
           outcome = result;
@@ -362,7 +374,7 @@ async function runControl(action: Action, now: Date): Promise<StepOutcome | null
  * applies exactly what was approved, ends the execution on rejection or expiry, or asks again when the record
  * changed before anyone decided. Returns the step's outcome, or STOPPED when the job is parked or the execution ended.
  */
-async function approvalStep(job: JobState, run: StepRun & {execution: StepRun["execution"] & {workflowVersionId: string}}, action: Extract<Action, {type: "lead.reassign" | "approval.request"}>, stepId: string, resuming: boolean): Promise<StepOutcome | "STOPPED"> {
+async function approvalStep(job: JobState, run: StepRun & {execution: StepRun["execution"] & {workflowVersionId: string}}, action: Extract<Action, {type: "lead.reassign" | "inbox.reassign" | "approval.request"}>, stepId: string, resuming: boolean): Promise<StepOutcome | "STOPPED"> {
   const {organizationId, now} = run;
   const approvals = resuming ? (await raw(() => sdk.getAutomationStepApprovals(job.dc, {organizationId, stepId}))).approvals : [];
   const latest = approvals[0];
@@ -398,6 +410,23 @@ async function approvalStep(job: JobState, run: StepRun & {execution: StepRun["e
           return {status: "SUCCEEDED", resultType: "APPROVAL", resultId: approvalId, summary: `Approved by ${by}.`};
         }
         const lineage = {originalEventId: run.event.originalEventId ? canonicalUuid(run.event.originalEventId) : canonicalUuid(run.event.id), originWorkflowId: run.execution.workflowId, chainDepth: run.execution.chainDepth + 1};
+        if (action.type === "inbox.reassign") {
+          const conversationId = run.state.conversation?.id;
+          if (!conversationId) throw new PermanentStepError("AUTOMATION_TARGET_INVALID");
+          try {
+            await raw(() => sdk.automationReassignConversation(run.context.request.dc, {organizationId, conversationId, expectedMembershipId: latest.fromMembershipId ? canonicalUuid(latest.fromMembershipId) : null,
+              toMembershipId: canonicalUuid(latest.toMembershipId!), approvalId, executionId: run.execution.id, historyId: stableUuid("automation-inbox-history", approvalId),
+              eventId: stableUuid("automation-event", run.execution.id, run.position, approvalId), ...lineage}, run.context.request.options));
+          } catch (error) {
+            const code = error instanceof AutomationDbError ? error.token : null;
+            if (code && ["AUTOMATION_TARGET_CHANGED", "INBOX_CONVERSATION_CHANGED", "INBOX_ASSIGNEE_INVALID"].includes(code)) {
+              await close(approvalId, "APPROVED", "APPROVED", "FAILED", code).catch(() => undefined);
+              throw new PermanentStepError(code);
+            }
+            throw error;
+          }
+          return {status: "SUCCEEDED", resultType: "CONVERSATION_ASSIGNMENT", resultId: canonicalUuid(latest.toMembershipId!), summary: `Approved by ${by}; the conversation was reassigned. The lead was not changed.`};
+        }
         try {
           await raw(() => sdk.automationReassignLead(run.context.request.dc, {organizationId, leadId: canonicalUuid(latest.leadId!), expectedMembershipId: latest.fromMembershipId ? canonicalUuid(latest.fromMembershipId) : null,
             toMembershipId: canonicalUuid(latest.toMembershipId!), approvalId, executionId: run.execution.id, eventId: stableUuid("automation-event", run.execution.id, run.position, approvalId), ...lineage}, run.context.request.options));
@@ -428,17 +457,29 @@ async function approvalStep(job: JobState, run: StepRun & {execution: StepRun["e
     if (!to) throw new PermanentStepError("NO_REASSIGNMENT_TARGET");
     if (to === from) return {status: "SKIPPED", summary: "The lead is already assigned to that agent."};
   }
+  const conversation = run.state.conversation;
+  if (action.type === "inbox.reassign") {
+    if (!conversation) throw new PermanentStepError("AUTOMATION_TARGET_INVALID");
+    from = conversation.assignedMembershipId;
+    // A chosen member, or the linked lead's agent (the lead itself never changes).
+    to = action.membershipId ? canonicalUuid(action.membershipId) : lead?.assignedMembershipId ?? null;
+    if (!to) return {status: "SKIPPED", summary: "No member to reassign to: choose one in the step, or link the conversation to an assigned lead."};
+    if (to === from) return {status: "SKIPPED", summary: "The conversation is already assigned to that member."};
+  }
   const round = approvals.length + 1;
   const approvalId = stableUuid("automation-approval", run.execution.id, run.position, round);
-  const snapshot = canonicalJson({round, executionId: run.execution.id, workflowVersionId: run.execution.workflowVersionId, position: run.position, action, leadId: lead?.id ?? null, fromMembershipId: from, toMembershipId: to});
+  const snapshot = canonicalJson({round, executionId: run.execution.id, workflowVersionId: run.execution.workflowVersionId, position: run.position, action, leadId: lead?.id ?? null,
+    ...(action.type === "inbox.reassign" ? {conversationId: conversation?.id ?? null} : {}), fromMembershipId: from, toMembershipId: to});
   const expiresAt = new Date(now.getTime() + action.expiresMinutes * 60_000);
   await raw(() => sdk.requestAutomationApproval(job.dc, {organizationId, jobId: job.jobId, jobToken: job.jobToken, executionId: run.execution.id, stepId, approvalId,
     notificationId: stableUuid("automation-approval-notification", approvalId), workflowId: run.execution.workflowId, actionId: action.id, actionType: action.type, risk: riskOf(action),
-    targetType: run.event.targetType, targetId: run.event.targetId ? canonicalUuid(run.event.targetId) : null, leadId: lead?.id ?? null, fromMembershipId: from, toMembershipId: to,
+    targetType: run.event.targetType, targetId: run.event.targetId ? canonicalUuid(run.event.targetId) : null, leadId: action.type === "inbox.reassign" ? null : lead?.id ?? null, fromMembershipId: from, toMembershipId: to,
     requestedByUid: run.context.request.user.uid, snapshot: snapshot.slice(0, 8000), snapshotHash: sha256(snapshot),
-    targetStateHash: action.type === "lead.reassign" ? leadStateHash(lead ? {assignedMembershipId: lead.assignedMembershipId, status: lead.status, archived: run.state.facts["lead.archived"] === true} : null) : NO_TARGET_HASH,
+    targetStateHash: action.type === "lead.reassign" ? leadStateHash(lead ? {assignedMembershipId: lead.assignedMembershipId, status: lead.status, archived: run.state.facts["lead.archived"] === true} : null)
+      : action.type === "inbox.reassign" ? conversationStateHash(conversation) : NO_TARGET_HASH,
     expiresAt: expiresAt.toISOString(), title: `Approval needed: ${run.workflowName}`.slice(0, 160),
-    body: (action.type === "lead.reassign" ? `Reassign ${lead?.fullName ?? "a lead"}. ${action.reason}` : action.reason).slice(0, 500)}));
+    body: (action.type === "lead.reassign" ? `Reassign ${lead?.fullName ?? "a lead"}. ${action.reason}`
+      : action.type === "inbox.reassign" ? `Reassign the inbox conversation with ${lead?.fullName ?? conversation?.customerName ?? "a customer"}. ${action.reason}` : action.reason).slice(0, 500)}));
   return "STOPPED";
 }
 

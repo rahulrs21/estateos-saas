@@ -22,6 +22,11 @@ export function leadStateHash(lead: {assignedMembershipId: string | null | undef
   if (!lead) return sha256("NO_TARGET");
   return sha256(canonicalJson({assignedMembershipId: lead.assignedMembershipId ? canonicalUuid(lead.assignedMembershipId) : null, status: lead.status, archived: lead.archived}));
 }
+/** The parts of a conversation an approved reassignment depends on (7A.5). */
+export function conversationStateHash(conversation: {assignedMembershipId?: string | null; status: string} | null) {
+  if (!conversation) return sha256("NO_TARGET");
+  return sha256(canonicalJson({assignedMembershipId: conversation.assignedMembershipId ? canonicalUuid(conversation.assignedMembershipId) : null, status: conversation.status}));
+}
 /** approval.request steps approve continuing, not a change to a record. */
 export const NO_TARGET_HASH = sha256("NO_TARGET");
 
@@ -39,7 +44,7 @@ export async function listApprovals(context: Context, input: unknown) {
     approvals: data.approvals.map(row => ({
       ...row,
       // What this member may do; the database checks the same rules when they decide.
-      canDecide: row.status === "PENDING" && Date.parse(row.expiresAt) > Date.now() && (row.actionType !== "lead.reassign" || ["OWNER", "ADMIN"].includes(role))
+      canDecide: row.status === "PENDING" && Date.parse(row.expiresAt) > Date.now() && (!["lead.reassign", "inbox.reassign"].includes(row.actionType) || ["OWNER", "ADMIN"].includes(role))
         && (row.requestedByUid !== uid || role === "OWNER"),
       selfApproval: row.requestedByUid === uid,
     })),
@@ -57,13 +62,15 @@ export async function decideApproval(context: Context, rawId: string, body: Reco
   if (!approval) throw new WorkspaceError("NOT_FOUND", 404, "This approval was not found in your company.");
   const current = approval.actionType === "lead.reassign"
     ? leadStateHash(approval.lead ? {assignedMembershipId: approval.lead.assignedMembershipId, status: approval.lead.status, archived: !!approval.lead.archivedAt} : null)
-    : NO_TARGET_HASH;
+    : approval.actionType === "inbox.reassign"
+      ? conversationStateHash(approval.targetId ? (await raw(() => sdk.automationConversationState(adminDataConnect(), {organizationId: context.organizationId, id: canonicalUuid(approval.targetId!)}))).conversation ?? null : null)
+      : NO_TARGET_HASH;
   if (approval.status === "PENDING" && current !== approval.targetStateHash) {
     // The lead changed since the request: this approval no longer describes the change. Close it; the worker
     // requests a fresh one for the lead's current state if the workflow still applies.
     await raw(() => sdk.closeAutomationApproval(adminDataConnect(), {organizationId: context.organizationId, id, expectedStatus: sdk.AutomationApprovalStatus.PENDING,
       status: sdk.AutomationApprovalStatus.EXPIRED, resultStatus: "EXPIRED", resultErrorCode: "TARGET_CHANGED", actorUid: approval.requestedByUid})).catch(() => undefined);
-    throw new WorkspaceError("AUTOMATION_APPROVAL_CHANGED", 409, "The lead changed after this approval was requested, so it was closed. A fresh approval will be requested if the workflow still applies.");
+    throw new WorkspaceError("AUTOMATION_APPROVAL_CHANGED", 409, "The record changed after this approval was requested, so it was closed. A fresh approval will be requested if the workflow still applies.");
   }
   await member(() => sdk.decideAutomationApproval(context.request.dc, {organizationId: context.organizationId, id, decision: sdk.AutomationApprovalStatus[input.decision],
     reason: input.reason || null, expectedSnapshotHash: input.snapshotHash, currentTargetStateHash: current}, context.request.options));

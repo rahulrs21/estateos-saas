@@ -192,6 +192,21 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (message.includes("INBOX_ASSIGNEE_INVALID")) {
       return new WorkspaceError("VALIDATION_ERROR", 400, "Assign the conversation to an active member of your company.");
     }
+    if (message.includes("INBOX_REPLY_CHANGED")) {
+      return new WorkspaceError("INBOX_REPLY_CHANGED", 409, "This reply changed since you opened it, or it is not at a stage where this is possible. Reload and try again.");
+    }
+    if (message.includes("INBOX_REPLY_LIMIT")) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "This conversation already has 10 open replies. Send or cancel some first.");
+    }
+    if (message.includes("INBOX_SELF_APPROVAL")) {
+      return new WorkspaceError("INBOX_SELF_APPROVAL", 403, "You wrote or last edited this reply, so another owner, administrator or manager must approve it.");
+    }
+    if (/\b(?:INBOX_APPROVER_REQUIRED|INBOX_REPLY_FORBIDDEN)\b/.test(message)) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "Only owners, administrators and managers can approve replies; the author can cancel their own.");
+    }
+    if (message.includes("INBOX_SENDING_DISABLED")) {
+      return new WorkspaceError("INBOX_SENDING_DISABLED", 409, "Sending is disabled for this conversation. In this phase only simulated conversations on the developer simulator can be sent.");
+    }
     if (message.includes("SIMULATION_ADMIN_REQUIRED")) {
       return new WorkspaceError("PERMISSION_DENIED", 403, "Only owners and administrators can use the communication simulator.");
     }

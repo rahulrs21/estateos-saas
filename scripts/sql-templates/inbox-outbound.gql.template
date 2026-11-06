@@ -1,0 +1,127 @@
+# Phase 7A.5: inbox replies and the assistant (docs/UNIFIED_INBOX.md#outbound, #assistant).
+# Generated into dataconnect/connector/inbox-outbound.gql by scripts/build-inbox-connector.mjs;
+# the V placeholder is the conversation visibility rule, so a member works only on replies of conversations
+# they may see. Every stage change is compare-and-set on the job's revision. These operations
+# never deliver anything: queueing and acknowledgement are server-only (inbox-delivery.gql).
+
+query ListInboxReplies($organizationId: UUID!, $conversationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  settings: inboxSettings(key: {organizationId: $organizationId}) {approvalRequired aiEnabled}
+  conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $conversationId}}, {{V}}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {
+    id
+    jobs: outboundMessageJobs_on_conversation(orderBy: [{createdAt: DESC}], limit: 20) {
+      id stage source content versionsJson validationJson edited createdByUid createdBy {displayName} lastEditedByUid lastEditedBy {displayName}
+      approvalRequestedAt approvedByUid approvedBy {displayName} approvedAt approvalNote selfApproved messageId providerMessageId failureReason revision createdAt updatedAt
+    }
+    insights: inboxAiInsights_on_conversation(orderBy: [{createdAt: DESC}], limit: 1) {id insightJson unverifiedCount coveredUntil draftJobId model source createdAt createdBy {displayName}}
+  }
+}
+
+# A reply written by the member (at most ten open replies per conversation).
+mutation CreateInboxReplyDraft($organizationId: UUID!, $id: UUID!, $conversationId: UUID!, $content: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.content.size() >= 1 && vars.content.size() <= 4000") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  current: query @redact {
+    conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $conversationId}}, {{V}}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {id}
+    open: outboundMessageJobs(where: {organizationId: {eq: $organizationId}, conversationId: {eq: $conversationId}, stage: {in: [DRAFT, VALIDATED, PENDING_APPROVAL, APPROVED]}}, limit: 10) @check(expr: "this.size() < 10", message: "INBOX_REPLY_LIMIT") {id}
+  }
+  outboundMessageJob_insert(data: {organizationId: $organizationId, id: $id, conversationId: $conversationId, stage: DRAFT, source: "AGENT", content: $content, createdByUid_expr: "auth.uid", lastEditedByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
+    metadata_expr: "{'event': 'DRAFTED', 'conversationId': vars.conversationId, 'source': 'AGENT'}"})
+}
+
+# Editing returns the reply to DRAFT (an approval request is withdrawn) and keeps the earlier text.
+mutation UpdateInboxReplyDraft($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $content: String!, $versionsJson: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.content.size() >= 1 && vars.content.size() <= 4000 && vars.versionsJson.size() <= 20000") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  current: query @redact {
+    job: outboundMessageJob(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {in: [DRAFT, VALIDATED, PENDING_APPROVAL]}}, {conversation: {{V}}}]}})
+      @check(expr: "this != null", message: "INBOX_REPLY_CHANGED") {id conversationId}
+  }
+  job: outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {content: $content, versionsJson: $versionsJson, stage: DRAFT,
+    validationJson: null, approvalRequestedAt: null, edited: true, lastEditedByUid_expr: "auth.uid", revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
+    metadata_expr: "{'event': 'EDITED', 'conversationId': response.current.job.conversationId, 'revision': vars.expectedRevision + 1}"})
+}
+
+# The server's check result (docs/UNIFIED_INBOX.md#validation): VALIDATED when it passed, else it stays a DRAFT with the problems.
+# The server checks again before sending, so a forged result cannot deliver anything.
+mutation RecordInboxReplyCheck($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $valid: Boolean!, $validationJson: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.validationJson.size() <= 2000") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  current: query @redact {
+    job: outboundMessageJob(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {in: [DRAFT, VALIDATED]}}, {conversation: {{V}}}]}})
+      @check(expr: "this != null", message: "INBOX_REPLY_CHANGED") {id}
+  }
+  passed: outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+    data: {stage: VALIDATED, validationJson: $validationJson, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @include(if: $valid) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
+  failed: outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+    data: {stage: DRAFT, validationJson: $validationJson, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @skip(if: $valid) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
+}
+
+# A checked reply goes for approval, or straight to APPROVED when the company's rules do not require one.
+# The rule is read in the transaction: the server's value must match it.
+mutation SubmitInboxReply($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $approvalRequired: Boolean!, $notificationId: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  rules: query @redact @check(expr: "vars.approvalRequired == (this.settings == null ? true : this.settings.approvalRequired)", message: "INBOX_SETTINGS_CHANGED") {
+    settings: inboxSettings(key: {organizationId: $organizationId}) {approvalRequired}
+  }
+  current: query @redact {
+    job: outboundMessageJob(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {eq: VALIDATED}}, {conversation: {{V}}}]}})
+      @check(expr: "this != null", message: "INBOX_REPLY_CHANGED") {id conversationId}
+  }
+  pending: outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+    data: {stage: PENDING_APPROVAL, approvalRequestedAt_expr: "request.time", approvalNote: null, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @include(if: $approvalRequired) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
+  approved: outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+    data: {stage: APPROVED, approvedByUid_expr: "auth.uid", approvedAt_expr: "request.time", approvalNote: "Approval is not required by the company's inbox rules.", revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+    @skip(if: $approvalRequired) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
+  inAppNotification_insert(data: {organizationId: $organizationId, id: $notificationId, audience: ADMIN, type: APPROVAL_REQUESTED, title: "Inbox reply waiting for approval",
+    body: "A reply to a customer needs an owner, administrator or manager to approve it.", actorUid_expr: "auth.uid"}) @include(if: $approvalRequired)
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
+    metadata_expr: "{'event': vars.approvalRequired ? 'APPROVAL_REQUESTED' : 'APPROVED_WITHOUT_REVIEW', 'conversationId': response.current.job.conversationId}"})
+}
+
+# An OWNER, ADMIN or MANAGER who may see the conversation decides once. The author and the last
+# editor may not approve their own reply, except an OWNER (recorded as a self-approval).
+# Rejecting needs a reason and returns the reply to DRAFT.
+mutation DecideInboxReply($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $approve: Boolean!, $note: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && (!has(vars.note) || vars.note == null || vars.note.size() <= 300) && (vars.approve || (has(vars.note) && vars.note != null && vars.note.size() >= 3))") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "INBOX_APPROVER_REQUIRED")
+  before: query @redact {
+    me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {id role}
+    job: outboundMessageJob(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {eq: PENDING_APPROVAL}}, {conversation: {{V}}}]}})
+      @check(expr: "this != null", message: "INBOX_REPLY_CHANGED") {id conversationId createdByUid lastEditedByUid}
+  }
+  authority: query @redact @check(expr: "!vars.approve || response.before.me.role == 'OWNER' || (response.before.job.createdByUid != auth.uid && (response.before.job.lastEditedByUid == null || response.before.job.lastEditedByUid != auth.uid))", message: "INBOX_SELF_APPROVAL") {
+    job: outboundMessageJob(key: {organizationId: $organizationId, id: $id}) {id}
+  }
+  approved: outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {eq: PENDING_APPROVAL}}},
+    data: {stage: APPROVED, approvedByUid_expr: "auth.uid", approvedAt_expr: "request.time", approvalNote: $note,
+      selfApproved_expr: "response.before.job.createdByUid == auth.uid || response.before.job.lastEditedByUid == auth.uid", revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+    @include(if: $approve) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
+  rejected: outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {eq: PENDING_APPROVAL}}},
+    data: {stage: DRAFT, approvalNote: $note, approvalRequestedAt: null, validationJson: null, revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+    @skip(if: $approve) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
+    metadata_expr: "{'event': vars.approve ? 'APPROVED' : 'REJECTED', 'conversationId': response.before.job.conversationId, 'role': response.before.me.role, 'selfApproved': vars.approve && (response.before.job.createdByUid == auth.uid || response.before.job.lastEditedByUid == auth.uid)}"})
+}
+
+# The author, the last editor, or an OWNER, ADMIN or MANAGER may cancel a reply that has not been queued.
+mutation CancelInboxReply($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact {
+    me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {id role}
+    job: outboundMessageJob(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {in: [DRAFT, VALIDATED, PENDING_APPROVAL, APPROVED]}}, {conversation: {{V}}}]}})
+      @check(expr: "this != null", message: "INBOX_REPLY_CHANGED") {id conversationId createdByUid lastEditedByUid}
+  }
+  authority: query @redact @check(expr: "response.before.me.role in ['OWNER', 'ADMIN', 'MANAGER'] || response.before.job.createdByUid == auth.uid || response.before.job.lastEditedByUid == auth.uid", message: "INBOX_REPLY_FORBIDDEN") {
+    job: outboundMessageJob(key: {organizationId: $organizationId, id: $id}) {id}
+  }
+  outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+    data: {stage: CANCELLED, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
+    metadata_expr: "{'event': 'CANCELLED', 'conversationId': response.before.job.conversationId}"})
+}

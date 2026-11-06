@@ -8,7 +8,9 @@ import { inboxWebhookHandshake, inboxWebhookResponse } from "./webhooks";
 import {
   addNote, assignConversation, assignees, customerContext, getConversation, inboxCounts, inboxSettings, linkConversation, listConversations, listMessages, markRead, saveInboxSettings, setConversationState,
 } from "./conversations";
-import { SIMULATOR_BODY_BYTES, inboxSimulatorState, simulateInbound, simulateWebsiteEnquiry } from "./simulator";
+import { SIMULATOR_BODY_BYTES, inboxSimulatorState, simulateInbound, simulateReceipt, simulateWebsiteEnquiry } from "./simulator";
+import { analyseConversation, applyRequirements } from "./assistant";
+import { cancelReply, checkReply, createReply, decideReply, listReplies, sendReply, submitReply, updateReply } from "./outbound";
 import { devToolsEnabled } from "@/modules/communications/dev/guard";
 
 /*
@@ -31,6 +33,19 @@ export const readMarkResponse = (request: Request, id: string) => write(request,
 export const settingsResponse = (request: Request) => read(request, "inbox.settings", context => inboxSettings(context));
 export const saveSettingsResponse = (request: Request) => write(request, "inbox.settings.save", saveInboxSettings);
 export const customerResponse = (request: Request, id: string) => read(request, "inbox.customer", context => customerContext(context, id));
+
+// --- Replies and the assistant (7A.5) ---------------------------------------------------------
+export const repliesResponse = (request: Request, id: string) => read(request, "inbox.replies", context => listReplies(context, id));
+export const createReplyResponse = (request: Request, id: string) => write(request, "inbox.replies.create", (context, body) => createReply(context, id, body), 201);
+export const updateReplyResponse = (request: Request, id: string, replyId: string) => write(request, "inbox.replies.update", (context, body) => updateReply(context, id, replyId, body));
+const REPLY_ACTIONS = {check: checkReply, submit: submitReply, decide: decideReply, cancel: cancelReply, send: sendReply} as const;
+export function replyActionResponse(request: Request, id: string, replyId: string, action: string) {
+  const work = REPLY_ACTIONS[action as keyof typeof REPLY_ACTIONS];
+  if (!work || !Object.hasOwn(REPLY_ACTIONS, action)) return new Response(null, {status: 404, headers: {"Cache-Control": "no-store"}});
+  return write(request, `inbox.replies.${action}`, (context, body) => work(context, id, replyId, body));
+}
+export const assistantResponse = (request: Request, id: string) => write(request, "inbox.assistant", context => analyseConversation(request, context, id), 201);
+export const applyRequirementsResponse = (request: Request, id: string) => write(request, "inbox.assistant.apply", (context, body) => applyRequirements(context, id, body));
 
 // --- Channel connections (OWNER or ADMIN) -----------------------------------------------------
 export const connectionsResponse = (request: Request) => read(request, "inbox.connections", context => listConnections(context));
@@ -68,3 +83,4 @@ const notFound = () => new Response(null, {status: 404, headers: {"Cache-Control
 export const simulatorStateResponse = (request: Request) => devToolsEnabled() ? read(request, "inbox.simulator.state", context => inboxSimulatorState(context)) : notFound();
 export const simulatorInboundResponse = (request: Request) => devToolsEnabled() ? write(request, "inbox.simulator.inbound", simulateInbound, 201, SIMULATOR_BODY_BYTES) : notFound();
 export const simulatorWebsiteResponse = (request: Request) => devToolsEnabled() ? write(request, "inbox.simulator.website", simulateWebsiteEnquiry, 201) : notFound();
+export const simulatorReceiptResponse = (request: Request) => devToolsEnabled() ? write(request, "inbox.simulator.receipt", simulateReceipt) : notFound();

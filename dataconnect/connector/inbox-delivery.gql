@@ -1,0 +1,102 @@
+# Phase 7A.5: reply delivery and assistant records (docs/UNIFIED_INBOX.md#outbound). Server only
+# (NO_ACCESS): called after the server read the conversation as the signed-in member (so it is one
+# they may see), with the company from the verified session.
+#
+# Delivery is structurally limited in Phase 7A: a reply can be queued only for a SIMULATED
+# conversation on the company's DEVELOPMENT_SIMULATOR connection with sending enabled. No real
+# provider connection satisfies this, so nothing can reach a real number or address. A queued
+# reply is SENT only when the adapter acknowledges it, and FAILED when the adapter refuses it.
+
+# What the server checks before approval and again before sending.
+query InboxReplyFacts($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  job: outboundMessageJob(key: {organizationId: $organizationId, id: $id}) {
+    id stage revision content source edited createdByUid lastEditedByUid conversationId versionsJson messageId
+    conversation {id channel simulated optedOut lastInboundAt customerIdentity channelConnectionId channelConnection {id provider connectionStatus sendingEnabled}}
+  }
+  insight: inboxAiInsights(where: {organizationId: {eq: $organizationId}, draftJobId: {eq: $id}}, limit: 1) {id insightJson}
+  settings: inboxSettings(key: {organizationId: $organizationId}) {approvalRequired aiEnabled}
+}
+
+# Do-not-contact: the Phase 6F number list (WhatsApp) and the inbox email opt-outs.
+query InboxContactRestrictions($organizationId: UUID!, $identity: String!) @auth(level: NO_ACCESS) {
+  numbers: communicationSuppressions(where: {organizationId: {eq: $organizationId}, normalizedNumber: {eq: $identity}, withdrawnAt: {isNull: true}}, limit: 5) {id scope}
+  emails: inboxEmailOptOuts(where: {organizationId: {eq: $organizationId}, normalizedEmail: {eq: $identity}, withdrawnAt: {isNull: true}}, limit: 1) {id}
+}
+
+# Queues an approved reply for the developer simulator only (see the note above).
+mutation QueueInboxReply($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $conversationId: UUID!, $channelConnectionId: UUID!, $content: String!, $actorUid: String!,
+  $messageId: UUID!, $pendingExternalId: String!, $recipientIdentity: String!, $preview: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+    job: outboundMessageJob(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {eq: APPROVED}, conversationId: {eq: $conversationId}, content: {eq: $content}}})
+      @check(expr: "this != null", message: "INBOX_REPLY_CHANGED") {id}
+    deliverable: inboxConversation(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $conversationId}, simulated: {eq: true}, optedOut: {eq: false}, channelConnectionId: {eq: $channelConnectionId},
+      channelConnection: {provider: {eq: DEVELOPMENT_SIMULATOR}, sendingEnabled: {eq: true}}}}) @check(expr: "this != null", message: "INBOX_SENDING_DISABLED") {id}
+  }
+  message: inboxMessage_insert(data: {organizationId: $organizationId, id: $messageId, conversationId: $conversationId, channelConnectionId: $channelConnectionId, externalMessageId: $pendingExternalId,
+    direction: OUTBOUND, recipientIdentity: $recipientIdentity, messageType: TEXT, content: $content, deliveryStatus: QUEUED, authorUid: $actorUid, simulated: true})
+  job: outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {eq: APPROVED}}},
+    data: {stage: QUEUED, messageId: $messageId, attempts_update: {inc: 1}, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
+  conversation: inboxConversation_update(key: {organizationId: $organizationId, id: $conversationId}, data: {lastMessageAt_expr: "request.time", lastOutboundAt_expr: "request.time", lastMessagePreview: $preview,
+    revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
+    metadata_expr: "{'event': 'QUEUED', 'conversationId': vars.conversationId, 'messageId': vars.messageId, 'simulated': true}"})
+}
+
+# The adapter accepted the message: only now is it SENT, under the provider's message ID (receipts match on it).
+mutation AcknowledgeInboxReply($organizationId: UUID!, $id: UUID!, $conversationId: UUID!, $messageId: UUID!, $providerMessageId: String!, $actorUid: String!) @auth(level: NO_ACCESS) @transaction {
+  job: outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, stage: {eq: QUEUED}, messageId: {eq: $messageId}}},
+    data: {stage: SENT, providerMessageId: $providerMessageId, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
+  message: inboxMessage_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $messageId}, conversationId: {eq: $conversationId}, direction: {eq: OUTBOUND}, deliveryStatus: {eq: QUEUED}}},
+    data: {deliveryStatus: SENT, externalMessageId: $providerMessageId, providerTimestamp_expr: "request.time", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_DELIVERY_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
+    metadata_expr: "{'event': 'SENT', 'conversationId': vars.conversationId, 'messageId': vars.messageId}"})
+}
+
+# The adapter refused or failed: the reply and its message are FAILED, and the workflow event is written with them.
+mutation FailInboxReply($organizationId: UUID!, $id: UUID!, $conversationId: UUID!, $messageId: UUID!, $reason: String!, $actorUid: String!) @auth(level: NO_ACCESS) @transaction {
+  job: outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, stage: {eq: QUEUED}, messageId: {eq: $messageId}}},
+    data: {stage: FAILED, failureReason: $reason, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
+  message: inboxMessage_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $messageId}, conversationId: {eq: $conversationId}, deliveryStatus: {eq: QUEUED}}},
+    data: {deliveryStatus: FAILED, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_DELIVERY_CHANGED")
+  failed: automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'inbox.failed:' + vars.messageId", triggerType: "inbox.message.failed", targetType: "CONVERSATION",
+    targetId: $conversationId, origin: "SIMULATOR", payload_expr: "{'messageId': vars.messageId}"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
+    metadata_expr: "{'event': 'FAILED', 'conversationId': vars.conversationId, 'reason': vars.reason}"})
+}
+
+# A checked Claude analysis, and its reply draft (never sent), for a conversation the actor may see
+# (the server read it as the actor first). A repeated workflow step finds the same IDs.
+# draftContent is an empty string when there is no draft (the skipped insert still needs a value).
+mutation SaveInboxAiInsight($organizationId: UUID!, $id: UUID!, $conversationId: UUID!, $actorUid: String!, $insightJson: String!, $unverifiedCount: Int!, $coveredUntil: Timestamp,
+  $model: String!, $promptVersion: String!, $source: String!, $hasDraft: Boolean!, $draftJobId: UUID, $draftContent: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+    conversation: inboxConversation(key: {organizationId: $organizationId, id: $conversationId}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {id}
+  }
+  insight: inboxAiInsight_insert(data: {organizationId: $organizationId, id: $id, conversationId: $conversationId, insightJson: $insightJson, unverifiedCount: $unverifiedCount, coveredUntil: $coveredUntil,
+    draftJobId: $draftJobId, model: $model, promptVersion: $promptVersion, source: $source, createdByUid: $actorUid})
+  draft: outboundMessageJob_insert(data: {organizationId: $organizationId, id: $draftJobId, conversationId: $conversationId, stage: DRAFT, source: $source, content: $draftContent,
+    createdByUid: $actorUid, lastEditedByUid: $actorUid}) @include(if: $hasDraft)
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: INBOX_AI_GENERATED, targetType: CONVERSATION, targetId: $conversationId,
+    metadata_expr: "{'insightId': vars.id, 'draftJobId': vars.hasDraft ? dyn(vars.draftJobId) : dyn(null), 'source': vars.source, 'unverified': vars.unverifiedCount, 'model': vars.model}"})
+}
+
+# --- Workflows (server only) ------------------------------------------------------------------
+
+# Open conversations whose customer wrote in the window and that may still be unanswered. The server
+# keeps those without a later reply (the filter cannot compare two columns). Company rules give the threshold.
+query InboxUnansweredMinutes($organizationId: UUID!) @auth(level: NO_ACCESS) {
+  settings: inboxSettings(key: {organizationId: $organizationId}) {unansweredMinutes}
+}
+
+query UnansweredInboxCandidates($organizationId: UUID!, $from: Timestamp!, $to: Timestamp!, $limit: Int! = 50) @auth(level: NO_ACCESS) {
+  conversations: inboxConversations(where: {organizationId: {eq: $organizationId}, status: {in: [OPEN, PENDING]}, lastInboundAt: {gt: $from, le: $to}}, orderBy: [{lastInboundAt: ASC}], limit: $limit) {
+    id leadId lastInboundAt lastOutboundAt simulated
+  }
+}
+
+# The parts of a conversation an approved reassignment depends on (hashed by the server before a decision).
+query AutomationConversationState($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  conversation: inboxConversation(key: {organizationId: $organizationId, id: $id}) {id assignedMembershipId status}
+}

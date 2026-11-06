@@ -26,13 +26,14 @@ const catalog = () => {
 - task.create: title, minutes (due after), assignee ${TASK_ASSIGNEES.join("|")}
 - notification.create: audience ${AUDIENCES.join("|")}, title, message
 - lead.reassign: reason, minutes (approval expiry, 15-10080)
+- inbox.reassign: reason, minutes (approval expiry, 15-10080)
 - lead.activity: note
 - viewing.followup: title, minutes (due after)
 - ai.draft: contentType ${DRAFT_CONTENT_TYPES.join("|")}, instructions
 - delay: minutes (1-${LIMITS.delayMinutes})
 - approval.request: reason, minutes (approval expiry, 15-10080)
 - pause: reason
-- lead.distribute, ai.sales_review, call.summarize, end: no fields
+- lead.distribute, ai.sales_review, call.summarize, inbox.draft_reply, end: no fields
 Unused fields: empty string, 0 or an empty list.
 </step_fields>
 <operators>${OPERATORS.join(", ")}. Text facts: eq, ne, contains, empty, not_empty. Numbers: eq, ne, gt, lt, empty, not_empty. Booleans: eq, ne with "true" or "false". Dates: before, after (ISO time), within_minutes (a number), empty, not_empty. Values are strings; empty checks use "".</operators>
@@ -178,6 +179,7 @@ export function mapGeneratedWorkflow(output: WorkflowGenerationOutput, timeZone:
       case "notification.create": steps.push({id, when, type, audience: (AUDIENCES as readonly string[]).includes(row.audience) ? row.audience as Action & {type: "notification.create"} extends {audience: infer A} ? A : never : "ASSIGNEE",
         title: need(row.title, 120, "notification title", "{{workflow.name}}"), message: need(row.message, 400, "notification message", "Please review.")}); break;
       case "lead.reassign": steps.push({id, when, type, membershipId: null, reason: need(row.reason, 300, "reason", "Reassignment requested by the workflow."), expiresMinutes: minutes(15, 10_080, 1440)}); break;
+      case "inbox.reassign": steps.push({id, when, type, membershipId: null, reason: need(row.reason, 300, "reason", "Reassignment requested by the workflow."), expiresMinutes: minutes(15, 10_080, 1440)}); break;
       case "lead.activity": steps.push({id, when, type, note: need(row.note || row.message, 500, "note", "Checked by {{workflow.name}}.")}); break;
       case "viewing.followup": steps.push({id, when, type, title: need(row.title, 200, "follow-up title", "Follow up the viewing"), dueMinutes: minutes(1, LIMITS.delayMinutes, 1440)}); break;
       case "ai.draft": steps.push({id, when, type, contentType: (DRAFT_CONTENT_TYPES as readonly string[]).includes(row.contentType) ? row.contentType as (typeof DRAFT_CONTENT_TYPES)[number] : "WHATSAPP_MESSAGE",

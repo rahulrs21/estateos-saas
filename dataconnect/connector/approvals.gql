@@ -75,7 +75,7 @@ mutation DecideAutomationApproval($organizationId: UUID!, $id: UUID!, $decision:
     unchanged: automationApproval(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, snapshotHash: {eq: $expectedSnapshotHash}, targetStateHash: {eq: $currentTargetStateHash}}})
       @check(expr: "this != null", message: "AUTOMATION_APPROVAL_CHANGED") {id}
   }
-  authority: query @redact @check(expr: "(response.before.approval.actionType != 'lead.reassign' || response.before.approver.role in ['OWNER', 'ADMIN']) && (response.before.approval.requestedByUid != auth.uid || response.before.approver.role == 'OWNER')", message: "AUTOMATION_APPROVAL_FORBIDDEN") {
+  authority: query @redact @check(expr: "(!(response.before.approval.actionType in ['lead.reassign', 'inbox.reassign']) || response.before.approver.role in ['OWNER', 'ADMIN']) && (response.before.approval.requestedByUid != auth.uid || response.before.approver.role == 'OWNER')", message: "AUTOMATION_APPROVAL_FORBIDDEN") {
     approval: automationApproval(key: {organizationId: $organizationId, id: $id}) {id}
   }
   decision: automationApproval_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq_expr: "response.before.pending.id"}, status: {eq: PENDING}}},
@@ -118,5 +118,34 @@ mutation AutomationReassignLead($organizationId: UUID!, $leadId: UUID!, $expecte
 
 # The current state of an approval's lead (server only), hashed by the server just before a decision is stored.
 query GetAutomationApprovalTarget($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
-  approval: automationApproval(key: {organizationId: $organizationId, id: $id}) {id status actionType leadId requestedByUid targetStateHash lead {assignedMembershipId status archivedAt}}
+  approval: automationApproval(key: {organizationId: $organizationId, id: $id}) {id status actionType targetId leadId requestedByUid targetStateHash lead {assignedMembershipId status archivedAt}}
+}
+
+# Applies an approved conversation reassignment (inbox.reassign, 7A.5) exactly as approved: the conversation must
+# still have the member it had when approval was requested, the approved member must be active, and the approval
+# must still be APPROVED for this conversation and member. Only the conversation changes; its lead's assignment never does.
+mutation AutomationReassignConversation($organizationId: UUID!, $conversationId: UUID!, $expectedMembershipId: UUID, $toMembershipId: UUID!, $approvalId: UUID!, $executionId: UUID!,
+  $historyId: UUID!, $eventId: UUID!, $originalEventId: UUID!, $originWorkflowId: UUID!, $chainDepth: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "EXECUTOR_NOT_AUTHORIZED")
+  before: query @redact {
+    conversation: inboxConversation(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $conversationId}, status: {in: [OPEN, PENDING]}}})
+      @check(expr: "this != null && ((!has(vars.expectedMembershipId) || vars.expectedMembershipId == null) ? this.assignedMembershipId == null : this.assignedMembershipId == vars.expectedMembershipId)", message: "AUTOMATION_TARGET_CHANGED")
+      {id assignedMembershipId leadId revision}
+    member: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $toMembershipId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}}) @check(expr: "this != null", message: "INBOX_ASSIGNEE_INVALID") {id}
+    approval: automationApproval(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $approvalId}, status: {eq: APPROVED}, actionType: {eq: "inbox.reassign"}, targetId: {eq: $conversationId}, toMembershipId: {eq: $toMembershipId}}})
+      @check(expr: "this != null", message: "AUTOMATION_APPROVAL_CHANGED") {id}
+  }
+  conversation: inboxConversation_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $conversationId}, revision: {eq_expr: "response.before.conversation.revision"}}},
+    data: {assignedMembershipId: $toMembershipId, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_CONVERSATION_CHANGED")
+  executed: automationApproval_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $approvalId}, status: {eq: APPROVED}}}, data: {status: EXECUTED, resultStatus: "EXECUTED"}) @check(expr: "this != null", message: "AUTOMATION_APPROVAL_CHANGED")
+  inboxAssignmentHistory_insert(data: {organizationId: $organizationId, id: $historyId, conversationId: $conversationId, fromMembershipId: $expectedMembershipId, toMembershipId: $toMembershipId,
+    reason: "Reassigned by an approved workflow step", changedByUid_expr: "auth.uid"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_ASSIGNED, targetType: CONVERSATION, targetId: $conversationId,
+    metadata_expr: "{'to': vars.toMembershipId, 'automation': true, 'executionId': vars.executionId, 'approvalId': vars.approvalId}"})
+  inAppNotification_insert(data: {organizationId: $organizationId, audience: MEMBER, recipientMembershipId: $toMembershipId, type: INBOX_ASSIGNED, title: "Conversation assigned to you",
+    body: "An inbox conversation was assigned to you by an approved workflow step.", actorUid_expr: "auth.uid"})
+  automationEvent_insert(data: {organizationId: $organizationId, id: $eventId, deduplicationKey_expr: "'inbox.assigned:' + vars.executionId + ':' + vars.approvalId", triggerType: "inbox.conversation.assigned",
+    targetType: "CONVERSATION", targetId: $conversationId, actorUid_expr: "auth.uid", origin: "WORKFLOW", payload_expr: "{'leadId': response.before.conversation.leadId}",
+    originalEventId: $originalEventId, parentExecutionId: $executionId, originWorkflowId: $originWorkflowId, chainDepth: $chainDepth})
 }

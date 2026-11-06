@@ -41,6 +41,13 @@ export interface ChannelAdapter {
   handshake(url: URL, verifyToken: string): string | null;
   /** Verified payload to normalized events (bounded; unknown parts are kept as UNKNOWN, never dropped silently). */
   parseWebhook(request: WebhookRequest): NormalizedEvent[];
+  /** Delivers one message; only adapters with SEND_MESSAGE SUPPORTED have it. */
+  send?(request: OutboundRequest): Promise<OutboundAck>;
 }
 
 export const refuseAll = (): Record<Capability, CapabilityState> => Object.fromEntries(CAPABILITIES.map(capability => [capability, "PLANNED"])) as Record<Capability, CapabilityState>;
+
+/** One outbound message for an adapter that can send (Phase 7A: the developer simulator only). */
+export interface OutboundRequest { conversationId: string; simulated: boolean; recipient: string; content: string }
+/** The provider's acceptance: only this makes a queued message SENT. */
+export type OutboundAck = {accepted: true; providerMessageId: string} | {accepted: false; reason: string};

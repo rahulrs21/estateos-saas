@@ -352,7 +352,8 @@ mutation SetAutomationWorkflowNextRun($organizationId: UUID!, $claimToken: UUID!
 
 # Facts for conditions, read fresh when a step runs. "Contacted" counts people's notes and status changes since the event, not automation notes.
 query AutomationFacts($organizationId: UUID!, $leadId: UUID, $hasLead: Boolean!, $listingId: UUID, $hasListing: Boolean!, $viewingId: UUID, $hasViewing: Boolean!, $followUpId: UUID, $hasFollowUp: Boolean!,
-  $workTaskId: UUID, $hasWorkTask: Boolean!, $contactId: UUID, $hasContact: Boolean!, $since: Timestamp!, $callId: UUID, $hasCall: Boolean! = false, $meetingId: UUID, $hasMeeting: Boolean! = false)
+  $workTaskId: UUID, $hasWorkTask: Boolean!, $contactId: UUID, $hasContact: Boolean!, $since: Timestamp!, $callId: UUID, $hasCall: Boolean! = false, $meetingId: UUID, $hasMeeting: Boolean! = false,
+  $conversationId: UUID, $hasConversation: Boolean! = false)
   @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
   executor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}) @check(expr: "this != null", message: "EXECUTOR_NOT_AUTHORIZED") {id role}
   lead: lead(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $leadId}}}) @include(if: $hasLead) {
@@ -369,6 +370,9 @@ query AutomationFacts($organizationId: UUID!, $leadId: UUID, $hasLead: Boolean!,
   followUp: leadFollowUp(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $followUpId}}}) @include(if: $hasFollowUp) {id leadId title status dueAt assignedUserId}
   workTask: workTask(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $workTaskId}}}) @include(if: $hasWorkTask) {id title status dueAt assignedMembershipId leadId listingId}
   contact: contact(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $contactId}}}) @include(if: $hasContact) {id preferredLanguage email phone}
+  # Inbox conversations (7A.5): workflows run as an OWNER or ADMIN, who see every conversation of the company.
+  conversation: inboxConversation(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $conversationId}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}})
+    @include(if: $hasConversation) {id channel status priority assignedMembershipId leadId contactId customerName optedOut unreadCount lastInboundAt lastOutboundAt simulated}
 }
 
 # Members a notification can reach.

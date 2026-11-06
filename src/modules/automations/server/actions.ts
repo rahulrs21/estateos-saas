@@ -4,6 +4,7 @@ import { requireAiConfig } from "@/modules/ai/server/anthropic";
 import { generateWorkflowDraft } from "@/modules/ai/content/server/generate";
 import { analyzeLead } from "@/modules/ai/sales/server/service";
 import { summarizeCallForWorkflow } from "@/modules/communications/server/intelligence";
+import { draftReplyForWorkflow } from "@/modules/inbox/server/assistant";
 import { planNewLeadAssignment } from "@/modules/leads/distribution/service";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { fillPlaceholders } from "../conditions";
@@ -61,7 +62,9 @@ async function once<T>(operation: () => Promise<T>): Promise<T | "DUPLICATE"> {
 
 function placeholders(run: StepRun) {
   return {"lead.fullName": run.state.lead?.fullName ?? null, "lead.status": run.state.lead?.status?.toLowerCase().replaceAll("_", " ") ?? null,
-    "listing.title": run.state.listing?.title ?? null, "workflow.name": run.workflowName, "task.title": run.state.task?.title ?? null};
+    "listing.title": run.state.listing?.title ?? null, "workflow.name": run.workflowName, "task.title": run.state.task?.title ?? null,
+    // The name the channel reported, else a neutral label (never the phone number or email).
+    "conversation.customerName": run.state.conversation ? run.state.lead?.fullName ?? run.state.conversation.customerName ?? "A customer" : null};
 }
 const fill = (run: StepRun, text: string) => fillPlaceholders(text, placeholders(run));
 const lineage = (run: StepRun) => ({
@@ -71,7 +74,7 @@ const lineage = (run: StepRun) => ({
 const dueAt = (run: StepRun, minutes: number) => new Date(run.now.getTime() + minutes * 60_000).toISOString();
 /** The agent responsible for the target: the lead's, the listing's or the task's. */
 const assigneeOf = (state: RunState) => state.lead?.assignedMembershipId ?? state.listing?.assignedMembershipId ?? state.task?.assignedMembershipId
-  ?? state.call?.agentMembershipId ?? state.meeting?.organizerMembershipId ?? null;
+  ?? state.call?.agentMembershipId ?? state.meeting?.organizerMembershipId ?? state.conversation?.assignedMembershipId ?? null;
 
 async function createTask(run: StepRun, title: string, minutes: number, assignee: "ASSIGNEE" | "UNASSIGNED"): Promise<StepOutcome> {
   const {context, organizationId} = run;
@@ -189,6 +192,21 @@ async function summarizeCallStep(run: StepRun): Promise<StepOutcome> {
     summary: result.claude ? "Claude summary saved as a draft for the agent to review." : "Summary already saved."};
 }
 
+/**
+ * A Claude analysis and reply DRAFT for the conversation (7A.5), as the executor.
+ * Skipped when Claude is off for the inbox; a repeated step reuses its analysis. Never sends.
+ */
+async function draftInboxReply(run: StepRun): Promise<StepOutcome> {
+  const conversation = run.state.conversation;
+  if (!conversation) throw new PermanentStepError("AUTOMATION_TARGET_INVALID", "No conversation.");
+  const result = await draftReplyForWorkflow(run.context, conversation.id, {
+    insightId: stableUuid("automation-inbox-insight", run.execution.id, run.position), draftJobId: stableUuid("automation-inbox-draft", run.execution.id, run.position),
+  });
+  if (result.status === "SKIPPED") return {status: "SKIPPED", summary: result.reason};
+  return {status: "SUCCEEDED", resultType: "OUTBOUND_MESSAGE", resultId: result.draftJobId ?? undefined, aiCalls: result.claude ? 1 : 0,
+    summary: result.draftJobId ? "Reply draft saved on the conversation for a person to check and approve. Nothing was sent." : "Analysis saved; Claude suggested no reply."};
+}
+
 /** Runs one side-effect action. Waiting and approvals are handled by the engine. */
 export async function runAction(run: StepRun, action: Action): Promise<StepOutcome> {
   switch (action.type) {
@@ -200,6 +218,7 @@ export async function runAction(run: StepRun, action: Action): Promise<StepOutco
     case "ai.draft": return aiDraft(run, action);
     case "ai.sales_review": return salesReview(run);
     case "call.summarize": return summarizeCallStep(run);
+    case "inbox.draft_reply": return draftInboxReply(run);
     default: throw new PermanentStepError("ACTION_NOT_AVAILABLE", action.type);
   }
 }

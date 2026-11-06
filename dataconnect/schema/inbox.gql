@@ -53,6 +53,8 @@ type InboxSettings @table(key: ["organization"]) {
   approvalRequired: Boolean! @default(value: true)
   retentionDays: Int! @default(value: 730)
   unansweredMinutes: Int! @default(value: 120)
+  # Claude reads conversations only when an OWNER or ADMIN turns this on (Phase 7A.5).
+  aiEnabled: Boolean! @default(value: false)
   updatedBy: UserProfile
   updatedAt: Timestamp! @default(expr: "request.time")
 }
@@ -217,6 +219,10 @@ type OutboundMessageJob @table(key: ["organization", "id"])
   validationJson: String @col(dataType: "varchar(2000)")
   templateName: String @col(dataType: "varchar(120)")
   createdBy: UserProfile!
+  # Who last wrote the content (the author until someone edits it); neither may approve it unless an OWNER.
+  lastEditedBy: UserProfile
+  # A person changed the text after it was created (a Claude draft is then the person's own words).
+  edited: Boolean! @default(value: false)
   approvalRequestedAt: Timestamp
   approvedBy: UserProfile
   approvedAt: Timestamp
@@ -243,4 +249,27 @@ type InboxEmailOptOut @table(key: ["organization", "id"])
   createdBy: UserProfile
   createdAt: Timestamp! @default(expr: "request.time")
   withdrawnAt: Timestamp
+}
+
+# A Claude analysis of a conversation (Phase 7A.5, docs/UNIFIED_INBOX.md#assistant): summary,
+# unanswered questions, stated requirements and next steps, each quoting a message that
+# EstateOS checked. Advice for the team only; it never changes the lead or sends anything.
+type InboxAiInsight @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "conversationId", "createdAt"], order: [ASC, ASC, DESC]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  conversationId: UUID!
+  conversation: InboxConversation! @ref(fields: ["organizationId", "conversationId"], references: ["organizationId", "id"], constraintName: "inbox_ai_insight_conversation_fkey")
+  insightJson: String! @col(dataType: "varchar(24000)")
+  unverifiedCount: Int! @default(value: 0)
+  # The newest message the analysis read.
+  coveredUntil: Timestamp
+  draftJobId: UUID
+  model: String! @col(dataType: "varchar(80)")
+  promptVersion: String! @col(dataType: "varchar(40)")
+  # CLAUDE (a member asked) or WORKFLOW (the inbox.draft_reply step).
+  source: String! @col(dataType: "varchar(12)")
+  createdBy: UserProfile!
+  createdAt: Timestamp! @default(expr: "request.time")
 }

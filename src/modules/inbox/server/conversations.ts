@@ -183,11 +183,11 @@ export async function inboxSettings(context: Context) {
   const data = await asMember(context, "GetInboxSettings", (dc, options) => sdk.getInboxSettings(dc, {organizationId: context.organizationId}, options));
   return {
     revision: data.settings?.revision ?? 0, approvalRequired: data.settings?.approvalRequired ?? true, retentionDays: data.settings?.retentionDays ?? 730,
-    unansweredMinutes: data.settings?.unansweredMinutes ?? 120, canEdit: isAdministrator(context),
+    unansweredMinutes: data.settings?.unansweredMinutes ?? 120, aiEnabled: data.settings?.aiEnabled ?? false, canEdit: isAdministrator(context),
   };
 }
 
-const settingsSchema = z.strictObject({expectedRevision: z.number().int().min(0), approvalRequired: z.boolean(), retentionDays: z.number().int().min(30).max(3650), unansweredMinutes: z.number().int().min(15).max(10080)});
+const settingsSchema = z.strictObject({expectedRevision: z.number().int().min(0), approvalRequired: z.boolean(), retentionDays: z.number().int().min(30).max(3650), unansweredMinutes: z.number().int().min(15).max(10080), aiEnabled: z.boolean().default(false)});
 
 export async function saveInboxSettings(context: Context, body: unknown) {
   const input = parseInput(settingsSchema, body);

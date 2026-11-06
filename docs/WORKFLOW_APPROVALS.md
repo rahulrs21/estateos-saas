@@ -17,7 +17,7 @@ The rules are enforced in the database operations (`dataconnect/connector/approv
    - an in-app notification to owners and administrators;
    - an audit entry.
 3. **Decide.** `DecideAutomationApproval` is a single compare-and-set: only one decision can ever win. It checks, in the same transaction:
-   - the approver is an active OWNER, ADMIN or MANAGER, and reassignments need OWNER or ADMIN (company-wide lead access);
+   - the approver is an active OWNER, ADMIN or MANAGER, and reassignments (`lead.reassign`, `inbox.reassign`) need OWNER or ADMIN;
    - **separation of duties:** the workflow's executor, on whose behalf the step was requested, cannot approve it unless they are an OWNER (so a single-owner company can operate), in which case the audit log records `selfApproved: true`;
    - the approval is still pending and unexpired;
    - the approver saw the stored snapshot (its hash is sent with the decision);
@@ -31,6 +31,7 @@ The rules are enforced in the database operations (`dataconnect/connector/approv
    - the approval is still `APPROVED` for this lead and agent.
 
    It then marks the approval `EXECUTED` in the same transaction and records assignment history, activity, audit and a notification to the new agent. If the lead changed in between, nothing is applied and the step fails with `AUTOMATION_TARGET_CHANGED`.
+   Conversation reassignments (`inbox.reassign`, 7A.5) follow the same steps. The state hash covers the conversation's assignee and status, and `AutomationReassignConversation` checks the conversation's current assignee and the approval before moving only the conversation. The linked lead keeps its agent.
 6. **Reject or expire.** A rejection (reason required) or an expiry ends the execution as `CANCELLED` (`APPROVAL_REJECTED` or `APPROVAL_EXPIRED`) without changing anything.
 
 Approval statuses: `PENDING`, `APPROVED`, `REJECTED`, `EXPIRED`, `CANCELLED`, `EXECUTED`. `resultStatus` and `resultErrorCode` record what happened afterwards.

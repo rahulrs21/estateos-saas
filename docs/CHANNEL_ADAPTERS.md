@@ -123,6 +123,18 @@ Statuses: RECEIVED → PROCESSED | DUPLICATE | FAILED → (retry) … → DEAD.
 
 A message is never SENT because it was queued: SENT, DELIVERED and READ come only from provider acknowledgements and receipts.
 
+## Sending
+
+Adapters that can send implement `send(request)`, which returns the provider's acknowledgement: `{accepted: true, providerMessageId}` or `{accepted: false, reason}`.
+
+- **Phase 7A.5: only the developer simulator implements it.** It refuses any conversation that is not simulated and answers with a `simwamid.…` ID. Nothing leaves EstateOS.
+- **The database adds its own guard.** `QueueInboxReply` (`inbox-delivery.gql`) queues only approved replies on simulated, not-opted-out conversations on a `DEVELOPMENT_SIMULATOR` connection with sending enabled.
+- **Outcome.**
+  - Acknowledged: the reply becomes SENT under the provider's ID, which receipts match on.
+  - Refused: it becomes FAILED, with the `inbox.message.failed` event.
+- The approval pipeline in front of sending is described in [UNIFIED_INBOX.md](UNIFIED_INBOX.md#outbound).
+- **WhatsApp Cloud and email sending stay PLANNED.** They need Phase 7B/7C, explicit approval and their own tests.
+
 ## Attachments
 
 Provider attachments arrive as references (`providerMediaId`) with `storagePath` empty: downloading provider media needs a live connector (Phase 7B). They are listed as "not downloaded" and cannot be opened. Files EstateOS stores itself (the simulator today) follow the rules in [INBOX_SECURITY.md](INBOX_SECURITY.md#attachments).

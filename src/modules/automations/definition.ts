@@ -106,10 +106,22 @@ const CONTACT_FACTS = {
   "contact.hasPhone": {kind: "boolean", label: "Has a phone number"},
 } as const satisfies Record<string, FactDefinition>;
 
+/** Inbox conversations (7A.5): channel and handling facts; never message text, names or numbers. */
+const CONVERSATION_FACTS = {
+  "conversation.channel": {kind: "string", label: "Conversation channel", options: ["WHATSAPP", "EMAIL", "WEBSITE", "INTERNAL"]},
+  "conversation.status": {kind: "string", label: "Conversation status", options: ["OPEN", "PENDING", "RESOLVED", "CLOSED"]},
+  "conversation.priority": {kind: "string", label: "Conversation priority", options: LEAD_PRIORITIES},
+  "conversation.assignedAgentId": {kind: "string", label: "Conversation assignee"},
+  "conversation.linked": {kind: "boolean", label: "Linked to a customer"},
+  "conversation.optedOut": {kind: "boolean", label: "Customer opted out"},
+  "conversation.unanswered": {kind: "boolean", label: "Waiting for a reply (the customer wrote last)"},
+  "conversation.lastCustomerMessageAt": {kind: "date", label: "Customer's last message"},
+} as const satisfies Record<string, FactDefinition>;
+
 // --- Triggers --------------------------------------------------------------------------------
 
 /** What an execution acts on; it decides which actions make sense. */
-export type TargetType = "LEAD" | "CONTACT" | "VIEWING" | "LISTING" | "TASK" | "CALL" | "MEETING" | "NONE";
+export type TargetType = "LEAD" | "CONTACT" | "VIEWING" | "LISTING" | "TASK" | "CALL" | "MEETING" | "CONVERSATION" | "NONE";
 
 export interface TriggerDefinition {
   label: string;
@@ -142,6 +154,12 @@ export const TRIGGERS = {
   "call.summary_ready": {label: "Call summary ready", description: "Claude finished a call summary (a draft for the agent to review).", target: "CALL", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...CALL_FACTS}, source: "CreateCallAiSummary"},
   "meeting.scheduled": {label: "Meeting scheduled", description: "A meeting with a lead or contact is scheduled.", target: "MEETING", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...MEETING_FACTS}, source: "CreateMeeting"},
   "meeting.completed": {label: "Meeting completed", description: "A meeting is marked as held.", target: "MEETING", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...MEETING_FACTS}, source: "CompleteMeeting"},
+  "inbox.message.received": {label: "Inbox message received", description: "A customer message arrives in the inbox (WhatsApp, email, website enquiry or the developer simulator).", target: "CONVERSATION", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...CONVERSATION_FACTS}, source: "Inbox ingestion"},
+  "inbox.conversation.created": {label: "Inbox conversation started", description: "A new customer conversation starts in the inbox.", target: "CONVERSATION", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...CONVERSATION_FACTS}, source: "Inbox ingestion"},
+  "inbox.conversation.assigned": {label: "Inbox conversation assigned", description: "A conversation is assigned or reassigned to a member.", target: "CONVERSATION", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...CONVERSATION_FACTS}, source: "AssignInboxConversation, approved workflow reassignments"},
+  "inbox.conversation.resolved": {label: "Inbox conversation resolved", description: "A conversation is marked resolved.", target: "CONVERSATION", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...CONVERSATION_FACTS}, source: "SetInboxConversationState"},
+  "inbox.conversation.unanswered": {label: "Inbox conversation unanswered", description: "The customer's last message has had no reply for the company's unanswered time (Inbox settings).", target: "CONVERSATION", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...CONVERSATION_FACTS}, source: "Worker scan of open conversations"},
+  "inbox.message.failed": {label: "Inbox reply failed", description: "A reply could not be delivered.", target: "CONVERSATION", facts: {...EVENT_FACTS, ...LEAD_FACTS, ...CONVERSATION_FACTS}, source: "Adapter refusals and failed receipts"},
   "workflow.manual": {label: "Run manually", description: "An authorized member runs the workflow, optionally for one lead.", target: "LEAD", facts: {...EVENT_FACTS, ...LEAD_FACTS}, source: "Run now"},
   "workflow.scheduled": {label: "On a schedule", description: "Runs once, daily or weekly in the company's timezone.", target: "NONE", facts: {...EVENT_FACTS}, source: "Worker scheduler"},
 } as const satisfies Record<string, TriggerDefinition>;
@@ -191,7 +209,7 @@ const message = (max: number) => z.string().trim().min(1).max(max)
   .refine(value => !/[<>]/.test(value), "Use plain text without < or >.")
   .refine(value => !/(https?:|www\.|javascript:|data:)/i.test(value), "Links are not allowed in workflow text.")
   .refine(value => [...value.matchAll(/\{\{\s*([^}]*)\s*\}\}/g)].every(match => PLACEHOLDERS.includes(match[1].trim() as Placeholder)), "Unknown placeholder.");
-export const PLACEHOLDERS = ["lead.fullName", "lead.status", "listing.title", "workflow.name", "task.title"] as const;
+export const PLACEHOLDERS = ["lead.fullName", "lead.status", "listing.title", "workflow.name", "task.title", "conversation.customerName"] as const;
 export type Placeholder = (typeof PLACEHOLDERS)[number];
 const minutes = z.number().int().min(1).max(LIMITS.delayMinutes);
 const common = {id: stepId, when: conditionSchema.nullable().default(null)};
@@ -212,6 +230,10 @@ export const actionSchema = z.discriminatedUnion("type", [
   z.strictObject({...common, type: z.literal("ai.sales_review")}),
   /** A Claude summary of the call (6F.4), as a draft for the agent; needs the company's Claude-analysis switch. */
   z.strictObject({...common, type: z.literal("call.summarize")}),
+  /** A Claude analysis and reply DRAFT for the conversation (7A.5); never sent. Needs Claude enabled for the inbox. */
+  z.strictObject({...common, type: z.literal("inbox.draft_reply")}),
+  /** Reassigns the conversation (to a chosen member, or to the linked lead's agent) after a human approves it. The lead is not changed. */
+  z.strictObject({...common, type: z.literal("inbox.reassign"), membershipId: z.uuid().nullable().default(null), reason: message(300), expiresMinutes: z.number().int().min(15).max(10_080).default(1440)}),
   z.strictObject({...common, type: z.literal("delay"), minutes}),
   /** Stops until an authorized member approves continuing. */
   z.strictObject({...common, type: z.literal("approval.request"), reason: message(300), expiresMinutes: z.number().int().min(15).max(10_080).default(1440)}),
@@ -220,7 +242,7 @@ export const actionSchema = z.discriminatedUnion("type", [
 ]);
 export type Action = z.infer<typeof actionSchema>;
 export type ActionType = Action["type"];
-export const ACTION_TYPES = ["task.create", "notification.create", "lead.distribute", "lead.reassign", "lead.activity", "viewing.followup", "ai.draft", "ai.sales_review", "call.summarize", "delay", "approval.request", "end", "pause"] as const satisfies readonly ActionType[];
+export const ACTION_TYPES = ["task.create", "notification.create", "lead.distribute", "lead.reassign", "lead.activity", "viewing.followup", "ai.draft", "ai.sales_review", "call.summarize", "inbox.draft_reply", "inbox.reassign", "delay", "approval.request", "end", "pause"] as const satisfies readonly ActionType[];
 
 export type Risk = "LOW" | "MEDIUM";
 export interface ActionDefinition {
@@ -234,8 +256,8 @@ export interface ActionDefinition {
   ai: boolean;
 }
 export const ACTIONS: Record<ActionType, ActionDefinition> = {
-  "task.create": {label: "Create a follow-up task", description: "A follow-up on the lead, or a work task for a listing or the team queue.", risk: "LOW", targets: ["LEAD", "VIEWING", "LISTING", "TASK", "CONTACT", "CALL", "MEETING", "NONE"], ai: false},
-  "notification.create": {label: "Send an in-app notification", description: "To the assigned agent, the managers or the administrators. Never an email or message.", risk: "LOW", targets: ["LEAD", "VIEWING", "LISTING", "TASK", "CONTACT", "CALL", "MEETING", "NONE"], ai: false},
+  "task.create": {label: "Create a follow-up task", description: "A follow-up on the lead, or a work task for a listing or the team queue.", risk: "LOW", targets: ["LEAD", "VIEWING", "LISTING", "TASK", "CONTACT", "CALL", "MEETING", "CONVERSATION", "NONE"], ai: false},
+  "notification.create": {label: "Send an in-app notification", description: "To the assigned agent, the managers or the administrators. Never an email or message.", risk: "LOW", targets: ["LEAD", "VIEWING", "LISTING", "TASK", "CONTACT", "CALL", "MEETING", "CONVERSATION", "NONE"], ai: false},
   "lead.distribute": {label: "Assign with the distribution rules", description: "Uses the company's approved lead distribution; only for unassigned leads.", risk: "LOW", targets: ["LEAD"], ai: false},
   "lead.reassign": {label: "Reassign the lead (needs approval)", description: "Waits for an authorized member to approve the exact change.", risk: "MEDIUM", targets: ["LEAD", "VIEWING"], ai: false},
   "lead.activity": {label: "Add a note to the lead", description: "An internal activity on the lead's timeline.", risk: "LOW", targets: ["LEAD", "VIEWING", "CALL", "MEETING"], ai: false},
@@ -243,10 +265,12 @@ export const ACTIONS: Record<ActionType, ActionDefinition> = {
   "ai.draft": {label: "Prepare a message draft with Claude", description: "An internal WhatsApp or email draft in Content Studio for the agent to edit. Never sent.", risk: "LOW", targets: ["LEAD", "VIEWING", "CALL", "MEETING"], ai: true},
   "ai.sales_review": {label: "Run the AI sales review", description: "The existing lead qualification analysis, saved as an internal insight.", risk: "LOW", targets: ["LEAD", "VIEWING", "CALL", "MEETING"], ai: true},
   "call.summarize": {label: "Summarise the call with Claude", description: "A draft summary from the call's transcript or the agent's notes, for the agent to review. Needs Claude call analysis enabled.", risk: "LOW", targets: ["CALL"], ai: true},
-  delay: {label: "Wait", description: "Waits, then rechecks the conditions of the next steps.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "CALL", "MEETING", "NONE"], ai: false},
-  "approval.request": {label: "Ask for approval to continue", description: "Stops until an authorized member approves.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "CALL", "MEETING", "NONE"], ai: false},
-  end: {label: "End", description: "Ends the execution.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "CALL", "MEETING", "NONE"], ai: false},
-  pause: {label: "Pause the workflow", description: "Stops this execution and pauses the workflow for review.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "CALL", "MEETING", "NONE"], ai: false},
+  "inbox.draft_reply": {label: "Draft an inbox reply with Claude", description: "A Claude analysis and an editable reply draft on the conversation, for a person to check and approve. Never sent. Needs Claude enabled for the inbox.", risk: "LOW", targets: ["CONVERSATION"], ai: true},
+  "inbox.reassign": {label: "Reassign the conversation (needs approval)", description: "Waits for an owner or administrator to approve the exact change. The lead's own assignment is not changed.", risk: "MEDIUM", targets: ["CONVERSATION"], ai: false},
+  delay: {label: "Wait", description: "Waits, then rechecks the conditions of the next steps.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "CALL", "MEETING", "CONVERSATION", "NONE"], ai: false},
+  "approval.request": {label: "Ask for approval to continue", description: "Stops until an authorized member approves.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "CALL", "MEETING", "CONVERSATION", "NONE"], ai: false},
+  end: {label: "End", description: "Ends the execution.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "CALL", "MEETING", "CONVERSATION", "NONE"], ai: false},
+  pause: {label: "Pause the workflow", description: "Stops this execution and pauses the workflow for review.", risk: "LOW", targets: ["LEAD", "CONTACT", "VIEWING", "LISTING", "TASK", "CALL", "MEETING", "CONVERSATION", "NONE"], ai: false},
 };
 /** Whether a step waits for a human decision before its side effect. */
 export const needsApproval = (action: Action) => ACTIONS[action.type].risk === "MEDIUM" || action.type === "approval.request";
@@ -349,5 +373,5 @@ export function canonicalJson(value: unknown): string {
 
 /** Every record ID a definition refers to (members for reassignment); the server checks each belongs to the company. */
 export function referencedMemberships(definition: WorkflowDefinition) {
-  return [...new Set(definition.steps.flatMap(step => step.type === "lead.reassign" && step.membershipId ? [step.membershipId] : []))];
+  return [...new Set(definition.steps.flatMap(step => (step.type === "lead.reassign" || step.type === "inbox.reassign") && step.membershipId ? [step.membershipId] : []))];
 }

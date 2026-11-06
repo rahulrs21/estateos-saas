@@ -39,7 +39,14 @@ mutation ResetInboxSimulation($organizationId: UUID!, $actorUid: String!) @auth(
   messages: inboxMessage_deleteMany(where: {organizationId: {eq: $organizationId}, conversation: {simulated: {eq: true}}})
   notes: inboxNote_deleteMany(where: {organizationId: {eq: $organizationId}, conversation: {simulated: {eq: true}}})
   history: inboxAssignmentHistory_deleteMany(where: {organizationId: {eq: $organizationId}, conversation: {simulated: {eq: true}}})
+  insights: inboxAiInsight_deleteMany(where: {organizationId: {eq: $organizationId}, conversation: {simulated: {eq: true}}})
   jobs: outboundMessageJob_deleteMany(where: {organizationId: {eq: $organizationId}, conversation: {simulated: {eq: true}}})
   events: inboxEvent_deleteMany(where: {organizationId: {eq: $organizationId}, simulated: {eq: true}})
   conversations: inboxConversation_deleteMany(where: {organizationId: {eq: $organizationId}, simulated: {eq: true}})
+}
+
+# A simulated reply the simulator may report a receipt for (7A.5): outbound, simulated, already acknowledged.
+query InboxSimulatedOutbound($organizationId: UUID!, $actorUid: String!, $messageId: UUID!) @auth(level: NO_ACCESS) {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "SIMULATION_ADMIN_REQUIRED") {id}
+  message: inboxMessage(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $messageId}, direction: {eq: OUTBOUND}, simulated: {eq: true}}}) {id conversationId externalMessageId deliveryStatus}
 }

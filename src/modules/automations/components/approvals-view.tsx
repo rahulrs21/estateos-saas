@@ -63,7 +63,8 @@ function ApprovalCard({row, organizationId, onDecided}: {row: Row; organizationI
 
     <dl className="grid gap-2 rounded-lg border bg-background p-3 text-sm sm:grid-cols-2">
       {row.lead && <div><dt className="text-xs text-muted-foreground">Lead</dt><dd><Link className="font-medium hover:underline" href={`/leads/${row.lead.id}`}>{row.lead.fullName}</Link> <span className="text-muted-foreground">({row.lead.status.toLowerCase().replaceAll("_", " ")})</span></dd></div>}
-      {row.actionType === "lead.reassign" && <div><dt className="text-xs text-muted-foreground">Proposed change</dt>
+      {row.targetType === "CONVERSATION" && row.targetId && <div><dt className="text-xs text-muted-foreground">Conversation</dt><dd><Link className="font-medium hover:underline" href={`/inbox/${row.targetId}`}>Open in the inbox</Link></dd></div>}
+      {(row.actionType === "lead.reassign" || row.actionType === "inbox.reassign") && <div><dt className="text-xs text-muted-foreground">Proposed change</dt>
         <dd className="flex flex-wrap items-center gap-1.5"><span>{person(row.fromMembership)}</span><ArrowRight className="size-3.5" aria-label="to" /><span className="font-medium">{person(row.toMembership)}</span></dd></div>}
       {reasonOf(row) && <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">Reason</dt><dd>{reasonOf(row)}</dd></div>}
       {row.decidedAt && <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">Decision</dt>

@@ -9,7 +9,7 @@ import type { WorkflowDefinitionInput } from "./definition";
  */
 
 export interface WorkflowTemplate {
-  key: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I";
+  key: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J";
   title: string;
   summary: string;
   /** What to check before activating; shown with the template. */
@@ -123,6 +123,19 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
       schemaVersion: 1, name: "Meeting follow-up", description: "Follow up the day after a meeting.", trigger: "meeting.completed",
       steps: [
         {id: "follow-up", type: "task.create", title: "Follow up after the meeting with {{lead.fullName}}", dueMinutes: 1440, assignee: "ASSIGNEE"},
+      ],
+    },
+  },
+  {
+    key: "J", title: "Unanswered inbox conversation", summary: "When a customer has waited for a reply longer than your inbox's unanswered time, the assigned member and the managers are told and a reply task is created.",
+    setup: ["Set the unanswered time in Inbox settings (default 2 hours).", "Nothing is sent to the customer; the task asks a person to reply."],
+    definition: {
+      schemaVersion: 1, name: "Unanswered inbox conversation", description: "Chase customer messages that have had no reply.", trigger: "inbox.conversation.unanswered",
+      conditions: {mode: "AND", conditions: [{field: "conversation.unanswered", operator: "eq", value: true}, {field: "conversation.optedOut", operator: "eq", value: false}]},
+      steps: [
+        {id: "notify-assignee", type: "notification.create", audience: "ASSIGNEE", title: "Customer waiting for a reply", message: "{{conversation.customerName}} is waiting for a reply in the inbox."},
+        {id: "notify-managers", type: "notification.create", audience: "MANAGERS", title: "Unanswered inbox conversation", message: "{{conversation.customerName}} has had no reply for longer than the agreed time."},
+        {id: "reply-task", type: "task.create", title: "Reply to {{conversation.customerName}} in the inbox", dueMinutes: 30, assignee: "ASSIGNEE"},
       ],
     },
   },

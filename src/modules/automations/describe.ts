@@ -51,6 +51,8 @@ export function describeStep(step: Partial<Action> & Pick<Action, "type">): stri
     case "ai.draft": return `Prepare an editable ${String(step.contentType ?? "message").toLowerCase().replaceAll("_", " ")} draft with Claude (never sent).`;
     case "ai.sales_review": return "Run the AI sales review and save it as an internal insight.";
     case "call.summarize": return "Summarise the call with Claude as a draft for the agent (needs Claude call analysis enabled).";
+    case "inbox.draft_reply": return "Analyse the conversation with Claude and save an editable reply draft (never sent; needs Claude enabled for the inbox).";
+    case "inbox.reassign": return `Ask for approval to reassign the conversation${step.membershipId ? " to the chosen member" : " to the linked lead's agent"}. Reason: ${step.reason ?? ""}`;
     case "delay": return `Wait ${minutesLabel(step.minutes ?? 60)}, then recheck.`;
     case "approval.request": return `Wait for an authorized member to approve continuing. Reason: ${step.reason ?? ""}`;
     case "end": return "End the execution.";

@@ -16,7 +16,8 @@ Related: [CHANNEL_ADAPTERS.md](CHANNEL_ADAPTERS.md), [INBOX_SECURITY.md](INBOX_S
 | Durable, deduplicated events with worker retries | Built and tested | `server/webhooks.ts` |
 | Identity matching by exact number, conversation threading per customer number | Built and tested | `server/ingest.ts` |
 | Opt-out keyword detection (STOP and Arabic equivalents) flags the conversation | Built; adding the number to the do-not-contact list is Phase 7A.6 | `policy.ts` |
-| 24-hour customer service window rule | Built as a rule; enforced on outbound validation in 7A.5 | `policy.ts` (`serviceWindow`) |
+| 24-hour customer service window rule | Built and enforced: a free-form reply outside the window fails the reply checks (7A.5) | `policy.ts` (`serviceWindow`), `outbound.ts` |
+| Reply drafts, checks and approval (author cannot self-approve unless OWNER) | Built (7A.5); approved WhatsApp replies are **not sent** ("Sending is disabled until this provider is connected") | [UNIFIED_INBOX.md](UNIFIED_INBOX.md#outbound) |
 | Connection records (phone number ID, secret name) on the settings page | Built; never VERIFIED, sending always off | `/inbox/settings` |
 | Sending messages, template sending, media download, connection check | **Not built** (Phase 7B) | — |
 
@@ -36,7 +37,7 @@ Engineering work:
 
 1. **Credentials.** A system user access token with only the WhatsApp permissions needed, stored in Secret Manager. The app secret (for signatures) and the webhook verify token are separate secrets. Connections hold only their names (`INBOX_…`, verify token at `<name>_VERIFY_TOKEN`). The token needs a separate reference; add a field rather than overloading `credentialReference`.
 2. **Connection check.** A server-side call reading the phone number's details with the token, started by an OWNER or ADMIN, recorded through a server-only operation (as Phase 6F does for calling providers). Only then can a connection become VERIFIED.
-3. **Sending.** `POST /{phone-number-id}/messages`: free-form text only inside the 24-hour window after the customer's last message; otherwise an approved template. Store the returned message ID (`wamid…`) on the message; mark it SENT only from that acknowledgement. Delivery and read receipts already work through the webhook.
+3. **Sending.** Implement `send` on the WhatsApp adapter and allow it in `canSend` and in `QueueInboxReply` only after approval. `POST /{phone-number-id}/messages`: free-form text only inside the 24-hour window after the customer's last message; otherwise an approved template. Store the returned message ID (`wamid…`) on the message; mark it SENT only from that acknowledgement. Delivery and read receipts already work through the webhook.
 4. **Media.** Incoming media arrives as a media ID. Download with the token (media URL lookup, then an authenticated download), check by content and size, store privately, and set `storagePath`. Attachments are already modelled for this.
 5. **Opt-out.** STOP messages add the number to the do-not-contact list (Phase 7A.6 builds the list integration); sending refuses suppressed numbers.
 6. **Tests.** Meta's test phone number and test webhooks in a non-production app; never real customers.

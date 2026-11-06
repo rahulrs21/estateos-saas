@@ -41,6 +41,10 @@ Text fields (task titles, messages, notes, reasons, instructions) are plain text
 | `call.completed`, `call.failed`, `call.missed` | `LogLeadCall`, `LogContactCall`, `ApplyProviderCallStatus` when a call ends: answered, failed, or an incoming call nobody answered. One per call (`call:<id>:final`); an unanswered outgoing attempt writes none | Call and its lead |
 | `call.summary_ready` | `CreateCallAiSummary` (with the lineage when a workflow made it) | Call and its lead |
 | `meeting.scheduled`, `meeting.completed` | `CreateMeeting`, `CompleteMeeting` | Meeting and its lead |
+| `inbox.message.received`, `inbox.conversation.created` | Inbox ingestion (one transaction with the message) | Conversation and its lead |
+| `inbox.conversation.assigned`, `inbox.conversation.resolved` | `AssignInboxConversation`, `AutomationReassignConversation`, `SetInboxConversationState` | Conversation and its lead |
+| `inbox.message.failed` | `FailInboxReply`, failed receipts (`ApplyInboxDeliveryStatus`) | Conversation and its lead |
+| `inbox.conversation.unanswered` | Worker scan: once per customer message that waited longer than the company's unanswered time with no later reply | Conversation and its lead |
 | `workflow.manual` | "Run now" (optionally for one lead) | Lead or none |
 | `workflow.scheduled` | Worker scheduler | None |
 
@@ -111,6 +115,8 @@ Inside its company lease the worker scans, at most once a minute and only while 
 | `delay`, `end`, `pause` | LOW | Engine control; `pause` pauses the workflow for review |
 | `approval.request` | LOW | Waits for an authorized decision to continue |
 | `lead.reassign` | MEDIUM | Always waits for approval of the exact change, then applies it with expected-state checks |
+| `inbox.draft_reply` | LOW | A Claude analysis and reply DRAFT on the conversation (7A.5), never sent; skipped when Claude is off for the inbox |
+| `inbox.reassign` | MEDIUM | Waits for an OWNER or ADMIN to approve the exact conversation reassignment, then applies it with expected-state checks; the lead's assignment is never changed |
 
 High-risk actions are not in the registry, so no definition can contain them. These include:
 

@@ -122,6 +122,25 @@ export async function simulateWebsiteEnquiry(context: Context, body: unknown) {
   return {accepted: true, pending: false, leadId};
 }
 
+const receiptSchema = z.strictObject({messageId: idSchema, status: z.enum(["DELIVERED", "READ", "FAILED"])});
+
+/**
+ * A delivery receipt for a simulated reply, through the same event pipeline as a
+ * provider webhook (forward-only rules, deduplication, the failure workflow event).
+ */
+export async function simulateReceipt(context: Context, body: unknown) {
+  requireSimulator(context);
+  const input = parseInput(receiptSchema, body);
+  const channel = await simulatorChannel(context);
+  const {message} = await asServer("InboxSimulatedOutbound", dc => sdk.inboxSimulatedOutbound(dc, {organizationId: context.organizationId, actorUid: actor(context), messageId: input.messageId}));
+  if (!message) throw new WorkspaceError("NOT_FOUND", 404, "Receipts can only be simulated for simulated replies.");
+  if (message.externalMessageId.startsWith("pending:")) throw new WorkspaceError("CONFLICT", 409, "This reply was not accepted by the simulator yet, so it has no receipt.");
+  const outcome = await receiveEvent({organizationId: context.organizationId, id: channel.id, provider: "DEVELOPMENT_SIMULATOR"}, {
+    kind: "STATUS", accountId: "simulator", externalMessageId: message.externalMessageId, status: input.status, raw: input.status.toLowerCase(), timestamp: new Date().toISOString(), errorCode: input.status === "FAILED" ? "SIMULATED" : null,
+  }, {payloadDigest: null, simulated: true});
+  return {status: outcome.status, result: outcome.status === "PROCESSED" ? outcome.result : null};
+}
+
 export async function resetInboxSimulation(context: Context) {
   requireSimulator(context);
   const result = await asServer("ResetInboxSimulation", dc => sdk.resetInboxSimulation(dc, {organizationId: context.organizationId, actorUid: actor(context)}));

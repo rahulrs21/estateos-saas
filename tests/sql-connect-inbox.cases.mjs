@@ -131,10 +131,10 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
     });
 
     it("keeps inbox settings to owners and administrators with compare-and-set", async () => {
-      await rejectsWith(run(sdk.saveInboxSettings, "agent-a", {organizationId: f.orgA, expectedRevision: 0, approvalRequired: false, retentionDays: 365, unansweredMinutes: 60}), "INBOX_ADMIN_REQUIRED");
-      await forbidden(sdk.saveInboxSettings, "owner-a", {organizationId: f.orgA, expectedRevision: 0, approvalRequired: true, retentionDays: 5, unansweredMinutes: 60});
-      await run(sdk.saveInboxSettings, "owner-a", {organizationId: f.orgA, expectedRevision: 0, approvalRequired: true, retentionDays: 365, unansweredMinutes: 60});
-      await rejectsWith(run(sdk.saveInboxSettings, "admin-a", {organizationId: f.orgA, expectedRevision: 0, approvalRequired: false, retentionDays: 365, unansweredMinutes: 60}), "INBOX_SETTINGS_CHANGED");
+      await rejectsWith(run(sdk.saveInboxSettings, "agent-a", {organizationId: f.orgA, expectedRevision: 0, approvalRequired: false, retentionDays: 365, unansweredMinutes: 60, aiEnabled: false}), "INBOX_ADMIN_REQUIRED");
+      await forbidden(sdk.saveInboxSettings, "owner-a", {organizationId: f.orgA, expectedRevision: 0, approvalRequired: true, retentionDays: 5, unansweredMinutes: 60, aiEnabled: false});
+      await run(sdk.saveInboxSettings, "owner-a", {organizationId: f.orgA, expectedRevision: 0, approvalRequired: true, retentionDays: 365, unansweredMinutes: 60, aiEnabled: false});
+      await rejectsWith(run(sdk.saveInboxSettings, "admin-a", {organizationId: f.orgA, expectedRevision: 0, approvalRequired: false, retentionDays: 365, unansweredMinutes: 60, aiEnabled: false}), "INBOX_SETTINGS_CHANGED");
       const {settings} = await run(sdk.getInboxSettings, "agent-a", {organizationId: f.orgA});
       assert.equal(settings.revision, 1);
       assert.equal(settings.retentionDays, 365);
@@ -239,6 +239,177 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       await rejectsWith(run(sdk.openInboxAttachment, "owner-a", {organizationId: f.orgA, conversationId: linked, id: blocked}), "INBOX_ATTACHMENT_UNAVAILABLE");
       const listed = (await run(sdk.listInboxMessages, "agent-a", {organizationId: f.orgA, conversationId: linked, limit: 30})).messages.find(row => key(row.id) === key(messageId));
       assert.equal(listed.attachments.length, 3);
+    });
+
+    // --- 7A.5: replies, approval, simulator-only delivery, assistant insights, workflows -------
+    const reply = async (uid, conversationId, id) => (await run(sdk.listInboxReplies, uid, {organizationId: f.orgA, conversationId})).conversation.jobs.find(job => key(job.id) === key(id));
+    const draft = async (uid, conversationId, content = "Thank you, the two-bedroom is still available. When would you like to view it?") => {
+      const id = randomUUID();
+      await run(sdk.createInboxReplyDraft, uid, {organizationId: f.orgA, id, conversationId, content});
+      return id;
+    };
+    /** Draft → checked → waiting for approval, as the given member. */
+    const pending = async (uid, conversationId) => {
+      const id = await draft(uid, conversationId);
+      await run(sdk.recordInboxReplyCheck, uid, {organizationId: f.orgA, id, expectedRevision: 1, valid: true, validationJson: "{\"valid\":true}"});
+      await run(sdk.submitInboxReply, uid, {organizationId: f.orgA, id, expectedRevision: 2, approvalRequired: true, notificationId: randomUUID()});
+      return id;
+    };
+    const decide = (uid, id, revision, approve, note = null) => run(sdk.decideInboxReply, uid, {organizationId: f.orgA, id, expectedRevision: revision, approve, note});
+    let simulated, approvedReal;
+
+    it("drafts, checks and approves replies on visible conversations, with separation of duties", async () => {
+      const id = await draft("agent-a", linked);
+      await rejectsWith(run(sdk.createInboxReplyDraft, "shared-agent", {organizationId: f.orgA, id: randomUUID(), conversationId: linked, content: "x"}), "INBOX_CONVERSATION_NOT_FOUND");
+      await forbidden(sdk.createInboxReplyDraft, "owner-b", {organizationId: f.orgA, id: randomUUID(), conversationId: linked, content: "x"});
+      await rejectsWith(run(sdk.listInboxReplies, "shared-agent", {organizationId: f.orgA, conversationId: linked}), "INBOX_CONVERSATION_NOT_FOUND");
+      let job = await reply("agent-a", linked, id);
+      assert.equal(job.stage, "DRAFT");
+      assert.equal(job.source, "AGENT");
+      assert.equal(job.lastEditedByUid, "agent-a");
+
+      await rejectsWith(run(sdk.submitInboxReply, "agent-a", {organizationId: f.orgA, id, expectedRevision: 1, approvalRequired: true, notificationId: randomUUID()}), "INBOX_REPLY_CHANGED");
+      await run(sdk.recordInboxReplyCheck, "agent-a", {organizationId: f.orgA, id, expectedRevision: 1, valid: false, validationJson: "{\"valid\":false}"});
+      assert.equal((await reply("agent-a", linked, id)).stage, "DRAFT", "a failed check keeps the draft");
+      await run(sdk.recordInboxReplyCheck, "agent-a", {organizationId: f.orgA, id, expectedRevision: 2, valid: true, validationJson: "{\"valid\":true}"});
+      await rejectsWith(run(sdk.submitInboxReply, "agent-a", {organizationId: f.orgA, id, expectedRevision: 3, approvalRequired: false, notificationId: randomUUID()}), "INBOX_SETTINGS_CHANGED");
+      await run(sdk.submitInboxReply, "agent-a", {organizationId: f.orgA, id, expectedRevision: 3, approvalRequired: true, notificationId: randomUUID()});
+      job = await reply("agent-a", linked, id);
+      assert.equal(job.stage, "PENDING_APPROVAL");
+      assert.ok(job.approvalRequestedAt);
+
+      await rejectsWith(decide("agent-a", id, 4, true), "INBOX_APPROVER_REQUIRED");
+      await rejectsWith(decide("manager-a", id, 4, true), "INBOX_REPLY_CHANGED", "a manager cannot approve a conversation they cannot see");
+      await forbidden(sdk.decideInboxReply, "admin-a", {organizationId: f.orgA, id, expectedRevision: 4, approve: false, note: null});
+      await decide("admin-a", id, 4, true);
+      job = await reply("agent-a", linked, id);
+      assert.equal(job.stage, "APPROVED");
+      assert.equal(job.approvedByUid, "admin-a");
+      assert.equal(job.selfApproved, false);
+      await rejectsWith(run(sdk.updateInboxReplyDraft, "agent-a", {organizationId: f.orgA, id, expectedRevision: 5, content: "Changed after approval", versionsJson: "[]"}), "INBOX_REPLY_CHANGED");
+      approvedReal = id;
+
+      // Authors and last editors cannot approve their own reply; an owner can, recorded as a self-approval.
+      const own = await pending("admin-a", linked);
+      await rejectsWith(decide("admin-a", own, 3, true), "INBOX_SELF_APPROVAL");
+      const edited = await draft("agent-a", linked);
+      await run(sdk.updateInboxReplyDraft, "admin-a", {organizationId: f.orgA, id: edited, expectedRevision: 1, content: "Edited by the administrator", versionsJson: "[{\"content\":\"x\"}]"});
+      const afterEdit = await reply("admin-a", linked, edited);
+      assert.equal(afterEdit.lastEditedByUid, "admin-a");
+      assert.equal(afterEdit.edited, true);
+      await run(sdk.recordInboxReplyCheck, "admin-a", {organizationId: f.orgA, id: edited, expectedRevision: 2, valid: true, validationJson: "{}"});
+      await run(sdk.submitInboxReply, "admin-a", {organizationId: f.orgA, id: edited, expectedRevision: 3, approvalRequired: true, notificationId: randomUUID()});
+      await rejectsWith(decide("admin-a", edited, 4, true), "INBOX_SELF_APPROVAL");
+      await decide("admin-a", edited, 4, false, "Please add the viewing time.");
+      const returned = await reply("agent-a", linked, edited);
+      assert.equal(returned.stage, "DRAFT", "a rejected reply returns to its author");
+      assert.equal(returned.approvalNote, "Please add the viewing time.");
+      const owners = await pending("owner-a", linked);
+      await decide("owner-a", owners, 3, true);
+      assert.equal((await reply("owner-a", linked, owners)).selfApproved, true);
+
+      await rejectsWith(run(sdk.cancelInboxReply, "shared-agent", {organizationId: f.orgA, id: own, expectedRevision: 3}), "INBOX_REPLY_CHANGED");
+      await rejectsWith(run(sdk.cancelInboxReply, "agent-a", {organizationId: f.orgA, id: own, expectedRevision: 3}), "INBOX_REPLY_FORBIDDEN", "an agent cannot cancel someone else's reply");
+      await run(sdk.cancelInboxReply, "admin-a", {organizationId: f.orgA, id: own, expectedRevision: 3});
+      assert.equal((await reply("admin-a", linked, own)).stage, "CANCELLED");
+      const audits = (await dc.executeGraphql(`query A($org: UUID!, $id: UUID!) { auditLogs(where: {organizationId: {eq: $org}, targetId: {eq: $id}, action: {eq: INBOX_OUTBOUND_CHANGED}}) { actorUid } }`, {variables: {org: f.orgA, id}})).data.auditLogs;
+      assert.ok(audits.length >= 3, "drafting, submission and the decision are audited");
+    });
+
+    it("queues only simulated conversations on the developer simulator, and marks SENT only on acknowledgement", async () => {
+      const queue = (id, conversationId, connection, content, revision) => server(sdk.queueInboxReply, {organizationId: f.orgA, id, expectedRevision: revision, conversationId, channelConnectionId: connection,
+        content, actorUid: "agent-a", messageId: randomUUID(), pendingExternalId: `pending:${id}`, recipientIdentity: PHONE, preview: content.slice(0, 50)});
+      const real = await reply("agent-a", linked, approvedReal);
+      await rejectsWith(queue(approvedReal, linked, connectionId, real.content, real.revision), "INBOX_SENDING_DISABLED");
+      await forbidden(sdk.queueInboxReply, "owner-a", {organizationId: f.orgA, id: approvedReal, expectedRevision: real.revision, conversationId: linked, channelConnectionId: connectionId, content: real.content,
+        actorUid: "owner-a", messageId: randomUUID(), pendingExternalId: "x", recipientIdentity: PHONE, preview: "x"});
+
+      const simulator = key((await server(sdk.inboxSimulatorChannel, {organizationId: f.orgA, actorUid: "owner-a"})).connections[0].id);
+      simulated = randomUUID();
+      await create({conversationId: simulated, channelConnectionId: simulator, customerIdentity: "+447700900613", senderIdentity: "+447700900613", assignedMembershipId: f.memberAgentA, simulated: true});
+      const id = await pending("agent-a", simulated);
+      await decide("admin-a", id, 3, true);
+      const job = await reply("agent-a", simulated, id);
+      await rejectsWith(queue(id, simulated, simulator, "Different text", job.revision), "INBOX_REPLY_CHANGED", "only the approved text can be queued");
+      const messageId = randomUUID();
+      await server(sdk.queueInboxReply, {organizationId: f.orgA, id, expectedRevision: job.revision, conversationId: simulated, channelConnectionId: simulator, content: job.content,
+        actorUid: "agent-a", messageId, pendingExternalId: `pending:${id}`, recipientIdentity: "+447700900613", preview: "Thank you"});
+      const queued = await reply("agent-a", simulated, id);
+      assert.equal(queued.stage, "QUEUED", "queueing is not sending");
+      let outbound = (await run(sdk.listInboxMessages, "agent-a", {organizationId: f.orgA, conversationId: simulated, limit: 5})).messages.find(row => key(row.id) === key(messageId));
+      assert.equal(outbound.deliveryStatus, "QUEUED");
+      assert.equal(outbound.direction, "OUTBOUND");
+      await rejectsWith(queue(id, simulated, simulator, job.content, job.revision), "INBOX_REPLY_CHANGED", "a reply is queued once");
+
+      await forbidden(sdk.acknowledgeInboxReply, "owner-a", {organizationId: f.orgA, id, conversationId: simulated, messageId, providerMessageId: "simwamid.x", actorUid: "owner-a"});
+      await server(sdk.acknowledgeInboxReply, {organizationId: f.orgA, id, conversationId: simulated, messageId, providerMessageId: `simwamid.${id}`, actorUid: "agent-a"});
+      assert.equal((await reply("agent-a", simulated, id)).stage, "SENT");
+      outbound = (await server(sdk.inboxMessageByExternalId, {organizationId: f.orgA, channelConnectionId: simulator, externalMessageId: `simwamid.${id}`})).messages[0];
+      assert.equal(outbound.deliveryStatus, "SENT", "receipts find the message by the provider's ID");
+      await rejectsWith(server(sdk.acknowledgeInboxReply, {organizationId: f.orgA, id, conversationId: simulated, messageId, providerMessageId: "simwamid.again", actorUid: "agent-a"}), "INBOX_REPLY_CHANGED");
+
+      const failing = await pending("agent-a", simulated);
+      await decide("admin-a", failing, 3, true);
+      const failingJob = await reply("agent-a", simulated, failing);
+      const failedMessage = randomUUID();
+      await server(sdk.queueInboxReply, {organizationId: f.orgA, id: failing, expectedRevision: failingJob.revision, conversationId: simulated, channelConnectionId: simulator, content: failingJob.content,
+        actorUid: "agent-a", messageId: failedMessage, pendingExternalId: `pending:${failing}`, recipientIdentity: "+447700900613", preview: "x"});
+      await server(sdk.failInboxReply, {organizationId: f.orgA, id: failing, conversationId: simulated, messageId: failedMessage, reason: "Refused by the test adapter", actorUid: "agent-a"});
+      const failed = await reply("agent-a", simulated, failing);
+      assert.equal(failed.stage, "FAILED");
+      assert.equal(failed.failureReason, "Refused by the test adapter");
+      assert.ok((await events(simulated)).includes("inbox.message.failed"));
+
+      // An opted-out customer cannot be sent to, even on the simulator.
+      const stop = randomUUID();
+      await create({conversationId: stop, channelConnectionId: simulator, customerIdentity: "+447700900614", senderIdentity: "+447700900614", assignedMembershipId: f.memberAgentA, simulated: true, optedOut: true, content: "STOP"});
+      const blocked = await pending("agent-a", stop);
+      await decide("admin-a", blocked, 3, true);
+      const blockedJob = await reply("agent-a", stop, blocked);
+      await rejectsWith(queue(blocked, stop, simulator, blockedJob.content, blockedJob.revision), "INBOX_SENDING_DISABLED");
+    });
+
+    it("stores Claude insights and drafts only through the server, visible like their conversation", async () => {
+      const insight = {organizationId: f.orgA, conversationId: linked, actorUid: "agent-a", insightJson: "{\"summary\":\"Synthetic\"}", unverifiedCount: 1, coveredUntil: null,
+        model: "test-model", promptVersion: "inbox-assistant-1", source: "CLAUDE"};
+      const id = randomUUID(), draftJobId = randomUUID();
+      await forbidden(sdk.saveInboxAiInsight, "agent-a", {...insight, id, hasDraft: false, draftJobId: null, draftContent: ""});
+      await rejectsWith(server(sdk.saveInboxAiInsight, {...insight, id: randomUUID(), actorUid: "owner-b", hasDraft: false, draftJobId: null, draftContent: ""}), "ACTIVE_MEMBERSHIP_REQUIRED");
+      await server(sdk.saveInboxAiInsight, {...insight, id, hasDraft: true, draftJobId, draftContent: "Thank you for your message."});
+      await assert.rejects(server(sdk.saveInboxAiInsight, {...insight, id, hasDraft: false, draftJobId: null, draftContent: ""}), "a repeated workflow step finds the same insight");
+      const view = (await run(sdk.listInboxReplies, "agent-a", {organizationId: f.orgA, conversationId: linked})).conversation;
+      assert.equal(key(view.insights[0].id), key(id));
+      const job = view.jobs.find(row => key(row.id) === key(draftJobId));
+      assert.equal(job.stage, "DRAFT", "Claude's reply is only a draft");
+      assert.equal(job.source, "CLAUDE");
+      assert.equal(job.edited, false);
+      await rejectsWith(run(sdk.listInboxReplies, "shared-agent", {organizationId: f.orgA, conversationId: linked}), "INBOX_CONVERSATION_NOT_FOUND");
+      const facts = await server(sdk.inboxReplyFacts, {organizationId: f.orgA, id: draftJobId});
+      assert.equal(key(facts.insight[0].id), key(id), "the server finds the analysis behind a draft");
+      assert.equal(facts.job.conversation.channel, "WHATSAPP");
+      await forbidden(sdk.inboxReplyFacts, "owner-a", {organizationId: f.orgA, id: draftJobId});
+      const restrictions = await server(sdk.inboxContactRestrictions, {organizationId: f.orgA, identity: PHONE});
+      assert.equal(restrictions.emails.length, 0);
+    });
+
+    it("gives workflows conversation facts and unanswered candidates, and guards approved reassignments", async () => {
+      const {conversation} = await run(sdk.automationFacts, "owner-a", {organizationId: f.orgA, since: new Date(0).toISOString(), hasLead: false, hasListing: false, hasViewing: false, hasFollowUp: false,
+        hasWorkTask: false, hasContact: false, conversationId: simulated, hasConversation: true});
+      assert.equal(conversation.simulated, true);
+      assert.equal(key(conversation.assignedMembershipId), key(f.memberAgentA));
+      const window = await server(sdk.unansweredInboxCandidates, {organizationId: f.orgA, from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date(Date.now() + 1000).toISOString(), limit: 50});
+      const row = window.conversations.find(item => key(item.id) === key(simulated));
+      assert.ok(row && row.lastOutboundAt && Date.parse(row.lastOutboundAt) >= Date.parse(row.lastInboundAt), "the sent reply answered it, so the server skips it");
+      assert.equal((await server(sdk.inboxUnansweredMinutes, {organizationId: f.orgA})).settings.unansweredMinutes, 60);
+      await forbidden(sdk.unansweredInboxCandidates, "owner-a", {organizationId: f.orgA, from: new Date(0).toISOString(), to: new Date().toISOString(), limit: 5});
+
+      const reassign = {organizationId: f.orgA, conversationId: simulated, expectedMembershipId: f.memberAgentA, toMembershipId: f.memberSharedA, approvalId: randomUUID(), executionId: randomUUID(),
+        historyId: randomUUID(), eventId: randomUUID(), originalEventId: randomUUID(), originWorkflowId: randomUUID(), chainDepth: 1};
+      await rejectsWith(run(sdk.automationReassignConversation, "agent-a", reassign), "EXECUTOR_NOT_AUTHORIZED");
+      await rejectsWith(run(sdk.automationReassignConversation, "owner-a", reassign), "AUTOMATION_APPROVAL_CHANGED", "nothing moves without an approved approval");
+      await rejectsWith(run(sdk.automationReassignConversation, "owner-a", {...reassign, expectedMembershipId: f.memberSharedA}), "AUTOMATION_TARGET_CHANGED");
+      const state = (await server(sdk.automationConversationState, {organizationId: f.orgA, id: simulated})).conversation;
+      assert.equal(key(state.assignedMembershipId), key(f.memberAgentA), "the conversation is unchanged");
     });
   });
 }

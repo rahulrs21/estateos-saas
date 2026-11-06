@@ -43,7 +43,7 @@ async function enforceRate(request: Request, context: Context, config: AiConfig)
 }
 
 /** Records one Claude request in AiUsageRecord (server-only operation: the company and user come from the verified context). */
-export async function recordCommunicationAiUsage(context: Context, config: AiConfig, input: {result: StructuredResult<unknown>; durationMs: number; feature: "CALL_AI" | "VOICE_ASSISTANT"; contentType: string; promptVersion: string}) {
+export async function recordCommunicationAiUsage(context: Context, config: AiConfig, input: {result: StructuredResult<unknown>; durationMs: number; feature: "CALL_AI" | "VOICE_ASSISTANT" | "INBOX_AI"; contentType: string; promptVersion: string}) {
   const {result} = input;
   const model = result.servedModel ?? config.model;
   const estimatedCostUsd = estimateCostUsd(model === config.model ? config.pricing : pricingFor(model), result.usage);

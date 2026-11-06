@@ -22,6 +22,7 @@ export function newStep(type: ActionType, taken: string[]): EditableStep {
     case "task.create": return {id, type, title: "Follow up with {{lead.fullName}}", dueMinutes: 60, assignee: "ASSIGNEE", when: null};
     case "notification.create": return {id, type, audience: "ASSIGNEE", title: "{{workflow.name}}", message: "Please review {{lead.fullName}}.", when: null};
     case "lead.reassign": return {id, type, membershipId: null, reason: "No contact within the agreed time.", expiresMinutes: 1440, when: null};
+    case "inbox.reassign": return {id, type, membershipId: null, reason: "The customer has waited too long for a reply.", expiresMinutes: 1440, when: null};
     case "lead.activity": return {id, type, note: "Checked by {{workflow.name}}.", when: null};
     case "viewing.followup": return {id, type, title: "Follow up the viewing with {{lead.fullName}}", dueMinutes: 1440, when: null};
     case "ai.draft": return {id, type, contentType: "WHATSAPP_MESSAGE", instructions: "A short, friendly follow-up message.", when: null};
@@ -90,6 +91,16 @@ export function StepEditor({step, trigger, agents, onChange}: {step: EditableSte
         <Duration id={`${key}-expires`} label="Approval expires after" minutes={step.expiresMinutes ?? 1440} max={10_080} onChange={expiresMinutes => set({expiresMinutes: Math.max(15, expiresMinutes)})} />
         <p className="text-xs text-muted-foreground">Medium risk: always waits for an authorized member to approve the exact change.</p>
       </>;
+      case "inbox.reassign": return <>
+        <div className="space-y-1.5"><Label htmlFor={`${key}-member`}>Reassign to</Label>
+          <select id={`${key}-member`} className={selectClass} value={step.membershipId ?? ""} onChange={event => set({membershipId: event.target.value || null})}>
+            <option value="">The linked lead&apos;s agent</option>
+            {agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+          </select></div>
+        <Text id={`${key}-reason`} label="Reason shown to the approver" value={step.reason} max={300} multiline onChange={reason => set({reason})} />
+        <Duration id={`${key}-expires`} label="Approval expires after" minutes={step.expiresMinutes ?? 1440} max={10_080} onChange={expiresMinutes => set({expiresMinutes: Math.max(15, expiresMinutes)})} />
+        <p className="text-xs text-muted-foreground">Medium risk: an owner or administrator approves the exact change. Only the conversation moves; the lead&apos;s assignment is not changed.</p>
+      </>;
       case "lead.activity": return <Text id={`${key}-note`} label="Note" value={step.note} max={500} multiline onChange={note => set({note})} />;
       case "viewing.followup": return <>
         <Text id={`${key}-title`} label="Follow-up title" value={step.title} max={200} onChange={title => set({title})} />
@@ -112,7 +123,7 @@ export function StepEditor({step, trigger, agents, onChange}: {step: EditableSte
       default: return <p className="text-sm text-muted-foreground">{ACTIONS[step.type].description}</p>;
     }
   })();
-  const text = ["task.create", "notification.create", "lead.activity", "viewing.followup", "lead.reassign", "approval.request"].includes(step.type);
+  const text = ["task.create", "notification.create", "lead.activity", "viewing.followup", "lead.reassign", "inbox.reassign", "approval.request"].includes(step.type);
   return <div className="space-y-4">
     <div>
       <h3 className="font-semibold">{ACTIONS[step.type].label}</h3>

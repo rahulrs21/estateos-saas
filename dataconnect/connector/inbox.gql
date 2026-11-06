@@ -244,18 +244,18 @@ mutation MarkInboxConversationRead($organizationId: UUID!, $id: UUID!)
 query GetInboxSettings($organizationId: UUID!)
   @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
   me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
-  settings: inboxSettings(key: {organizationId: $organizationId}) {revision approvalRequired retentionDays unansweredMinutes updatedAt}
+  settings: inboxSettings(key: {organizationId: $organizationId}) {revision approvalRequired retentionDays unansweredMinutes aiEnabled updatedAt}
 }
 
-mutation SaveInboxSettings($organizationId: UUID!, $expectedRevision: Int!, $approvalRequired: Boolean!, $retentionDays: Int!, $unansweredMinutes: Int!)
+mutation SaveInboxSettings($organizationId: UUID!, $expectedRevision: Int!, $approvalRequired: Boolean!, $retentionDays: Int!, $unansweredMinutes: Int!, $aiEnabled: Boolean!)
   @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.retentionDays >= 30 && vars.retentionDays <= 3650 && vars.unansweredMinutes >= 15 && vars.unansweredMinutes <= 10080") @transaction {
   admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED")
   before: query @redact @check(expr: "vars.expectedRevision == (this.settings == null ? 0 : this.settings.revision)", message: "INBOX_SETTINGS_CHANGED") {
     settings: inboxSettings(key: {organizationId: $organizationId}) {revision}
   }
-  settings: inboxSettings_upsert(data: {organizationId: $organizationId, approvalRequired: $approvalRequired, retentionDays: $retentionDays, unansweredMinutes: $unansweredMinutes, revision_expr: "vars.expectedRevision + 1", updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
+  settings: inboxSettings_upsert(data: {organizationId: $organizationId, approvalRequired: $approvalRequired, retentionDays: $retentionDays, unansweredMinutes: $unansweredMinutes, aiEnabled: $aiEnabled, revision_expr: "vars.expectedRevision + 1", updatedByUid_expr: "auth.uid", updatedAt_expr: "request.time"})
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_SETTINGS_UPDATED, targetType: ORGANIZATION, targetId: $organizationId,
-    metadata_expr: "{'approvalRequired': vars.approvalRequired, 'retentionDays': vars.retentionDays, 'unansweredMinutes': vars.unansweredMinutes}"})
+    metadata_expr: "{'approvalRequired': vars.approvalRequired, 'retentionDays': vars.retentionDays, 'unansweredMinutes': vars.unansweredMinutes, 'aiEnabled': vars.aiEnabled}"})
 }
 
 # The identities of a lead's contact or a contact the member may access, to tell them

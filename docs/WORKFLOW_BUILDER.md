@@ -41,6 +41,7 @@ Templates live in `templates.ts`. Each is an ordinary definition with safe defau
 | G | Missed call follow-up | `call.missed` | Call-back follow-up due in 30 minutes → notify the agent |
 | H | Summarise answered calls | `call.completed` | Wait 30 minutes for notes → Claude call summary (needs Claude call analysis and an owner or administrator as executor) |
 | I | Meeting follow-up | `meeting.completed` | Follow-up for the next day |
+| J | Unanswered inbox conversation | `inbox.conversation.unanswered` (unanswered, not opted out) | Notify the assignee → notify managers → reply task for the assignee (nothing is sent to the customer) |
 
 ## Claude workflow drafts
 

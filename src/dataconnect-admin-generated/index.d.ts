@@ -128,6 +128,7 @@ export enum ActivityKind {
   INBOX_OUTBOUND_CHANGED = "INBOX_OUTBOUND_CHANGED",
   INBOX_SETTINGS_UPDATED = "INBOX_SETTINGS_UPDATED",
   INBOX_ATTACHMENT_ACCESSED = "INBOX_ATTACHMENT_ACCESSED",
+  INBOX_AI_GENERATED = "INBOX_AI_GENERATED",
 }
 export enum AgentAvailabilityStatus {
   AVAILABLE = "AVAILABLE",
@@ -710,6 +711,16 @@ export enum OccupancyStatus {
   TENANTED = "TENANTED",
   UNDER_CONSTRUCTION = "UNDER_CONSTRUCTION",
 }
+export enum OutboundStage {
+  DRAFT = "DRAFT",
+  VALIDATED = "VALIDATED",
+  PENDING_APPROVAL = "PENDING_APPROVAL",
+  APPROVED = "APPROVED",
+  QUEUED = "QUEUED",
+  SENT = "SENT",
+  FAILED = "FAILED",
+  CANCELLED = "CANCELLED",
+}
 export enum OwnershipType {
   FREEHOLD = "FREEHOLD",
   LEASEHOLD = "LEASEHOLD",
@@ -844,6 +855,21 @@ export interface AcceptInvitationVariables {
   membershipId: UUIDString;
   tokenHash: string;
   displayName?: string;
+}
+
+export interface AcknowledgeInboxReplyData {
+  job?: OutboundMessageJob_Key | null;
+  message?: InboxMessage_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface AcknowledgeInboxReplyVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  conversationId: UUIDString;
+  messageId: UUIDString;
+  providerMessageId: string;
+  actorUid: string;
 }
 
 export interface ActivateAutomationWorkflowData {
@@ -1426,6 +1452,19 @@ export interface AutomationApproval_Key {
   __typename?: 'AutomationApproval_Key';
 }
 
+export interface AutomationConversationStateData {
+  conversation?: {
+    id: UUIDString;
+    assignedMembershipId?: UUIDString | null;
+    status: InboxConversationStatus;
+  };
+}
+
+export interface AutomationConversationStateVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
 export interface AutomationCreateLeadFollowUpData {
   followUp: LeadFollowUp_Key;
   activity_insert: Activity_Key;
@@ -1611,6 +1650,21 @@ export interface AutomationFactsData {
     email?: string | null;
     phone?: string | null;
   };
+  conversation?: {
+    id: UUIDString;
+    channel: InboxChannel;
+    status: InboxConversationStatus;
+    priority: InboxPriority;
+    assignedMembershipId?: UUIDString | null;
+    leadId?: UUIDString | null;
+    contactId?: UUIDString | null;
+    customerName?: string | null;
+    optedOut: boolean;
+    unreadCount: number;
+    lastInboundAt?: TimestampString | null;
+    lastOutboundAt?: TimestampString | null;
+    simulated: boolean;
+  };
 }
 
 export interface AutomationFactsVariables {
@@ -1632,6 +1686,8 @@ export interface AutomationFactsVariables {
   hasCall?: boolean;
   meetingId?: UUIDString | null;
   hasMeeting?: boolean;
+  conversationId?: UUIDString | null;
+  hasConversation?: boolean;
 }
 
 export interface AutomationMetricsData {
@@ -1675,6 +1731,29 @@ export interface AutomationNotifyVariables {
 export interface AutomationOrgState_Key {
   organizationId: UUIDString;
   __typename?: 'AutomationOrgState_Key';
+}
+
+export interface AutomationReassignConversationData {
+  conversation?: InboxConversation_Key | null;
+  executed?: AutomationApproval_Key | null;
+  inboxAssignmentHistory_insert: InboxAssignmentHistory_Key;
+  auditLog_insert: AuditLog_Key;
+  inAppNotification_insert: InAppNotification_Key;
+  automationEvent_insert: AutomationEvent_Key;
+}
+
+export interface AutomationReassignConversationVariables {
+  organizationId: UUIDString;
+  conversationId: UUIDString;
+  expectedMembershipId?: UUIDString | null;
+  toMembershipId: UUIDString;
+  approvalId: UUIDString;
+  executionId: UUIDString;
+  historyId: UUIDString;
+  eventId: UUIDString;
+  originalEventId: UUIDString;
+  originWorkflowId: UUIDString;
+  chainDepth: number;
 }
 
 export interface AutomationReassignLeadData {
@@ -1865,6 +1944,17 @@ export interface CallTranscript_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'CallTranscript_Key';
+}
+
+export interface CancelInboxReplyData {
+  outboundMessageJob_update?: OutboundMessageJob_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CancelInboxReplyVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
 }
 
 export interface ChangeLeadStatusData {
@@ -2688,6 +2778,18 @@ export interface CreateInboxConversationWithMessageVariables {
   optedOut: boolean;
 }
 
+export interface CreateInboxReplyDraftData {
+  outboundMessageJob_insert: OutboundMessageJob_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CreateInboxReplyDraftVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  conversationId: UUIDString;
+  content: string;
+}
+
 export interface CreateInboxSimulatorChannelData {
   channelConnection_insert: ChannelConnection_Key;
   auditLog_insert: AuditLog_Key;
@@ -3212,6 +3314,20 @@ export interface DecideCallAiSuggestionVariables {
   resultId?: UUIDString | null;
 }
 
+export interface DecideInboxReplyData {
+  approved?: OutboundMessageJob_Key | null;
+  rejected?: OutboundMessageJob_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface DecideInboxReplyVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  approve: boolean;
+  note?: string | null;
+}
+
 export interface DecideMeetingSuggestionData {
   meeting?: CommunicationMeeting_Key | null;
   auditLog_insert: AuditLog_Key;
@@ -3427,6 +3543,22 @@ export interface FailInboxEventVariables {
   expectedAttempts: number;
   errorCode: string;
   nextAttemptAt: TimestampString;
+}
+
+export interface FailInboxReplyData {
+  job?: OutboundMessageJob_Key | null;
+  message?: InboxMessage_Key | null;
+  failed: AutomationEvent_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface FailInboxReplyVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  conversationId: UUIDString;
+  messageId: UUIDString;
+  reason: string;
+  actorUid: string;
 }
 
 export interface FeedGenerationJob_Key {
@@ -3948,6 +4080,7 @@ export interface GetAutomationApprovalTargetData {
     id: UUIDString;
     status: AutomationApprovalStatus;
     actionType: string;
+    targetId?: UUIDString | null;
     leadId?: UUIDString | null;
     requestedByUid: string;
     targetStateHash: string;
@@ -4719,6 +4852,7 @@ export interface GetInboxSettingsData {
     approvalRequired: boolean;
     retentionDays: number;
     unansweredMinutes: number;
+    aiEnabled: boolean;
     updatedAt: TimestampString;
   };
 }
@@ -6314,6 +6448,12 @@ export interface InAppNotification_Key {
   __typename?: 'InAppNotification_Key';
 }
 
+export interface InboxAiInsight_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'InboxAiInsight_Key';
+}
+
 export interface InboxAssigneesData {
   me?: {
     id: UUIDString;
@@ -6342,6 +6482,21 @@ export interface InboxAttachment_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'InboxAttachment_Key';
+}
+
+export interface InboxContactRestrictionsData {
+  numbers: ({
+    id: UUIDString;
+    scope: CommunicationSuppressionScope;
+  })[];
+  emails: ({
+    id: UUIDString;
+  })[];
+}
+
+export interface InboxContactRestrictionsVariables {
+  organizationId: UUIDString;
+  identity: string;
 }
 
 export interface InboxConversation_Key {
@@ -6538,9 +6693,71 @@ export interface InboxNote_Key {
   __typename?: 'InboxNote_Key';
 }
 
+export interface InboxReplyFactsData {
+  job?: {
+    id: UUIDString;
+    stage: OutboundStage;
+    revision: number;
+    content: string;
+    source: string;
+    edited: boolean;
+    createdByUid: string;
+    lastEditedByUid?: string | null;
+    conversationId: UUIDString;
+    versionsJson: string;
+    messageId?: UUIDString | null;
+    conversation: {
+      id: UUIDString;
+      channel: InboxChannel;
+      simulated: boolean;
+      optedOut: boolean;
+      lastInboundAt?: TimestampString | null;
+      customerIdentity: string;
+      channelConnectionId?: UUIDString | null;
+      channelConnection?: {
+        id: UUIDString;
+        provider: ChannelProvider;
+        connectionStatus: ChannelConnectionStatus;
+        sendingEnabled: boolean;
+      };
+    };
+  };
+  insight: ({
+    id: UUIDString;
+    insightJson: string;
+  })[];
+  settings?: {
+    approvalRequired: boolean;
+    aiEnabled: boolean;
+  };
+}
+
+export interface InboxReplyFactsVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
 export interface InboxSettings_Key {
   organizationId: UUIDString;
   __typename?: 'InboxSettings_Key';
+}
+
+export interface InboxSimulatedOutboundData {
+  admin?: {
+    id: UUIDString;
+  };
+  message?: {
+    id: UUIDString;
+    conversationId: UUIDString;
+    externalMessageId: string;
+    deliveryStatus: InboxDeliveryStatus;
+  };
+}
+
+export interface InboxSimulatedOutboundVariables {
+  organizationId: UUIDString;
+  actorUid: string;
+  messageId: UUIDString;
 }
 
 export interface InboxSimulatorChannelData {
@@ -6567,6 +6784,16 @@ export interface InboxSimulatorChannelData {
 export interface InboxSimulatorChannelVariables {
   organizationId: UUIDString;
   actorUid: string;
+}
+
+export interface InboxUnansweredMinutesData {
+  settings?: {
+    unansweredMinutes: number;
+  };
+}
+
+export interface InboxUnansweredMinutesVariables {
+  organizationId: UUIDString;
 }
 
 export interface InboxWebhookConnectionData {
@@ -8016,6 +8243,69 @@ export interface ListInboxMessagesVariables {
   limit?: number;
   cursorAt?: TimestampString | null;
   seenIds?: UUIDString[] | null;
+}
+
+export interface ListInboxRepliesData {
+  me?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  settings?: {
+    approvalRequired: boolean;
+    aiEnabled: boolean;
+  };
+  conversation?: {
+    id: UUIDString;
+    jobs: ({
+      id: UUIDString;
+      stage: OutboundStage;
+      source: string;
+      content: string;
+      versionsJson: string;
+      validationJson?: string | null;
+      edited: boolean;
+      createdByUid: string;
+      createdBy: {
+        displayName: string;
+      };
+      lastEditedByUid?: string | null;
+      lastEditedBy?: {
+        displayName: string;
+      };
+      approvalRequestedAt?: TimestampString | null;
+      approvedByUid?: string | null;
+      approvedBy?: {
+        displayName: string;
+      };
+      approvedAt?: TimestampString | null;
+      approvalNote?: string | null;
+      selfApproved: boolean;
+      messageId?: UUIDString | null;
+      providerMessageId?: string | null;
+      failureReason?: string | null;
+      revision: number;
+      createdAt: TimestampString;
+      updatedAt: TimestampString;
+    })[];
+    insights: ({
+      id: UUIDString;
+      insightJson: string;
+      unverifiedCount: number;
+      coveredUntil?: TimestampString | null;
+      draftJobId?: UUIDString | null;
+      model: string;
+      source: string;
+      createdAt: TimestampString;
+      createdBy: {
+        displayName: string;
+      };
+    })[];
+  };
+}
+
+export interface ListInboxRepliesVariables {
+  organizationId: UUIDString;
+  conversationId: UUIDString;
 }
 
 export interface ListInventoryAmenitiesData {
@@ -10536,6 +10826,27 @@ export interface PurgeMyExpiredAiConversationsVariables {
   before: TimestampString;
 }
 
+export interface QueueInboxReplyData {
+  message: InboxMessage_Key;
+  job?: OutboundMessageJob_Key | null;
+  conversation?: InboxConversation_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface QueueInboxReplyVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  conversationId: UUIDString;
+  channelConnectionId: UUIDString;
+  content: string;
+  actorUid: string;
+  messageId: UUIDString;
+  pendingExternalId: string;
+  recipientIdentity: string;
+  preview: string;
+}
+
 export interface QueueManualAutomationRunData {
   event: AutomationEvent_Key;
   auditLog_insert: AuditLog_Key;
@@ -10716,6 +11027,19 @@ export interface RecordInboxEventVariables {
   payloadDigest?: string | null;
   normalizedJson: string;
   simulated: boolean;
+}
+
+export interface RecordInboxReplyCheckData {
+  passed?: OutboundMessageJob_Key | null;
+  failed?: OutboundMessageJob_Key | null;
+}
+
+export interface RecordInboxReplyCheckVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  valid: boolean;
+  validationJson: string;
 }
 
 export interface RecordInvitationDeliveryData {
@@ -11039,6 +11363,7 @@ export interface ResetInboxSimulationData {
   messages: number;
   notes: number;
   history: number;
+  insights: number;
   jobs: number;
   events: number;
   conversations: number;
@@ -11231,6 +11556,28 @@ export interface SaveAutomationWorkflowVariables {
   timeZone: string;
 }
 
+export interface SaveInboxAiInsightData {
+  insight: InboxAiInsight_Key;
+  draft: OutboundMessageJob_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SaveInboxAiInsightVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  conversationId: UUIDString;
+  actorUid: string;
+  insightJson: string;
+  unverifiedCount: number;
+  coveredUntil?: TimestampString | null;
+  model: string;
+  promptVersion: string;
+  source: string;
+  hasDraft: boolean;
+  draftJobId?: UUIDString | null;
+  draftContent: string;
+}
+
 export interface SaveInboxSettingsData {
   settings: InboxSettings_Key;
   auditLog_insert: AuditLog_Key;
@@ -11242,6 +11589,7 @@ export interface SaveInboxSettingsVariables {
   approvalRequired: boolean;
   retentionDays: number;
   unansweredMinutes: number;
+  aiEnabled: boolean;
 }
 
 export interface SaveLeadDistributionSettingsData {
@@ -11785,6 +12133,21 @@ export interface SubmitAutomationWorkflowVariables {
   expectedRevision: number;
 }
 
+export interface SubmitInboxReplyData {
+  pending?: OutboundMessageJob_Key | null;
+  approved?: OutboundMessageJob_Key | null;
+  inAppNotification_insert: InAppNotification_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SubmitInboxReplyVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  approvalRequired: boolean;
+  notificationId: UUIDString;
+}
+
 export interface SubmitWebsiteLeadCaptureData {
   advanceCursor?: DistributionCursor_Key | null;
   contact: Contact_Key;
@@ -11862,6 +12225,23 @@ export interface SwitchOrganizationData {
 
 export interface SwitchOrganizationVariables {
   organizationId: UUIDString;
+}
+
+export interface UnansweredInboxCandidatesData {
+  conversations: ({
+    id: UUIDString;
+    leadId?: UUIDString | null;
+    lastInboundAt?: TimestampString | null;
+    lastOutboundAt?: TimestampString | null;
+    simulated: boolean;
+  })[];
+}
+
+export interface UnansweredInboxCandidatesVariables {
+  organizationId: UUIDString;
+  from: TimestampString;
+  to: TimestampString;
+  limit?: number;
 }
 
 export interface UnassignLeadData {
@@ -12115,6 +12495,19 @@ export interface UpdateFloorPlanVariables {
   plotArea?: number | null;
   areaUnit: AreaUnit;
   mediaReference?: string | null;
+}
+
+export interface UpdateInboxReplyDraftData {
+  job?: OutboundMessageJob_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface UpdateInboxReplyDraftVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  content: string;
+  versionsJson: string;
 }
 
 export interface UpdateInventoryMediaOrderData {
@@ -12827,6 +13220,11 @@ export function getAutomationApprovalTarget(dc: DataConnect, vars: GetAutomation
 /** Generated Node Admin SDK operation action function for the 'GetAutomationApprovalTarget' Query. Allow users to pass in custom DataConnect instances. */
 export function getAutomationApprovalTarget(vars: GetAutomationApprovalTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetAutomationApprovalTargetData>>;
 
+/** Generated Node Admin SDK operation action function for the 'AutomationReassignConversation' Mutation. Allow users to execute without passing in DataConnect. */
+export function automationReassignConversation(dc: DataConnect, vars: AutomationReassignConversationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationReassignConversationData>>;
+/** Generated Node Admin SDK operation action function for the 'AutomationReassignConversation' Mutation. Allow users to pass in custom DataConnect instances. */
+export function automationReassignConversation(vars: AutomationReassignConversationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationReassignConversationData>>;
+
 /** Generated Node Admin SDK operation action function for the 'ListAutomationWorkflows' Query. Allow users to execute without passing in DataConnect. */
 export function listAutomationWorkflows(dc: DataConnect, vars: ListAutomationWorkflowsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationWorkflowsData>>;
 /** Generated Node Admin SDK operation action function for the 'ListAutomationWorkflows' Query. Allow users to pass in custom DataConnect instances. */
@@ -13457,6 +13855,51 @@ export function withdrawCommunicationSuppression(dc: DataConnect, vars: Withdraw
 /** Generated Node Admin SDK operation action function for the 'WithdrawCommunicationSuppression' Mutation. Allow users to pass in custom DataConnect instances. */
 export function withdrawCommunicationSuppression(vars: WithdrawCommunicationSuppressionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<WithdrawCommunicationSuppressionData>>;
 
+/** Generated Node Admin SDK operation action function for the 'InboxReplyFacts' Query. Allow users to execute without passing in DataConnect. */
+export function inboxReplyFacts(dc: DataConnect, vars: InboxReplyFactsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxReplyFactsData>>;
+/** Generated Node Admin SDK operation action function for the 'InboxReplyFacts' Query. Allow users to pass in custom DataConnect instances. */
+export function inboxReplyFacts(vars: InboxReplyFactsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxReplyFactsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'InboxContactRestrictions' Query. Allow users to execute without passing in DataConnect. */
+export function inboxContactRestrictions(dc: DataConnect, vars: InboxContactRestrictionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxContactRestrictionsData>>;
+/** Generated Node Admin SDK operation action function for the 'InboxContactRestrictions' Query. Allow users to pass in custom DataConnect instances. */
+export function inboxContactRestrictions(vars: InboxContactRestrictionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxContactRestrictionsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'QueueInboxReply' Mutation. Allow users to execute without passing in DataConnect. */
+export function queueInboxReply(dc: DataConnect, vars: QueueInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<QueueInboxReplyData>>;
+/** Generated Node Admin SDK operation action function for the 'QueueInboxReply' Mutation. Allow users to pass in custom DataConnect instances. */
+export function queueInboxReply(vars: QueueInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<QueueInboxReplyData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AcknowledgeInboxReply' Mutation. Allow users to execute without passing in DataConnect. */
+export function acknowledgeInboxReply(dc: DataConnect, vars: AcknowledgeInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AcknowledgeInboxReplyData>>;
+/** Generated Node Admin SDK operation action function for the 'AcknowledgeInboxReply' Mutation. Allow users to pass in custom DataConnect instances. */
+export function acknowledgeInboxReply(vars: AcknowledgeInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AcknowledgeInboxReplyData>>;
+
+/** Generated Node Admin SDK operation action function for the 'FailInboxReply' Mutation. Allow users to execute without passing in DataConnect. */
+export function failInboxReply(dc: DataConnect, vars: FailInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FailInboxReplyData>>;
+/** Generated Node Admin SDK operation action function for the 'FailInboxReply' Mutation. Allow users to pass in custom DataConnect instances. */
+export function failInboxReply(vars: FailInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FailInboxReplyData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SaveInboxAiInsight' Mutation. Allow users to execute without passing in DataConnect. */
+export function saveInboxAiInsight(dc: DataConnect, vars: SaveInboxAiInsightVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveInboxAiInsightData>>;
+/** Generated Node Admin SDK operation action function for the 'SaveInboxAiInsight' Mutation. Allow users to pass in custom DataConnect instances. */
+export function saveInboxAiInsight(vars: SaveInboxAiInsightVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveInboxAiInsightData>>;
+
+/** Generated Node Admin SDK operation action function for the 'InboxUnansweredMinutes' Query. Allow users to execute without passing in DataConnect. */
+export function inboxUnansweredMinutes(dc: DataConnect, vars: InboxUnansweredMinutesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxUnansweredMinutesData>>;
+/** Generated Node Admin SDK operation action function for the 'InboxUnansweredMinutes' Query. Allow users to pass in custom DataConnect instances. */
+export function inboxUnansweredMinutes(vars: InboxUnansweredMinutesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxUnansweredMinutesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UnansweredInboxCandidates' Query. Allow users to execute without passing in DataConnect. */
+export function unansweredInboxCandidates(dc: DataConnect, vars: UnansweredInboxCandidatesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UnansweredInboxCandidatesData>>;
+/** Generated Node Admin SDK operation action function for the 'UnansweredInboxCandidates' Query. Allow users to pass in custom DataConnect instances. */
+export function unansweredInboxCandidates(vars: UnansweredInboxCandidatesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UnansweredInboxCandidatesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AutomationConversationState' Query. Allow users to execute without passing in DataConnect. */
+export function automationConversationState(dc: DataConnect, vars: AutomationConversationStateVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationConversationStateData>>;
+/** Generated Node Admin SDK operation action function for the 'AutomationConversationState' Query. Allow users to pass in custom DataConnect instances. */
+export function automationConversationState(vars: AutomationConversationStateVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationConversationStateData>>;
+
 /** Generated Node Admin SDK operation action function for the 'MatchInboxIdentity' Query. Allow users to execute without passing in DataConnect. */
 export function matchInboxIdentity(dc: DataConnect, vars: MatchInboxIdentityVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MatchInboxIdentityData>>;
 /** Generated Node Admin SDK operation action function for the 'MatchInboxIdentity' Query. Allow users to pass in custom DataConnect instances. */
@@ -13476,6 +13919,41 @@ export function createInboxConversationWithMessage(vars: CreateInboxConversation
 export function appendInboxMessage(dc: DataConnect, vars: AppendInboxMessageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AppendInboxMessageData>>;
 /** Generated Node Admin SDK operation action function for the 'AppendInboxMessage' Mutation. Allow users to pass in custom DataConnect instances. */
 export function appendInboxMessage(vars: AppendInboxMessageVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AppendInboxMessageData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListInboxReplies' Query. Allow users to execute without passing in DataConnect. */
+export function listInboxReplies(dc: DataConnect, vars: ListInboxRepliesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListInboxRepliesData>>;
+/** Generated Node Admin SDK operation action function for the 'ListInboxReplies' Query. Allow users to pass in custom DataConnect instances. */
+export function listInboxReplies(vars: ListInboxRepliesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListInboxRepliesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateInboxReplyDraft' Mutation. Allow users to execute without passing in DataConnect. */
+export function createInboxReplyDraft(dc: DataConnect, vars: CreateInboxReplyDraftVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateInboxReplyDraftData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateInboxReplyDraft' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createInboxReplyDraft(vars: CreateInboxReplyDraftVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateInboxReplyDraftData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateInboxReplyDraft' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateInboxReplyDraft(dc: DataConnect, vars: UpdateInboxReplyDraftVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateInboxReplyDraftData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateInboxReplyDraft' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateInboxReplyDraft(vars: UpdateInboxReplyDraftVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateInboxReplyDraftData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RecordInboxReplyCheck' Mutation. Allow users to execute without passing in DataConnect. */
+export function recordInboxReplyCheck(dc: DataConnect, vars: RecordInboxReplyCheckVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordInboxReplyCheckData>>;
+/** Generated Node Admin SDK operation action function for the 'RecordInboxReplyCheck' Mutation. Allow users to pass in custom DataConnect instances. */
+export function recordInboxReplyCheck(vars: RecordInboxReplyCheckVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RecordInboxReplyCheckData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SubmitInboxReply' Mutation. Allow users to execute without passing in DataConnect. */
+export function submitInboxReply(dc: DataConnect, vars: SubmitInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SubmitInboxReplyData>>;
+/** Generated Node Admin SDK operation action function for the 'SubmitInboxReply' Mutation. Allow users to pass in custom DataConnect instances. */
+export function submitInboxReply(vars: SubmitInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SubmitInboxReplyData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DecideInboxReply' Mutation. Allow users to execute without passing in DataConnect. */
+export function decideInboxReply(dc: DataConnect, vars: DecideInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DecideInboxReplyData>>;
+/** Generated Node Admin SDK operation action function for the 'DecideInboxReply' Mutation. Allow users to pass in custom DataConnect instances. */
+export function decideInboxReply(vars: DecideInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DecideInboxReplyData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CancelInboxReply' Mutation. Allow users to execute without passing in DataConnect. */
+export function cancelInboxReply(dc: DataConnect, vars: CancelInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CancelInboxReplyData>>;
+/** Generated Node Admin SDK operation action function for the 'CancelInboxReply' Mutation. Allow users to pass in custom DataConnect instances. */
+export function cancelInboxReply(vars: CancelInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CancelInboxReplyData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListChannelConnections' Query. Allow users to execute without passing in DataConnect. */
 export function listChannelConnections(dc: DataConnect, vars: ListChannelConnectionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListChannelConnectionsData>>;
@@ -13561,6 +14039,11 @@ export function markInboxLeadConversationsSimulated(vars: MarkInboxLeadConversat
 export function resetInboxSimulation(dc: DataConnect, vars: ResetInboxSimulationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ResetInboxSimulationData>>;
 /** Generated Node Admin SDK operation action function for the 'ResetInboxSimulation' Mutation. Allow users to pass in custom DataConnect instances. */
 export function resetInboxSimulation(vars: ResetInboxSimulationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ResetInboxSimulationData>>;
+
+/** Generated Node Admin SDK operation action function for the 'InboxSimulatedOutbound' Query. Allow users to execute without passing in DataConnect. */
+export function inboxSimulatedOutbound(dc: DataConnect, vars: InboxSimulatedOutboundVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxSimulatedOutboundData>>;
+/** Generated Node Admin SDK operation action function for the 'InboxSimulatedOutbound' Query. Allow users to pass in custom DataConnect instances. */
+export function inboxSimulatedOutbound(vars: InboxSimulatedOutboundVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxSimulatedOutboundData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListInboxConversations' Query. Allow users to execute without passing in DataConnect. */
 export function listInboxConversations(dc: DataConnect, vars: ListInboxConversationsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListInboxConversationsData>>;

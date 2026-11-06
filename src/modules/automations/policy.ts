@@ -41,7 +41,7 @@ export const can = (role: Role, permission: WorkflowPermission) => (WORKFLOW_PER
 /** Roles that may decide a pending approval for an action (and must be able to perform it themselves). */
 export function approverRoles(action: Pick<Action, "type">): readonly Role[] {
   // Reassigning needs company-wide lead access, which only OWNERs and ADMINs have.
-  if (action.type === "lead.reassign") return ["OWNER", "ADMIN"];
+  if (action.type === "lead.reassign" || action.type === "inbox.reassign") return ["OWNER", "ADMIN"];
   return ["OWNER", "ADMIN", "MANAGER"];
 }
 

@@ -121,6 +121,7 @@ const ActivityKind = {
   INBOX_OUTBOUND_CHANGED: "INBOX_OUTBOUND_CHANGED",
   INBOX_SETTINGS_UPDATED: "INBOX_SETTINGS_UPDATED",
   INBOX_ATTACHMENT_ACCESSED: "INBOX_ATTACHMENT_ACCESSED",
+  INBOX_AI_GENERATED: "INBOX_AI_GENERATED",
 }
 exports.ActivityKind = ActivityKind;
 
@@ -869,6 +870,18 @@ const OccupancyStatus = {
 }
 exports.OccupancyStatus = OccupancyStatus;
 
+const OutboundStage = {
+  DRAFT: "DRAFT",
+  VALIDATED: "VALIDATED",
+  PENDING_APPROVAL: "PENDING_APPROVAL",
+  APPROVED: "APPROVED",
+  QUEUED: "QUEUED",
+  SENT: "SENT",
+  FAILED: "FAILED",
+  CANCELLED: "CANCELLED",
+}
+exports.OutboundStage = OutboundStage;
+
 const OwnershipType = {
   FREEHOLD: "FREEHOLD",
   LEASEHOLD: "LEASEHOLD",
@@ -1363,6 +1376,13 @@ function getAutomationApprovalTarget(dcOrVarsOrOptions, varsOrOptions, options) 
   return dcInstance.executeQuery('GetAutomationApprovalTarget', inputVars, inputOpts);
 }
 exports.getAutomationApprovalTarget = getAutomationApprovalTarget;
+
+function automationReassignConversation(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AutomationReassignConversation', inputVars, inputOpts);
+}
+exports.automationReassignConversation = automationReassignConversation;
 
 function listAutomationWorkflows(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
@@ -2246,6 +2266,69 @@ function withdrawCommunicationSuppression(dcOrVarsOrOptions, varsOrOptions, opti
 }
 exports.withdrawCommunicationSuppression = withdrawCommunicationSuppression;
 
+function inboxReplyFacts(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('InboxReplyFacts', inputVars, inputOpts);
+}
+exports.inboxReplyFacts = inboxReplyFacts;
+
+function inboxContactRestrictions(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('InboxContactRestrictions', inputVars, inputOpts);
+}
+exports.inboxContactRestrictions = inboxContactRestrictions;
+
+function queueInboxReply(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('QueueInboxReply', inputVars, inputOpts);
+}
+exports.queueInboxReply = queueInboxReply;
+
+function acknowledgeInboxReply(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AcknowledgeInboxReply', inputVars, inputOpts);
+}
+exports.acknowledgeInboxReply = acknowledgeInboxReply;
+
+function failInboxReply(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('FailInboxReply', inputVars, inputOpts);
+}
+exports.failInboxReply = failInboxReply;
+
+function saveInboxAiInsight(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SaveInboxAiInsight', inputVars, inputOpts);
+}
+exports.saveInboxAiInsight = saveInboxAiInsight;
+
+function inboxUnansweredMinutes(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('InboxUnansweredMinutes', inputVars, inputOpts);
+}
+exports.inboxUnansweredMinutes = inboxUnansweredMinutes;
+
+function unansweredInboxCandidates(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('UnansweredInboxCandidates', inputVars, inputOpts);
+}
+exports.unansweredInboxCandidates = unansweredInboxCandidates;
+
+function automationConversationState(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('AutomationConversationState', inputVars, inputOpts);
+}
+exports.automationConversationState = automationConversationState;
+
 function matchInboxIdentity(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
@@ -2273,6 +2356,55 @@ function appendInboxMessage(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeMutation('AppendInboxMessage', inputVars, inputOpts);
 }
 exports.appendInboxMessage = appendInboxMessage;
+
+function listInboxReplies(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListInboxReplies', inputVars, inputOpts);
+}
+exports.listInboxReplies = listInboxReplies;
+
+function createInboxReplyDraft(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateInboxReplyDraft', inputVars, inputOpts);
+}
+exports.createInboxReplyDraft = createInboxReplyDraft;
+
+function updateInboxReplyDraft(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateInboxReplyDraft', inputVars, inputOpts);
+}
+exports.updateInboxReplyDraft = updateInboxReplyDraft;
+
+function recordInboxReplyCheck(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RecordInboxReplyCheck', inputVars, inputOpts);
+}
+exports.recordInboxReplyCheck = recordInboxReplyCheck;
+
+function submitInboxReply(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SubmitInboxReply', inputVars, inputOpts);
+}
+exports.submitInboxReply = submitInboxReply;
+
+function decideInboxReply(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DecideInboxReply', inputVars, inputOpts);
+}
+exports.decideInboxReply = decideInboxReply;
+
+function cancelInboxReply(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CancelInboxReply', inputVars, inputOpts);
+}
+exports.cancelInboxReply = cancelInboxReply;
 
 function listChannelConnections(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
@@ -2392,6 +2524,13 @@ function resetInboxSimulation(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeMutation('ResetInboxSimulation', inputVars, inputOpts);
 }
 exports.resetInboxSimulation = resetInboxSimulation;
+
+function inboxSimulatedOutbound(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('InboxSimulatedOutbound', inputVars, inputOpts);
+}
+exports.inboxSimulatedOutbound = inboxSimulatedOutbound;
 
 function listInboxConversations(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);

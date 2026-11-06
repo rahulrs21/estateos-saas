@@ -25,6 +25,7 @@ export interface RunTarget {
   workTaskId: string | null;
   callId: string | null;
   meetingId: string | null;
+  conversationId: string | null;
 }
 
 export interface RunState {
@@ -35,6 +36,7 @@ export interface RunState {
   task: {kind: "FOLLOW_UP" | "WORK_TASK"; title: string; assignedMembershipId: string | null} | null;
   call: {id: string; agentMembershipId: string; leadId: string | null; contactId: string | null} | null;
   meeting: {id: string; title: string; organizerMembershipId: string; leadId: string | null; contactId: string | null} | null;
+  conversation: {id: string; assignedMembershipId: string | null; leadId: string | null; customerName: string | null; status: string} | null;
 }
 
 const id = (value: string | null | undefined) => value ? canonicalUuid(value) : null;
@@ -45,7 +47,7 @@ const text = (value: unknown) => typeof value === "string" ? value : null;
 export function targetOf(event: AutomationEventRow): RunTarget {
   const payload = payloadOf(event);
   const targetId = id(event.targetId);
-  const target: RunTarget = {leadId: null, listingId: null, viewingId: null, contactId: null, followUpId: null, workTaskId: null, callId: null, meetingId: null};
+  const target: RunTarget = {leadId: null, listingId: null, viewingId: null, contactId: null, followUpId: null, workTaskId: null, callId: null, meetingId: null, conversationId: null};
   switch (event.targetType) {
     case "LEAD": target.leadId = targetId; break;
     case "VIEWING": target.viewingId = targetId; target.leadId = id(text(payload.leadId)); break;
@@ -53,6 +55,7 @@ export function targetOf(event: AutomationEventRow): RunTarget {
     case "CONTACT": target.contactId = targetId; break;
     case "CALL": target.callId = targetId; target.leadId = id(text(payload.leadId)); break;
     case "MEETING": target.meetingId = targetId; target.leadId = id(text(payload.leadId)); break;
+    case "CONVERSATION": target.conversationId = targetId; target.leadId = id(text(payload.leadId)); break;
     case "TASK":
       if (payload.kind === "WORK_TASK") target.workTaskId = targetId; else target.followUpId = targetId;
       target.leadId = id(text(payload.leadId));
@@ -70,9 +73,10 @@ export async function loadRunState(context: Context, event: AutomationEventRow):
     viewingId: target.viewingId, hasViewing: Boolean(target.viewingId), followUpId: target.followUpId, hasFollowUp: Boolean(target.followUpId),
     workTaskId: target.workTaskId, hasWorkTask: Boolean(target.workTaskId), contactId: target.contactId, hasContact: Boolean(target.contactId),
     callId: target.callId, hasCall: Boolean(target.callId), meetingId: target.meetingId, hasMeeting: Boolean(target.meetingId),
+    conversationId: target.conversationId, hasConversation: Boolean(target.conversationId),
   }, context.request.options));
   // A viewing or task names its lead; read the lead too when the event did not carry it.
-  const leadFromRecord = id(data.viewing?.leadId ?? data.followUp?.leadId ?? data.workTask?.leadId ?? data.call?.leadId ?? data.meeting?.leadId ?? null);
+  const leadFromRecord = id(data.viewing?.leadId ?? data.followUp?.leadId ?? data.workTask?.leadId ?? data.call?.leadId ?? data.meeting?.leadId ?? data.conversation?.leadId ?? null);
   if (!target.leadId && leadFromRecord) return loadRunState(context, {...event, payload: {...payload, leadId: leadFromRecord}});
 
   const facts: Facts = {"event.origin": event.origin, "event.occurredAt": event.createdAt};
@@ -100,6 +104,13 @@ export async function loadRunState(context: Context, event: AutomationEventRow):
   });
   const meeting = data.meeting ?? null;
   if (meeting) Object.assign(facts, {"meeting.status": meeting.status, "meeting.provider": meeting.provider, "meeting.startsAt": meeting.startsAt, "meeting.organizerId": id(meeting.organizerMembershipId)});
+  const conversation = data.conversation ?? null;
+  if (conversation) Object.assign(facts, {
+    "conversation.channel": conversation.channel, "conversation.status": conversation.status, "conversation.priority": conversation.priority,
+    "conversation.assignedAgentId": id(conversation.assignedMembershipId), "conversation.linked": Boolean(conversation.contactId), "conversation.optedOut": conversation.optedOut,
+    "conversation.unanswered": Boolean(conversation.lastInboundAt) && (!conversation.lastOutboundAt || Date.parse(conversation.lastOutboundAt) < Date.parse(conversation.lastInboundAt!)),
+    "conversation.lastCustomerMessageAt": conversation.lastInboundAt ?? null,
+  });
   const contact = data.contact ?? null;
   if (contact) Object.assign(facts, {"contact.preferredLanguage": contact.preferredLanguage ?? null, "contact.hasEmail": Boolean(contact.email), "contact.hasPhone": Boolean(contact.phone)});
 
@@ -111,5 +122,6 @@ export async function loadRunState(context: Context, event: AutomationEventRow):
       : workTask ? {kind: "WORK_TASK", title: workTask.title, assignedMembershipId: id(workTask.assignedMembershipId)} : null,
     call: call ? {id: canonicalUuid(call.id), agentMembershipId: canonicalUuid(call.agentMembershipId), leadId: id(call.leadId), contactId: id(call.contactId)} : null,
     meeting: meeting ? {id: canonicalUuid(meeting.id), title: meeting.title, organizerMembershipId: canonicalUuid(meeting.organizerMembershipId), leadId: id(meeting.leadId), contactId: id(meeting.contactId)} : null,
+    conversation: conversation ? {id: canonicalUuid(conversation.id), assignedMembershipId: id(conversation.assignedMembershipId), leadId: id(conversation.leadId), customerName: conversation.customerName ?? null, status: conversation.status} : null,
   };
 }

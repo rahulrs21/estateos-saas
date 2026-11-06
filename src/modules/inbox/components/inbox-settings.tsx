@@ -58,7 +58,7 @@ function RulesSection({settings, send}: {settings: SettingsView; send: Send}) {
     const form = new FormData(event.currentTarget);
     try {
       await send("/api/inbox/settings", "PUT", {expectedRevision: settings.revision, approvalRequired: form.get("approvalRequired") === "on",
-        retentionDays: Number(text(form, "retentionDays")), unansweredMinutes: Number(text(form, "unansweredMinutes"))}, "Inbox rules saved.");
+        retentionDays: Number(text(form, "retentionDays")), unansweredMinutes: Number(text(form, "unansweredMinutes")), aiEnabled: form.get("aiEnabled") === "on"}, "Inbox rules saved.");
     } catch (problem) { setError(errorMessage(problem, "The rules could not be saved.")); }
     finally { setPending(false); }
   }
@@ -66,6 +66,8 @@ function RulesSection({settings, send}: {settings: SettingsView; send: Send}) {
     <form onSubmit={submit} className="space-y-4"><fieldset disabled={!settings.canEdit || pending} className="grid gap-4 sm:grid-cols-2">
       <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" name="approvalRequired" defaultChecked={settings.approvalRequired} className="mt-1" />
         <span><span className="font-medium">Outbound messages need approval</span><span className="block text-xs text-muted-foreground">An owner, administrator or manager approves each reply before it can be sent. The author cannot approve their own reply unless they are the owner.</span></span></label>
+      <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" name="aiEnabled" defaultChecked={settings.aiEnabled} className="mt-1" />
+        <span><span className="font-medium">Let Claude analyse conversations</span><span className="block text-xs text-muted-foreground">Members can ask Claude for a summary, the customer&apos;s questions and requirements, and a reply draft. Claude reads the latest messages with phone numbers and emails removed, and uses your company&apos;s AI allowance. Nothing is sent or saved to a lead without a person.</span></span></label>
       <LeadField id={`${prefix}-retention`} label="Keep message content for (days)" hint="After this, message text and files are removed; a record that a message existed remains. 30 to 3650 days.">
         <Input id={`${prefix}-retention`} name="retentionDays" type="number" min={30} max={3650} required defaultValue={settings.retentionDays} /></LeadField>
       <LeadField id={`${prefix}-unanswered`} label="Unanswered after (minutes)" hint="A conversation counts as unanswered when the customer's last message waited this long. Workflows can react to it.">

@@ -1,5 +1,5 @@
 import type { ChannelProvider } from "../model";
-import { refuseAll, type ChannelAdapter, type Capability, type CapabilityState } from "./types";
+import { refuseAll, type ChannelAdapter, type Capability, type CapabilityState, type OutboundAck, type OutboundRequest } from "./types";
 import { whatsappAdapter } from "./whatsapp";
 
 /*
@@ -19,6 +19,17 @@ const internal = (provider: ChannelProvider, channel: ChannelAdapter["channel"],
   capabilities: {...Object.fromEntries(Object.keys(refuseAll()).map(key => [key, "UNSUPPORTED"])) as Record<Capability, CapabilityState>, ...capabilities},
 });
 
+/**
+ * The developer simulator's "delivery": nothing leaves EstateOS. It accepts only
+ * simulated conversations (fictional senders) and answers with a simulated
+ * provider message ID, so receipts can be simulated through the normal pipeline.
+ */
+async function simulatorSend(request: OutboundRequest): Promise<OutboundAck> {
+  if (!request.simulated) return {accepted: false, reason: "The developer simulator only delivers to simulated conversations."};
+  if (!request.content.trim()) return {accepted: false, reason: "Empty message."};
+  return {accepted: true, providerMessageId: `simwamid.${globalThis.crypto.randomUUID()}`};
+}
+
 export const ADAPTERS: Record<ChannelProvider, ChannelAdapter> = {
   WHATSAPP_CLOUD: whatsappAdapter,
   // Gmail: Pub/Sub push (OIDC token) + history sync; Microsoft 365: Graph subscriptions (clientState, validationToken) + delta sync.
@@ -28,7 +39,10 @@ export const ADAPTERS: Record<ChannelProvider, ChannelAdapter> = {
   WEBSITE_FORM: internal("WEBSITE_FORM", "WEBSITE", "EstateOS website forms", {RECEIVE_EVENTS: "SUPPORTED", NORMALIZE_MESSAGE: "SUPPORTED"}),
   INTERNAL: internal("INTERNAL", "INTERNAL", "EstateOS", {}),
   // The developer simulator "sends" only to simulated conversations and reports simulated receipts (developer tools only).
-  DEVELOPMENT_SIMULATOR: internal("DEVELOPMENT_SIMULATOR", "WHATSAPP", "Developer simulator", {RECEIVE_EVENTS: "SUPPORTED", NORMALIZE_MESSAGE: "SUPPORTED", SEND_MESSAGE: "SUPPORTED", DELIVERY_RECEIPTS: "SUPPORTED"}),
+  DEVELOPMENT_SIMULATOR: {
+    ...internal("DEVELOPMENT_SIMULATOR", "WHATSAPP", "Developer simulator", {RECEIVE_EVENTS: "SUPPORTED", NORMALIZE_MESSAGE: "SUPPORTED", SEND_MESSAGE: "SUPPORTED", DELIVERY_RECEIPTS: "SUPPORTED"}),
+    send: simulatorSend,
+  },
 };
 
 /** URL slugs of providers that accept webhooks in Phase 7A. */
