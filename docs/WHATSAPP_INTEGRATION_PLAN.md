@@ -59,8 +59,12 @@ Trying it with the Meta test number:
 
 Meta may charge for template messages (its receipts show `billable`), so check your WhatsApp billing first.
 
+Receiving answers and receipts (verified with the test number on 2026-11-09, app unpublished):
+- **The WhatsApp Business Account must be subscribed to your app.** Meta's dashboard can show incoming messages (through its own "WA DevX Webhook Events 1P App") while your app receives nothing. Check with `GET /{waba-id}/subscribed_apps`; subscribe once with `POST /{waba-id}/subscribed_apps` using a token of your app (for example in the Graph API Explorer). It sends no message and is undone with `DELETE`.
+- **The Callback URL must reach EstateOS.** A `trycloudflare.com` quick tunnel gets a new address on every start and can drop silently, so after a restart update the Callback URL in **WhatsApp → Configuration** and verify it again. A fixed address (a named tunnel or a static ngrok domain) avoids this.
+- Your answers then join the conversation, and open the 24-hour window for free-text replies.
+
 Not in 7B.1:
-- **Receipts and customer answers** arrive only when Meta delivers webhooks to EstateOS, which for real traffic needs the app published.
 - **Media download.**
 - **Template management.**
 - **Sending to anyone other than the test recipients.**
