@@ -148,7 +148,12 @@ A reply is an `OutboundMessageJob`. Its stages are:
   - The adapter is then asked to deliver. Its acknowledgement (`AcknowledgeInboxReply`) is the only way to `SENT`, and it stores the provider message ID (`simwamid.…` for the simulator) that receipts match on.
   - A refusal (`FailInboxReply`) makes the reply and message `FAILED` and writes the `inbox.message.failed` workflow event in the same transaction.
 - **Receipts** (delivered, read, failed) come through the normal event pipeline. For the simulator, owners and administrators press *Simulate delivered / read / failed* on a sent simulated reply. They move forward only; see [CHANNEL_ADAPTERS.md](CHANNEL_ADAPTERS.md#delivery-receipts).
-- **The Send button** appears only with developer tools enabled, on a simulated conversation, for an approved reply. Real WhatsApp and email conversations show "Sending is disabled until this provider is connected and approved (Phase 7B/7C)". Their replies can still be drafted, checked and approved.
+- **The Send button** appears only for an approved reply that can be delivered:
+  - **Send (simulator)** on a simulated conversation, with developer tools on;
+  - **Send on WhatsApp** (Phase 7B.1) on a real WhatsApp conversation with a test recipient, on a VERIFIED channel with sending on.
+
+  Otherwise the reply panel explains why sending is disabled, and replies can still be drafted, checked and approved.
+- **Templates** (Phase 7B.1). When a WhatsApp customer has not written in the last 24 hours, or the business starts the conversation, the reply panel offers only an approved template (`name:language`). Its text is the one approved in Meta's WhatsApp Manager. A template reply is checked and approved like any reply; opt-outs still apply.
 
 Every stage change is audited (`INBOX_OUTBOUND_CHANGED`) with the event, conversation and, for decisions, the approver's role and whether it was a self-approval.
 

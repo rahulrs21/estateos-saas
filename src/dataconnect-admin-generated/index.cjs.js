@@ -2455,6 +2455,34 @@ function setChannelConnectionEnabled(dcOrVarsOrOptions, varsOrOptions, options) 
 }
 exports.setChannelConnectionEnabled = setChannelConnectionEnabled;
 
+function channelConnectionForCheck(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ChannelConnectionForCheck', inputVars, inputOpts);
+}
+exports.channelConnectionForCheck = channelConnectionForCheck;
+
+function markChannelConnectionChecked(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('MarkChannelConnectionChecked', inputVars, inputOpts);
+}
+exports.markChannelConnectionChecked = markChannelConnectionChecked;
+
+function setChannelConnectionSending(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetChannelConnectionSending', inputVars, inputOpts);
+}
+exports.setChannelConnectionSending = setChannelConnectionSending;
+
+function startWhatsAppConversation(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('StartWhatsAppConversation', inputVars, inputOpts);
+}
+exports.startWhatsAppConversation = startWhatsAppConversation;
+
 function inboxWebhookConnection(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

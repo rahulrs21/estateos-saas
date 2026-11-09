@@ -1,6 +1,6 @@
 # WhatsApp integration plan
 
-Status: **Phase 7A (foundation) built; live connection is Phase 7B and needs approval.**
+Status: **Phase 7A built. Phase 7B.1 (test mode) built: connection check, approved sending and templates, to the server's test recipients only.** Going live with real customers (7B.2) needs a business number, approved templates, a payment method and approval.
 EstateOS integrates with WhatsApp only through Meta's official WhatsApp Business Platform (Cloud API). It does not and will not use WhatsApp Web scraping, unofficial automation libraries or personal WhatsApp sessions.
 
 Related: [CHANNEL_ADAPTERS.md](CHANNEL_ADAPTERS.md), [INBOX_SECURITY.md](INBOX_SECURITY.md), [UNIFIED_INBOX.md](UNIFIED_INBOX.md).
@@ -23,6 +23,48 @@ Related: [CHANNEL_ADAPTERS.md](CHANNEL_ADAPTERS.md), [INBOX_SECURITY.md](INBOX_S
 
 No Meta account, app, phone number or token was created, purchased or used in Phase 7A.
 
+## Phase 7B.1: test mode (built)
+
+What it adds:
+- **Check connection.** An OWNER or ADMIN presses **Check connection** in Inbox settings, and EstateOS asks Meta for the phone number with the access token: `GET /{version}/{phone-number-id}?fields=id,display_phone_number,verified_name,quality_rating`.
+  - Only when Meta returns the same phone number ID does the channel become **VERIFIED**, with Meta's name and number shown.
+  - A failure marks it **ERROR** and turns sending off.
+  - This is a read-only request that sends nothing.
+- **Sending switch.** An OWNER or ADMIN can turn sending on, only for a VERIFIED channel, and only on a server with test recipients configured. Editing the channel undoes both verification and sending.
+- **Sending.** Approved replies are sent with `POST /{version}/{phone-number-id}/messages`, either as free text inside the 24-hour window or as an approved **template** (`name:language`, for example `hello_world:en_US`).
+  - The database queues a real reply only on a VERIFIED connection with sending on.
+  - The server adds the rule that the recipient must be one of the **test recipients**.
+  - **SENT** comes only from Meta's response with a message ID (`wamid…`), which delivery receipts then match.
+  - A refusal makes the reply FAILED, with Meta's code and the `inbox.message.failed` workflow event.
+  - On a timeout or network error, EstateOS marks the reply FAILED and says it may or may not have been delivered. Nothing is retried automatically, so a message is never sent twice.
+- **Business-started conversations.** **Start WhatsApp conversation** on `/inbox` (owners and administrators) creates the conversation with a test recipient, plus a template reply draft. The draft is checked and approved like any reply. When the customer answers, the answer joins the same conversation and opens the 24-hour window.
+
+Server settings, all in the server environment and never in EstateOS fields:
+
+| Variable | Purpose |
+| --- | --- |
+| `INBOX_WHATSAPP_ACCESS_TOKEN` (any `INBOX_…` name, entered on the channel as **Access token secret name**) | The Meta access token. Temporary tokens expire after about 24 hours; a system-user token is the long-term option |
+| `INBOX_WHATSAPP_TEST_RECIPIENTS` | Comma-separated E.164 numbers (up to 10) EstateOS may send to. **Empty means no live sending at all** |
+| `INBOX_WHATSAPP_GRAPH_VERSION` | Optional; default `v27.0` |
+| `INBOX_WHATSAPP_GRAPH_BASE` | Tests only: a local fake Graph API (`http://127.0.0.1:PORT`, refused in production) |
+
+Trying it with the Meta test number:
+1. Put the token in `.env.local` as `INBOX_WHATSAPP_ACCESS_TOKEN=…` and your own number as `INBOX_WHATSAPP_TEST_RECIPIENTS=+9715…`, then restart `npm run dev:local`.
+2. In Meta's **API Setup**, add that number as a recipient.
+3. In **Inbox settings → your WhatsApp channel → Edit**, set **Access token secret name** to `INBOX_WHATSAPP_ACCESS_TOKEN`.
+4. Click **Check connection**, then **Turn sending on**.
+5. In `/inbox`, click **Start WhatsApp conversation**, enter your number and the template `hello_world` / `en_US`.
+6. Check the draft and request approval. Another owner, administrator or manager approves it.
+7. Click **Send on WhatsApp**.
+
+Meta may charge for template messages (its receipts show `billable`), so check your WhatsApp billing first.
+
+Not in 7B.1:
+- **Receipts and customer answers** arrive only when Meta delivers webhooks to EstateOS, which for real traffic needs the app published.
+- **Media download.**
+- **Template management.**
+- **Sending to anyone other than the test recipients.**
+
 ## Phase 7B: what is needed to go live
 
 Business prerequisites (the company, not EstateOS engineering):
@@ -35,9 +77,9 @@ Business prerequisites (the company, not EstateOS engineering):
 
 Engineering work:
 
-1. **Credentials.** A system user access token with only the WhatsApp permissions needed, stored in Secret Manager. The app secret (for signatures) and the webhook verify token are separate secrets. Connections hold only their names (`INBOX_…`, verify token at `<name>_VERIFY_TOKEN`). The token needs a separate reference; add a field rather than overloading `credentialReference`.
-2. **Connection check.** A server-side call reading the phone number's details with the token, started by an OWNER or ADMIN, recorded through a server-only operation (as Phase 6F does for calling providers). Only then can a connection become VERIFIED.
-3. **Sending.** Implement `send` on the WhatsApp adapter and allow it in `canSend` and in `QueueInboxReply` only after approval. `POST /{phone-number-id}/messages`: free-form text only inside the 24-hour window after the customer's last message; otherwise an approved template. Store the returned message ID (`wamid…`) on the message; mark it SENT only from that acknowledgement. Delivery and read receipts already work through the webhook.
+1. **Credentials.** A system-user access token with only the WhatsApp permissions needed, stored in Secret Manager. The app secret (for signatures), the webhook verify token and the access token are separate secrets. Connections hold only their names: `credentialReference`, `<name>_VERIFY_TOKEN` and `accessTokenReference` (added in 7B.1).
+2. **Connection check.** Built in 7B.1: a server-side read of the phone number with the token, started by an OWNER or ADMIN and recorded through a server-only operation. Only then is a connection VERIFIED.
+3. **Sending.** Built in 7B.1 (`server/whatsapp-cloud.ts`). Going live means replacing the test-recipient rule with production sending, after approval. `POST /{phone-number-id}/messages`: free-form text only inside the 24-hour window after the customer's last message; otherwise an approved template. Store the returned message ID (`wamid…`) on the message; mark it SENT only from that acknowledgement. Delivery and read receipts already work through the webhook.
 4. **Media.** Incoming media arrives as a media ID. Download with the token (media URL lookup, then an authenticated download), check by content and size, store privately, and set `storagePath`. Attachments are already modelled for this.
 5. **Opt-out.** Already built: STOP messages add the number to the do-not-contact list, and the reply checks refuse suppressed numbers. The live sender must call the same checks.
 6. **Tests.** Meta's test phone number and test webhooks in a non-production app; never real customers.

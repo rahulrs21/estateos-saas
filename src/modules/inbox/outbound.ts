@@ -72,10 +72,23 @@ export interface ValidationFacts {
   edited: boolean;
   /** Numbers in an unedited Claude draft that its sources do not contain. */
   unsupportedNumbers: readonly string[];
+  /** An approved WhatsApp template ("name:language", Phase 7B): allowed outside the 24-hour window; its text is Meta's. */
+  templateName?: string | null;
+  /** Why the channel cannot deliver right now, when the server knows (for example the 7B.1 test-recipient rule). */
+  deliveryNote?: string | null;
   now: number;
 }
 
-export type ProblemCode = "EMPTY" | "TOO_LONG" | "PLACEHOLDER" | "LINK_SCHEME" | "OPTED_OUT" | "SUPPRESSED" | "WINDOW_CLOSED" | "UNSUPPORTED_NUMBERS" | "NO_CHANNEL" | "SENDING_DISABLED";
+export const TEMPLATE_NAME = /^[a-z0-9_]{1,100}:[a-z]{2,3}(_[A-Z]{2})?$/;
+/** "hello_world:en_US" → {name, language}; null when it is not a valid template reference. */
+export function parseTemplate(value: string | null | undefined) {
+  if (!value || !TEMPLATE_NAME.test(value)) return null;
+  const [name, language] = value.split(":");
+  return {name, language};
+}
+export const templateLabel = (template: {name: string; language: string}) => `WhatsApp template "${template.name}" (${template.language})`;
+
+export type ProblemCode = "EMPTY" | "TOO_LONG" | "PLACEHOLDER" | "LINK_SCHEME" | "OPTED_OUT" | "SUPPRESSED" | "WINDOW_CLOSED" | "UNSUPPORTED_NUMBERS" | "NO_CHANNEL" | "SENDING_DISABLED" | "TEMPLATE_CHANNEL" | "TEMPLATE_INVALID";
 export interface Problem {code: ProblemCode; message: string; /** Blocks approval (the content or customer rules); delivery problems only block sending. */ blocksApproval: boolean}
 export interface ValidationResult {valid: boolean; sendable: boolean; problems: Problem[]; checkedAt: string; window: {open: boolean; closesAt: string | null} | null}
 
@@ -91,19 +104,23 @@ export function validateOutbound(facts: ValidationFacts): ValidationResult {
   const problems: Problem[] = [];
   const add = (code: ProblemCode, message: string, blocksApproval = true) => problems.push({code, message, blocksApproval});
   const text = facts.content.trim();
+  const template = facts.templateName ? parseTemplate(facts.templateName) : null;
+  if (facts.templateName && !template) add("TEMPLATE_INVALID", "Give the template as name:language, for example hello_world:en_US.");
+  if (template && facts.channel !== "WHATSAPP") add("TEMPLATE_CHANNEL", "Templates are only for WhatsApp conversations.");
   if (!text) add("EMPTY", "Write the message first.");
   if (facts.content.length > MAX_OUTBOUND_CHARS) add("TOO_LONG", `Keep the message under ${MAX_OUTBOUND_CHARS} characters.`);
-  if (PLACEHOLDER.test(text)) add("PLACEHOLDER", "Replace the placeholder text (in brackets or braces) with the real details.");
+  if (!template && PLACEHOLDER.test(text)) add("PLACEHOLDER", "Replace the placeholder text (in brackets or braces) with the real details.");
   if (/(javascript|data|vbscript):/i.test(text)) add("LINK_SCHEME", "Remove the script or data link.");
   if (facts.optedOut) add("OPTED_OUT", "The customer asked not to be contacted on this channel.");
   if (facts.suppressed) add("SUPPRESSED", "The customer is on the do-not-contact list.");
   const window = facts.channel === "WHATSAPP" ? serviceWindow(facts.lastInboundAt, facts.now) : null;
-  if (window && !window.open) add("WINDOW_CLOSED", "WhatsApp allows a free-form reply only within 24 hours of the customer's last message. An approved template is needed (Phase 7B).");
+  // An approved template may start or continue a conversation outside the window; Meta checks the template itself.
+  if (window && !window.open && !template) add("WINDOW_CLOSED", "WhatsApp allows a free-form reply only within 24 hours of the customer's last message. Send an approved template instead.");
   if (facts.source !== "AGENT" && !facts.edited && facts.unsupportedNumbers.length) {
     add("UNSUPPORTED_NUMBERS", `Claude's draft mentions ${facts.unsupportedNumbers.slice(0, 3).join(", ")}, which is not in the conversation or the matched listings. Check and edit the draft before it is approved.`);
   }
   if (facts.channel === "WEBSITE" || facts.channel === "INTERNAL") add("NO_CHANNEL", "Website enquiries have no reply channel yet. Reply by WhatsApp or email once one is connected.", false);
-  else if (!facts.deliverable) add("SENDING_DISABLED", facts.provider ? "Sending is disabled until this provider is connected and approved (Phase 7B/7C). The message can be approved but not sent."
+  else if (!facts.deliverable) add("SENDING_DISABLED", facts.deliveryNote ? facts.deliveryNote : facts.provider ? "Sending is disabled until this provider is connected and approved (Phase 7B/7C). The message can be approved but not sent."
     : "This conversation has no connected channel to send from. The message can be approved but not sent.", false);
   const valid = problems.every(problem => !problem.blocksApproval);
   return {valid, sendable: valid && problems.length === 0, problems, checkedAt: new Date(facts.now).toISOString(), window};

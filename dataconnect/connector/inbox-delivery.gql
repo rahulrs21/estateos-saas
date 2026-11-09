@@ -2,16 +2,17 @@
 # (NO_ACCESS): called after the server read the conversation as the signed-in member (so it is one
 # they may see), with the company from the verified session.
 #
-# Delivery is structurally limited in Phase 7A: a reply can be queued only for a SIMULATED
-# conversation on the company's DEVELOPMENT_SIMULATOR connection with sending enabled. No real
-# provider connection satisfies this, so nothing can reach a real number or address. A queued
-# reply is SENT only when the adapter acknowledges it, and FAILED when the adapter refuses it.
+# Delivery is structurally limited: a reply can be queued only for a SIMULATED conversation on the
+# company's DEVELOPMENT_SIMULATOR connection, or (Phase 7B) a real conversation on a WhatsApp Cloud
+# connection that a live check VERIFIED and an administrator enabled for sending. The server adds the
+# 7B.1 test-recipient allowlist. A queued reply is SENT only when the provider acknowledges it, and
+# FAILED when it refuses it.
 
 # What the server checks before approval and again before sending.
 query InboxReplyFacts($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
   job: outboundMessageJob(key: {organizationId: $organizationId, id: $id}) {
-    id stage revision content source edited createdByUid lastEditedByUid conversationId versionsJson messageId
-    conversation {id channel simulated optedOut lastInboundAt customerIdentity channelConnectionId channelConnection {id provider connectionStatus sendingEnabled}}
+    id stage revision content source edited templateName createdByUid lastEditedByUid conversationId versionsJson messageId
+    conversation {id channel simulated optedOut lastInboundAt customerIdentity channelConnectionId channelConnection {id provider connectionStatus sendingEnabled externalAccountReference accessTokenReference}}
   }
   insight: inboxAiInsights(where: {organizationId: {eq: $organizationId}, draftJobId: {eq: $id}}, limit: 1) {id insightJson}
   settings: inboxSettings(key: {organizationId: $organizationId}) {approvalRequired aiEnabled}
@@ -25,22 +26,27 @@ query InboxContactRestrictions($organizationId: UUID!, $identity: String!) @auth
 
 # Queues an approved reply for the developer simulator only (see the note above).
 mutation QueueInboxReply($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $conversationId: UUID!, $channelConnectionId: UUID!, $content: String!, $actorUid: String!,
-  $messageId: UUID!, $pendingExternalId: String!, $recipientIdentity: String!, $preview: String!) @auth(level: NO_ACCESS) @transaction {
+  $messageId: UUID!, $pendingExternalId: String!, $recipientIdentity: String!, $preview: String!, $simulated: Boolean! = true, $template: Boolean! = false) @auth(level: NO_ACCESS) @transaction {
   before: query @redact {
     actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
     job: outboundMessageJob(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {eq: APPROVED}, conversationId: {eq: $conversationId}, content: {eq: $content}}})
       @check(expr: "this != null", message: "INBOX_REPLY_CHANGED") {id}
-    deliverable: inboxConversation(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $conversationId}, simulated: {eq: true}, optedOut: {eq: false}, channelConnectionId: {eq: $channelConnectionId},
-      channelConnection: {provider: {eq: DEVELOPMENT_SIMULATOR}, sendingEnabled: {eq: true}}}}) @check(expr: "this != null", message: "INBOX_SENDING_DISABLED") {id}
+    deliverable: inboxConversation(first: {where: {_and: [
+      {organizationId: {eq: $organizationId}, id: {eq: $conversationId}, simulated: {eq: $simulated}, optedOut: {eq: false}, channelConnectionId: {eq: $channelConnectionId}},
+      {_or: [
+        {simulated: {eq: true}, channelConnection: {provider: {eq: DEVELOPMENT_SIMULATOR}, sendingEnabled: {eq: true}}},
+        {simulated: {eq: false}, channelConnection: {provider: {eq: WHATSAPP_CLOUD}, connectionStatus: {eq: VERIFIED}, sendingEnabled: {eq: true}}}
+      ]}
+    ]}}) @check(expr: "this != null", message: "INBOX_SENDING_DISABLED") {id}
   }
   message: inboxMessage_insert(data: {organizationId: $organizationId, id: $messageId, conversationId: $conversationId, channelConnectionId: $channelConnectionId, externalMessageId: $pendingExternalId,
-    direction: OUTBOUND, recipientIdentity: $recipientIdentity, messageType: TEXT, content: $content, deliveryStatus: QUEUED, authorUid: $actorUid, simulated: true})
+    direction: OUTBOUND, recipientIdentity: $recipientIdentity, messageType_expr: "vars.template ? 'TEMPLATE' : 'TEXT'", content: $content, deliveryStatus: QUEUED, authorUid: $actorUid, simulated: $simulated})
   job: outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {eq: APPROVED}}},
     data: {stage: QUEUED, messageId: $messageId, attempts_update: {inc: 1}, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
   conversation: inboxConversation_update(key: {organizationId: $organizationId, id: $conversationId}, data: {lastMessageAt_expr: "request.time", lastOutboundAt_expr: "request.time", lastMessagePreview: $preview,
     revision_update: {inc: 1}, updatedAt_expr: "request.time"})
   auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
-    metadata_expr: "{'event': 'QUEUED', 'conversationId': vars.conversationId, 'messageId': vars.messageId, 'simulated': true}"})
+    metadata_expr: "{'event': 'QUEUED', 'conversationId': vars.conversationId, 'messageId': vars.messageId, 'simulated': vars.simulated}"})
 }
 
 # The adapter accepted the message: only now is it SENT, under the provider's message ID (receipts match on it).
@@ -54,13 +60,13 @@ mutation AcknowledgeInboxReply($organizationId: UUID!, $id: UUID!, $conversation
 }
 
 # The adapter refused or failed: the reply and its message are FAILED, and the workflow event is written with them.
-mutation FailInboxReply($organizationId: UUID!, $id: UUID!, $conversationId: UUID!, $messageId: UUID!, $reason: String!, $actorUid: String!) @auth(level: NO_ACCESS) @transaction {
+mutation FailInboxReply($organizationId: UUID!, $id: UUID!, $conversationId: UUID!, $messageId: UUID!, $reason: String!, $actorUid: String!, $simulated: Boolean! = true) @auth(level: NO_ACCESS) @transaction {
   job: outboundMessageJob_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, stage: {eq: QUEUED}, messageId: {eq: $messageId}}},
     data: {stage: FAILED, failureReason: $reason, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_REPLY_CHANGED")
   message: inboxMessage_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $messageId}, conversationId: {eq: $conversationId}, deliveryStatus: {eq: QUEUED}}},
     data: {deliveryStatus: FAILED, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_DELIVERY_CHANGED")
   failed: automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'inbox.failed:' + vars.messageId", triggerType: "inbox.message.failed", targetType: "CONVERSATION",
-    targetId: $conversationId, origin: "SIMULATOR", payload_expr: "{'messageId': vars.messageId}"})
+    targetId: $conversationId, origin_expr: "vars.simulated ? 'SIMULATOR' : 'PROVIDER'", payload_expr: "{'messageId': vars.messageId}"})
   auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
     metadata_expr: "{'event': 'FAILED', 'conversationId': vars.conversationId, 'reason': vars.reason}"})
 }

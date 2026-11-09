@@ -11,9 +11,12 @@ import { ADAPTERS, canSend } from "../adapters";
 import type { CheckedInsight } from "../assistant";
 import type { ChannelProvider, InboxChannel, Role } from "../model";
 import {
-  CANCELLABLE_STAGES, EDITABLE_STAGES, MAX_OUTBOUND_CHARS, STAGE_LABELS, nextVersions, outboundApproval, validateOutbound,
+  CANCELLABLE_STAGES, EDITABLE_STAGES, MAX_OUTBOUND_CHARS, STAGE_LABELS, TEMPLATE_NAME, nextVersions, outboundApproval, parseTemplate, templateLabel, validateOutbound,
   type OutboundSource, type OutboundStage, type ValidationResult,
 } from "../outbound";
+import { channelIdentity } from "../identity";
+import { stableUuid } from "@/modules/automations/ids";
+import { accessToken, liveSendingConfigured, recipientAllowed, sendWhatsAppMessage } from "./whatsapp-cloud";
 import { preview } from "../policy";
 import { getConversation } from "./conversations";
 
@@ -28,6 +31,26 @@ import { getConversation } from "./conversations";
 
 const id = (value: string | null | undefined) => value ? canonicalUuid(value) : null;
 const uid = (context: Context) => context.request.user.uid;
+
+export type SendMode = "SIMULATOR" | "WHATSAPP";
+/**
+ * How a conversation's replies can be delivered, if at all: the developer simulator
+ * (simulated conversations, developer tools on), or the WhatsApp Cloud API (Phase 7B.1:
+ * a VERIFIED connection with sending on, to the server's test recipients only).
+ */
+export function deliveryOf(input: {provider: ChannelProvider | null; connectionStatus: string | null | undefined; sendingEnabled: boolean; simulated: boolean; identity: string}):
+  {mode: SendMode | null; note: string | null} {
+  const {provider} = input;
+  if (input.simulated) {
+    return devToolsEnabled() && provider !== null && canSend(provider) && input.sendingEnabled ? {mode: "SIMULATOR", note: null} : {mode: null, note: null};
+  }
+  if (provider !== "WHATSAPP_CLOUD") return {mode: null, note: null};
+  if (input.connectionStatus !== "VERIFIED") return {mode: null, note: "Check this WhatsApp channel with Meta (Inbox settings, Check connection) before sending. The message can be approved but not sent."};
+  if (!input.sendingEnabled) return {mode: null, note: "Sending is off for this WhatsApp channel. An owner or administrator can turn it on in Inbox settings."};
+  if (!liveSendingConfigured()) return {mode: null, note: "Live sending is off on this server (Phase 7B.1 sends only to test recipients set in INBOX_WHATSAPP_TEST_RECIPIENTS)."};
+  if (!recipientAllowed(input.identity)) return {mode: null, note: "Phase 7B.1 test mode: this server sends only to its test recipients, and this customer's number is not one of them."};
+  return {mode: "WHATSAPP", note: null};
+}
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
@@ -49,14 +72,20 @@ export async function listReplies(context: Context, rawConversationId: string) {
   const role = (data.me?.role ?? context.membership.role) as Role;
   const me = uid(context);
   const provider = (conversation.channelConnection?.provider ?? null) as ChannelProvider | null;
-  const simulatorSend = devToolsEnabled() && conversation.simulated && provider !== null && canSend(provider) && Boolean(conversation.channelConnection?.sendingEnabled);
+  const delivery = deliveryOf({provider, connectionStatus: conversation.channelConnection?.connectionStatus, sendingEnabled: Boolean(conversation.channelConnection?.sendingEnabled),
+    simulated: conversation.simulated, identity: conversation.customerIdentity});
+  const simulatorSend = delivery.mode === "SIMULATOR";
+  const window = conversation.serviceWindow;
   const approver = role === "OWNER" || role === "ADMIN" || role === "MANAGER";
   const insightRow = data.conversation.insights[0] ?? null;
   return {
-    role, approvalRequired: data.settings?.approvalRequired ?? true, aiEnabled: data.settings?.aiEnabled ?? false, simulatorSend,
+    role, approvalRequired: data.settings?.approvalRequired ?? true, aiEnabled: data.settings?.aiEnabled ?? false, simulatorSend, sendMode: delivery.mode,
+    // WhatsApp outside the 24-hour window (or a business-started conversation): only an approved template can be sent.
+    templateOnly: conversation.channel === "WHATSAPP" && !conversation.simulated && Boolean(window && !window.open),
     sendingNote: simulatorSend ? "Developer simulator: approved replies are delivered to this simulated conversation only."
+      : delivery.mode === "WHATSAPP" ? "WhatsApp (Phase 7B.1 test mode): approved replies are sent by Meta to this test recipient."
       : conversation.channel === "WEBSITE" ? "Website enquiries have no reply channel yet; reply by WhatsApp or email once one is connected."
-      : "Sending is disabled until this provider is connected and approved (Phase 7B/7C). Replies can be drafted, checked and approved.",
+      : delivery.note ?? "Sending is disabled until this provider is connected and approved (Phase 7B/7C). Replies can be drafted, checked and approved.",
     insight: insightRow ? {id: canonicalUuid(insightRow.id), createdAt: insightRow.createdAt, createdBy: insightRow.createdBy?.displayName ?? null, model: insightRow.model, source: insightRow.source,
       coveredUntil: insightRow.coveredUntil ?? null, draftJobId: id(insightRow.draftJobId), unverifiedCount: insightRow.unverifiedCount, insight: parseJson<CheckedInsight | null>(insightRow.insightJson, null)} : null,
     replies: data.conversation.jobs.map(job => {
@@ -65,14 +94,15 @@ export async function listReplies(context: Context, rawConversationId: string) {
       const approval = outboundApproval({approverUid: me, approverRole: role, createdByUid: job.createdByUid, lastEditedByUid: job.lastEditedByUid ?? null});
       return {
         id: canonicalUuid(job.id), stage, stageLabel: STAGE_LABELS[stage], source: job.source as OutboundSource, content: job.content, edited: job.edited, revision: job.revision,
+        template: parseTemplate(job.templateName),
         versions: parseJson<Array<{content: string; at: string; by: string | null}>>(job.versionsJson, []), validation: parseJson<ValidationResult | null>(job.validationJson, null),
         createdBy: job.createdBy?.displayName ?? null, lastEditedBy: job.lastEditedBy?.displayName ?? null, approvedBy: job.approvedBy?.displayName ?? null, approvedAt: job.approvedAt ?? null,
         approvalRequestedAt: job.approvalRequestedAt ?? null, approvalNote: job.approvalNote ?? null, selfApproved: job.selfApproved, failureReason: job.failureReason ?? null,
         messageId: id(job.messageId), createdAt: job.createdAt, updatedAt: job.updatedAt,
         can: {
-          edit: EDITABLE_STAGES.includes(stage), check: stage === "DRAFT", submit: stage === "VALIDATED",
+          edit: EDITABLE_STAGES.includes(stage) && !job.templateName, check: stage === "DRAFT", submit: stage === "VALIDATED",
           decide: stage === "PENDING_APPROVAL" && approval.allowed, ownReply: stage === "PENDING_APPROVAL" && approver && !approval.allowed,
-          cancel: CANCELLABLE_STAGES.includes(stage) && (approver || own), send: stage === "APPROVED" && simulatorSend,
+          cancel: CANCELLABLE_STAGES.includes(stage) && (approver || own), send: stage === "APPROVED" && delivery.mode !== null,
         },
       };
     }),
@@ -82,11 +112,21 @@ export type RepliesView = Awaited<ReturnType<typeof listReplies>>;
 
 const contentSchema = z.string().trim().min(1, "Write the reply first.").max(MAX_OUTBOUND_CHARS);
 
+const templateSchema = z.strictObject({name: z.string().trim().regex(/^[a-z0-9_]{1,100}$/, "Template names use lowercase letters, digits and underscores."),
+  language: z.string().trim().regex(/^[a-z]{2,3}(_[A-Z]{2})?$/, "Use a language code such as en_US or ar.")});
+const createSchema = z.strictObject({content: contentSchema.optional(), template: templateSchema.optional()})
+  .refine(value => Boolean(value.content) !== Boolean(value.template), "Write a reply or choose a template.");
+
+/** A reply draft: the member's text, or (WhatsApp) an approved template, which goes through the same checks and approval. */
 export async function createReply(context: Context, rawConversationId: string, body: unknown) {
   const conversation = await getConversation(context, rawConversationId);
-  const {content} = parseInput(z.strictObject({content: contentSchema}), body);
+  const input = parseInput(createSchema, body);
+  if (input.template && conversation.channel !== "WHATSAPP") throw new WorkspaceError("VALIDATION_ERROR", 400, "Templates are only for WhatsApp conversations.");
+  const templateName = input.template ? `${input.template.name}:${input.template.language}` : null;
+  if (templateName && !TEMPLATE_NAME.test(templateName)) throw new WorkspaceError("VALIDATION_ERROR", 400, "Give a valid template name and language.");
+  const content = input.template ? templateLabel(input.template) : input.content!;
   const replyId = randomUUID();
-  await asMember(context, "CreateInboxReplyDraft", (dc, options) => sdk.createInboxReplyDraft(dc, {organizationId: context.organizationId, id: replyId, conversationId: conversation.id, content}, options));
+  await asMember(context, "CreateInboxReplyDraft", (dc, options) => sdk.createInboxReplyDraft(dc, {organizationId: context.organizationId, id: replyId, conversationId: conversation.id, content, templateName}, options));
   return {id: replyId};
 }
 
@@ -107,9 +147,10 @@ async function validationOf(context: Context, input: Awaited<ReturnType<typeof r
   const restrictions = await asServer("InboxContactRestrictions", dc => sdk.inboxContactRestrictions(dc, {organizationId: context.organizationId, identity: target.customerIdentity}));
   const provider = (target.channelConnection?.provider ?? null) as ChannelProvider | null;
   const insight = parseJson<CheckedInsight | null>(facts.insight[0]?.insightJson, null);
+  const delivery = deliveryOf({provider, connectionStatus: target.channelConnection?.connectionStatus, sendingEnabled: Boolean(target.channelConnection?.sendingEnabled), simulated: target.simulated, identity: target.customerIdentity});
   return validateOutbound({
     channel: target.channel as InboxChannel, provider, connectionStatus: target.channelConnection?.connectionStatus ?? null,
-    deliverable: devToolsEnabled() && target.simulated && provider !== null && canSend(provider) && Boolean(target.channelConnection?.sendingEnabled),
+    deliverable: delivery.mode !== null, deliveryNote: delivery.note, templateName: job.templateName ?? null,
     optedOut: target.optedOut, suppressed: restrictions.numbers.some(row => row.scope === "ALL") || restrictions.emails.length > 0, lastInboundAt: target.lastInboundAt ?? null,
     content: job.content, source: job.source as OutboundSource, edited: job.edited, unsupportedNumbers: insight?.unsupportedNumbers ?? [], now: Date.now(),
   });
@@ -175,40 +216,87 @@ export async function cancelReply(context: Context, rawConversationId: string, r
 }
 
 /**
- * Sends an approved reply through the conversation's adapter. Phase 7A: developer
- * tools only, simulated conversations on the developer simulator only (the database
- * refuses any other conversation). Queued first; SENT only on the adapter's
- * acknowledgement; FAILED (with a workflow event) when it refuses.
+ * Sends an approved reply. The developer simulator delivers to simulated conversations
+ * (developer tools only); the WhatsApp Cloud API (Phase 7B.1) to the server's test
+ * recipients on a VERIFIED connection with sending on. Both are refused by the database
+ * otherwise. Queued first; SENT only on the provider's acknowledgement (with its message
+ * ID, which receipts match); FAILED, with a workflow event, when it refuses.
  */
 export async function sendReply(context: Context, rawConversationId: string, rawId: string, body: unknown) {
-  if (!devToolsEnabled()) throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, "Sending is disabled until a provider is connected and approved (Phase 7B/7C).");
   const {expectedRevision} = parseInput(revisionSchema, body);
   const facts = await replyFacts(context, rawConversationId, rawId);
   const {job} = facts;
   const target = job.conversation;
-  const provider = (target.channelConnection?.provider ?? null) as ChannelProvider | null;
+  const connection = target.channelConnection;
+  const provider = (connection?.provider ?? null) as ChannelProvider | null;
   if (job.stage !== "APPROVED") throw new WorkspaceError("INBOX_REPLY_CHANGED", 409, "Only approved replies can be sent. Reload the conversation.");
-  if (!provider || !canSend(provider) || !target.simulated || !target.channelConnectionId) {
-    throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, "Sending is disabled for this conversation. In this phase only simulated conversations on the developer simulator can be sent.");
+  const delivery = deliveryOf({provider, connectionStatus: connection?.connectionStatus, sendingEnabled: Boolean(connection?.sendingEnabled), simulated: target.simulated, identity: target.customerIdentity});
+  if (!delivery.mode || !target.channelConnectionId || !connection) {
+    throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, delivery.note ?? "Sending is disabled for this conversation. Only simulated conversations (developer tools) and verified WhatsApp test recipients can be sent to.");
   }
   const result = await validationOf(context, facts);
   if (!result.sendable) throw new WorkspaceError("INBOX_REPLY_INVALID", 409, result.problems[0]?.message ?? "The reply cannot be sent.");
+  const template = parseTemplate(job.templateName);
+  const token = delivery.mode === "WHATSAPP" ? accessToken(connection.accessTokenReference) : null;
+  if (delivery.mode === "WHATSAPP" && (!token || !connection.externalAccountReference)) {
+    throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, "The server has no access token for this WhatsApp channel. An administrator must set it and check the connection again.");
+  }
   const messageId = randomUUID();
+  const simulated = target.simulated;
   const variables = {organizationId: context.organizationId, id: facts.replyId, conversationId: facts.conversation.id, messageId, actorUid: uid(context)};
   await asServer("QueueInboxReply", dc => sdk.queueInboxReply(dc, {...variables, expectedRevision, channelConnectionId: canonicalUuid(target.channelConnectionId!), content: job.content,
-    pendingExternalId: `pending:${facts.replyId}`, recipientIdentity: target.customerIdentity, preview: preview(job.content)}));
-  const adapter = ADAPTERS[provider];
-  let ack: Awaited<ReturnType<NonNullable<typeof adapter.send>>>;
-  try {
-    ack = adapter.send ? await adapter.send({conversationId: facts.conversation.id, simulated: target.simulated, recipient: target.customerIdentity, content: job.content})
-      : {accepted: false, reason: "This channel cannot send."};
-  } catch (error) {
-    ack = {accepted: false, reason: error instanceof Error ? error.message.slice(0, 200) : "The provider did not respond."};
+    pendingExternalId: `pending:${facts.replyId}`, recipientIdentity: target.customerIdentity, preview: preview(job.content), simulated, template: Boolean(template)}));
+
+  let ack: {accepted: true; providerMessageId: string} | {accepted: false; reason: string};
+  if (delivery.mode === "WHATSAPP") {
+    const sent = await sendWhatsAppMessage(token!, connection.externalAccountReference!, target.customerIdentity,
+      template ? {kind: "TEMPLATE", name: template.name, language: template.language} : {kind: "TEXT", text: job.content});
+    console.info(JSON.stringify({event: "inbox.whatsapp.send", replyId: facts.replyId, ok: sent.ok, code: sent.ok ? null : sent.code, template: Boolean(template)}));
+    ack = sent.ok ? {accepted: true, providerMessageId: sent.providerMessageId}
+      : {accepted: false, reason: sent.code === "TIMEOUT" || sent.code === "NETWORK" ? `${sent.message} It may or may not have been delivered; check WhatsApp before sending again.` : `Meta refused it (${sent.code}): ${sent.message}`};
+  } else {
+    const adapter = ADAPTERS[provider!];
+    try {
+      ack = adapter.send ? await adapter.send({conversationId: facts.conversation.id, simulated, recipient: target.customerIdentity, content: job.content}) : {accepted: false, reason: "This channel cannot send."};
+    } catch (error) {
+      ack = {accepted: false, reason: error instanceof Error ? error.message.slice(0, 200) : "The provider did not respond."};
+    }
   }
   if (!ack.accepted) {
-    await asServer("FailInboxReply", dc => sdk.failInboxReply(dc, {...variables, reason: ack.accepted ? "" : ack.reason.slice(0, 300)}));
-    return {id: facts.replyId, stage: "FAILED" as const, messageId};
+    await asServer("FailInboxReply", dc => sdk.failInboxReply(dc, {...variables, reason: ack.accepted ? "" : ack.reason.slice(0, 300), simulated}));
+    return {id: facts.replyId, stage: "FAILED" as const, messageId, reason: ack.accepted ? null : ack.reason};
   }
   await asServer("AcknowledgeInboxReply", dc => sdk.acknowledgeInboxReply(dc, {...variables, providerMessageId: ack.accepted ? ack.providerMessageId : ""}));
   return {id: facts.replyId, stage: "SENT" as const, messageId};
+}
+
+const startSchema = z.strictObject({connectionId: idSchema, phone: z.string().trim().min(6).max(32), template: templateSchema});
+
+/**
+ * Starts a WhatsApp conversation from EstateOS (Phase 7B.1, OWNER or ADMIN): a new thread
+ * with a test recipient and an approved-template reply DRAFT, which then goes through the
+ * normal checks and approval. A reply from the customer joins the same conversation.
+ */
+export async function startWhatsAppConversation(context: Context, body: unknown) {
+  if (context.membership.role !== "OWNER" && context.membership.role !== "ADMIN") throw new WorkspaceError("PERMISSION_DENIED", 403, "Only owners and administrators can start WhatsApp conversations in this phase.");
+  const input = parseInput(startSchema, body);
+  const identity = channelIdentity("WHATSAPP", {phone: input.phone});
+  if (!identity) throw new WorkspaceError("VALIDATION_ERROR", 400, "Enter the number in international format, for example +971 50 123 4567.");
+  if (!liveSendingConfigured() || !recipientAllowed(identity.value)) {
+    throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, "Phase 7B.1 test mode: conversations can be started only with the server's test recipients (INBOX_WHATSAPP_TEST_RECIPIENTS).");
+  }
+  const conversationId = stableUuid("whatsapp-started", context.organizationId, input.connectionId, identity.value);
+  const existing = await asServer("FindInboxConversation", dc => sdk.findInboxConversation(dc, {organizationId: context.organizationId, hasConnection: true, channelConnectionId: input.connectionId, externalThreadId: `wa:${identity.value}`}));
+  const found = existing.connected?.[0];
+  const id = found ? canonicalUuid(found.id) : conversationId;
+  if (!found) {
+    const match = await asServer("MatchInboxIdentity", dc => sdk.matchInboxIdentity(dc, {organizationId: context.organizationId, hasPhone: true, phone: identity.value, hasEmail: false, email: null}));
+    const contacts = match.byPhone ?? [];
+    const contact = contacts.length === 1 ? contacts[0] : null;
+    const lead = contact && contact.leads.length === 1 ? contact.leads[0] : null;
+    await asServer("StartWhatsAppConversation", dc => sdk.startWhatsAppConversation(dc, {organizationId: context.organizationId, id, channelConnectionId: input.connectionId, actorUid: uid(context),
+      customerIdentity: identity.value, externalThreadId: `wa:${identity.value}`, contactId: contact ? canonicalUuid(contact.id) : null, leadId: lead ? canonicalUuid(lead.id) : null}));
+  }
+  const reply = await createReply(context, id, {template: input.template});
+  return {conversationId: id, replyId: reply.id, existing: Boolean(found)};
 }

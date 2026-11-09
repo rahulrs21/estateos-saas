@@ -175,3 +175,21 @@ test("workflow registry: conversation triggers, the approved reassignment and te
   assert.throws(() => parseWorkflowDefinition({...template.definition, conditions: null, steps: [{id: "x", type: "inbox.draft_reply"}], trigger: "lead.created"}), /does not work with/);
   assert.throws(() => parseWorkflowDefinition({...template.definition, steps: [{id: "x", type: "lead.reassign", reason: "Reassign."}]}), /does not work with/, "lead steps do not apply to conversations");
 });
+
+test("Phase 7B.1 templates: only on WhatsApp, valid name:language, and allowed outside the 24-hour window", async () => {
+  const {parseTemplate, templateLabel} = await import("../src/modules/inbox/outbound");
+  assert.deepEqual(parseTemplate("hello_world:en_US"), {name: "hello_world", language: "en_US"});
+  assert.deepEqual(parseTemplate("viewing_reminder:ar"), {name: "viewing_reminder", language: "ar"});
+  for (const bad of ["Hello World:en_US", "hello_world", "hello_world:english", "x:en_us", ""]) assert.equal(parseTemplate(bad), null, bad);
+  assert.equal(templateLabel({name: "hello_world", language: "en_US"}), 'WhatsApp template "hello_world" (en_US)');
+  const closed = facts({provider: "WHATSAPP_CLOUD", lastInboundAt: null, content: 'WhatsApp template "hello_world" (en_US)'});
+  assert.deepEqual(validateOutbound(closed).problems.map(problem => problem.code), ["WINDOW_CLOSED"], "free text cannot start a conversation");
+  assert.deepEqual(validateOutbound({...closed, templateName: "hello_world:en_US"}).problems, [], "an approved template can");
+  assert.deepEqual(validateOutbound({...closed, templateName: "hello_world:en_US", optedOut: true}).problems.map(problem => problem.code), ["OPTED_OUT"], "opt-outs still apply to templates");
+  assert.deepEqual(validateOutbound({...closed, templateName: "bad name"}).problems.map(problem => problem.code), ["TEMPLATE_INVALID", "WINDOW_CLOSED"]);
+  assert.ok(validateOutbound({...facts({channel: "EMAIL", provider: "GMAIL"}), templateName: "hello_world:en_US"}).problems.some(problem => problem.code === "TEMPLATE_CHANNEL"));
+  const note = "Phase 7B.1 test mode: this server sends only to its test recipients.";
+  const blocked = validateOutbound(facts({provider: "WHATSAPP_CLOUD", deliverable: false, deliveryNote: note}));
+  assert.equal(blocked.valid, true, "the content may be approved");
+  assert.deepEqual(blocked.problems.map(problem => [problem.code, problem.message, problem.blocksApproval]), [["SENDING_DISABLED", note, false]], "the server's reason is shown");
+});

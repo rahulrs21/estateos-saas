@@ -35,6 +35,12 @@ type ChannelConnection @table(key: ["organization", "id"])
   connectionStatus: ChannelConnectionStatus! @default(value: NOT_CONFIGURED)
   # The name of the secret (INBOX_…), never its value.
   credentialReference: String @col(dataType: "varchar(64)")
+  # Phase 7B: the name of the secret holding the provider access token (WhatsApp Cloud API), never its value.
+  accessTokenReference: String @col(dataType: "varchar(64)")
+  # Set by a live connection check (Phase 7B): the provider confirmed the account with the token.
+  verifiedAt: Timestamp
+  verifiedName: String @col(dataType: "varchar(160)")
+  verifiedDisplayNumber: String @col(dataType: "varchar(32)")
   sendingEnabled: Boolean! @default(value: false)
   # The last verified webhook event (shown to administrators; never proof of a working connection).
   lastEventAt: Timestamp

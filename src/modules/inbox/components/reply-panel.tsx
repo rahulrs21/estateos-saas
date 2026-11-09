@@ -43,7 +43,7 @@ function ReplyCard({reply, view, busy, act, receipt}: {reply: Reply; view: Repli
   return <li className="space-y-2 rounded-lg border p-3" data-testid="inbox-reply" data-stage={reply.stage}>
     <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
       <Badge variant={STAGE_VARIANT[reply.stage] ?? "outline"}>{reply.stageLabel}</Badge>
-      <span>{SOURCE_LABEL[reply.source]}{reply.source !== "AGENT" && reply.edited ? ", edited" : ""}</span>
+      <span>{reply.template ? "Approved WhatsApp template" : SOURCE_LABEL[reply.source]}{reply.source !== "AGENT" && reply.edited ? ", edited" : ""}</span>
       <span>· {reply.lastEditedBy ?? reply.createdBy ?? "Team member"} · {formatLeadDate(reply.updatedAt, true)}</span>
       {reply.selfApproved && <Badge variant="outline">Self-approved (owner)</Badge>}
     </div>
@@ -70,7 +70,7 @@ function ReplyCard({reply, view, busy, act, receipt}: {reply: Reply; view: Repli
         <Input id={`note-${reply.id}`} value={note} onChange={event => setNote(event.target.value)} maxLength={300} placeholder="Reason (needed to return it)" className="h-8 w-56" />
         <Button size="sm" variant="outline" disabled={working || note.trim().length < 3} onClick={() => void run("decide", {decision: "REJECT", note}, "Returned to the author.")}><XCircle aria-hidden />Return</Button>
       </>}
-      {reply.can.send && <Button size="sm" disabled={working} onClick={() => void run("send", {}, "Delivered to the simulated conversation.")}><Send aria-hidden />Send (simulator)</Button>}
+      {reply.can.send && <Button size="sm" disabled={working} onClick={() => void run("send", {}, view.sendMode === "WHATSAPP" ? "Accepted by WhatsApp." : "Delivered to the simulated conversation.")}><Send aria-hidden />{view.sendMode === "WHATSAPP" ? "Send on WhatsApp" : "Send (simulator)"}</Button>}
       {reply.can.cancel && <Button size="sm" variant="ghost" disabled={working} onClick={() => void run("cancel", {}, "Reply cancelled.")}>Cancel reply</Button>}
       {view.simulatorSend && reply.stage === "SENT" && reply.messageId && (["DELIVERED", "READ", "FAILED"] as const).map(status =>
         <Button key={status} size="sm" variant="ghost" disabled={working} data-testid={`simulate-${status.toLowerCase()}`} onClick={() => void receipt(reply.messageId!, status)}>Simulate {status.toLowerCase()}</Button>)}
@@ -84,6 +84,7 @@ export function ReplyPanel({conversationId, organizationId, customer, onSent}: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [template, setTemplate] = useState({name: "hello_world", language: "en_US"});
   const [chosen, setChosen] = useState<RequirementField[]>([]);
   const path = `/api/inbox/conversations/${conversationId}`;
   const load = useCallback(() => communicationsGet<RepliesView>(`${path}/replies`, "Replies could not be loaded.").then(data => { setView(data); setError(null); }, problem => setError(errorMessage(problem, "Replies could not be loaded."))), [path]);
@@ -106,9 +107,13 @@ export function ReplyPanel({conversationId, organizationId, customer, onSent}: {
     try { await communicationsSend("/api/dev/communication-tests/inbox/receipt", organizationId, "POST", {messageId, status}); toast.success(`Simulated receipt: ${status.toLowerCase()}.`); onSent(); }
     catch (problem) { toast.error(errorMessage(problem, "The receipt could not be simulated.")); }
   }
-  async function save() {
+  async function save(useTemplate = false) {
     setBusy("new");
-    try { await communicationsSend(`${path}/replies`, organizationId, "POST", {content: draft}); setDraft(""); toast.success("Draft saved. Check it, then request approval."); }
+    try {
+      await communicationsSend(`${path}/replies`, organizationId, "POST", useTemplate ? {template} : {content: draft});
+      if (!useTemplate) setDraft("");
+      toast.success("Draft saved. Check it, then request approval.");
+    }
     catch (problem) { toast.error(errorMessage(problem, "The draft could not be saved.")); }
     finally { setBusy(null); void load(); }
   }
@@ -137,11 +142,19 @@ export function ReplyPanel({conversationId, organizationId, customer, onSent}: {
     <Card className="gap-3 py-4 shadow-xs ring-border"><CardHeader className="px-4"><CardTitle role="heading" aria-level={3} className="text-sm">Reply</CardTitle></CardHeader>
       <CardContent className="space-y-3 px-4">
         <p className="text-xs text-muted-foreground" data-testid="reply-sending-note">{view.sendingNote} {view.approvalRequired ? "Replies need an owner, administrator or manager to approve them." : ""}</p>
-        <form className="space-y-2" onSubmit={event => { event.preventDefault(); if (draft.trim()) void save(); }}>
+        {view.templateOnly ? <form className="space-y-2 rounded-md border p-3" data-testid="template-composer" onSubmit={event => { event.preventDefault(); void save(true); }}>
+          <p className="text-xs text-muted-foreground">The customer has not written in the last 24 hours, so WhatsApp allows only an approved template. Its text is the one approved in Meta&apos;s WhatsApp Manager. Meta may charge for template messages; check your WhatsApp billing first.</p>
+          <div className="flex flex-wrap gap-2">
+            <label className="space-y-1 text-xs font-medium">Template name<Input value={template.name} onChange={event => setTemplate(current => ({...current, name: event.target.value.trim()}))} maxLength={100} className="h-8 w-48" /></label>
+            <label className="space-y-1 text-xs font-medium">Language<Input value={template.language} onChange={event => setTemplate(current => ({...current, language: event.target.value.trim()}))} maxLength={6} className="h-8 w-24" /></label>
+          </div>
+          <Button type="submit" size="sm" variant="outline" disabled={busy !== null || !template.name || !template.language}>{busy === "new" && <Loader2 aria-hidden className="animate-spin" />}Save template reply</Button>
+        </form>
+        : <form className="space-y-2" onSubmit={event => { event.preventDefault(); if (draft.trim()) void save(); }}>
           <label htmlFor={`draft-${conversationId}`} className="sr-only">Write a reply</label>
           <textarea id={`draft-${conversationId}`} value={draft} onChange={event => setDraft(event.target.value)} rows={3} maxLength={4000} dir="auto" className={textareaClassName} placeholder="Write a reply. It is saved as a draft and checked before approval." />
           <Button type="submit" size="sm" variant="outline" disabled={busy !== null || !draft.trim()}>{busy === "new" && <Loader2 aria-hidden className="animate-spin" />}Save draft</Button>
-        </form>
+        </form>}
         {view.replies.length ? <ul className="space-y-2" aria-label="Replies">{view.replies.map(reply => <ReplyCard key={`${reply.id}:${reply.revision}`} reply={reply} view={view} busy={busy} act={act} receipt={receipt} />)}</ul>
           : <p className="text-sm text-muted-foreground">No replies yet.</p>}
       </CardContent></Card>

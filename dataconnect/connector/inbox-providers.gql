@@ -1,8 +1,9 @@
 # Phase 7A.4: channel connections, verified webhooks, durable inbox events, delivery
 # receipts and attachment records (docs/CHANNEL_ADAPTERS.md, docs/INBOX_SECURITY.md).
-# Credentials never pass through these operations: credentialReference is only
-# the name of a server secret (INBOX_...). No operation here can mark a connection
-# VERIFIED or enable sending: both need a live provider check (Phase 7B/7C).
+# Credentials never pass through these operations: credentialReference and
+# accessTokenReference are only names of server secrets (INBOX_...). Only the
+# server-only operations below, after a live check with the provider (Phase 7B),
+# can mark a connection VERIFIED or enable sending; editing it undoes both.
 # Operations marked NO_ACCESS are server-only.
 
 # --- Connections (OWNER or ADMIN) -------------------------------------------------------------
@@ -11,32 +12,32 @@ query ListChannelConnections($organizationId: UUID!)
   @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
   admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED") {id}
   connections: channelConnections(where: {organizationId: {eq: $organizationId}}, orderBy: [{createdAt: ASC}, {id: ASC}], limit: 20) {
-    id provider displayName externalAccountReference connectionStatus credentialReference sendingEnabled lastEventAt revision createdAt updatedAt createdBy {displayName}
+    id provider displayName externalAccountReference connectionStatus credentialReference accessTokenReference verifiedAt verifiedName verifiedDisplayNumber sendingEnabled lastEventAt revision createdAt updatedAt createdBy {displayName}
   }
 }
 
 # Real providers only (the simulator connection is created by developer tools). Sending stays off.
-mutation CreateChannelConnection($organizationId: UUID!, $id: UUID!, $provider: ChannelProvider!, $displayName: String!, $externalAccountReference: String, $credentialReference: String)
-  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.provider in ['WHATSAPP_CLOUD', 'GMAIL', 'MICROSOFT_365'] && vars.displayName.size() >= 2 && vars.displayName.size() <= 80 && (!has(vars.credentialReference) || vars.credentialReference == null || vars.credentialReference.matches('^INBOX_[A-Z0-9_]{3,56}$')) && (!has(vars.externalAccountReference) || vars.externalAccountReference == null || vars.externalAccountReference.matches('^[A-Za-z0-9_.@+-]{2,200}$'))") @transaction {
+mutation CreateChannelConnection($organizationId: UUID!, $id: UUID!, $provider: ChannelProvider!, $displayName: String!, $externalAccountReference: String, $credentialReference: String, $accessTokenReference: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.provider in ['WHATSAPP_CLOUD', 'GMAIL', 'MICROSOFT_365'] && vars.displayName.size() >= 2 && vars.displayName.size() <= 80 && (!has(vars.credentialReference) || vars.credentialReference == null || vars.credentialReference.matches('^INBOX_[A-Z0-9_]{3,56}$')) && (!has(vars.accessTokenReference) || vars.accessTokenReference == null || vars.accessTokenReference.matches('^INBOX_[A-Z0-9_]{3,56}$')) && (!has(vars.externalAccountReference) || vars.externalAccountReference == null || vars.externalAccountReference.matches('^[A-Za-z0-9_.@+-]{2,200}$'))") @transaction {
   admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED")
   limit: query @redact @check(expr: "this.existing.size() < 10", message: "CHANNEL_CONNECTION_LIMIT") {
     existing: channelConnections(where: {organizationId: {eq: $organizationId}}, limit: 10) {id}
   }
   connection: channelConnection_insert(data: {organizationId: $organizationId, id: $id, provider: $provider, displayName: $displayName, externalAccountReference: $externalAccountReference,
-    credentialReference: $credentialReference, sendingEnabled: false, createdByUid_expr: "auth.uid",
+    credentialReference: $credentialReference, accessTokenReference: $accessTokenReference, sendingEnabled: false, createdByUid_expr: "auth.uid",
     connectionStatus_expr: "has(vars.credentialReference) && vars.credentialReference != null && has(vars.externalAccountReference) && vars.externalAccountReference != null ? 'CONFIGURED' : 'NOT_CONFIGURED'"})
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CHANNEL_CONNECTION_CHANGED, targetType: CHANNEL_CONNECTION, targetId: $id, metadata_expr: "{'event': 'CREATED', 'provider': vars.provider}"})
 }
 
 # New details always return the connection to configured (or not configured). A disabled connection stays disabled.
-mutation UpdateChannelConnection($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $displayName: String!, $externalAccountReference: String, $credentialReference: String)
-  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.displayName.size() >= 2 && vars.displayName.size() <= 80 && (!has(vars.credentialReference) || vars.credentialReference == null || vars.credentialReference.matches('^INBOX_[A-Z0-9_]{3,56}$')) && (!has(vars.externalAccountReference) || vars.externalAccountReference == null || vars.externalAccountReference.matches('^[A-Za-z0-9_.@+-]{2,200}$'))") @transaction {
+mutation UpdateChannelConnection($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $displayName: String!, $externalAccountReference: String, $credentialReference: String, $accessTokenReference: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.displayName.size() >= 2 && vars.displayName.size() <= 80 && (!has(vars.credentialReference) || vars.credentialReference == null || vars.credentialReference.matches('^INBOX_[A-Z0-9_]{3,56}$')) && (!has(vars.accessTokenReference) || vars.accessTokenReference == null || vars.accessTokenReference.matches('^INBOX_[A-Z0-9_]{3,56}$')) && (!has(vars.externalAccountReference) || vars.externalAccountReference == null || vars.externalAccountReference.matches('^[A-Za-z0-9_.@+-]{2,200}$'))") @transaction {
   admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED")
   before: query @redact {
     connection: channelConnection(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null && this.revision == vars.expectedRevision && this.provider != 'DEVELOPMENT_SIMULATOR'", message: "CHANNEL_CONNECTION_CHANGED") {revision connectionStatus provider}
   }
   connection: channelConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {displayName: $displayName,
-    externalAccountReference: $externalAccountReference, credentialReference: $credentialReference, sendingEnabled: false,
+    externalAccountReference: $externalAccountReference, credentialReference: $credentialReference, accessTokenReference: $accessTokenReference, sendingEnabled: false, verifiedAt: null,
     connectionStatus_expr: "response.before.connection.connectionStatus == 'DISABLED' ? 'DISABLED' : (has(vars.credentialReference) && vars.credentialReference != null && has(vars.externalAccountReference) && vars.externalAccountReference != null ? 'CONFIGURED' : 'NOT_CONFIGURED')",
     revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "CHANNEL_CONNECTION_CHANGED")
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CHANNEL_CONNECTION_CHANGED, targetType: CHANNEL_CONNECTION, targetId: $id, metadata_expr: "{'event': 'UPDATED'}"})
@@ -48,10 +49,65 @@ mutation SetChannelConnectionEnabled($organizationId: UUID!, $id: UUID!, $expect
   before: query @redact {
     connection: channelConnection(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null && this.revision == vars.expectedRevision && this.provider != 'DEVELOPMENT_SIMULATOR'", message: "CHANNEL_CONNECTION_CHANGED") {revision provider credentialReference externalAccountReference}
   }
-  connection: channelConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {sendingEnabled: false,
+  connection: channelConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {sendingEnabled: false, verifiedAt: null,
     connectionStatus_expr: "!vars.enabled ? 'DISABLED' : (response.before.connection.credentialReference != null && response.before.connection.externalAccountReference != null ? 'CONFIGURED' : 'NOT_CONFIGURED')",
     revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "CHANNEL_CONNECTION_CHANGED")
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CHANNEL_CONNECTION_CHANGED, targetType: CHANNEL_CONNECTION, targetId: $id, metadata_expr: "{'event': vars.enabled ? 'ENABLED' : 'DISABLED'}"})
+}
+
+# --- Live connection check and sending (server only, Phase 7B) --------------------------------
+
+# The connection with its secret names, for a check or a send by an OWNER or ADMIN (the server reads the secrets).
+query ChannelConnectionForCheck($organizationId: UUID!, $id: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
+  admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED") {id}
+  connection: channelConnection(key: {organizationId: $organizationId, id: $id}) {
+    id provider connectionStatus externalAccountReference credentialReference accessTokenReference sendingEnabled verifiedAt revision
+  }
+}
+
+# The provider confirmed the account with the token: VERIFIED (compare-and-set on the revision the check started from).
+mutation MarkChannelConnectionChecked($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $actorUid: String!, $verified: Boolean!, $verifiedName: String, $verifiedDisplayNumber: String, $errorCode: String)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED") {id}
+    connection: channelConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, provider: {eq: WHATSAPP_CLOUD}, connectionStatus: {in: [CONFIGURED, VERIFIED, ERROR]}}})
+      @check(expr: "this != null", message: "CHANNEL_CONNECTION_CHANGED") {id}
+  }
+  verified: channelConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+    data: {connectionStatus: VERIFIED, verifiedAt_expr: "request.time", verifiedName: $verifiedName, verifiedDisplayNumber: $verifiedDisplayNumber, revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+    @include(if: $verified) @check(expr: "this != null", message: "CHANNEL_CONNECTION_CHANGED")
+  failed: channelConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}},
+    data: {connectionStatus: ERROR, sendingEnabled: false, verifiedAt: null, revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+    @skip(if: $verified) @check(expr: "this != null", message: "CHANNEL_CONNECTION_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CHANNEL_CONNECTION_CHANGED, targetType: CHANNEL_CONNECTION, targetId: $id,
+    metadata_expr: "{'event': vars.verified ? 'VERIFIED' : 'CHECK_FAILED', 'errorCode': vars.errorCode}"})
+}
+
+# Sending on or off for a VERIFIED WhatsApp connection. The server allows it only with test recipients configured (7B.1).
+mutation SetChannelConnectionSending($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $actorUid: String!, $enabled: Boolean!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED") {id}
+    connection: channelConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, provider: {eq: WHATSAPP_CLOUD}, connectionStatus: {eq: VERIFIED}}})
+      @check(expr: "this != null", message: "CHANNEL_CONNECTION_CHANGED") {id}
+  }
+  channelConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {sendingEnabled: $enabled, revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+    @check(expr: "this != null", message: "CHANNEL_CONNECTION_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CHANNEL_CONNECTION_CHANGED, targetType: CHANNEL_CONNECTION, targetId: $id,
+    metadata_expr: "{'event': vars.enabled ? 'SENDING_ENABLED' : 'SENDING_DISABLED'}"})
+}
+
+# A WhatsApp conversation started by the business (7B.1): the thread a reply from the customer will join.
+# The first message must be an approved template (the reply pipeline checks and approves it as usual).
+mutation StartWhatsAppConversation($organizationId: UUID!, $id: UUID!, $channelConnectionId: UUID!, $actorUid: String!, $customerIdentity: String!, $externalThreadId: String!,
+  $contactId: UUID, $leadId: UUID) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED") {id}
+    connection: channelConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $channelConnectionId}, provider: {eq: WHATSAPP_CLOUD}, connectionStatus: {eq: VERIFIED}, sendingEnabled: {eq: true}}})
+      @check(expr: "this != null", message: "INBOX_SENDING_DISABLED") {id}
+  }
+  conversation: inboxConversation_insert(data: {organizationId: $organizationId, id: $id, channelConnectionId: $channelConnectionId, channel: WHATSAPP, externalThreadId: $externalThreadId,
+    customerIdentity: $customerIdentity, contactId: $contactId, leadId: $leadId, assignedMembershipId_expr: "response.before.actor.id", lastMessageAt_expr: "request.time", unreadCount: 0})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: INBOX_CONVERSATION_CHANGED, targetType: CONVERSATION, targetId: $id, metadata_expr: "{'event': 'STARTED_BY_BUSINESS'}"})
 }
 
 # --- Webhooks and durable events (server only) ------------------------------------------------

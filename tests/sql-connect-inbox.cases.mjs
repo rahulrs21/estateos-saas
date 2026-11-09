@@ -475,5 +475,96 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       assert.equal(after.insight, null, "old Claude analyses are deleted");
       assert.equal((await server(sdk.applyInboxRetention, {organizationId: f.orgA, ids: [oldMessage], before})).messages, 0, "a repeated pass changes nothing");
     });
+
+    // --- 7B.1: verified WhatsApp connections, sending switch, business-started conversations, live queueing ---
+    it("verifies a WhatsApp connection and turns sending on only through server operations, and undoes both when it is edited", async () => {
+      let row = await connection();
+      assert.equal(row.connectionStatus, "CONFIGURED");
+      const checked = (extra = {}) => server(sdk.markChannelConnectionChecked, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "owner-a", verified: true,
+        verifiedName: "Fictional Realty", verifiedDisplayNumber: "+44 7700 900001", errorCode: null, ...extra});
+      await forbidden(sdk.markChannelConnectionChecked, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "owner-a", verified: true});
+      await rejectsWith(checked({actorUid: "agent-a"}), "INBOX_ADMIN_REQUIRED");
+      await rejectsWith(server(sdk.setChannelConnectionSending, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "owner-a", enabled: true}), "CHANNEL_CONNECTION_CHANGED");
+      await checked();
+      row = await connection();
+      assert.equal(row.connectionStatus, "VERIFIED");
+      assert.ok(row.verifiedAt);
+      assert.equal(row.verifiedName, "Fictional Realty");
+      assert.equal(row.sendingEnabled, false, "verifying does not turn sending on");
+      await rejectsWith(checked({expectedRevision: row.revision - 1}), "CHANNEL_CONNECTION_CHANGED");
+      await rejectsWith(server(sdk.setChannelConnectionSending, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "manager-a", enabled: true}), "INBOX_ADMIN_REQUIRED");
+      await forbidden(sdk.setChannelConnectionSending, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "owner-a", enabled: true});
+      await server(sdk.setChannelConnectionSending, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "owner-a", enabled: true});
+      row = await connection();
+      assert.equal(row.sendingEnabled, true);
+      const check = await server(sdk.channelConnectionForCheck, {organizationId: f.orgA, id: connectionId, actorUid: "owner-a"});
+      assert.equal(check.connection.credentialReference, "INBOX_TEST_WA_SECRET");
+      await rejectsWith(server(sdk.channelConnectionForCheck, {organizationId: f.orgA, id: connectionId, actorUid: "agent-a"}), "INBOX_ADMIN_REQUIRED");
+      assert.equal((await server(sdk.channelConnectionForCheck, {organizationId: f.orgB, id: connectionId, actorUid: "owner-b"})).connection, null, "another company cannot read it");
+    });
+
+    let started;
+    it("starts business conversations and queues real replies only on a verified connection with sending on", async () => {
+      const identity = "+447700900616";
+      const start = (actorUid, id = randomUUID()) => server(sdk.startWhatsAppConversation, {organizationId: f.orgA, id, channelConnectionId: connectionId, actorUid, customerIdentity: identity,
+        externalThreadId: `wa:${identity}`, contactId: null, leadId: null});
+      await rejectsWith(start("agent-a"), "INBOX_ADMIN_REQUIRED");
+      started = randomUUID();
+      await start("owner-a", started);
+      const conversation = (await run(sdk.getInboxConversation, "owner-a", {organizationId: f.orgA, id: started})).conversation;
+      assert.equal(conversation.lastInboundAt ?? null, null, "the customer has not written: only a template can be sent");
+      assert.equal(key(conversation.assignedMembershipId), key(f.memberOwnerA), "it belongs to the member who started it");
+      await assert.rejects(start("owner-a"), "one conversation per customer thread");
+
+      await forbidden(sdk.createInboxReplyDraft, "owner-a", {organizationId: f.orgA, id: randomUUID(), conversationId: started, content: "x", templateName: "Not A Template"});
+      const approved = async templateName => {
+        const id = randomUUID();
+        await run(sdk.createInboxReplyDraft, "owner-a", {organizationId: f.orgA, id, conversationId: started, content: 'WhatsApp template "hello_world" (en_US)', templateName});
+        await run(sdk.recordInboxReplyCheck, "owner-a", {organizationId: f.orgA, id, expectedRevision: 1, valid: true, validationJson: "{}"});
+        await run(sdk.submitInboxReply, "owner-a", {organizationId: f.orgA, id, expectedRevision: 2, approvalRequired: true, notificationId: randomUUID()});
+        await decide("admin-a", id, 3, true);
+        return {id, job: await reply("owner-a", started, id)};
+      };
+      const queue = (id, job, messageId, extra = {}) => server(sdk.queueInboxReply, {organizationId: f.orgA, id, expectedRevision: job.revision, conversationId: started, channelConnectionId: connectionId,
+        content: job.content, actorUid: "owner-a", messageId, pendingExternalId: `pending:${id}`, recipientIdentity: identity, preview: "template", simulated: false, template: true, ...extra});
+      const first = await approved("hello_world:en_US");
+      assert.equal(first.job.templateName, "hello_world:en_US");
+      await rejectsWith(queue(first.id, first.job, randomUUID(), {simulated: true}), "INBOX_SENDING_DISABLED", "a real conversation is not queued as simulated");
+      const messageId = randomUUID();
+      await queue(first.id, first.job, messageId);
+      let message = (await run(sdk.listInboxMessages, "owner-a", {organizationId: f.orgA, conversationId: started, limit: 5})).messages.find(item => key(item.id) === key(messageId));
+      assert.equal(message.deliveryStatus, "QUEUED");
+      assert.equal(message.messageType, "TEMPLATE");
+      assert.equal(message.simulated, false);
+      await server(sdk.acknowledgeInboxReply, {organizationId: f.orgA, id: first.id, conversationId: started, messageId, providerMessageId: "wamid.E2E-LIVE-1", actorUid: "owner-a"});
+      assert.equal((await reply("owner-a", started, first.id)).stage, "SENT");
+      assert.equal((await server(sdk.inboxMessageByExternalId, {organizationId: f.orgA, channelConnectionId: connectionId, externalMessageId: "wamid.E2E-LIVE-1"})).messages[0].deliveryStatus, "SENT", "Meta's receipts will find it");
+
+      const refused = await approved("hello_world:en_US");
+      const refusedMessage = randomUUID();
+      await queue(refused.id, refused.job, refusedMessage);
+      await server(sdk.failInboxReply, {organizationId: f.orgA, id: refused.id, conversationId: started, messageId: refusedMessage, reason: "Meta refused it (131026): undeliverable", actorUid: "owner-a", simulated: false});
+      assert.equal((await reply("owner-a", started, refused.id)).stage, "FAILED");
+      const failed = (await dc.executeGraphql(`query E($org: UUID!, $id: UUID!) { automationEvents(where: {organizationId: {eq: $org}, targetId: {eq: $id}, triggerType: {eq: "inbox.message.failed"}}) { origin } }`, {variables: {org: f.orgA, id: started}})).data.automationEvents;
+      assert.deepEqual(failed.map(row => row.origin), ["PROVIDER"]);
+
+      // Editing the channel undoes verification and sending: nothing more can be queued until it is checked again.
+      const later = await approved("hello_world:en_US");
+      let row = await connection();
+      await run(sdk.updateChannelConnection, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, displayName: "Sales WhatsApp", externalAccountReference: ACCOUNT,
+        credentialReference: "INBOX_TEST_WA_SECRET", accessTokenReference: "INBOX_TEST_WA_TOKEN"});
+      row = await connection();
+      assert.deepEqual({status: row.connectionStatus, sending: row.sendingEnabled, verifiedAt: row.verifiedAt ?? null, token: row.accessTokenReference}, {status: "CONFIGURED", sending: false, verifiedAt: null, token: "INBOX_TEST_WA_TOKEN"});
+      await rejectsWith(queue(later.id, later.job, randomUUID()), "INBOX_SENDING_DISABLED");
+      await rejectsWith(server(sdk.startWhatsAppConversation, {organizationId: f.orgA, id: randomUUID(), channelConnectionId: connectionId, actorUid: "owner-a", customerIdentity: "+447700900617",
+        externalThreadId: "wa:+447700900617", contactId: null, leadId: null}), "INBOX_SENDING_DISABLED");
+      await forbidden(sdk.createChannelConnection, "owner-a", {organizationId: f.orgA, id: randomUUID(), provider: sdk.ChannelProvider.WHATSAPP_CLOUD, displayName: "Pasted token", externalAccountReference: "12345678",
+        credentialReference: "INBOX_X_SECRET", accessTokenReference: "EAAG-a-pasted-token"});
+
+      // A failed check marks the channel ERROR with sending off.
+      await server(sdk.markChannelConnectionChecked, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "admin-a", verified: false, errorCode: "190"});
+      row = await connection();
+      assert.deepEqual({status: row.connectionStatus, sending: row.sendingEnabled}, {status: "ERROR", sending: false});
+    });
   });
 }

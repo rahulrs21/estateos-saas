@@ -5,14 +5,14 @@ import { enforceRateLimit } from "@/lib/rate-limit/server";
 import type { Context } from "@/modules/communications/server/data";
 import { errorResponse, read, readContext, write as baseWrite } from "@/modules/communications/server/http";
 import { attachmentFile } from "./attachments";
-import { createConnection, listConnections, setConnectionEnabled, updateConnection } from "./connections";
+import { checkConnection, createConnection, listConnections, setConnectionEnabled, setConnectionSending, updateConnection } from "./connections";
 import { inboxWebhookHandshake, inboxWebhookResponse } from "./webhooks";
 import {
   addNote, assignConversation, assignees, customerContext, getConversation, inboxCounts, inboxSettings, linkConversation, listConversations, listMessages, markRead, saveInboxSettings, setConversationState,
 } from "./conversations";
 import { SIMULATOR_BODY_BYTES, inboxSimulatorState, simulateInbound, simulateReceipt, simulateWebsiteEnquiry } from "./simulator";
 import { analyseConversation, applyRequirements } from "./assistant";
-import { cancelReply, checkReply, createReply, decideReply, listReplies, sendReply, submitReply, updateReply } from "./outbound";
+import { cancelReply, checkReply, createReply, decideReply, listReplies, sendReply, startWhatsAppConversation, submitReply, updateReply } from "./outbound";
 import { devToolsEnabled } from "@/modules/communications/dev/guard";
 
 /*
@@ -62,6 +62,9 @@ export const applyRequirementsResponse = (request: Request, id: string) => write
 export const connectionsResponse = (request: Request) => read(request, "inbox.connections", context => listConnections(context));
 export const createConnectionResponse = (request: Request) => write(request, "inbox.connections.create", createConnection, 201);
 export const updateConnectionResponse = (request: Request, id: string) => write(request, "inbox.connections.update", (context, body) => updateConnection(context, id, body));
+export const connectionCheckResponse = (request: Request, id: string) => write(request, "inbox.connections.check", context => checkConnection(context, id));
+export const connectionSendingResponse = (request: Request, id: string) => write(request, "inbox.connections.sending", (context, body) => setConnectionSending(context, id, body));
+export const startWhatsAppResponse = (request: Request) => write(request, "inbox.whatsapp.start", startWhatsAppConversation, 201);
 export const connectionEnabledResponse = (request: Request, id: string) => write(request, "inbox.connections.enabled", (context, body) => setConnectionEnabled(context, id, body));
 
 /** Streams an attachment as a download to a member who may see the conversation; every access is audited. */

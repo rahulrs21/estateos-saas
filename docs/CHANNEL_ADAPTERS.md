@@ -32,11 +32,11 @@ States: **SUPPORTED** (built and tested), **PLANNED** (designed for a later phas
 
 | Capability | WhatsApp Cloud | Gmail | Microsoft 365 | Website form | Developer simulator |
 | --- | --- | --- | --- | --- | --- |
-| Validate connection | PLANNED (7B) | PLANNED (7C) | PLANNED (7C) | UNSUPPORTED | UNSUPPORTED |
+| Validate connection | SUPPORTED (7B.1) | PLANNED (7C) | PLANNED (7C) | UNSUPPORTED | UNSUPPORTED |
 | Receive events | SUPPORTED | PLANNED | PLANNED | SUPPORTED | SUPPORTED |
 | Normalize message | SUPPORTED | PLANNED | PLANNED | SUPPORTED | SUPPORTED |
 | Sync history | UNSUPPORTED | PLANNED | PLANNED | UNSUPPORTED | UNSUPPORTED |
-| Send message | PLANNED (7B) | PLANNED (7C) | PLANNED (7C) | UNSUPPORTED | SUPPORTED (simulated conversations only) |
+| Send message | SUPPORTED (7B.1, test recipients only) | PLANNED (7C) | PLANNED (7C) | UNSUPPORTED | SUPPORTED (simulated conversations only) |
 | Delivery receipts | SUPPORTED | PLANNED | PLANNED | UNSUPPORTED | SUPPORTED |
 | Resolve provider message ID | SUPPORTED | PLANNED | PLANNED | UNSUPPORTED | UNSUPPORTED |
 | Health check | PLANNED | PLANNED | PLANNED | UNSUPPORTED | UNSUPPORTED |
@@ -62,7 +62,7 @@ A `ChannelConnection` row is a company's account with a provider. Managed at **I
 Rules:
 
 - A connection is CONFIGURED when it has both an account and a secret name, otherwise NOT_CONFIGURED. Editing a disabled connection keeps it disabled.
-- No operation available to members can set VERIFIED or enable sending. Both need the live checks of Phase 7B (WhatsApp) and 7C (email).
+- No operation available to members can set VERIFIED or enable sending. For WhatsApp (7B.1), only the server-only live check with Meta sets VERIFIED, and only a server-only operation, for an OWNER or ADMIN on a VERIFIED channel, turns sending on. Editing or disabling the channel undoes both. Email needs the live checks of Phase 7C.
 - The settings page shows whether the named secret is set on the server, never its value. For WhatsApp it also shows the verify-token secret name (`<credentialReference>_VERIFY_TOKEN`) and the webhook address to give Meta.
 - Account format is checked against the stored provider (WhatsApp: digits; email providers: a mailbox address), never a provider named in the request.
 
@@ -127,13 +127,14 @@ A message is never SENT because it was queued: SENT, DELIVERED and READ come onl
 
 Adapters that can send implement `send(request)`, which returns the provider's acknowledgement: `{accepted: true, providerMessageId}` or `{accepted: false, reason}`.
 
-- **Phase 7A.5: only the developer simulator implements it.** It refuses any conversation that is not simulated and answers with a `simwamid.…` ID. Nothing leaves EstateOS.
-- **The database adds its own guard.** `QueueInboxReply` (`inbox-delivery.gql`) queues only approved replies on simulated, not-opted-out conversations on a `DEVELOPMENT_SIMULATOR` connection with sending enabled.
+- **The developer simulator** implements it. It refuses any conversation that is not simulated and answers with a `simwamid.…` ID; nothing leaves EstateOS.
+- **WhatsApp Cloud (Phase 7B.1)** sends through the server-only `server/whatsapp-cloud.ts`, never through the shared adapter. It needs a VERIFIED connection (a live check with Meta), sending turned on by an administrator, and a recipient on the server's test list (`INBOX_WHATSAPP_TEST_RECIPIENTS`). See [WHATSAPP_INTEGRATION_PLAN.md](WHATSAPP_INTEGRATION_PLAN.md#phase-7b1-test-mode-built).
+- **The database adds its own guard.** `QueueInboxReply` (`inbox-delivery.gql`) queues only approved replies on conversations that are not opted out, and only on either a `DEVELOPMENT_SIMULATOR` connection (simulated conversations) or a VERIFIED `WHATSAPP_CLOUD` connection with sending on (real conversations).
 - **Outcome.**
   - Acknowledged: the reply becomes SENT under the provider's ID, which receipts match on.
   - Refused: it becomes FAILED, with the `inbox.message.failed` event.
 - The approval pipeline in front of sending is described in [UNIFIED_INBOX.md](UNIFIED_INBOX.md#outbound).
-- **WhatsApp Cloud and email sending stay PLANNED.** They need Phase 7B/7C, explicit approval and their own tests.
+- **Email sending stays PLANNED** (Phase 7C). WhatsApp sending beyond the test recipients is Phase 7B.2 and needs approval.
 
 ## Attachments
 

@@ -82,9 +82,11 @@ test("capabilities are explicit, and adapters existing never means connected or 
     assert.equal(adapter.verifyWebhook(request(textMessage), SECRET), false, `${provider} verifies nothing yet`);
     assert.deepEqual(adapter.parseWebhook(request(textMessage)), []);
   }
-  assert.equal(ADAPTERS.WHATSAPP_CLOUD.capabilities.SEND_MESSAGE, "PLANNED");
-  assert.equal(ADAPTERS.WHATSAPP_CLOUD.capabilities.VALIDATE_CONNECTION, "PLANNED");
-  assert.deepEqual((Object.keys(ADAPTERS) as Array<keyof typeof ADAPTERS>).filter(canSend), ["DEVELOPMENT_SIMULATOR"], "only the developer simulator may send in Phase 7A");
+  // Phase 7B.1: WhatsApp check and send are built, but sending is decided on the server (verified, enabled, test recipients), never by the adapter registry.
+  assert.equal(ADAPTERS.WHATSAPP_CLOUD.capabilities.SEND_MESSAGE, "SUPPORTED");
+  assert.equal(ADAPTERS.WHATSAPP_CLOUD.capabilities.VALIDATE_CONNECTION, "SUPPORTED");
+  assert.equal(ADAPTERS.WHATSAPP_CLOUD.send, undefined, "the shared adapter has no send; the server-only Cloud API client does");
+  assert.deepEqual((Object.keys(ADAPTERS) as Array<keyof typeof ADAPTERS>).filter(canSend), ["DEVELOPMENT_SIMULATOR"], "the registry alone lets only the developer simulator send");
   assert.ok(CREDENTIAL_REFERENCE.test("INBOX_WHATSAPP_APP_SECRET"));
   for (const bad of ["inbox_lower", "COMMS_TWILIO_TOKEN", "INBOX_", "INBOX_A B", "EAAG...actual-token"]) assert.ok(!CREDENTIAL_REFERENCE.test(bad), bad);
 });

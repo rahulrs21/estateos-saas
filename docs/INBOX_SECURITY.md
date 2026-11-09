@@ -28,7 +28,7 @@ What follows from the rule:
 
 ## Credentials
 
-- **Connections hold only a secret's name** (`INBOX_…`). The value lives in the server environment or Secret Manager and is read only on the server (`readInboxSecret`).
+- **Connections hold only secret names** (`INBOX_…`): the app secret, the verify token and, from Phase 7B.1, the WhatsApp access token. Values live in the server environment or Secret Manager and are read only on the server (`readInboxSecret`). The access token is sent only in the `Authorization` header to Meta's Graph API, and never logged, stored or returned.
 - **Pasted credentials are refused.** The secret-name field refuses anything that is not such a name, so a pasted token or password is not stored.
 - **Nothing reaches a browser.** No credential is ever returned to the browser or written to logs. The settings page shows only whether each secret is set.
 - **No mailbox passwords.** EstateOS never asks for mailbox passwords; email connects through OAuth in Phase 7C.
@@ -115,10 +115,13 @@ The audit log records:
 
 ## Sending
 
-Nothing reaches a real customer in Phase 7A:
+- **Phase 7A:** only the developer simulator sends, to simulated conversations.
+- **Phase 7B.1:** WhatsApp sending also needs all of these:
+  - a connection Meta verified with the token;
+  - sending turned on by an OWNER or ADMIN (audited);
+  - an approved reply;
+  - a recipient on the server's test list (`INBOX_WHATSAPP_TEST_RECIPIENTS`).
 
-- only the developer simulator's adapter can send;
-- the database queues replies only for simulated conversations on that connection;
-- `SENT` comes only from the adapter's acknowledgement.
-
-Enabling WhatsApp or email sending is Phase 7B/7C and needs explicit approval. See [UNIFIED_INBOX.md](UNIFIED_INBOX.md#outbound).
+  Without that list, nothing is sent at all.
+- **Enforcement.** The database refuses to queue a real reply on any other connection. `SENT` comes only from Meta's response with a message ID, and nothing is retried automatically.
+- **Approval.** Sending to real customers (7B.2) and email (7C) need explicit approval. See [UNIFIED_INBOX.md](UNIFIED_INBOX.md#outbound).

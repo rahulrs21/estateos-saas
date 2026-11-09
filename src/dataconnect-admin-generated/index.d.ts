@@ -2002,6 +2002,29 @@ export interface ChannelAccountInUseVariables {
   externalAccountReference: string;
 }
 
+export interface ChannelConnectionForCheckData {
+  admin?: {
+    id: UUIDString;
+  };
+  connection?: {
+    id: UUIDString;
+    provider: ChannelProvider;
+    connectionStatus: ChannelConnectionStatus;
+    externalAccountReference?: string | null;
+    credentialReference?: string | null;
+    accessTokenReference?: string | null;
+    sendingEnabled: boolean;
+    verifiedAt?: TimestampString | null;
+    revision: number;
+  };
+}
+
+export interface ChannelConnectionForCheckVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+}
+
 export interface ChannelConnection_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -2590,6 +2613,7 @@ export interface CreateChannelConnectionVariables {
   displayName: string;
   externalAccountReference?: string | null;
   credentialReference?: string | null;
+  accessTokenReference?: string | null;
 }
 
 export interface CreateCommunicationPhoneLineData {
@@ -2814,6 +2838,7 @@ export interface CreateInboxReplyDraftVariables {
   id: UUIDString;
   conversationId: UUIDString;
   content: string;
+  templateName?: string | null;
 }
 
 export interface CreateInboxSimulatorChannelData {
@@ -3585,6 +3610,7 @@ export interface FailInboxReplyVariables {
   messageId: UUIDString;
   reason: string;
   actorUid: string;
+  simulated?: boolean;
 }
 
 export interface FeedGenerationJob_Key {
@@ -6727,6 +6753,7 @@ export interface InboxReplyFactsData {
     content: string;
     source: string;
     edited: boolean;
+    templateName?: string | null;
     createdByUid: string;
     lastEditedByUid?: string | null;
     conversationId: UUIDString;
@@ -6745,6 +6772,8 @@ export interface InboxReplyFactsData {
         provider: ChannelProvider;
         connectionStatus: ChannelConnectionStatus;
         sendingEnabled: boolean;
+        externalAccountReference?: string | null;
+        accessTokenReference?: string | null;
       };
     };
   };
@@ -7917,6 +7946,10 @@ export interface ListChannelConnectionsData {
     externalAccountReference?: string | null;
     connectionStatus: ChannelConnectionStatus;
     credentialReference?: string | null;
+    accessTokenReference?: string | null;
+    verifiedAt?: TimestampString | null;
+    verifiedName?: string | null;
+    verifiedDisplayNumber?: string | null;
     sendingEnabled: boolean;
     lastEventAt?: TimestampString | null;
     revision: number;
@@ -8312,6 +8345,7 @@ export interface ListInboxRepliesData {
       stage: OutboundStage;
       source: string;
       content: string;
+      templateName?: string | null;
       versionsJson: string;
       validationJson?: string | null;
       edited: boolean;
@@ -10533,6 +10567,23 @@ export interface MarkCallProviderEventVariables {
   callId?: UUIDString | null;
 }
 
+export interface MarkChannelConnectionCheckedData {
+  verified?: ChannelConnection_Key | null;
+  failed?: ChannelConnection_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface MarkChannelConnectionCheckedVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  actorUid: string;
+  verified: boolean;
+  verifiedName?: string | null;
+  verifiedDisplayNumber?: string | null;
+  errorCode?: string | null;
+}
+
 export interface MarkInAppNotificationReadData {
   updated?: InAppNotification_Key | null;
 }
@@ -10896,6 +10947,8 @@ export interface QueueInboxReplyVariables {
   pendingExternalId: string;
   recipientIdentity: string;
   preview: string;
+  simulated?: boolean;
+  template?: boolean;
 }
 
 export interface QueueManualAutomationRunData {
@@ -11884,6 +11937,19 @@ export interface SetChannelConnectionEnabledVariables {
   enabled: boolean;
 }
 
+export interface SetChannelConnectionSendingData {
+  channelConnection_update?: ChannelConnection_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SetChannelConnectionSendingVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  actorUid: string;
+  enabled: boolean;
+}
+
 export interface SetCommunicationProviderEnabledData {
   connection?: CommunicationProviderConnection_Key | null;
   auditLog_insert: AuditLog_Key;
@@ -12173,6 +12239,22 @@ export interface StartVoiceTestSessionVariables {
   turnsJson: string;
 }
 
+export interface StartWhatsAppConversationData {
+  conversation: InboxConversation_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface StartWhatsAppConversationVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  channelConnectionId: UUIDString;
+  actorUid: string;
+  customerIdentity: string;
+  externalThreadId: string;
+  contactId?: UUIDString | null;
+  leadId?: UUIDString | null;
+}
+
 export interface SubmitAutomationWorkflowData {
   workflow?: AutomationWorkflow_Key | null;
   auditLog_insert: AuditLog_Key;
@@ -12423,6 +12505,7 @@ export interface UpdateChannelConnectionVariables {
   displayName: string;
   externalAccountReference?: string | null;
   credentialReference?: string | null;
+  accessTokenReference?: string | null;
 }
 
 export interface UpdateCommunicationPhoneLineData {
@@ -14040,6 +14123,26 @@ export function updateChannelConnection(vars: UpdateChannelConnectionVariables, 
 export function setChannelConnectionEnabled(dc: DataConnect, vars: SetChannelConnectionEnabledVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetChannelConnectionEnabledData>>;
 /** Generated Node Admin SDK operation action function for the 'SetChannelConnectionEnabled' Mutation. Allow users to pass in custom DataConnect instances. */
 export function setChannelConnectionEnabled(vars: SetChannelConnectionEnabledVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetChannelConnectionEnabledData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ChannelConnectionForCheck' Query. Allow users to execute without passing in DataConnect. */
+export function channelConnectionForCheck(dc: DataConnect, vars: ChannelConnectionForCheckVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ChannelConnectionForCheckData>>;
+/** Generated Node Admin SDK operation action function for the 'ChannelConnectionForCheck' Query. Allow users to pass in custom DataConnect instances. */
+export function channelConnectionForCheck(vars: ChannelConnectionForCheckVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ChannelConnectionForCheckData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MarkChannelConnectionChecked' Mutation. Allow users to execute without passing in DataConnect. */
+export function markChannelConnectionChecked(dc: DataConnect, vars: MarkChannelConnectionCheckedVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkChannelConnectionCheckedData>>;
+/** Generated Node Admin SDK operation action function for the 'MarkChannelConnectionChecked' Mutation. Allow users to pass in custom DataConnect instances. */
+export function markChannelConnectionChecked(vars: MarkChannelConnectionCheckedVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkChannelConnectionCheckedData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SetChannelConnectionSending' Mutation. Allow users to execute without passing in DataConnect. */
+export function setChannelConnectionSending(dc: DataConnect, vars: SetChannelConnectionSendingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetChannelConnectionSendingData>>;
+/** Generated Node Admin SDK operation action function for the 'SetChannelConnectionSending' Mutation. Allow users to pass in custom DataConnect instances. */
+export function setChannelConnectionSending(vars: SetChannelConnectionSendingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetChannelConnectionSendingData>>;
+
+/** Generated Node Admin SDK operation action function for the 'StartWhatsAppConversation' Mutation. Allow users to execute without passing in DataConnect. */
+export function startWhatsAppConversation(dc: DataConnect, vars: StartWhatsAppConversationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<StartWhatsAppConversationData>>;
+/** Generated Node Admin SDK operation action function for the 'StartWhatsAppConversation' Mutation. Allow users to pass in custom DataConnect instances. */
+export function startWhatsAppConversation(vars: StartWhatsAppConversationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<StartWhatsAppConversationData>>;
 
 /** Generated Node Admin SDK operation action function for the 'InboxWebhookConnection' Query. Allow users to execute without passing in DataConnect. */
 export function inboxWebhookConnection(dc: DataConnect, vars: InboxWebhookConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxWebhookConnectionData>>;

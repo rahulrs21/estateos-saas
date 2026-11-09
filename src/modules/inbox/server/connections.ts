@@ -8,14 +8,16 @@ import { idSchema, parseInput } from "@/modules/communications/server/validation
 import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { ADAPTERS, CREDENTIAL_REFERENCE, WEBHOOK_SLUGS, canSend } from "../adapters";
+import { accessToken, checkPhoneNumber, liveSendingConfigured, testRecipients } from "./whatsapp-cloud";
 import type { ChannelProvider } from "../model";
 
 /*
  * Channel connections (docs/CHANNEL_ADAPTERS.md#connections). OWNERs and ADMINs
  * only; the database checks the role again. Credentials are never stored or
- * returned: a connection names a server secret (INBOX_...) and the page only
- * shows whether it is set. A connection is never VERIFIED in Phase 7A and real
- * providers never send: both need the live connectors of Phase 7B/7C.
+ * returned: a connection names server secrets (INBOX_...) and the page only
+ * shows whether they are set. A WhatsApp connection becomes VERIFIED only by a
+ * live check with Meta (Phase 7B), and sends only after an administrator turns
+ * sending on, on a server with test recipients configured (7B.1).
  */
 
 const ADMIN_ONLY = "Only company owners and administrators can manage inbox channels.";
@@ -43,6 +45,7 @@ const connectionSchema = z.strictObject({
   displayName: z.string().trim().min(2).max(80),
   externalAccountReference: optional(200),
   credentialReference: credential,
+  accessTokenReference: credential,
 });
 const updateSchema = connectionSchema.omit({provider: true}).extend({expectedRevision: z.number().int().min(1)});
 
@@ -90,11 +93,15 @@ export async function listConnections(context: Context) {
         connectionStatus: row.connectionStatus, credentialReference: row.credentialReference ?? null, revision: row.revision, lastEventAt: row.lastEventAt ?? null,
         createdAt: row.createdAt, createdBy: row.createdBy?.displayName ?? null, capabilities: adapter.capabilities,
         secretAvailable: Boolean(readInboxSecret(row.credentialReference)),
+        accessTokenReference: row.accessTokenReference ?? null, accessTokenAvailable: Boolean(readInboxSecret(row.accessTokenReference)),
+        verifiedAt: row.verifiedAt ?? null, verifiedName: row.verifiedName ?? null, verifiedDisplayNumber: row.verifiedDisplayNumber ?? null,
+        sendingEnabled: row.sendingEnabled,
+        // What this server allows: the 7B.1 test recipients (a count only; numbers stay on the server).
+        liveSending: provider === "WHATSAPP_CLOUD" ? {configured: liveSendingConfigured(), testRecipients: testRecipients().length} : null,
         verifyTokenName: provider === "WHATSAPP_CLOUD" && row.credentialReference ? `${row.credentialReference}${VERIFY_TOKEN_SUFFIX}` : null,
         verifyTokenAvailable: provider === "WHATSAPP_CLOUD" && Boolean(readInboxSecret(row.credentialReference ? `${row.credentialReference}${VERIFY_TOKEN_SUFFIX}` : null)),
         webhookUrl: path ? `${origin}${path}` : null,
-        // Never true for a real provider in Phase 7A, whatever the row says.
-        canSend: canSend(provider) && row.sendingEnabled,
+        canSend: (canSend(provider) && row.sendingEnabled) || (provider === "WHATSAPP_CLOUD" && row.sendingEnabled && row.connectionStatus === "VERIFIED" && liveSendingConfigured()),
         simulator: provider === "DEVELOPMENT_SIMULATOR",
       };
     }),
@@ -110,6 +117,7 @@ export async function createConnection(context: Context, body: unknown) {
   const id = randomUUID();
   await asMember(context, "CreateChannelConnection", (dc, options) => sdk.createChannelConnection(dc, {
     organizationId: context.organizationId, id, provider: sdk.ChannelProvider[input.provider], displayName: input.displayName, externalAccountReference, credentialReference: input.credentialReference,
+    accessTokenReference: input.provider === "WHATSAPP_CLOUD" ? input.accessTokenReference : null,
   }, options)).catch(accountTaken);
   return {id};
 }
@@ -126,6 +134,7 @@ export async function updateConnection(context: Context, rawId: string, body: un
   await assertAccountFree(provider as (typeof CONFIGURABLE)[number], externalAccountReference, id);
   await asMember(context, "UpdateChannelConnection", (dc, options) => sdk.updateChannelConnection(dc, {
     organizationId: context.organizationId, id, expectedRevision: input.expectedRevision, displayName: input.displayName, externalAccountReference, credentialReference: input.credentialReference,
+    accessTokenReference: provider === "WHATSAPP_CLOUD" ? input.accessTokenReference : null,
   }, options)).catch(accountTaken);
   return {id};
 }
@@ -136,4 +145,50 @@ export async function setConnectionEnabled(context: Context, rawId: string, body
   const {expectedRevision, enabled} = parseInput(z.strictObject({expectedRevision: z.number().int().min(1), enabled: z.boolean()}), body);
   await asMember(context, "SetChannelConnectionEnabled", (dc, options) => sdk.setChannelConnectionEnabled(dc, {organizationId: context.organizationId, id, expectedRevision, enabled}, options));
   return {id, enabled};
+}
+
+/** The connection with its secret names, after checking the actor is an OWNER or ADMIN. */
+async function connectionForCheck(context: Context, id: string) {
+  const data = await asServer("ChannelConnectionForCheck", dc => sdk.channelConnectionForCheck(dc, {organizationId: context.organizationId, id, actorUid: context.request.user.uid}));
+  if (!data.connection) throw new WorkspaceError("NOT_FOUND", 404, "This channel connection was not found.");
+  return data.connection;
+}
+
+/**
+ * The live connection check (Phase 7B): Meta must confirm the phone number ID with
+ * the access token. Only then is the connection VERIFIED; a failure marks it ERROR
+ * and turns sending off. A read-only request; nothing is sent to anyone.
+ */
+export async function checkConnection(context: Context, rawId: string) {
+  requireAdministrator(context);
+  const id = parseInput(idSchema, rawId);
+  const connection = await connectionForCheck(context, id);
+  if (connection.provider !== "WHATSAPP_CLOUD") throw new WorkspaceError("VALIDATION_ERROR", 400, "Only WhatsApp connections can be checked in this phase.");
+  if (!["CONFIGURED", "VERIFIED", "ERROR"].includes(connection.connectionStatus) || !connection.externalAccountReference) {
+    throw new WorkspaceError("VALIDATION_ERROR", 400, "Enter the phone number ID and secret names, and enable the channel, before checking it.");
+  }
+  const token = accessToken(connection.accessTokenReference);
+  if (!token) throw new WorkspaceError("VALIDATION_ERROR", 400, connection.accessTokenReference
+    ? `The server has no value for ${connection.accessTokenReference}. Add it to the server environment and restart.`
+    : "Enter the name of the access token secret (for example INBOX_WHATSAPP_ACCESS_TOKEN) on this channel first.");
+  const result = await checkPhoneNumber(token, connection.externalAccountReference);
+  await asServer("MarkChannelConnectionChecked", dc => sdk.markChannelConnectionChecked(dc, {
+    organizationId: context.organizationId, id, expectedRevision: connection.revision, actorUid: context.request.user.uid, verified: result.ok,
+    verifiedName: result.ok ? result.verifiedName : null, verifiedDisplayNumber: result.ok ? result.displayNumber : null, errorCode: result.ok ? null : result.code,
+  }));
+  // Recorded first (the channel is now ERROR, sending off), then explained to the administrator.
+  if (!result.ok) throw new WorkspaceError("INBOX_CHECK_FAILED", 409, `Meta did not confirm this number (${result.code}): ${result.message}`);
+  return {id, verified: true, verifiedName: result.verifiedName, displayNumber: result.displayNumber};
+}
+
+/** Sending on or off for a VERIFIED WhatsApp connection; on only where the server has test recipients (7B.1). */
+export async function setConnectionSending(context: Context, rawId: string, body: unknown) {
+  requireAdministrator(context);
+  const id = parseInput(idSchema, rawId);
+  const {expectedRevision, enabled} = parseInput(z.strictObject({expectedRevision: z.number().int().min(1), enabled: z.boolean()}), body);
+  const connection = await connectionForCheck(context, id);
+  if (enabled && connection.connectionStatus !== "VERIFIED") throw new WorkspaceError("VALIDATION_ERROR", 400, "Check the connection with Meta first. Only a verified channel can send.");
+  if (enabled && !liveSendingConfigured()) throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, "Live sending is off on this server. In Phase 7B.1 it needs INBOX_WHATSAPP_TEST_RECIPIENTS (your own test numbers) in the server environment.");
+  await asServer("SetChannelConnectionSending", dc => sdk.setChannelConnectionSending(dc, {organizationId: context.organizationId, id, expectedRevision, actorUid: context.request.user.uid, enabled}));
+  return {id, sendingEnabled: enabled};
 }

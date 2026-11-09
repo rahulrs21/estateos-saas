@@ -34,8 +34,9 @@ const seconds = (value: unknown, now: number) => {
 export const whatsappAdapter: ChannelAdapter = {
   provider: "WHATSAPP_CLOUD", channel: "WHATSAPP", label: "WhatsApp Business Cloud API",
   capabilities: {
-    VALIDATE_CONNECTION: "PLANNED", RECEIVE_EVENTS: "SUPPORTED", NORMALIZE_MESSAGE: "SUPPORTED", SYNC_HISTORY: "UNSUPPORTED",
-    SEND_MESSAGE: "PLANNED", DELIVERY_RECEIPTS: "SUPPORTED", RESOLVE_MESSAGE_ID: "SUPPORTED", HEALTH_CHECK: "PLANNED", DISCONNECT: "PLANNED",
+    // Check and send are built in Phase 7B.1 (server/whatsapp-cloud.ts); sending is gated on the server (verified, enabled, test recipients).
+    VALIDATE_CONNECTION: "SUPPORTED", RECEIVE_EVENTS: "SUPPORTED", NORMALIZE_MESSAGE: "SUPPORTED", SYNC_HISTORY: "UNSUPPORTED",
+    SEND_MESSAGE: "SUPPORTED", DELIVERY_RECEIPTS: "SUPPORTED", RESOLVE_MESSAGE_ID: "SUPPORTED", HEALTH_CHECK: "PLANNED", DISCONNECT: "PLANNED",
   },
   signatureHeader: "x-hub-signature-256",
 

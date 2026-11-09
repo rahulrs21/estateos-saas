@@ -3,6 +3,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deleteApp, initializeApp } from "firebase-admin/app";
@@ -69,6 +70,32 @@ const origin = `http://127.0.0.1:${port}`;
 const live = process.env.AI_E2E_LIVE === "1" && Boolean(process.env.AI_E2E_ANTHROPIC_API_KEY);
 const LIVE_DONE = Symbol("live checks finished");
 let serverLog = "";
+// ---------------------------------------------------------------- a fake Meta Graph API (Phase 7B.1)
+// The test server talks to this local stand-in, never to Meta. It records every request so the tests can
+// check exactly what EstateOS would send, and refuses one fictional number like Meta would.
+const graphToken = "e2e-graph-token-" + randomBytes(12).toString("hex");
+const graphRequests = [];
+let graphMessages = 0;
+const graph = createHttpServer((request, response) => {
+  let raw = "";
+  request.on("data", chunk => { raw += chunk; });
+  request.on("end", () => {
+    const body = raw ? JSON.parse(raw) : null;
+    graphRequests.push({method: request.method, url: request.url, authorization: request.headers.authorization ?? null, body});
+    const reply = (status, value) => { response.writeHead(status, {"Content-Type": "application/json"}); response.end(JSON.stringify(value)); };
+    if (request.headers.authorization !== `Bearer ${graphToken}`) return reply(401, {error: {code: 190, message: "Invalid OAuth access token - Cannot parse access token"}});
+    if (request.method === "GET" && request.url.startsWith(`/v27.0/${WA_ACCOUNT}?`)) return reply(200, {id: WA_ACCOUNT, display_phone_number: "+44 7700 900001", verified_name: "E2E Fictional Realty", quality_rating: "GREEN"});
+    if (request.method === "POST" && request.url === `/v27.0/${WA_ACCOUNT}/messages`) {
+      if (body?.to === "447700900704") return reply(400, {error: {code: 131026, message: "Message undeliverable."}});
+      graphMessages += 1;
+      return reply(200, {messaging_product: "whatsapp", contacts: [{input: body?.to, wa_id: body?.to}], messages: [{id: `wamid.E2E-LIVE-${graphMessages}`}]});
+    }
+    reply(404, {error: {code: 803, message: "Unknown path"}});
+  });
+});
+await new Promise(done => graph.listen(0, "127.0.0.1", done));
+const graphPort = graph.address().port;
+
 function startNext() {
   const child = spawn(process.execPath, [join(root, "node_modules/next/dist/bin/next"), "dev", "--hostname", "127.0.0.1", "--port", String(port)], {
     cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
@@ -83,6 +110,9 @@ function startNext() {
       ANTHROPIC_API_KEY: live ? process.env.AI_E2E_ANTHROPIC_API_KEY : `sk-ant-api03-e2e-invalid-${"x".repeat(40)}`, ANTHROPIC_MODEL: live ? process.env.AI_E2E_ANTHROPIC_MODEL || "claude-sonnet-5-5" : "claude-sonnet-5-5", AI_E2E_ANTHROPIC_API_KEY: "",
       COMMS_E2E_TWILIO_TOKEN: providerToken, AUTOMATION_WORKER_SECRET: workerSecret, FIREBASE_STORAGE_BUCKET: BUCKET,
       INBOX_E2E_WA_SECRET: waSecret, INBOX_E2E_WA_SECRET_VERIFY_TOKEN: waVerifyToken,
+      // Phase 7B.1: the fake Graph API, a test access token (and a wrong one), and two fictional test recipients.
+      INBOX_WHATSAPP_GRAPH_BASE: `http://127.0.0.1:${graphPort}`, INBOX_E2E_WA_TOKEN: graphToken, INBOX_E2E_WA_BADTOKEN: "e2e-wrong-token-0000000000",
+      INBOX_WHATSAPP_TEST_RECIPIENTS: "+447700900703, +447700900704",
       // The developer simulator (local emulators and a demo project only).
       ESTATEOS_DEV_TOOLS: "1",
     },
@@ -799,6 +829,122 @@ try {
   assert.equal((await api(`/api/inbox/conversations/${simConversation}/messages`)).body.data.messages.some(row => row.content), true, "recent conversations keep their content");
   await load(`/inbox/${oldConversation}`, "document.body.innerText.includes('Removed under the company')");
   pass("Retention removes message text and files past the company's period, keeping a record of each message; recent conversations are untouched");
+
+  // ------------------------------------------------------------ 7B.1: checking a WhatsApp channel with Meta (the fake Graph API)
+  await signIn("agent-a");
+  let liveChannel = (await sql(`query C($org: UUID!) { channelConnections(where: {organizationId: {eq: $org}, provider: {eq: WHATSAPP_CLOUD}}) { id } }`, {org: f.orgA})).channelConnections[0];
+  assert.equal((await post(`/api/inbox/connections/${liveChannel.id}/check`)).status, 403, "agents cannot check channels");
+  await signIn("owner-a");
+  const channelRow = async () => (await api("/api/inbox/connections")).body.data.connections.find(row => row.provider === "WHATSAPP_CLOUD");
+  liveChannel = await channelRow();
+  if (liveChannel.connectionStatus === "DISABLED") {
+    assert.equal((await post(`/api/inbox/connections/${liveChannel.id}/enabled`, {expectedRevision: liveChannel.revision, enabled: true})).status, 200);
+    liveChannel = await channelRow();
+  }
+  const editChannel = async accessTokenReference => {
+    const saved = await post(`/api/inbox/connections/${liveChannel.id}`, {expectedRevision: liveChannel.revision, displayName: liveChannel.displayName, externalAccountReference: WA_ACCOUNT,
+      credentialReference: "INBOX_E2E_WA_SECRET", accessTokenReference}, f.orgA, "PUT");
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    liveChannel = await channelRow();
+  };
+  await editChannel("INBOX_E2E_WA_BADTOKEN");
+  const badCheck = await post(`/api/inbox/connections/${liveChannel.id}/check`);
+  assert.equal(badCheck.status, 409, JSON.stringify(badCheck.body));
+  assert.match(badCheck.body.error.message, /Meta did not confirm this number \(190\)/);
+  liveChannel = await channelRow();
+  assert.equal(liveChannel.connectionStatus, "ERROR", "a failed check marks the channel");
+  assert.equal((await post(`/api/inbox/connections/${liveChannel.id}/sending`, {expectedRevision: liveChannel.revision, enabled: true})).status, 400, "an unverified channel cannot send");
+  await editChannel("INBOX_E2E_WA_TOKEN");
+  assert.equal(liveChannel.accessTokenAvailable, true);
+  await load("/inbox/settings", "[...document.querySelectorAll('[data-testid=inbox-connection] button')].some(b=>b.textContent.trim()==='Check connection')");
+  await clickText("Check connection", "[data-testid=inbox-connection] button");
+  await waitFor("document.querySelector('[data-testid=connection-verified]')?.innerText.includes('E2E Fictional Realty')", "the verified channel");
+  const checkRequest = graphRequests.find(item => item.method === "GET" && item.authorization === `Bearer ${graphToken}`);
+  assert.ok(checkRequest && checkRequest.url.includes("fields=id,display_phone_number,verified_name"), "the check reads the phone number with the token");
+  await clickText("Turn sending on", "[data-testid=inbox-connection] button");
+  await waitFor("[...document.querySelectorAll('[data-testid=inbox-connection]')].some(e=>e.innerText.includes('Sending on (test recipients only)'))", "sending on");
+  assert.doesNotMatch(await evaluate("document.body.innerText"), new RegExp(graphToken), "the access token is never shown");
+  assert.doesNotMatch(JSON.stringify((await api("/api/inbox/connections")).body), new RegExp(graphToken), "or returned to the browser");
+  await screenshot("whatsapp-verified");
+  pass("Phase 7B.1: only administrators check a WhatsApp channel; a wrong token marks it as an error; the right one verifies it with Meta; sending is turned on only once verified; the token never reaches the browser");
+
+  // ------------------------------------------------------------ 7B.1: a business-started conversation (template), approval, sending, receipts
+  const template = {name: "hello_world", language: "en_US"};
+  assert.equal((await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: "+44 7700 900799", template})).status, 409, "only the server's test recipients");
+  await load("/inbox?view=ALL", "[...document.querySelectorAll('button')].some(b=>b.textContent.includes('Start WhatsApp conversation'))");
+  await screenshot("whatsapp-start-button");
+  const started = await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: "+44 7700 900703", template});
+  assert.equal(started.status, 201, JSON.stringify(started.body));
+  const liveConversation = started.body.data.conversationId;
+  let liveView = (await api(`/api/inbox/conversations/${liveConversation}/replies`)).body.data;
+  assert.equal(liveView.sendMode, "WHATSAPP");
+  assert.equal(liveView.templateOnly, true, "the customer has not written, so only a template is allowed");
+  assert.deepEqual(liveView.replies[0].template, template);
+  assert.equal(liveView.replies[0].can.edit, false, "a template's text is Meta's, not editable");
+  const approveAndSend = async (conversationId, replyId) => {
+    const row = async () => (await api(`/api/inbox/conversations/${conversationId}/replies`)).body.data.replies.find(item => item.id === replyId);
+    let current = await row();
+    const checkedReply = await post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/check`, {expectedRevision: current.revision});
+    assert.equal(checkedReply.body.data.valid, true, JSON.stringify(checkedReply.body));
+    current = await row();
+    assert.equal((await post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/submit`, {expectedRevision: current.revision})).status, 200);
+    current = await row();
+    assert.equal((await post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/send`, {expectedRevision: current.revision})).status, 409, "nothing is sent before approval");
+    await signIn("admin-a");
+    assert.equal((await post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/decide`, {expectedRevision: current.revision, decision: "APPROVE"})).status, 200);
+    await signIn("owner-a");
+    current = await row();
+    return post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/send`, {expectedRevision: current.revision});
+  };
+  const sentTemplate = await approveAndSend(liveConversation, started.body.data.replyId);
+  assert.equal(sentTemplate.status, 200, JSON.stringify(sentTemplate.body));
+  assert.equal(sentTemplate.body.data.stage, "SENT");
+  const templateRequest = graphRequests.filter(item => item.method === "POST").at(-1);
+  assert.equal(templateRequest.authorization, `Bearer ${graphToken}`);
+  assert.deepEqual(templateRequest.body, {messaging_product: "whatsapp", recipient_type: "individual", to: "447700900703", type: "template", template: {name: "hello_world", language: {code: "en_US"}}});
+  const liveRows = async () => (await sql(`query M($org: UUID!, $id: UUID!) { inboxMessages(where: {organizationId: {eq: $org}, conversationId: {eq: $id}}, orderBy: [{createdAt: ASC}]) { direction deliveryStatus externalMessageId messageType simulated } }`, {org: f.orgA, id: liveConversation})).inboxMessages;
+  assert.deepEqual((await liveRows()).map(row => [row.direction, row.deliveryStatus, row.externalMessageId, row.messageType, row.simulated]), [["OUTBOUND", "SENT", "wamid.E2E-LIVE-1", "TEMPLATE", false]], "SENT under Meta's message ID");
+  assert.equal((await deliver(waBody({statuses: [{id: "wamid.E2E-LIVE-1", status: "delivered", timestamp: nowSeconds(), recipient_id: "447700900703"}]}))).status, 200);
+  assert.equal((await liveRows())[0].deliveryStatus, "DELIVERED", "Meta's signed receipt moves it forward");
+
+  // The customer answers: the reply joins the conversation and opens the 24-hour window for a free-form reply.
+  const answer = waBody({contacts: [{wa_id: "447700900703", profile: {name: "Fictional test recipient"}}], messages: [{from: "447700900703", id: "wamid.E2E-CUSTOMER-1", timestamp: nowSeconds(), type: "text", text: {body: "Thanks! Is the Marina apartment still available?"}}]});
+  assert.equal((await deliver(answer)).status, 200);
+  liveView = (await api(`/api/inbox/conversations/${liveConversation}/replies`)).body.data;
+  assert.equal(liveView.templateOnly, false, "the window is open now");
+  const textReply = await post(`/api/inbox/conversations/${liveConversation}/replies`, {content: "Thank you for your reply. I will confirm availability today."});
+  const sentText = await approveAndSend(liveConversation, textReply.body.data.id);
+  assert.equal(sentText.body.data.stage, "SENT", JSON.stringify(sentText.body));
+  assert.deepEqual(graphRequests.filter(item => item.method === "POST").at(-1).body.text, {preview_url: false, body: "Thank you for your reply. I will confirm availability today."});
+  assert.deepEqual((await liveRows()).map(row => row.direction), ["OUTBOUND", "INBOUND", "OUTBOUND"], "one conversation with the customer");
+  await load(`/inbox/${liveConversation}`, "[...document.querySelectorAll('[data-testid=inbox-reply]')].some(e=>e.dataset.stage==='SENT')");
+  await screenshot("whatsapp-live-conversation");
+  pass("Phase 7B.1: an administrator starts a conversation with a test recipient; the template is checked, approved by someone else and sent with the token; SENT comes from Meta's message ID; the customer's answer joins it and a free-form reply follows");
+
+  // ------------------------------------------------------------ 7B.1: refusals and the test-recipient rule
+  const refusedStart = await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: "+44 7700 900704", template});
+  const refusedSend = await approveAndSend(refusedStart.body.data.conversationId, refusedStart.body.data.replyId);
+  assert.equal(refusedSend.body.data.stage, "FAILED");
+  assert.match(refusedSend.body.data.reason, /Meta refused it \(131026\)/);
+  const failedEvents = (await sql(`query E($org: UUID!, $id: UUID!) { automationEvents(where: {organizationId: {eq: $org}, targetId: {eq: $id}, triggerType: {eq: "inbox.message.failed"}}) { origin } }`, {org: f.orgA, id: refusedStart.body.data.conversationId})).automationEvents;
+  assert.deepEqual(failedEvents.map(row => row.origin), ["PROVIDER"], "a refusal is a workflow event");
+  const other = (await sql(`query C($org: UUID!) { inboxConversations(where: {organizationId: {eq: $org}, customerIdentity: {eq: "+447700900701"}, channelConnectionId: {isNull: false}}) { id } }`, {org: f.orgA})).inboxConversations[0];
+  const otherReply = await post(`/api/inbox/conversations/${other.id}/replies`, {content: "Thank you, I will call you."});
+  const otherCheck = await post(`/api/inbox/conversations/${other.id}/replies/${otherReply.body.data.id}/check`, {expectedRevision: 1});
+  assert.equal(otherCheck.body.data.sendable, false);
+  assert.match(otherCheck.body.data.problems.map(problem => problem.message).join(" "), /test recipients/, "a customer who is not a test recipient is never sent to");
+  const postsBefore = graphRequests.filter(item => item.method === "POST").length;
+  await signIn("agent-a");
+  assert.equal((await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: "+44 7700 900703", template})).status, 403, "agents cannot start conversations in this phase");
+  await signIn("owner-a");
+  liveChannel = await channelRow();
+  assert.equal((await post(`/api/inbox/connections/${liveChannel.id}/sending`, {expectedRevision: liveChannel.revision, enabled: false})).status, 200);
+  const afterOff = await post(`/api/inbox/conversations/${liveConversation}/replies`, {content: "One more thing."});
+  const offSend = await approveAndSend(liveConversation, afterOff.body.data.id);
+  assert.equal(offSend.status, 409, "with sending off nothing is sent");
+  assert.equal(graphRequests.filter(item => item.method === "POST").length, postsBefore, "Meta received nothing more");
+  pass("Phase 7B.1: Meta's refusal fails the reply with a workflow event; customers who are not test recipients, agents and a channel with sending off can never send");
+
   assert.equal((await post("/api/dev/communication-tests/reset")).status, 200);
 
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");
@@ -808,7 +954,7 @@ try {
   else console.log(`\n${checks} live Claude inbox checks passed.`);
 } finally {
   try { socket?.close(); } catch { /* closed */ }
-  stop(browser); stop(server);
+  stop(browser); stop(server); graph.close();
   await deleteApp(authApp).catch(() => {}); await deleteApp(sqlApp).catch(() => {});
 }
 if (failure) { console.error(failure); console.error(`--- Next.js server log (tail) ---
