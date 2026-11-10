@@ -15,6 +15,7 @@ import { analyseConversation, applyRequirements } from "./assistant";
 import { cancelReply, checkReply, createReply, decideReply, listReplies, sendReply, startWhatsAppConversation, submitReply, updateReply } from "./outbound";
 import { devToolsEnabled } from "@/modules/communications/dev/guard";
 import { completeMailboxConnect, disconnectMailbox, listMailboxes, setMailboxSending, startMailboxConnect, type ConnectOutcome } from "./mailboxes";
+import { syncMailboxNow } from "./mail-sync";
 
 /*
  * Inbox endpoints (docs/UNIFIED_INBOX.md#api). The same request policy as the
@@ -73,6 +74,7 @@ export const mailboxesResponse = (request: Request) => read(request, "inbox.mail
 export const mailboxStartResponse = (request: Request) => write(request, "inbox.mailboxes.start", startMailboxConnect);
 export const mailboxDisconnectResponse = (request: Request, id: string) => write(request, "inbox.mailboxes.disconnect", (context, body) => disconnectMailbox(context, id, body));
 export const mailboxSendingResponse = (request: Request, id: string) => write(request, "inbox.mailboxes.sending", (context, body) => setMailboxSending(context, id, body));
+export const mailboxSyncResponse = (request: Request, id: string) => write(request, "inbox.mailboxes.sync", context => syncMailboxNow(context, id));
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"})[char]!);
 

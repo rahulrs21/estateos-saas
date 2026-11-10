@@ -503,6 +503,12 @@ export enum InboxEventStatus {
   FAILED = "FAILED",
   DEAD = "DEAD",
 }
+export enum InboxMailboxSyncState {
+  ACTIVE = "ACTIVE",
+  RESYNC = "RESYNC",
+  NEEDS_RECONNECT = "NEEDS_RECONNECT",
+  DISCONNECTED = "DISCONNECTED",
+}
 export enum InboxMessageType {
   TEXT = "TEXT",
   IMAGE = "IMAGE",
@@ -1103,6 +1109,7 @@ export interface AppendInboxMessageVariables {
   senderIdentity?: string | null;
   recipientIdentity?: string | null;
   providerTimestamp?: TimestampString | null;
+  internetMessageId?: string | null;
   preview?: string | null;
   simulated: boolean;
   optedOut: boolean;
@@ -2086,6 +2093,18 @@ export interface ClaimAutomationOrganizationVariables {
   leaseUntil: TimestampString;
 }
 
+export interface ClaimMailboxSyncData {
+  inboxMailboxAccount_update?: InboxMailboxAccount_Key | null;
+}
+
+export interface ClaimMailboxSyncVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  leaseId: UUIDString;
+  now: TimestampString;
+  leaseUntil: TimestampString;
+}
+
 export interface CloseAutomationApprovalData {
   approval?: AutomationApproval_Key | null;
   auditLog_insert: AuditLog_Key;
@@ -2819,6 +2838,7 @@ export interface CreateInboxConversationWithMessageVariables {
   senderIdentity?: string | null;
   recipientIdentity?: string | null;
   providerTimestamp?: TimestampString | null;
+  internetMessageId?: string | null;
   preview?: string | null;
   simulated: boolean;
   optedOut: boolean;
@@ -3570,6 +3590,34 @@ export interface DistributionCursor_Key {
   __typename?: 'DistributionCursor_Key';
 }
 
+export interface DueMailboxesData {
+  accounts: ({
+    organizationId: UUIDString;
+    id: UUIDString;
+    channelConnectionId: UUIDString;
+    historyId?: string | null;
+    syncState: InboxMailboxSyncState;
+    backfilled: boolean;
+    failures: number;
+    tokenCiphertext?: string | null;
+    tokenKeyId?: string | null;
+    channelConnection: {
+      provider: ChannelProvider;
+      connectionStatus: ChannelConnectionStatus;
+      externalAccountReference?: string | null;
+      ownerMembershipId?: UUIDString | null;
+      ownerMembership?: {
+        status: MembershipStatus;
+      };
+    };
+  } & InboxMailboxAccount_Key)[];
+}
+
+export interface DueMailboxesVariables {
+  now: TimestampString;
+  limit: number;
+}
+
 export interface EnsureAutomationOrgStateData {
   automationOrgState_insert: AutomationOrgState_Key;
 }
@@ -3624,6 +3672,20 @@ export interface FailInboxReplyVariables {
   reason: string;
   actorUid: string;
   simulated?: boolean;
+}
+
+export interface FailMailboxSyncData {
+  account?: InboxMailboxAccount_Key | null;
+  connection?: ChannelConnection_Key | null;
+}
+
+export interface FailMailboxSyncVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  leaseId: UUIDString;
+  errorCode: string;
+  nextSyncAt: TimestampString;
+  needsReconnect: boolean;
 }
 
 export interface FeedGenerationJob_Key {
@@ -3781,6 +3843,21 @@ export interface FinishAutomationStepVariables {
   completedAt?: TimestampString | null;
   durationMs?: number | null;
   releaseJob: boolean;
+}
+
+export interface FinishMailboxSyncData {
+  account?: InboxMailboxAccount_Key | null;
+  connection?: ChannelConnection_Key | null;
+}
+
+export interface FinishMailboxSyncVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  leaseId: UUIDString;
+  historyId: string;
+  backfilled: boolean;
+  nextSyncAt: TimestampString;
+  imported: boolean;
 }
 
 export interface FloorPlan_Key {
@@ -10626,6 +10703,36 @@ export interface MailboxForActionVariables {
   actorUid: string;
 }
 
+export interface MailboxSyncRowData {
+  account?: {
+    organizationId: UUIDString;
+    id: UUIDString;
+    channelConnectionId: UUIDString;
+    historyId?: string | null;
+    syncState: InboxMailboxSyncState;
+    backfilled: boolean;
+    failures: number;
+    tokenCiphertext?: string | null;
+    tokenKeyId?: string | null;
+    leaseUntil?: TimestampString | null;
+    nextSyncAt?: TimestampString | null;
+    channelConnection: {
+      provider: ChannelProvider;
+      connectionStatus: ChannelConnectionStatus;
+      externalAccountReference?: string | null;
+      ownerMembershipId?: UUIDString | null;
+      ownerMembership?: {
+        status: MembershipStatus;
+      };
+    };
+  } & InboxMailboxAccount_Key;
+}
+
+export interface MailboxSyncRowVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
 export interface MailboxesOverviewData {
   actor?: {
     id: UUIDString;
@@ -11552,6 +11659,16 @@ export interface RequestAutomationApprovalVariables {
   body: string;
 }
 
+export interface RequestMailboxSyncData {
+  inboxMailboxAccount_updateMany: number;
+}
+
+export interface RequestMailboxSyncVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+}
+
 export interface ReserveAiRequestData {
   counter?: unknown | null;
 }
@@ -11695,6 +11812,16 @@ export interface ResolveWebsiteLeadCaptureFormData {
 
 export interface ResolveWebsiteLeadCaptureFormVariables {
   publicId: string;
+}
+
+export interface RetireMailboxData {
+  channelConnection_update?: ChannelConnection_Key | null;
+  inboxMailboxAccount_updateMany: number;
+}
+
+export interface RetireMailboxVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
 }
 
 export interface RetryAutomationStepData {
@@ -14271,6 +14398,41 @@ export function disconnectMailbox(vars: DisconnectMailboxVariables, options?: Op
 export function setMailboxSending(dc: DataConnect, vars: SetMailboxSendingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetMailboxSendingData>>;
 /** Generated Node Admin SDK operation action function for the 'SetMailboxSending' Mutation. Allow users to pass in custom DataConnect instances. */
 export function setMailboxSending(vars: SetMailboxSendingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetMailboxSendingData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DueMailboxes' Query. Allow users to execute without passing in DataConnect. */
+export function dueMailboxes(dc: DataConnect, vars: DueMailboxesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DueMailboxesData>>;
+/** Generated Node Admin SDK operation action function for the 'DueMailboxes' Query. Allow users to pass in custom DataConnect instances. */
+export function dueMailboxes(vars: DueMailboxesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DueMailboxesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ClaimMailboxSync' Mutation. Allow users to execute without passing in DataConnect. */
+export function claimMailboxSync(dc: DataConnect, vars: ClaimMailboxSyncVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ClaimMailboxSyncData>>;
+/** Generated Node Admin SDK operation action function for the 'ClaimMailboxSync' Mutation. Allow users to pass in custom DataConnect instances. */
+export function claimMailboxSync(vars: ClaimMailboxSyncVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ClaimMailboxSyncData>>;
+
+/** Generated Node Admin SDK operation action function for the 'FinishMailboxSync' Mutation. Allow users to execute without passing in DataConnect. */
+export function finishMailboxSync(dc: DataConnect, vars: FinishMailboxSyncVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FinishMailboxSyncData>>;
+/** Generated Node Admin SDK operation action function for the 'FinishMailboxSync' Mutation. Allow users to pass in custom DataConnect instances. */
+export function finishMailboxSync(vars: FinishMailboxSyncVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FinishMailboxSyncData>>;
+
+/** Generated Node Admin SDK operation action function for the 'FailMailboxSync' Mutation. Allow users to execute without passing in DataConnect. */
+export function failMailboxSync(dc: DataConnect, vars: FailMailboxSyncVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FailMailboxSyncData>>;
+/** Generated Node Admin SDK operation action function for the 'FailMailboxSync' Mutation. Allow users to pass in custom DataConnect instances. */
+export function failMailboxSync(vars: FailMailboxSyncVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FailMailboxSyncData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RetireMailbox' Mutation. Allow users to execute without passing in DataConnect. */
+export function retireMailbox(dc: DataConnect, vars: RetireMailboxVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RetireMailboxData>>;
+/** Generated Node Admin SDK operation action function for the 'RetireMailbox' Mutation. Allow users to pass in custom DataConnect instances. */
+export function retireMailbox(vars: RetireMailboxVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RetireMailboxData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RequestMailboxSync' Mutation. Allow users to execute without passing in DataConnect. */
+export function requestMailboxSync(dc: DataConnect, vars: RequestMailboxSyncVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RequestMailboxSyncData>>;
+/** Generated Node Admin SDK operation action function for the 'RequestMailboxSync' Mutation. Allow users to pass in custom DataConnect instances. */
+export function requestMailboxSync(vars: RequestMailboxSyncVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RequestMailboxSyncData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MailboxSyncRow' Query. Allow users to execute without passing in DataConnect. */
+export function mailboxSyncRow(dc: DataConnect, vars: MailboxSyncRowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MailboxSyncRowData>>;
+/** Generated Node Admin SDK operation action function for the 'MailboxSyncRow' Query. Allow users to pass in custom DataConnect instances. */
+export function mailboxSyncRow(vars: MailboxSyncRowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MailboxSyncRowData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListInboxReplies' Query. Allow users to execute without passing in DataConnect. */
 export function listInboxReplies(dc: DataConnect, vars: ListInboxRepliesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListInboxRepliesData>>;

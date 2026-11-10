@@ -79,6 +79,7 @@ function MailboxRow({mailbox, organizationId, reload, ready}: {mailbox: Mailbox;
       {mailbox.lastErrorCode ? ` · Last problem: ${mailbox.lastErrorCode}` : ""}</p>}
     {mailbox.personal && mailbox.ownerActive === false && <p className="text-xs text-destructive">The owner is no longer an active member: this mailbox is no longer imported.</p>}
     <div className="flex flex-wrap gap-2">
+      {mailbox.can.check && <Button variant="outline" size="sm" onClick={() => void act(`/api/inbox/mailboxes/${mailbox.id}/sync`, {}, "Mailbox checked.")}><RefreshCw aria-hidden="true" />Check now</Button>}
       {mailbox.can.reconnect && <ConnectDialog organizationId={organizationId} kind={mailbox.personal ? "PERSONAL" : "COMPANY"} mailbox={mailbox} disabled={!ready} />}
       {mailbox.can.sendingOn && !mailbox.sendingEnabled && <Button variant="outline" size="sm" onClick={() => void act(`/api/inbox/mailboxes/${mailbox.id}/sending`, {expectedRevision: mailbox.revision, enabled: true}, "Sending turned on for test recipients.")}>Turn sending on</Button>}
       {mailbox.can.sendingOff && <Button variant="outline" size="sm" onClick={() => void act(`/api/inbox/mailboxes/${mailbox.id}/sending`, {expectedRevision: mailbox.revision, enabled: false}, "Sending turned off.")}>Turn sending off</Button>}

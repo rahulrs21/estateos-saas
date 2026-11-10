@@ -62,6 +62,7 @@ export async function listMailboxes(context: Context) {
         disconnect: (personal ? own || admin : admin) && row.connectionStatus !== "DISABLED",
         sendingOn: (personal ? own : admin) && row.connectionStatus === "VERIFIED",
         sendingOff: (own || admin) && row.sendingEnabled,
+        check: (own || admin) && row.connectionStatus === "VERIFIED",
       },
     };
   };

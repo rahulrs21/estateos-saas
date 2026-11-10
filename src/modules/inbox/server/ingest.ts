@@ -30,6 +30,8 @@ export interface InboundMessage {
   messageType: MessageType;
   content: string | null;
   providerTimestamp?: string | null;
+  /** Email: the RFC Message-ID (Phase 7C), for In-Reply-To when replying. */
+  internetMessageId?: string | null;
   simulated?: boolean;
   /** A known link (for example the website form's own new lead); otherwise the identity is matched. */
   link?: {contactId: string | null; leadId: string | null; assignedMembershipId: string | null};
@@ -42,14 +44,14 @@ export type IngestResult =
 
 const clip = (value: string | null | undefined, max: number) => value ? value.slice(0, max) : null;
 
-async function findConversation(input: InboundMessage) {
+export async function findConversation(input: Pick<InboundMessage, "organizationId" | "channelConnectionId" | "externalThreadId">) {
   const data = await asServer("FindInboxConversation", dc => sdk.findInboxConversation(dc, {
     organizationId: input.organizationId, hasConnection: Boolean(input.channelConnectionId), channelConnectionId: input.channelConnectionId, externalThreadId: input.externalThreadId,
   }));
   return (data.connected ?? data.internal ?? [])[0] ?? null;
 }
 
-async function matchIdentity(organizationId: string, identity: {kind: "PHONE" | "EMAIL"; value: string}) {
+export async function matchIdentity(organizationId: string, identity: {kind: "PHONE" | "EMAIL"; value: string}) {
   const data = await asServer("MatchInboxIdentity", dc => sdk.matchInboxIdentity(dc, {
     organizationId, hasPhone: identity.kind === "PHONE", phone: identity.kind === "PHONE" ? identity.value : null, hasEmail: identity.kind === "EMAIL", email: identity.kind === "EMAIL" ? identity.value : null,
   }));
@@ -64,7 +66,7 @@ export async function ingestInbound(input: InboundMessage): Promise<IngestResult
   const content = clip(input.content, 8000);
   const message = {
     channelConnectionId: input.channelConnectionId, externalMessageId: input.externalMessageId.slice(0, 200), messageType: sdk.InboxMessageType[input.messageType], content,
-    senderIdentity: identity.value, recipientIdentity: clip(input.to, 254), providerTimestamp: input.providerTimestamp ?? null, preview: clip(preview(content || `[${input.messageType.toLowerCase()}]`), 200),
+    senderIdentity: identity.value, recipientIdentity: clip(input.to, 254), providerTimestamp: input.providerTimestamp ?? null, internetMessageId: clip(input.internetMessageId, 300), preview: clip(preview(content || `[${input.messageType.toLowerCase()}]`), 200),
     simulated: Boolean(input.simulated), optedOut: isOptOutMessage(content),
   };
   // A real customer's opt-out also goes on the do-not-contact list (docs/INBOX_SECURITY.md#opt-out); simulated senders only flag their conversation.

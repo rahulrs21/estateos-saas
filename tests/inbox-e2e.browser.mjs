@@ -199,7 +199,6 @@ const google = createHttpServer((request, response) => {
 await new Promise(done => google.listen({port: 0, host: "::", ipv6Only: false}, done));
 const googlePort = google.address().port;
 /** Puts a message in a fake mailbox, the way Gmail shows it to the history and messages APIs. */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by the 7C.1b sync checks
 function deliverEmail(address, {from, subject, text, html, headers = {}, labels = ["INBOX", "UNREAD", "CATEGORY_PERSONAL"], threadId, attachments = []}) {
   const box = fakeGoogle.mailbox(address);
   const id = "e2e-msg-" + randomBytes(6).toString("hex");
@@ -1168,6 +1167,89 @@ try {
     assert.ok(fakeGoogle.refresh.size > grantsBefore);
     await signIn("owner-a");
     pass("Phase 7C.1: a forged or replayed return, a cancelled sign-in, missing send permission and a mailbox of another company store nothing; refused grants are revoked");
+
+    // ---------------------------------------------------------- 7C.1b: importing email (the worker tick reads the fake Gmail)
+    const workerTick = async () => {
+      const response = await fetch(origin + "/api/internal/automations/tick", {method: "POST", headers: {Authorization: `Bearer ${workerSecret}`}, signal: AbortSignal.timeout(180000)});
+      assert.equal(response.status, 200);
+      return (await response.json()).data;
+    };
+    const CUSTOMER = "layla.customer@example.test";
+    const leadCreated = await post("/api/leads", {fullName: "Layla Customer", phone: "+44 7700 900791", email: CUSTOMER, assignedMembershipId: f.memberSharedA});
+    assert.equal(leadCreated.status, 201, JSON.stringify(leadCreated.body));
+    const customerLead = (await sql(`query L($org: UUID!, $email: String!) { leads(where: {organizationId: {eq: $org}, email: {eq: $email}}) { id contactId assignedMembershipId } }`, {org: f.orgA, email: CUSTOMER})).leads[0];
+    const mailboxIds = Object.fromEntries((await mailboxRows()).map(row => [row.externalAccountReference, row.id]));
+    const pdf = Buffer.from("%PDF-1.4\n% fictional brochure\n");
+    const companyMail = deliverEmail(COMPANY_MAILBOX, {from: "\"Layla Customer\" <Layla.Customer@example.test>", subject: "Villa 12 viewing",
+      text: "Hello, is Villa 12 still available? I can view on Tuesday.\n\nOn Mon, 9 Nov 2026 at 10:00, Sales <sales@agency.example.test> wrote:\n> Thank you for your enquiry",
+      attachments: [{name: "brochure.pdf", mimeType: "application/pdf", bytes: pdf}, {name: "invoice.pdf", mimeType: "application/pdf", bytes: Buffer.from("MZ\u0090\u0000 a program pretending to be a PDF")}]});
+    deliverEmail(COMPANY_MAILBOX, {from: "Omar Buyer <omar.buyer@example.test>", subject: "Apartment budget",
+      html: "<p>Hi team,</p><p>My budget is <b>AED&nbsp;2M</b>.</p><script>alert('x')</script><img src=\"https://tracker.example.test/p.gif\">"});
+    deliverEmail(COMPANY_MAILBOX, {from: "Portal News <news@portal.example.test>", subject: "Weekly market report", text: "newsletter-text", headers: {"List-Unsubscribe": "<mailto:unsubscribe@portal.example.test>"}});
+    deliverEmail(COMPANY_MAILBOX, {from: "Deals <deals@shop.example.test>", subject: "Sale", text: "promotion-text", labels: ["INBOX", "CATEGORY_PROMOTIONS"]});
+    deliverEmail(COMPANY_MAILBOX, {from: "Spammer <spam@spam.example.test>", subject: "Prize", text: "spam-text", labels: ["SPAM"]});
+    deliverEmail(COMPANY_MAILBOX, {from: "no-reply@bank.example.test", subject: "Statement", text: "robot-text"});
+    const personalMail = deliverEmail(AGENT_MAILBOX, {from: `Layla Customer <${CUSTOMER}>`, subject: "Following up on the villa", text: "Following up: could we also see the garden?"});
+    deliverEmail(AGENT_MAILBOX, {from: "Best Friend <friend@example.test>", subject: "Dinner", text: "Dinner on Friday? private-dinner-text"});
+
+    const firstTick = await workerTick();
+    assert.ok(firstTick.mailboxes.imported >= 3 && firstTick.mailboxes.failed === 0, JSON.stringify(firstTick.mailboxes));
+    const emailConversations = async connectionId => (await sql(`query C($org: UUID!, $connection: UUID!) { inboxConversations(where: {organizationId: {eq: $org}, channelConnectionId: {eq: $connection}}) {
+      id channel externalThreadId customerIdentity customerName subject contactId leadId assignedMembershipId
+      messages: inboxMessages_on_conversation(orderBy: [{createdAt: ASC}]) { id content internetMessageId direction attachments: inboxAttachments_on_message { fileName mimeType storagePath } } } }`, {org: f.orgA, connection: connectionId})).inboxConversations;
+    const companyConversations = await emailConversations(mailboxIds[COMPANY_MAILBOX]);
+    assert.equal(companyConversations.length, 2, "newsletters, promotions, spam and robots are not imported");
+    const layla = companyConversations.find(row => row.customerIdentity === CUSTOMER);
+    assert.deepEqual({channel: layla.channel, thread: layla.externalThreadId, name: layla.customerName, subject: layla.subject, contact: layla.contactId.replaceAll("-", "")},
+      {channel: "EMAIL", thread: `gmail:${companyMail.threadId}`, name: "Layla Customer", subject: "Villa 12 viewing", contact: customerLead.contactId.replaceAll("-", "")}, "matched to the CRM contact by the exact address");
+    assert.equal(layla.messages[0].content, "Hello, is Villa 12 still available? I can view on Tuesday.", "quoted history is cut");
+    assert.equal(layla.messages[0].internetMessageId, companyMail.messageId);
+    const files = Object.fromEntries(layla.messages[0].attachments.map(item => [item.fileName, item]));
+    assert.match(files["brochure.pdf"].storagePath, /^organizations\/.+\/inbox\/attachments\/.+\.pdf$/, "a real PDF is stored privately");
+    assert.equal(Object.values(files).filter(item => item.storagePath).length, 1, "a program disguised as a PDF is listed but never stored");
+    const omar = companyConversations.find(row => row.customerIdentity === "omar.buyer@example.test");
+    assert.equal(omar.contactId ?? null, null, "an unknown sender waits for matching");
+    assert.equal(omar.messages[0].content, "Hi team,\n\nMy budget is AED 2M.");
+    const allText = JSON.stringify(await sql(`query A($org: UUID!) { inboxMessages(where: {organizationId: {eq: $org}}) { content } inboxEvents(where: {organizationId: {eq: $org}}) { normalizedJson } }`, {org: f.orgA}));
+    for (const skipped of ["newsletter-text", "promotion-text", "spam-text", "robot-text", "private-dinner-text"]) assert.equal(allText.includes(skipped), false, `${skipped} left no trace`);
+    const eventsFor = async connectionId => (await sql(`query E($org: UUID!, $connection: UUID!) { inboxEvents(where: {organizationId: {eq: $org}, channelConnectionId: {eq: $connection}}) { id status } }`, {org: f.orgA, connection: connectionId})).inboxEvents;
+    assert.equal((await eventsFor(mailboxIds[COMPANY_MAILBOX])).length, 2, "skipped mail is never recorded");
+    pass("Phase 7C.1b: the worker imports customer email from a company mailbox (matched by exact address, quoted history cut, HTML to text, a real PDF stored privately, a disguised program refused); newsletters, promotions, spam and robots leave no trace");
+
+    const personalConversations = await emailConversations(mailboxIds[AGENT_MAILBOX]);
+    assert.equal(personalConversations.length, 1, "only the CRM customer's email is imported from a personal mailbox");
+    assert.equal(personalConversations[0].assignedMembershipId.replaceAll("-", ""), f.memberAgentA.replaceAll("-", ""), "assigned to the mailbox owner");
+    assert.equal((await sql(`query L($org: UUID!, $id: UUID!) { lead(key: {organizationId: $org, id: $id}) { assignedMembershipId } }`, {org: f.orgA, id: customerLead.id})).lead.assignedMembershipId.replaceAll("-", ""),
+      f.memberSharedA.replaceAll("-", ""), "the lead keeps its own agent");
+    assert.equal((await eventsFor(mailboxIds[AGENT_MAILBOX])).length, 1, "the private email was never recorded");
+    const secondTick = await workerTick();
+    assert.equal(secondTick.mailboxes.imported, 0, "a repeated sync imports nothing twice");
+    deliverEmail(AGENT_MAILBOX, {from: CUSTOMER, subject: "Re: Following up on the villa", text: "Tuesday at 10 works for me.", threadId: personalMail.threadId});
+    await signIn("agent-a");
+    const checked = await post(`/api/inbox/mailboxes/${mailboxIds[AGENT_MAILBOX]}/sync`, {});
+    assert.equal(checked.status, 200, JSON.stringify(checked.body));
+    assert.equal(checked.body.data.imported, 1);
+    const thread = (await emailConversations(mailboxIds[AGENT_MAILBOX]))[0];
+    assert.deepEqual(thread.messages.map(item => item.content), ["Following up: could we also see the garden?", "Tuesday at 10 works for me."], "a reply joins its thread");
+    const agentList = (await api("/api/inbox/conversations")).body.data.conversations;
+    assert.ok(agentList.some(row => row.subject === "Following up on the villa"), "the agent sees their imported conversation");
+    assert.equal(agentList.some(row => row.subject === "Villa 12 viewing"), false, "and not the company mailbox's unassigned ones");
+    pass("Phase 7C.1b: a personal mailbox imports only the CRM customer, assigned to its owner (the lead keeps its agent); the private email leaves no record; repeats import nothing; replies join their thread; Check now works");
+
+    // The member withdraws EstateOS's access at Google: the mailbox needs a reconnect, then imports again.
+    fakeGoogle.revoked.push(...refreshOf(AGENT_MAILBOX));
+    const refused = await post(`/api/inbox/mailboxes/${mailboxIds[AGENT_MAILBOX]}/sync`, {});
+    assert.equal(refused.status, 409);
+    assert.match(refused.body.error.message, /Reconnect/);
+    let agentRow = (await mailboxRows()).find(row => row.id === mailboxIds[AGENT_MAILBOX]);
+    assert.deepEqual({status: agentRow.connectionStatus, state: agentRow.account.syncState, sending: agentRow.sendingEnabled}, {status: "ERROR", state: "NEEDS_RECONNECT", sending: false});
+    await load("/inbox/settings", "document.body.innerText.includes('Reconnect needed')");
+    const reconnected = await connectThroughPage("Reconnect", AGENT_MAILBOX, "Agent's Gmail");
+    assert.match(reconnected, /Mailbox connected/);
+    agentRow = (await mailboxRows()).find(row => row.id === mailboxIds[AGENT_MAILBOX]);
+    assert.deepEqual({status: agentRow.connectionStatus, state: agentRow.account.syncState, sameConnection: agentRow.id === mailboxIds[AGENT_MAILBOX]}, {status: "VERIFIED", state: "ACTIVE", sameConnection: true});
+    await signIn("owner-a");
+    pass("Phase 7C.1b: a grant withdrawn at Google marks the mailbox Reconnect needed with sending off; the owner reconnects the same mailbox");
   }
   await mailboxChecks();
   assert.equal((await post("/api/dev/communication-tests/reset")).status, 200);

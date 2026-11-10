@@ -598,6 +598,14 @@ const InboxEventStatus = {
 }
 exports.InboxEventStatus = InboxEventStatus;
 
+const InboxMailboxSyncState = {
+  ACTIVE: "ACTIVE",
+  RESYNC: "RESYNC",
+  NEEDS_RECONNECT: "NEEDS_RECONNECT",
+  DISCONNECTED: "DISCONNECTED",
+}
+exports.InboxMailboxSyncState = InboxMailboxSyncState;
+
 const InboxMessageType = {
   TEXT: "TEXT",
   IMAGE: "IMAGE",
@@ -2426,6 +2434,55 @@ function setMailboxSending(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeMutation('SetMailboxSending', inputVars, inputOpts);
 }
 exports.setMailboxSending = setMailboxSending;
+
+function dueMailboxes(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('DueMailboxes', inputVars, inputOpts);
+}
+exports.dueMailboxes = dueMailboxes;
+
+function claimMailboxSync(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ClaimMailboxSync', inputVars, inputOpts);
+}
+exports.claimMailboxSync = claimMailboxSync;
+
+function finishMailboxSync(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('FinishMailboxSync', inputVars, inputOpts);
+}
+exports.finishMailboxSync = finishMailboxSync;
+
+function failMailboxSync(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('FailMailboxSync', inputVars, inputOpts);
+}
+exports.failMailboxSync = failMailboxSync;
+
+function retireMailbox(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RetireMailbox', inputVars, inputOpts);
+}
+exports.retireMailbox = retireMailbox;
+
+function requestMailboxSync(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RequestMailboxSync', inputVars, inputOpts);
+}
+exports.requestMailboxSync = requestMailboxSync;
+
+function mailboxSyncRow(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MailboxSyncRow', inputVars, inputOpts);
+}
+exports.mailboxSyncRow = mailboxSyncRow;
 
 function listInboxReplies(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);

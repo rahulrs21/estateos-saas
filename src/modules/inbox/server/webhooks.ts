@@ -147,6 +147,7 @@ async function applyRecorded(connection: EventConnection, eventId: string, attem
       const result = await ingestInbound({
         organizationId, channelConnectionId: connection.id, channel: event.channel, externalThreadId: event.threadId, externalMessageId: event.externalMessageId,
         from: event.from, to: event.to, subject: event.subject, messageType: event.messageType, content: event.text, providerTimestamp: event.timestamp, simulated,
+        internetMessageId: event.internetMessageId ?? null, ...(event.link ? {link: event.link} : {}),
       });
       if (result.status === "REJECTED") { await complete("DEAD", result.reason); return {status: "DEAD", errorCode: result.reason}; }
       if (result.status === "DUPLICATE") { await complete("DUPLICATE", null, result.conversationId); return {status: "DUPLICATE", conversationId: result.conversationId}; }

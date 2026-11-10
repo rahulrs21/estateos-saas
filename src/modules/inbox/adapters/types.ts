@@ -23,7 +23,11 @@ export interface NormalizedAttachment { providerMediaId: string | null; mimeType
 
 export type NormalizedEvent =
   | {kind: "MESSAGE"; accountId: string; channel: InboxChannel; externalMessageId: string; threadId: string; from: {phone?: string | null; email?: string | null; name?: string | null};
-      to: string | null; subject: string | null; messageType: MessageType; text: string | null; timestamp: string | null; attachments: NormalizedAttachment[]}
+      to: string | null; subject: string | null; messageType: MessageType; text: string | null; timestamp: string | null; attachments: NormalizedAttachment[];
+      /** Email (Phase 7C): the RFC Message-ID, for threading replies. */
+      internetMessageId?: string | null;
+      /** A link decided before recording (a personal mailbox: the matched contact, assigned to the mailbox owner). */
+      link?: {contactId: string | null; leadId: string | null; assignedMembershipId: string | null} | null}
   | {kind: "STATUS"; accountId: string; externalMessageId: string; status: DeliveryStatus; raw: string; timestamp: string | null; errorCode: string | null};
 
 export class WebhookPayloadError extends Error {}

@@ -98,3 +98,68 @@ mutation SetMailboxSending($organizationId: UUID!, $id: UUID!, $actorUid: String
   auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CHANNEL_CONNECTION_CHANGED, targetType: CHANNEL_CONNECTION, targetId: $id,
     metadata_expr: "{'event': vars.enabled ? 'SENDING_ENABLED' : 'SENDING_DISABLED'}"})
 }
+
+# --- Sync (the worker tick, Phase 7C.1b) ------------------------------------------------------
+
+# Mailboxes due for a sync whose lease is free, with their grant (for the server only).
+query DueMailboxes($now: Timestamp!, $limit: Int!) @auth(level: NO_ACCESS) {
+  accounts: inboxMailboxAccounts(where: {_and: [{syncState: {in: [ACTIVE, RESYNC]}, nextSyncAt: {le: $now}}, {_or: [{leaseUntil: {isNull: true}}, {leaseUntil: {lt: $now}}]}]},
+    orderBy: [{nextSyncAt: ASC}], limit: $limit) {
+    organizationId id channelConnectionId historyId syncState backfilled failures tokenCiphertext tokenKeyId
+    channelConnection {provider connectionStatus externalAccountReference ownerMembershipId ownerMembership {status}}
+  }
+}
+
+# Takes the mailbox for one sync (compare-and-set on a free lease), so parallel ticks never share it.
+mutation ClaimMailboxSync($organizationId: UUID!, $id: UUID!, $leaseId: UUID!, $now: Timestamp!, $leaseUntil: Timestamp!) @auth(level: NO_ACCESS) @transaction {
+  inboxMailboxAccount_update(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, syncState: {in: [ACTIVE, RESYNC]}}, {_or: [{leaseUntil: {isNull: true}}, {leaseUntil: {lt: $now}}]}]}},
+    data: {leaseId: $leaseId, leaseUntil: $leaseUntil, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_MAILBOX_BUSY")
+}
+
+# A finished sync: the new cursor, the next check, the lease released.
+mutation FinishMailboxSync($organizationId: UUID!, $id: UUID!, $leaseId: UUID!, $historyId: String!, $backfilled: Boolean!, $nextSyncAt: Timestamp!, $imported: Boolean!) @auth(level: NO_ACCESS) @transaction {
+  account: inboxMailboxAccount_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, leaseId: {eq: $leaseId}, syncState: {in: [ACTIVE, RESYNC]}}},
+    data: {historyId: $historyId, backfilled: $backfilled, syncState: ACTIVE, nextSyncAt: $nextSyncAt, lastSyncedAt_expr: "request.time", leaseId: null, leaseUntil: null, failures: 0, lastErrorCode: null,
+      updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_MAILBOX_BUSY")
+  connection: channelConnection_update(key: {organizationId: $organizationId, id: $id}, data: {lastEventAt_expr: "request.time"}) @include(if: $imported)
+}
+
+# A failed sync: retried later; a refused grant (the member revoked it or it expired) needs a reconnect,
+# which also turns sending off.
+mutation FailMailboxSync($organizationId: UUID!, $id: UUID!, $leaseId: UUID!, $errorCode: String!, $nextSyncAt: Timestamp!, $needsReconnect: Boolean!) @auth(level: NO_ACCESS) @transaction {
+  account: inboxMailboxAccount_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, leaseId: {eq: $leaseId}}},
+    data: {syncState_expr: "vars.needsReconnect ? 'NEEDS_RECONNECT' : 'ACTIVE'", nextSyncAt: $nextSyncAt, leaseId: null, leaseUntil: null, failures_update: {inc: 1}, lastErrorCode: $errorCode,
+      updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "INBOX_MAILBOX_BUSY")
+  connection: channelConnection_update(key: {organizationId: $organizationId, id: $id}, data: {connectionStatus: ERROR, sendingEnabled: false, revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+    @include(if: $needsReconnect)
+}
+
+# A personal mailbox whose owner is no longer an active member: no more imports, the grant wiped.
+mutation RetireMailbox($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    mailbox: channelConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, ownerMembershipId: {isNull: false}, ownerMembership: {status: {ne: ACTIVE}}}})
+      @check(expr: "this != null", message: "INBOX_MAILBOX_CHANGED") {id}
+  }
+  channelConnection_update(key: {organizationId: $organizationId, id: $id}, data: {connectionStatus: DISABLED, sendingEnabled: false, verifiedAt: null, revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+  inboxMailboxAccount_updateMany(where: {organizationId: {eq: $organizationId}, channelConnectionId: {eq: $id}}, data: {tokenCiphertext: null, tokenKeyId: null, syncState: DISCONNECTED, leaseId: null, leaseUntil: null,
+    nextSyncAt: null, updatedAt_expr: "request.time"})
+}
+
+# "Check now": the mailbox's manager (the owner of a personal mailbox) or an OWNER or ADMIN asks for a sync.
+mutation RequestMailboxSync($organizationId: UUID!, $id: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    mailbox: channelConnection(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, provider: {in: [GMAIL]}, connectionStatus: {eq: VERIFIED}}, {_or: [
+      {ownerMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "this != null", message: "INBOX_MAILBOX_CHANGED") {id}
+  }
+  inboxMailboxAccount_updateMany(where: {organizationId: {eq: $organizationId}, channelConnectionId: {eq: $id}, syncState: {in: [ACTIVE, RESYNC]}}, data: {nextSyncAt_expr: "request.time", updatedAt_expr: "request.time"})
+}
+
+# One mailbox's sync row (the same fields as DueMailboxes), for a requested check.
+query MailboxSyncRow($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  account: inboxMailboxAccount(key: {organizationId: $organizationId, id: $id}) {
+    organizationId id channelConnectionId historyId syncState backfilled failures tokenCiphertext tokenKeyId leaseUntil nextSyncAt
+    channelConnection {provider connectionStatus externalAccountReference ownerMembershipId ownerMembership {status}}
+  }
+}

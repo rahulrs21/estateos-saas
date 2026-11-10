@@ -644,5 +644,46 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       row = await mailboxRow(personalMailbox);
       assert.deepEqual({status: row.connectionStatus, sending: row.sendingEnabled, token: row.account.tokenCiphertext, state: row.account.syncState}, {status: "VERIFIED", sending: false, token: "v1:third", state: "ACTIVE"});
     });
+
+    it("syncs each mailbox under one lease at a time; a refused grant needs a reconnect, and a departed owner's mailbox is retired", async () => {
+      const now = () => new Date().toISOString();
+      const later = minutes => new Date(Date.now() + minutes * 60_000).toISOString();
+      await forbidden(sdk.dueMailboxes, "owner-a", {now: now(), limit: 5});
+      const due = (await server(sdk.dueMailboxes, {now: later(1), limit: 50})).accounts;
+      assert.ok(due.some(item => key(item.id) === key(personalMailbox)), "a connected mailbox is due straight away");
+      assert.equal(due.some(item => key(item.id) === key(companyMailbox)), false, "a disconnected mailbox is never synced");
+      const leaseA = randomUUID(), leaseB = randomUUID();
+      const claim = lease => server(sdk.claimMailboxSync, {organizationId: f.orgA, id: personalMailbox, leaseId: lease, now: now(), leaseUntil: later(4)});
+      await claim(leaseA);
+      await rejectsWith(claim(leaseB), "INBOX_MAILBOX_BUSY", "a second worker cannot take a mailbox being synced");
+      assert.equal((await server(sdk.dueMailboxes, {now: later(1), limit: 50})).accounts.some(item => key(item.id) === key(personalMailbox)), false);
+      await rejectsWith(server(sdk.finishMailboxSync, {organizationId: f.orgA, id: personalMailbox, leaseId: leaseB, historyId: "9999", backfilled: true, nextSyncAt: later(1), imported: false}),
+        "INBOX_MAILBOX_BUSY", "only the lease holder finishes");
+      await server(sdk.finishMailboxSync, {organizationId: f.orgA, id: personalMailbox, leaseId: leaseA, historyId: "1300", backfilled: true, nextSyncAt: later(1), imported: true});
+      let row = await mailboxRow(personalMailbox);
+      assert.deepEqual({cursor: row.account.historyId, state: row.account.syncState}, {cursor: "1300", state: "ACTIVE"});
+      // "Check now": the owner or an administrator; nobody else.
+      await rejectsWith(server(sdk.requestMailboxSync, {organizationId: f.orgA, id: personalMailbox, actorUid: "manager-a"}), "INBOX_MAILBOX_CHANGED");
+      await server(sdk.requestMailboxSync, {organizationId: f.orgA, id: personalMailbox, actorUid: "agent-a"});
+      assert.ok((await server(sdk.mailboxSyncRow, {organizationId: f.orgA, id: personalMailbox})).account.nextSyncAt <= now());
+
+      // A refused grant: retried no more until reconnected, and sending is off.
+      const leaseC = randomUUID();
+      await claim(leaseC);
+      await server(sdk.failMailboxSync, {organizationId: f.orgA, id: personalMailbox, leaseId: leaseC, errorCode: "GOOGLE_invalid_grant", nextSyncAt: later(1), needsReconnect: true});
+      row = await mailboxRow(personalMailbox);
+      assert.deepEqual({status: row.connectionStatus, sending: row.sendingEnabled, state: row.account.syncState}, {status: "ERROR", sending: false, state: "NEEDS_RECONNECT"});
+      assert.equal((await server(sdk.dueMailboxes, {now: later(10), limit: 50})).accounts.some(item => key(item.id) === key(personalMailbox)), false);
+      await rejectsWith(server(sdk.retireMailbox, {organizationId: f.orgA, id: personalMailbox}), "INBOX_MAILBOX_CHANGED", "an active owner's mailbox is never retired");
+
+      // A personal mailbox of a member who is no longer active: retired, its grant wiped.
+      const departed = randomUUID();
+      await dc.executeGraphql(`mutation M($org: UUID!, $id: UUID!, $owner: UUID!) { channelConnection_insert(data: {organizationId: $org, id: $id, provider: GMAIL, displayName: "Former agent", externalAccountReference: "former.agent@gmail.example.test",
+        connectionStatus: VERIFIED, ownerMembershipId: $owner, createdByUid: "owner-a"}) inboxMailboxAccount_insert(data: {organizationId: $org, id: $id, channelConnectionId: $id, tokenCiphertext: "v1:former", tokenKeyId: "k1", nextSyncAt_expr: "request.time"}) }`,
+        {variables: {org: f.orgA, id: departed, owner: f.memberSuspendedA}});
+      await server(sdk.retireMailbox, {organizationId: f.orgA, id: departed});
+      const retired = (await server(sdk.mailboxSyncRow, {organizationId: f.orgA, id: departed})).account;
+      assert.deepEqual({token: retired.tokenCiphertext ?? null, state: retired.syncState, status: retired.channelConnection.connectionStatus}, {token: null, state: "DISCONNECTED", status: "DISABLED"});
+    });
   });
 }

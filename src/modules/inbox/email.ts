@@ -291,3 +291,23 @@ export function buildReplyMessage(input: ReplyMessage): string {
   ];
   return Buffer.from(`${lines.join("\r\n")}\r\n\r\n${body}`, "utf8").toString("base64url");
 }
+
+// --- Import decision --------------------------------------------------------------------------
+export type MailboxMatch = {status: "MATCHED"; contactId: string; leadId: string | null} | {status: "AMBIGUOUS" | "UNKNOWN"};
+export type ImportDecision =
+  | {import: true; link: {contactId: string | null; leadId: string | null; assignedMembershipId: string | null} | null}
+  | {import: false; reason: string};
+
+/**
+ * Whether a mailbox message enters EstateOS. Automated mail never does. A company
+ * mailbox imports every person writing (unknown senders wait for matching). A
+ * personal mailbox imports only CRM customers: a thread already in EstateOS, or a
+ * sender matching exactly one contact. The conversation is then assigned to the
+ * mailbox owner; the lead's own assignment is never changed.
+ */
+export function mailboxImportDecision(input: {automated: string | null; ownerMembershipId: string | null; existingThread: boolean; match: MailboxMatch | null}): ImportDecision {
+  if (input.automated) return {import: false, reason: input.automated};
+  if (!input.ownerMembershipId || input.existingThread) return {import: true, link: null};
+  if (input.match?.status !== "MATCHED") return {import: false, reason: "NOT_A_CRM_CONTACT"};
+  return {import: true, link: {contactId: input.match.contactId, leadId: input.match.leadId, assignedMembershipId: input.ownerMembershipId}};
+}

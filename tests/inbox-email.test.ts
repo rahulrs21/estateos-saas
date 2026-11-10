@@ -5,7 +5,7 @@ import { openSecret, sealSecret, TokenVaultError, vaultKey } from "../src/module
 import { newOAuthState, openOAuthState, pkceChallenge, sealOAuthState } from "../src/modules/inbox/oauth-state";
 import {
   automatedReason, buildReplyMessage, cutQuotedHistory, decodeEncodedWords, encodeHeaderText, headerValue, htmlToText, internetMessageIdOf, messageParts, messageText,
-  normalizeGmailMessage, parseMailbox, parseMailboxes, replySubject, type GmailMessage,
+  mailboxImportDecision, normalizeGmailMessage, parseMailbox, parseMailboxes, replySubject, type GmailMessage,
 } from "../src/modules/inbox/email";
 
 const key = randomBytes(32);
@@ -50,7 +50,11 @@ test("the OAuth state is sealed, single-purpose, expires and must equal the retu
   assert.deepEqual(openOAuthState(cookie, state.state, now + 11 * 60_000, key), {ok: false, reason: "EXPIRED"});
   assert.deepEqual(openOAuthState(null, state.state, now, key), {ok: false, reason: "MISSING"});
   assert.deepEqual(openOAuthState(cookie, null, now, key), {ok: false, reason: "MISSING"});
-  assert.deepEqual(openOAuthState(cookie.replace(/.$/, c => c === "A" ? "B" : "A"), state.state, now, key), {ok: false, reason: "UNREADABLE"});
+  // Flip a character inside the ciphertext (the last base64url character may only carry unused padding bits).
+  const parts = cookie.split(":");
+  const middle = Math.floor(parts[3].length / 2);
+  parts[3] = parts[3].slice(0, middle) + (parts[3][middle] === "A" ? "B" : "A") + parts[3].slice(middle + 1);
+  assert.deepEqual(openOAuthState(parts.join(":"), state.state, now, key), {ok: false, reason: "UNREADABLE"});
   assert.deepEqual(openOAuthState(cookie, state.state, now, randomBytes(32)), {ok: false, reason: "UNREADABLE"});
   // A sealed mailbox grant can never pass as an OAuth state (different purpose).
   assert.deepEqual(openOAuthState(sealSecret(JSON.stringify(state), binding, key).ciphertext, state.state, now, key), {ok: false, reason: "UNREADABLE"});
@@ -160,4 +164,15 @@ test("replies are plain text with threading headers, and no header can be inject
   assert.equal(headerValue("a\r\nb\u0000c"), "a bc");
   assert.throws(() => buildReplyMessage({from: "sales@agency.test", to: "victim@example.test\r\nBcc: x@example.test", subject: "x", text: "x", estateosMessageId: "30000000-0000-4000-8000-000000000003"}));
   assert.throws(() => buildReplyMessage({from: "not-an-address", to: "layla@example.test", subject: "x", text: "x", estateosMessageId: "30000000-0000-4000-8000-000000000003"}));
+});
+
+test("a company mailbox imports people writing; a personal one only CRM customers, assigned to its owner", () => {
+  const matched = {status: "MATCHED" as const, contactId: "c1", leadId: "l1"};
+  assert.deepEqual(mailboxImportDecision({automated: "MAILING_LIST", ownerMembershipId: null, existingThread: false, match: null}), {import: false, reason: "MAILING_LIST"});
+  assert.deepEqual(mailboxImportDecision({automated: null, ownerMembershipId: null, existingThread: false, match: null}), {import: true, link: null}, "unknown senders to a company mailbox wait for matching");
+  assert.deepEqual(mailboxImportDecision({automated: null, ownerMembershipId: "m1", existingThread: false, match: {status: "UNKNOWN"}}), {import: false, reason: "NOT_A_CRM_CONTACT"});
+  assert.deepEqual(mailboxImportDecision({automated: null, ownerMembershipId: "m1", existingThread: false, match: {status: "AMBIGUOUS"}}), {import: false, reason: "NOT_A_CRM_CONTACT"}, "an ambiguous sender is not imported from a personal mailbox");
+  assert.deepEqual(mailboxImportDecision({automated: null, ownerMembershipId: "m1", existingThread: false, match: matched}), {import: true, link: {contactId: "c1", leadId: "l1", assignedMembershipId: "m1"}});
+  assert.deepEqual(mailboxImportDecision({automated: null, ownerMembershipId: "m1", existingThread: true, match: null}), {import: true, link: null}, "later messages in an imported thread follow it");
+  assert.deepEqual(mailboxImportDecision({automated: "LABEL_SPAM", ownerMembershipId: "m1", existingThread: true, match: matched}), {import: false, reason: "LABEL_SPAM"}, "automated mail is never imported, even in a known thread");
 });
