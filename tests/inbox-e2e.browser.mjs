@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
@@ -69,6 +69,7 @@ const origin = `http://127.0.0.1:${port}`;
 /** AI_E2E_LIVE=1 (set by scripts/test-ai-e2e.mjs with the key from .env.local) runs only the live-Claude checks. */
 const live = process.env.AI_E2E_LIVE === "1" && Boolean(process.env.AI_E2E_ANTHROPIC_API_KEY);
 const LIVE_DONE = Symbol("live checks finished");
+const ONLY_DONE = Symbol("only the selected checks");
 let serverLog = "";
 // ---------------------------------------------------------------- a fake Meta Graph API (Phase 7B.1)
 // The test server talks to this local stand-in, never to Meta. It records every request so the tests can
@@ -96,6 +97,130 @@ const graph = createHttpServer((request, response) => {
 await new Promise(done => graph.listen(0, "127.0.0.1", done));
 const graphPort = graph.address().port;
 
+// ---------------------------------------------------------------- a fake Google OAuth and Gmail API (Phase 7C.1)
+// The test server talks to this local stand-in, never to Google. OAuth runs on "localhost" while the app runs
+// on 127.0.0.1, so the return from "Google" is a cross-site navigation exactly as in production: the strict
+// session cookie is not sent to the callback. It checks the PKCE verifier and client secret like Google does.
+const googleClient = {id: "e2e-client-" + randomBytes(6).toString("hex") + ".apps.googleusercontent.com", secret: "e2e-google-secret-" + randomBytes(12).toString("hex")};
+const FULL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send";
+const fakeGoogle = {
+  next: {account: null, scope: FULL_SCOPE, deny: false},
+  codes: new Map(), refresh: new Map(), access: new Map(), revoked: [], requests: [],
+  mailboxes: new Map(),
+  mailbox(address) {
+    if (!this.mailboxes.has(address)) this.mailboxes.set(address, {historyId: 5000, oldestHistory: 0, messages: new Map(), history: [], sent: []});
+    return this.mailboxes.get(address);
+  },
+};
+const b64url = value => Buffer.from(value).toString("base64url");
+const google = createHttpServer((request, response) => {
+  let raw = "";
+  request.on("data", chunk => { raw += chunk; });
+  request.on("end", () => {
+    const url = new URL(request.url, "http://fake.google");
+    const form = Object.fromEntries(new URLSearchParams(request.headers["content-type"]?.includes("x-www-form-urlencoded") ? raw : ""));
+    const json = request.headers["content-type"]?.includes("json") && raw ? JSON.parse(raw) : null;
+    fakeGoogle.requests.push({method: request.method, path: url.pathname, query: Object.fromEntries(url.searchParams), form, json, authorization: request.headers.authorization ?? null});
+    const reply = (status, value) => { response.writeHead(status, {"Content-Type": "application/json"}); response.end(JSON.stringify(value)); };
+    if (request.method === "GET" && url.pathname === "/o/oauth2/v2/auth") {
+      const q = Object.fromEntries(url.searchParams);
+      const target = new URL(q.redirect_uri);
+      target.searchParams.set("state", q.state ?? "");
+      if (fakeGoogle.next.deny) target.searchParams.set("error", "access_denied");
+      else {
+        if (q.client_id !== googleClient.id || q.response_type !== "code" || q.code_challenge_method !== "S256" || !q.code_challenge || q.access_type !== "offline") return reply(400, {error: "invalid_request"});
+        const code = "e2e-code-" + randomBytes(10).toString("hex");
+        fakeGoogle.codes.set(code, {challenge: q.code_challenge, redirect: q.redirect_uri, account: fakeGoogle.next.account ?? q.login_hint, scope: fakeGoogle.next.scope, used: false});
+        target.searchParams.set("code", code);
+      }
+      response.writeHead(302, {Location: target.toString()});
+      return response.end();
+    }
+    if (request.method === "POST" && url.pathname === "/token") {
+      if (form.client_id !== googleClient.id || form.client_secret !== googleClient.secret) return reply(401, {error: "invalid_client"});
+      if (form.grant_type === "authorization_code") {
+        const grant = fakeGoogle.codes.get(form.code);
+        if (!grant || grant.used || grant.redirect !== form.redirect_uri || createHash("sha256").update(form.code_verifier ?? "").digest("base64url") !== grant.challenge) return reply(400, {error: "invalid_grant"});
+        grant.used = true;
+        const refreshToken = "1//e2e-refresh-" + randomBytes(16).toString("hex"), accessToken = "ya29.e2e-access-" + randomBytes(16).toString("hex");
+        fakeGoogle.refresh.set(refreshToken, grant.account);
+        fakeGoogle.access.set(accessToken, grant.account);
+        return reply(200, {access_token: accessToken, expires_in: 3599, refresh_token: refreshToken, scope: grant.scope, token_type: "Bearer"});
+      }
+      if (form.grant_type === "refresh_token") {
+        if (!fakeGoogle.refresh.has(form.refresh_token) || fakeGoogle.revoked.includes(form.refresh_token)) return reply(400, {error: "invalid_grant", error_description: "Token has been expired or revoked."});
+        const accessToken = "ya29.e2e-access-" + randomBytes(16).toString("hex");
+        fakeGoogle.access.set(accessToken, fakeGoogle.refresh.get(form.refresh_token));
+        return reply(200, {access_token: accessToken, expires_in: 3599, scope: FULL_SCOPE, token_type: "Bearer"});
+      }
+      return reply(400, {error: "unsupported_grant_type"});
+    }
+    if (request.method === "POST" && url.pathname === "/revoke") { fakeGoogle.revoked.push(form.token); return reply(200, {}); }
+    const accessToken = (request.headers.authorization ?? "").replace(/^Bearer /, "");
+    const account = fakeGoogle.access.get(accessToken);
+    if (url.pathname.startsWith("/gmail/v1/users/me/")) {
+      const grantRevoked = [...fakeGoogle.refresh.entries()].some(([token, owner]) => owner === account && fakeGoogle.revoked.includes(token)) && ![...fakeGoogle.refresh.entries()].some(([token, owner]) => owner === account && !fakeGoogle.revoked.includes(token));
+      if (!account || grantRevoked) return reply(401, {error: {code: 401, status: "UNAUTHENTICATED", message: "Request had invalid authentication credentials."}});
+      const box = fakeGoogle.mailbox(account);
+      const path = url.pathname.slice("/gmail/v1/users/me/".length);
+      if (path === "profile") return reply(200, {emailAddress: account, messagesTotal: box.messages.size, historyId: String(box.historyId)});
+      if (path === "history") {
+        const start = Number(url.searchParams.get("startHistoryId"));
+        if (start < box.oldestHistory) return reply(404, {error: {code: 404, status: "NOT_FOUND", message: "Requested entity was not found."}});
+        const added = box.history.filter(item => item.historyId > start);
+        return reply(200, {history: added.map(item => ({id: String(item.historyId), messagesAdded: [{message: {id: item.id, threadId: box.messages.get(item.id).threadId, labelIds: box.messages.get(item.id).labelIds}}]})), historyId: String(box.historyId)});
+      }
+      if (path === "messages" && request.method === "GET") {
+        const ids = [...box.messages.values()].filter(item => item.labelIds.includes("INBOX")).map(item => ({id: item.id, threadId: item.threadId})).slice(0, Number(url.searchParams.get("maxResults") ?? 100));
+        return reply(200, {messages: ids, resultSizeEstimate: ids.length});
+      }
+      const attachment = /^messages\/([^/]+)\/attachments\/([^/]+)$/.exec(path);
+      if (attachment) {
+        const found = box.messages.get(decodeURIComponent(attachment[1]))?.attachments?.[decodeURIComponent(attachment[2])];
+        return found ? reply(200, {size: found.length, data: found.toString("base64url")}) : reply(404, {error: {code: 404, status: "NOT_FOUND", message: "Not found"}});
+      }
+      if (path === "messages/send" && request.method === "POST") {
+        const rawMessage = Buffer.from(json?.raw ?? "", "base64url").toString("utf8");
+        if (rawMessage.includes("To: refused@example.test")) return reply(400, {error: {code: 400, status: "FAILED_PRECONDITION", message: "Recipient address rejected."}});
+        const id = "e2e-sent-" + randomBytes(6).toString("hex");
+        box.sent.push({id, threadId: json?.threadId ?? null, raw: rawMessage, authorization: request.headers.authorization});
+        return reply(200, {id, threadId: json?.threadId ?? id, labelIds: ["SENT"]});
+      }
+      const single = /^messages\/([^/]+)$/.exec(path);
+      if (single) {
+        const found = box.messages.get(decodeURIComponent(single[1]));
+        if (!found) return reply(404, {error: {code: 404, status: "NOT_FOUND", message: "Not found"}});
+        return reply(200, url.searchParams.get("format") === "metadata" ? {...found.message, payload: {headers: found.message.payload.headers}} : found.message);
+      }
+    }
+    reply(404, {error: {code: 404, status: "NOT_FOUND", message: "Unknown path"}});
+  });
+});
+await new Promise(done => google.listen({port: 0, host: "::", ipv6Only: false}, done));
+const googlePort = google.address().port;
+/** Puts a message in a fake mailbox, the way Gmail shows it to the history and messages APIs. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by the 7C.1b sync checks
+function deliverEmail(address, {from, subject, text, html, headers = {}, labels = ["INBOX", "UNREAD", "CATEGORY_PERSONAL"], threadId, attachments = []}) {
+  const box = fakeGoogle.mailbox(address);
+  const id = "e2e-msg-" + randomBytes(6).toString("hex");
+  const messageId = `<${id}@mail.example.test>`;
+  const parts = [];
+  if (text) parts.push({partId: "0.0", mimeType: "text/plain", headers: [{name: "Content-Type", value: "text/plain; charset=UTF-8"}], body: {size: Buffer.byteLength(text), data: b64url(text)}});
+  if (html) parts.push({partId: "0.1", mimeType: "text/html", headers: [{name: "Content-Type", value: "text/html; charset=UTF-8"}], body: {size: Buffer.byteLength(html), data: b64url(html)}});
+  const files = {};
+  const fileParts = attachments.map((file, index) => {
+    files[`ATT-${index}`] = file.bytes;
+    return {partId: String(index + 1), mimeType: file.mimeType, filename: file.name, headers: [{name: "Content-Disposition", value: `attachment; filename="${file.name}"`}], body: {size: file.bytes.length, attachmentId: `ATT-${index}`}};
+  });
+  const allHeaders = [["From", from], ["To", address], ["Subject", subject], ["Message-ID", messageId], ["Date", new Date().toUTCString()], ...Object.entries(headers)].map(([name, value]) => ({name, value}));
+  box.historyId += 7;
+  const message = {id, threadId: threadId ?? "e2e-thread-" + randomBytes(5).toString("hex"), labelIds: labels, internalDate: String(Date.now() - 1000), historyId: String(box.historyId),
+    payload: {mimeType: "multipart/mixed", headers: allHeaders, parts: [{partId: "0", mimeType: "multipart/alternative", parts}, ...fileParts]}};
+  box.messages.set(id, {id, threadId: message.threadId, labelIds: labels, message, attachments: files});
+  box.history.push({historyId: box.historyId, id});
+  return {id, threadId: message.threadId, messageId};
+}
+
 function startNext() {
   const child = spawn(process.execPath, [join(root, "node_modules/next/dist/bin/next"), "dev", "--hostname", "127.0.0.1", "--port", String(port)], {
     cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
@@ -113,6 +238,10 @@ function startNext() {
       // Phase 7B.1: the fake Graph API, a test access token (and a wrong one), and two fictional test recipients.
       INBOX_WHATSAPP_GRAPH_BASE: `http://127.0.0.1:${graphPort}`, INBOX_E2E_WA_TOKEN: graphToken, INBOX_E2E_WA_BADTOKEN: "e2e-wrong-token-0000000000",
       INBOX_WHATSAPP_TEST_RECIPIENTS: "+447700900703, +447700900704",
+      // Phase 7C.1: the fake Google (OAuth on localhost, so the return is cross-site), a per-run client and encryption key, and fictional test addresses.
+      INBOX_GOOGLE_OAUTH_BASE: `http://localhost:${googlePort}`, INBOX_GOOGLE_API_BASE: `http://127.0.0.1:${googlePort}`,
+      INBOX_GOOGLE_CLIENT_ID: googleClient.id, INBOX_GOOGLE_CLIENT_SECRET: googleClient.secret, INBOX_TOKEN_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
+      INBOX_EMAIL_TEST_RECIPIENTS: "layla.customer@example.test, refused@example.test",
       // The developer simulator (local emulators and a demo project only).
       ESTATEOS_DEV_TOOLS: "1",
     },
@@ -240,6 +369,7 @@ try {
   assert.equal((await api("/api/inbox/conversations")).status, 401);
   assert.equal((await post("/api/inbox/conversations/" + randomUUID() + "/notes", {body: "x"})).status, 401);
   pass("Unauthenticated inbox reads and changes are rejected");
+  if (process.env.INBOX_E2E_ONLY === "mailboxes") { await mailboxChecks(); throw ONLY_DONE; }
 
   // ------------------------------------------------------------ fixtures through the server-only storage (as ingestion writes them)
   await signIn("owner-a");
@@ -433,7 +563,7 @@ try {
   await signIn("owner-b");
   const claimed = await post("/api/inbox/connections", {provider: "WHATSAPP_CLOUD", displayName: "Someone else", externalAccountReference: WA_ACCOUNT, credentialReference: "INBOX_E2E_WA_SECRET"}, f.orgB);
   assert.equal(claimed.status, 409, "another company cannot claim the same WhatsApp number");
-  const pasted = await post("/api/inbox/connections", {provider: "GMAIL", displayName: "Mailbox", externalAccountReference: "sales@example.test", credentialReference: "my-password-123"}, f.orgB);
+  const pasted = await post("/api/inbox/connections", {provider: "MICROSOFT_365", displayName: "Mailbox", externalAccountReference: "sales@example.test", credentialReference: "my-password-123"}, f.orgB);
   assert.equal(pasted.status, 400, "a pasted password or token is refused: only a secret name is accepted");
   pass("Administrators add a WhatsApp channel: configured but not verified, sending off, only the secret's name stored; one company per number");
 
@@ -945,16 +1075,112 @@ try {
   assert.equal(graphRequests.filter(item => item.method === "POST").length, postsBefore, "Meta received nothing more");
   pass("Phase 7B.1: Meta's refusal fails the reply with a workflow event; customers who are not test recipients, agents and a channel with sending off can never send");
 
+  // ------------------------------------------------------------ 7C.1: connecting Gmail mailboxes with Google sign-in (the fake Google)
+  // A function (hoisted in this block) so INBOX_E2E_ONLY=mailboxes can run it straight after sign-in while developing.
+  async function mailboxChecks() {
+    const COMPANY_MAILBOX = "sales@agency.example.test", AGENT_MAILBOX = "agent.a@gmail.example.test";
+    const refreshOf = address => [...fakeGoogle.refresh.entries()].filter(([, owner]) => owner === address).map(([token]) => token);
+    const mailboxRows = async () => (await sql(`query M($org: UUID!) { channelConnections(where: {organizationId: {eq: $org}, provider: {eq: GMAIL}}) { id externalAccountReference connectionStatus sendingEnabled ownerMembershipId revision
+      account: inboxMailboxAccount_on_channelConnection { tokenCiphertext tokenKeyId historyId syncState } } }`, {org: f.orgA})).channelConnections;
+    /** Connects through the page as a person would: the dialog, Google's consent (the fake), the callback, back to settings. */
+    const connectThroughPage = async (button, account, name) => {
+      fakeGoogle.next = {account, scope: FULL_SCOPE, deny: false};
+      await load("/inbox/settings", "document.body.innerText.includes('Email mailboxes')");
+      await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent.trim().startsWith(${JSON.stringify(button)}))`, button);
+      await clickText(button, "button");
+      try { await waitFor("Boolean(document.querySelector('[role=dialog] [name=displayName]'))", "the connect dialog", 50); }
+      catch (error) { throw new Error(error.message + "\n--- mailboxes ---\n" + await evaluate("JSON.stringify({buttons: [...document.querySelectorAll('button')].map(b => [b.textContent.trim().slice(0, 40), b.getAttribute('aria-expanded'), b.disabled]).filter(x => /Connect|Continue/.test(x[0])), dialogs: [...document.querySelectorAll('[role=dialog]')].map(d => d.innerText.slice(0, 300)), names: [...document.querySelectorAll('[name=displayName]')].length})")); }
+      await setField("displayName", name);
+      await clickText("Continue to Google", "button");
+      await waitFor("location.pathname === '/inbox/settings' && location.search.includes('mailbox=') && Boolean(document.querySelector('[data-testid=mailbox-notice]'))", "the return to Inbox settings");
+      return evaluate("document.querySelector('[data-testid=mailbox-notice]').innerText");
+    };
+    /** Starts a connection through the API and follows Google's redirect in the browser, returning the callback page's text. */
+    const connectResult = async (body, next, organizationId = f.orgA) => {
+      fakeGoogle.next = {account: null, scope: FULL_SCOPE, deny: false, ...next};
+      // The callback page allows no requests (its CSP is default-src none), so start from an app page.
+      await load("/api/auth/csrf");
+      const started = await post("/api/inbox/mailboxes/google/start", body, organizationId);
+      if (started.status !== 200) return {status: started.status, body: started.body};
+      currentPath = "google-consent";
+      await command("Page.navigate", {url: started.body.data.authorizationUrl});
+      await waitFor("Boolean(document.querySelector('[data-testid=mailbox-connect-result]'))", "the callback page");
+      return {status: 200, text: await evaluate("document.querySelector('[data-testid=mailbox-connect-result]').innerText")};
+    };
+
+    await signIn("owner-a");
+    await load("/inbox/settings", "document.body.innerText.includes('Email mailboxes')");
+    assert.match(await evaluate("document.body.innerText"), /never asks for, sees or stores a mailbox password/);
+    assert.equal(await evaluate("Boolean(document.querySelector('[data-testid=mailbox-setup]'))"), false, "the server is ready to connect mailboxes");
+    const connectedNotice = await connectThroughPage("Connect company Gmail", COMPANY_MAILBOX, "Sales mailbox");
+    assert.match(connectedNotice, /Mailbox connected/);
+    const authorize = fakeGoogle.requests.find(item => item.path === "/o/oauth2/v2/auth");
+    assert.deepEqual({method: authorize.query.code_challenge_method, offline: authorize.query.access_type, prompt: authorize.query.prompt, scope: authorize.query.scope, redirect: authorize.query.redirect_uri},
+      {method: "S256", offline: "offline", prompt: "consent", scope: FULL_SCOPE, redirect: `${origin}/api/inbox/oauth/google/callback`}, "the narrowest Gmail scopes, PKCE and an offline grant");
+    const exchange = fakeGoogle.requests.find(item => item.path === "/token" && item.form.grant_type === "authorization_code");
+    assert.ok(exchange.form.code_verifier && exchange.form.client_secret === googleClient.secret, "the code is exchanged on the server with the verifier and the client secret");
+    let rows = await mailboxRows();
+    const company = rows.find(row => row.externalAccountReference === COMPANY_MAILBOX);
+    assert.deepEqual({status: company.connectionStatus, sending: company.sendingEnabled, owner: company.ownerMembershipId ?? null, state: company.account.syncState, keyId: company.account.tokenKeyId},
+      {status: "VERIFIED", sending: false, owner: null, state: "ACTIVE", keyId: "k1"});
+    const [companyGrant] = refreshOf(COMPANY_MAILBOX);
+    assert.match(company.account.tokenCiphertext, /^v1:/);
+    assert.equal(company.account.tokenCiphertext.includes(companyGrant), false, "the refresh token is stored only encrypted");
+    const tokensSeen = JSON.stringify((await api("/api/inbox/mailboxes")).body) + await evaluate("document.body.innerText");
+    for (const secret of [companyGrant, ...fakeGoogle.access.keys(), company.account.tokenCiphertext, googleClient.secret]) assert.equal(tokensSeen.includes(secret), false, "no token, grant or client secret reaches the browser");
+    assert.match(await evaluate("document.querySelector('[data-testid=mailbox]').innerText"), new RegExp(`${COMPANY_MAILBOX}[\\s\\S]*Connected[\\s\\S]*Sending off`));
+    await screenshot("inbox-mailboxes");
+    pass("Phase 7C.1: an owner connects a company Gmail through Google's consent (PKCE, narrow scopes, cross-site return without the session cookie); VERIFIED, sending off, the grant stored only encrypted and never shown");
+
+    await signIn("agent-a");
+    assert.equal((await post("/api/inbox/mailboxes/google/start", {kind: "COMPANY", displayName: "Sneaky"})).status, 403, "agents cannot connect company mailboxes");
+    const agentNotice = await connectThroughPage("Connect my Gmail", AGENT_MAILBOX, "Agent's Gmail");
+    assert.match(agentNotice, /Mailbox connected/);
+    const agentPage = await evaluate("document.body.innerText");
+    assert.match(agentPage, /Your mailbox[\s\S]*agent\.a@gmail\.example\.test/);
+    assert.equal(agentPage.includes(COMPANY_MAILBOX), false, "agents see only their own mailbox");
+    assert.equal((await post("/api/inbox/mailboxes/google/start", {kind: "PERSONAL", displayName: "Second"})).status, 409, "one personal mailbox per member");
+    rows = await mailboxRows();
+    const personal = rows.find(row => row.externalAccountReference === AGENT_MAILBOX);
+    assert.equal(personal.ownerMembershipId.replaceAll("-", ""), f.memberAgentA.replaceAll("-", ""));
+    await signIn("owner-a");
+    await load("/inbox/settings", "document.body.innerText.includes('Members')");
+    assert.match(await evaluate("document.body.innerText"), /Members.? personal mailboxes[\s\S]*agent\.a@gmail\.example\.test/);
+    pass("Phase 7C.1: any member connects their own Gmail (one each, owned by them); agents cannot connect company mailboxes and see only their own; administrators see that personal mailboxes are connected");
+
+    // Refusals: a forged return, cancelling, missing permissions and a mailbox already connected to another company.
+    currentPath = "forged-callback";
+    await command("Page.navigate", {url: `${origin}/api/inbox/oauth/google/callback?state=forged-state&code=forged-code`});
+    await waitFor("Boolean(document.querySelector('[data-testid=mailbox-connect-result]'))", "the refused callback");
+    assert.match(await evaluate("document.body.innerText"), /could not be confirmed/);
+    const cancelled = await connectResult({kind: "COMPANY", displayName: "Cancelled"}, {deny: true});
+    assert.match(cancelled.text, /cancelled/);
+    const grantsBefore = fakeGoogle.refresh.size;
+    const narrow = await connectResult({kind: "COMPANY", displayName: "Read only"}, {account: "readonly@agency.example.test", scope: "https://www.googleapis.com/auth/gmail.readonly"});
+    assert.match(narrow.text, /both to read and to send/);
+    await signIn("owner-b");
+    const taken = await connectResult({kind: "COMPANY", displayName: "Taken"}, {account: COMPANY_MAILBOX}, f.orgB);
+    assert.match(taken.text, /already connected to another EstateOS company/);
+    const takenGrant = refreshOf(COMPANY_MAILBOX).at(-1);
+    assert.notEqual(takenGrant, companyGrant);
+    assert.ok(fakeGoogle.revoked.includes(takenGrant), "a refused grant is revoked at Google straight away");
+    assert.equal((await mailboxRows()).length, 2, "nothing else was stored");
+    assert.ok(fakeGoogle.refresh.size > grantsBefore);
+    await signIn("owner-a");
+    pass("Phase 7C.1: a forged or replayed return, a cancelled sign-in, missing send permission and a mailbox of another company store nothing; refused grants are revoked");
+  }
+  await mailboxChecks();
   assert.equal((await post("/api/dev/communication-tests/reset")).status, 200);
 
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");
   console.log(`\n${checks} inbox end-to-end checks passed.`);
 } catch (error) {
-  if (error !== LIVE_DONE) failure = error;
+  if (error === ONLY_DONE) console.log(`\n${checks} selected inbox checks passed (INBOX_E2E_ONLY).`);
+  else if (error !== LIVE_DONE) failure = error;
   else console.log(`\n${checks} live Claude inbox checks passed.`);
 } finally {
   try { socket?.close(); } catch { /* closed */ }
-  stop(browser); stop(server); graph.close();
+  stop(browser); stop(server); graph.close(); google.close();
   await deleteApp(authApp).catch(() => {}); await deleteApp(sqlApp).catch(() => {});
 }
 if (failure) { console.error(failure); console.error(`--- Next.js server log (tail) ---

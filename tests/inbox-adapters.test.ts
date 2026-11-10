@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { test } from "node:test";
-import { ADAPTERS, CREDENTIAL_REFERENCE, canSend } from "../src/modules/inbox/adapters";
+import { ADAPTERS, CREDENTIAL_REFERENCE, WEBHOOK_SLUGS, canSend } from "../src/modules/inbox/adapters";
 import { WebhookPayloadError, type WebhookRequest } from "../src/modules/inbox/adapters/types";
 import { whatsappAdapter, whatsappSignature } from "../src/modules/inbox/adapters/whatsapp";
 import { attachmentFileName, attachmentPath, sniffAttachment } from "../src/modules/inbox/attachments";
@@ -76,10 +76,14 @@ test("malformed or implausible WhatsApp payloads are refused", () => {
 });
 
 test("capabilities are explicit, and adapters existing never means connected or able to send", () => {
+  assert.ok(Object.values(ADAPTERS.MICROSOFT_365.capabilities).every(state => state === "PLANNED"), "Microsoft 365 is still an interface only (Phase 7C.2)");
+  // Phase 7C.1: Gmail connects through OAuth and is polled; it has no webhook, so nothing is ever verified or parsed from one.
+  assert.equal(ADAPTERS.GMAIL.capabilities.VALIDATE_CONNECTION, "SUPPORTED");
+  assert.equal(ADAPTERS.GMAIL.capabilities.DELIVERY_RECEIPTS === "SUPPORTED", false, "email has no delivery receipts");
+  assert.equal(Object.values(WEBHOOK_SLUGS).includes("GMAIL"), false, "Gmail has no webhook route");
   for (const provider of ["GMAIL", "MICROSOFT_365"] as const) {
     const adapter = ADAPTERS[provider];
-    assert.ok(Object.values(adapter.capabilities).every(state => state === "PLANNED"), `${provider} is an interface only in Phase 7A`);
-    assert.equal(adapter.verifyWebhook(request(textMessage), SECRET), false, `${provider} verifies nothing yet`);
+    assert.equal(adapter.verifyWebhook(request(textMessage), SECRET), false, `${provider} verifies no webhook`);
     assert.deepEqual(adapter.parseWebhook(request(textMessage)), []);
   }
   // Phase 7B.1: WhatsApp check and send are built, but sending is decided on the server (verified, enabled, test recipients), never by the adapter registry.

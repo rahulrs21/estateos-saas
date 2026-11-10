@@ -1,0 +1,100 @@
+# Phase 7C: mailboxes connected through OAuth (docs/EMAIL_INTEGRATION_PLAN.md).
+# Every operation here is server-only (NO_ACCESS): the server passes the member
+# it verified from the session (actorUid) and each operation re-checks that
+# member's active membership and right to act. InboxMailboxAccount (the
+# encrypted refresh token and the sync cursor) is never reachable from a member
+# operation. A company mailbox (ownerMembershipId null) is managed by an OWNER or
+# ADMIN; a personal mailbox by its owner, and an OWNER or ADMIN may disconnect it.
+
+# The member starting or completing a connection.
+query MailboxActor($organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
+  actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) {id role}
+}
+
+# Gmail connections with the same address anywhere (a mailbox belongs to one company), and the actor's own personal one.
+query MailboxConflicts($provider: ChannelProvider!, $mailbox: String!, $organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
+  sameAddress: channelConnections(where: {provider: {eq: $provider}, externalAccountReference: {eq: $mailbox}}, limit: 5) {
+    id organizationId ownerMembershipId ownerMembership {userProfileUid} connectionStatus revision
+  }
+  mine: channelConnections(where: {organizationId: {eq: $organizationId}, provider: {eq: $provider}, ownerMembership: {userProfileUid: {eq: $actorUid}}}, limit: 5) {id externalAccountReference connectionStatus}
+  company: channelConnections(where: {organizationId: {eq: $organizationId}, ownerMembershipId: {isNull: true}}, limit: 10) {id}
+}
+
+# Connects (or reconnects) a mailbox after Google proved the address: VERIFIED with sending off, and the
+# encrypted grant. A company mailbox needs an OWNER or ADMIN; a personal one belongs to the actor only.
+# Conditions are inside each @check (a skipped field's check would still run).
+mutation SaveMailboxConnection($organizationId: UUID!, $id: UUID!, $actorUid: String!, $provider: ChannelProvider!, $personal: Boolean!, $ownerMembershipId: UUID, $existing: Boolean!,
+  $displayName: String!, $mailbox: String!, $tokenCiphertext: String!, $tokenKeyId: String!, $scopes: String!, $historyId: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}})
+      @check(expr: "this != null && (vars.personal || this.role in ['OWNER', 'ADMIN'])", message: "INBOX_MAILBOX_NOT_ALLOWED") {role}
+    owner: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $ownerMembershipId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}})
+      @check(expr: "!vars.personal || this != null", message: "INBOX_MAILBOX_NOT_ALLOWED") {id}
+    company: channelConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, provider: {eq: $provider}, ownerMembershipId: {isNull: true}, externalAccountReference: {eq: $mailbox}}})
+      @check(expr: "!vars.existing || vars.personal || this != null", message: "INBOX_MAILBOX_CHANGED") {id}
+    personal: channelConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, provider: {eq: $provider}, ownerMembershipId: {eq: $ownerMembershipId}, externalAccountReference: {eq: $mailbox}}})
+      @check(expr: "!vars.existing || !vars.personal || this != null", message: "INBOX_MAILBOX_CHANGED") {id}
+  }
+  inserted: channelConnection_insert(data: {organizationId: $organizationId, id: $id, provider: $provider, displayName: $displayName, externalAccountReference: $mailbox, ownerMembershipId: $ownerMembershipId,
+    connectionStatus: VERIFIED, verifiedAt_expr: "request.time", verifiedName: $mailbox, sendingEnabled: false, createdByUid: $actorUid}) @skip(if: $existing)
+  updated: channelConnection_update(key: {organizationId: $organizationId, id: $id}, data: {displayName: $displayName, connectionStatus: VERIFIED, verifiedAt_expr: "request.time", verifiedName: $mailbox,
+    sendingEnabled: false, revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @include(if: $existing)
+  account: inboxMailboxAccount_upsert(data: {organizationId: $organizationId, id: $id, channelConnectionId: $id, tokenCiphertext: $tokenCiphertext, tokenKeyId: $tokenKeyId, scopes: $scopes,
+    historyId: $historyId, syncState: ACTIVE, nextSyncAt_expr: "request.time", leaseId: null, leaseUntil: null, failures: 0, lastErrorCode: null, updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CHANNEL_CONNECTION_CHANGED, targetType: CHANNEL_CONNECTION, targetId: $id,
+    metadata_expr: "{'event': vars.existing ? 'MAILBOX_RECONNECTED' : 'MAILBOX_CONNECTED', 'provider': vars.provider, 'personal': vars.personal}"})
+}
+
+# The mailboxes a member can see in settings: company mailboxes and every personal one (the server shows
+# administrators everything and others only their own). Never the encrypted grant.
+query MailboxesOverview($organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
+  actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  mailboxes: channelConnections(where: {organizationId: {eq: $organizationId}, provider: {in: [GMAIL]}}, orderBy: [{createdAt: ASC}, {id: ASC}], limit: 200) {
+    id provider displayName externalAccountReference connectionStatus sendingEnabled verifiedAt revision createdAt ownerMembershipId
+    ownerMembership {id userProfileUid status userProfile {displayName}}
+    account: inboxMailboxAccount_on_channelConnection {syncState backfilled lastSyncedAt failures lastErrorCode connectedAt}
+  }
+}
+
+# One mailbox with its grant, for the server acting on it (disconnect, sending switch, a check, a sync or a send).
+query MailboxForAction($organizationId: UUID!, $id: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
+  actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
+  mailbox: channelConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, provider: {in: [GMAIL]}}}) {
+    id provider displayName externalAccountReference connectionStatus sendingEnabled revision ownerMembershipId ownerMembership {userProfileUid status}
+    account: inboxMailboxAccount_on_channelConnection {tokenCiphertext tokenKeyId historyId syncState}
+  }
+}
+
+# Disconnects a mailbox: the owner of a personal mailbox, or an OWNER or ADMIN. The grant is wiped
+# (the server has revoked it at the provider first); conversations stay, sending stops.
+mutation DisconnectMailbox($organizationId: UUID!, $id: UUID!, $actorUid: String!, $expectedRevision: Int!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    mailbox: channelConnection(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, provider: {in: [GMAIL]}}, {_or: [
+      {ownerMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "this != null", message: "INBOX_MAILBOX_CHANGED") {id}
+  }
+  channelConnection_update(key: {organizationId: $organizationId, id: $id}, data: {connectionStatus: DISABLED, sendingEnabled: false, verifiedAt: null, revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+  inboxMailboxAccount_updateMany(where: {organizationId: {eq: $organizationId}, channelConnectionId: {eq: $id}}, data: {tokenCiphertext: null, tokenKeyId: null, syncState: DISCONNECTED, leaseId: null, leaseUntil: null,
+    nextSyncAt: null, updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CHANNEL_CONNECTION_CHANGED, targetType: CHANNEL_CONNECTION, targetId: $id, metadata_expr: "{'event': 'MAILBOX_DISCONNECTED'}"})
+}
+
+# Sending on or off for a VERIFIED mailbox. On: an OWNER or ADMIN for a company mailbox, the owner for a
+# personal one (nobody else may send as them). Off: also any OWNER or ADMIN. The server additionally
+# requires its test recipients (Phase 7C.1).
+mutation SetMailboxSending($organizationId: UUID!, $id: UUID!, $actorUid: String!, $expectedRevision: Int!, $enabled: Boolean!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    on: channelConnection(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, provider: {in: [GMAIL]}, connectionStatus: {eq: VERIFIED}}, {_or: [
+      {ownerMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}},
+      {ownerMembershipId: {isNull: true}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "!vars.enabled || this != null", message: "INBOX_MAILBOX_CHANGED") {id}
+    off: channelConnection(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, provider: {in: [GMAIL]}}, {_or: [
+      {ownerMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}},
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
+    ]}]}}) @check(expr: "vars.enabled || this != null", message: "INBOX_MAILBOX_CHANGED") {id}
+  }
+  channelConnection_update(key: {organizationId: $organizationId, id: $id}, data: {sendingEnabled: $enabled, revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: CHANNEL_CONNECTION_CHANGED, targetType: CHANNEL_CONNECTION, targetId: $id,
+    metadata_expr: "{'event': vars.enabled ? 'SENDING_ENABLED' : 'SENDING_DISABLED'}"})
+}

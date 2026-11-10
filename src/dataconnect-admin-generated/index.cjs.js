@@ -2378,6 +2378,55 @@ function appendInboxMessage(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.appendInboxMessage = appendInboxMessage;
 
+function mailboxActor(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MailboxActor', inputVars, inputOpts);
+}
+exports.mailboxActor = mailboxActor;
+
+function mailboxConflicts(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MailboxConflicts', inputVars, inputOpts);
+}
+exports.mailboxConflicts = mailboxConflicts;
+
+function saveMailboxConnection(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SaveMailboxConnection', inputVars, inputOpts);
+}
+exports.saveMailboxConnection = saveMailboxConnection;
+
+function mailboxesOverview(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MailboxesOverview', inputVars, inputOpts);
+}
+exports.mailboxesOverview = mailboxesOverview;
+
+function mailboxForAction(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MailboxForAction', inputVars, inputOpts);
+}
+exports.mailboxForAction = mailboxForAction;
+
+function disconnectMailbox(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DisconnectMailbox', inputVars, inputOpts);
+}
+exports.disconnectMailbox = disconnectMailbox;
+
+function setMailboxSending(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetMailboxSending', inputVars, inputOpts);
+}
+exports.setMailboxSending = setMailboxSending;
+
 function listInboxReplies(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

@@ -11,17 +11,18 @@
 query ListChannelConnections($organizationId: UUID!)
   @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
   admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED") {id}
-  connections: channelConnections(where: {organizationId: {eq: $organizationId}}, orderBy: [{createdAt: ASC}, {id: ASC}], limit: 20) {
+  # Company channels only: personal mailboxes (Phase 7C) are listed by MailboxesOverview.
+  connections: channelConnections(where: {organizationId: {eq: $organizationId}, ownerMembershipId: {isNull: true}}, orderBy: [{createdAt: ASC}, {id: ASC}], limit: 20) {
     id provider displayName externalAccountReference connectionStatus credentialReference accessTokenReference verifiedAt verifiedName verifiedDisplayNumber sendingEnabled lastEventAt revision createdAt updatedAt createdBy {displayName}
   }
 }
 
 # Real providers only (the simulator connection is created by developer tools). Sending stays off.
 mutation CreateChannelConnection($organizationId: UUID!, $id: UUID!, $provider: ChannelProvider!, $displayName: String!, $externalAccountReference: String, $credentialReference: String, $accessTokenReference: String)
-  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.provider in ['WHATSAPP_CLOUD', 'GMAIL', 'MICROSOFT_365'] && vars.displayName.size() >= 2 && vars.displayName.size() <= 80 && (!has(vars.credentialReference) || vars.credentialReference == null || vars.credentialReference.matches('^INBOX_[A-Z0-9_]{3,56}$')) && (!has(vars.accessTokenReference) || vars.accessTokenReference == null || vars.accessTokenReference.matches('^INBOX_[A-Z0-9_]{3,56}$')) && (!has(vars.externalAccountReference) || vars.externalAccountReference == null || vars.externalAccountReference.matches('^[A-Za-z0-9_.@+-]{2,200}$'))") @transaction {
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.provider in ['WHATSAPP_CLOUD', 'MICROSOFT_365'] && vars.displayName.size() >= 2 && vars.displayName.size() <= 80 && (!has(vars.credentialReference) || vars.credentialReference == null || vars.credentialReference.matches('^INBOX_[A-Z0-9_]{3,56}$')) && (!has(vars.accessTokenReference) || vars.accessTokenReference == null || vars.accessTokenReference.matches('^INBOX_[A-Z0-9_]{3,56}$')) && (!has(vars.externalAccountReference) || vars.externalAccountReference == null || vars.externalAccountReference.matches('^[A-Za-z0-9_.@+-]{2,200}$'))") @transaction {
   admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED")
   limit: query @redact @check(expr: "this.existing.size() < 10", message: "CHANNEL_CONNECTION_LIMIT") {
-    existing: channelConnections(where: {organizationId: {eq: $organizationId}}, limit: 10) {id}
+    existing: channelConnections(where: {organizationId: {eq: $organizationId}, ownerMembershipId: {isNull: true}}, limit: 10) {id}
   }
   connection: channelConnection_insert(data: {organizationId: $organizationId, id: $id, provider: $provider, displayName: $displayName, externalAccountReference: $externalAccountReference,
     credentialReference: $credentialReference, accessTokenReference: $accessTokenReference, sendingEnabled: false, createdByUid_expr: "auth.uid",
@@ -34,7 +35,7 @@ mutation UpdateChannelConnection($organizationId: UUID!, $id: UUID!, $expectedRe
   @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.displayName.size() >= 2 && vars.displayName.size() <= 80 && (!has(vars.credentialReference) || vars.credentialReference == null || vars.credentialReference.matches('^INBOX_[A-Z0-9_]{3,56}$')) && (!has(vars.accessTokenReference) || vars.accessTokenReference == null || vars.accessTokenReference.matches('^INBOX_[A-Z0-9_]{3,56}$')) && (!has(vars.externalAccountReference) || vars.externalAccountReference == null || vars.externalAccountReference.matches('^[A-Za-z0-9_.@+-]{2,200}$'))") @transaction {
   admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED")
   before: query @redact {
-    connection: channelConnection(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null && this.revision == vars.expectedRevision && this.provider != 'DEVELOPMENT_SIMULATOR'", message: "CHANNEL_CONNECTION_CHANGED") {revision connectionStatus provider}
+    connection: channelConnection(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null && this.revision == vars.expectedRevision && this.provider != 'DEVELOPMENT_SIMULATOR' && this.provider != 'GMAIL' && this.ownerMembershipId == null", message: "CHANNEL_CONNECTION_CHANGED") {revision connectionStatus provider ownerMembershipId}
   }
   connection: channelConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {displayName: $displayName,
     externalAccountReference: $externalAccountReference, credentialReference: $credentialReference, accessTokenReference: $accessTokenReference, sendingEnabled: false, verifiedAt: null,
@@ -47,7 +48,7 @@ mutation SetChannelConnectionEnabled($organizationId: UUID!, $id: UUID!, $expect
   @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
   admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED")
   before: query @redact {
-    connection: channelConnection(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null && this.revision == vars.expectedRevision && this.provider != 'DEVELOPMENT_SIMULATOR'", message: "CHANNEL_CONNECTION_CHANGED") {revision provider credentialReference externalAccountReference}
+    connection: channelConnection(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null && this.revision == vars.expectedRevision && this.provider != 'DEVELOPMENT_SIMULATOR' && this.provider != 'GMAIL' && this.ownerMembershipId == null", message: "CHANNEL_CONNECTION_CHANGED") {revision provider credentialReference externalAccountReference ownerMembershipId}
   }
   connection: channelConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {sendingEnabled: false, verifiedAt: null,
     connectionStatus_expr: "!vars.enabled ? 'DISABLED' : (response.before.connection.credentialReference != null && response.before.connection.externalAccountReference != null ? 'CONFIGURED' : 'NOT_CONFIGURED')",

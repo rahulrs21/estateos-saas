@@ -44,9 +44,47 @@ type ChannelConnection @table(key: ["organization", "id"])
   sendingEnabled: Boolean! @default(value: false)
   # The last verified webhook event (shown to administrators; never proof of a working connection).
   lastEventAt: Timestamp
+  # Phase 7C: a personal mailbox belongs to this member; null for company mailboxes and other channels.
+  ownerMembershipId: UUID
+  ownerMembership: Membership @ref(fields: ["organizationId", "ownerMembershipId"], references: ["organizationId", "id"], constraintName: "channel_connection_owner_fkey")
   revision: Int! @default(value: 1)
   createdBy: UserProfile!
   createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Phase 7C (docs/EMAIL_INTEGRATION_PLAN.md): a mailbox connected through OAuth.
+enum InboxMailboxSyncState { ACTIVE RESYNC NEEDS_RECONNECT DISCONNECTED }
+
+# The OAuth grant and sync cursor of a mailbox connection (Gmail). Server-only:
+# every operation on this table is NO_ACCESS, so no member query can read it.
+# The refresh token is stored only encrypted (AES-256-GCM, bound to the company
+# and the connection; the key lives in the server environment), never in plaintext.
+type InboxMailboxAccount @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "channelConnectionId"])
+  @index(fields: ["syncState", "nextSyncAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  # The connection's own ID.
+  id: UUID!
+  channelConnectionId: UUID!
+  channelConnection: ChannelConnection! @ref(fields: ["organizationId", "channelConnectionId"], references: ["organizationId", "id"], constraintName: "inbox_mailbox_account_connection_fkey")
+  tokenCiphertext: String @col(dataType: "varchar(4000)")
+  tokenKeyId: String @col(dataType: "varchar(16)")
+  scopes: String @col(dataType: "varchar(400)")
+  # Gmail's history cursor: changes after this point are read on the next sync.
+  historyId: String @col(dataType: "varchar(40)")
+  syncState: InboxMailboxSyncState! @default(value: ACTIVE)
+  # The bounded first import (recent days) is done.
+  backfilled: Boolean! @default(value: false)
+  nextSyncAt: Timestamp
+  # A sync in progress holds the lease until this time (parallel worker ticks never share a mailbox).
+  leaseId: UUID
+  leaseUntil: Timestamp
+  lastSyncedAt: Timestamp
+  failures: Int! @default(value: 0)
+  lastErrorCode: String @col(dataType: "varchar(64)")
+  connectedAt: Timestamp! @default(expr: "request.time")
   updatedAt: Timestamp! @default(expr: "request.time")
 }
 
@@ -131,6 +169,8 @@ type InboxMessage @table(key: ["organization", "id"])
   # A provider status EstateOS does not recognise, kept for diagnosis (bounded).
   providerStatusRaw: String @col(dataType: "varchar(40)")
   providerTimestamp: Timestamp
+  # Phase 7C: the email's RFC 5322 Message-ID, for In-Reply-To and References when replying.
+  internetMessageId: String @col(dataType: "varchar(300)")
   author: UserProfile
   simulated: Boolean! @default(value: false)
   createdAt: Timestamp! @default(expr: "request.time")

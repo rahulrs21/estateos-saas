@@ -14,6 +14,7 @@ import { SIMULATOR_BODY_BYTES, inboxSimulatorState, simulateInbound, simulateRec
 import { analyseConversation, applyRequirements } from "./assistant";
 import { cancelReply, checkReply, createReply, decideReply, listReplies, sendReply, startWhatsAppConversation, submitReply, updateReply } from "./outbound";
 import { devToolsEnabled } from "@/modules/communications/dev/guard";
+import { completeMailboxConnect, disconnectMailbox, listMailboxes, setMailboxSending, startMailboxConnect, type ConnectOutcome } from "./mailboxes";
 
 /*
  * Inbox endpoints (docs/UNIFIED_INBOX.md#api). The same request policy as the
@@ -66,6 +67,38 @@ export const connectionCheckResponse = (request: Request, id: string) => write(r
 export const connectionSendingResponse = (request: Request, id: string) => write(request, "inbox.connections.sending", (context, body) => setConnectionSending(context, id, body));
 export const startWhatsAppResponse = (request: Request) => write(request, "inbox.whatsapp.start", startWhatsAppConversation, 201);
 export const connectionEnabledResponse = (request: Request, id: string) => write(request, "inbox.connections.enabled", (context, body) => setConnectionEnabled(context, id, body));
+
+// --- Mailboxes connected through OAuth (Phase 7C) ----------------------------------------------
+export const mailboxesResponse = (request: Request) => read(request, "inbox.mailboxes", context => listMailboxes(context));
+export const mailboxStartResponse = (request: Request) => write(request, "inbox.mailboxes.start", startMailboxConnect);
+export const mailboxDisconnectResponse = (request: Request, id: string) => write(request, "inbox.mailboxes.disconnect", (context, body) => disconnectMailbox(context, id, body));
+export const mailboxSendingResponse = (request: Request, id: string) => write(request, "inbox.mailboxes.sending", (context, body) => setMailboxSending(context, id, body));
+
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"})[char]!);
+
+/**
+ * Google's return (no session cookie: it is SameSite=strict). The page then
+ * navigates to Inbox settings from this site, so the session cookie is sent again.
+ * Nothing secret is placed in the page or its address.
+ */
+export async function oauthCallbackResponse(request: Request) {
+  await connection();
+  let outcome: ConnectOutcome;
+  try { outcome = await completeMailboxConnect(new URL(request.url)); }
+  catch (error) {
+    console.error(JSON.stringify({event: "inbox.mailbox.connect_failed", name: error instanceof Error ? error.name : typeof error}));
+    outcome = {ok: false, code: "ERROR", message: "The mailbox could not be connected. Try again in a moment."};
+  }
+  if (!outcome.ok) console.warn(JSON.stringify({event: "inbox.mailbox.connect_refused", code: outcome.code}));
+  const target = outcome.ok ? "/inbox/settings?mailbox=connected" : `/inbox/settings?mailbox=failed&reason=${encodeURIComponent(outcome.code)}`;
+  const title = outcome.ok ? "Mailbox connected" : "Mailbox not connected";
+  const message = outcome.ok ? `${outcome.address} is connected. EstateOS will start importing ${outcome.personal ? "emails from your CRM customers" : "customer emails"} within a minute.` : outcome.message;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow">${outcome.ok ? `<meta http-equiv="refresh" content="1;url=${target}">` : ""}<title>${title}</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,sans-serif;background:#fafafa;color:#18181b}main{max-width:30rem;padding:2rem;text-align:center}a{color:inherit;font-weight:600}</style></head>
+<body><main><h1>${title}</h1><p data-testid="mailbox-connect-result">${escapeHtml(message)}</p><p><a href="${target}">Back to Inbox settings</a></p></main></body></html>`;
+  return new Response(html, {status: outcome.ok ? 200 : 400, headers: {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"}});
+}
 
 /** Streams an attachment as a download to a member who may see the conversation; every access is audited. */
 export async function attachmentResponse(request: Request, conversationId: string, id: string) {

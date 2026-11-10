@@ -566,5 +566,83 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       row = await connection();
       assert.deepEqual({status: row.connectionStatus, sending: row.sendingEnabled}, {status: "ERROR", sending: false});
     });
+
+    // --- 7C.1: mailboxes connected through OAuth (company and personal) ---
+    const mailboxSave = (extra = {}) => server(sdk.saveMailboxConnection, {organizationId: f.orgA, id: randomUUID(), actorUid: "owner-a", provider: sdk.ChannelProvider.GMAIL, personal: false, ownerMembershipId: null,
+      existing: false, displayName: "Sales mailbox", mailbox: `sales.${randomUUID().slice(0, 8)}@agency.example.test`, tokenCiphertext: "v1:sealed-test-value", tokenKeyId: "k1", scopes: "gmail.readonly gmail.send", historyId: "1000", ...extra});
+    const mailboxRow = async (id, uid = "owner-a") => (await server(sdk.mailboxForAction, {organizationId: f.orgA, id, actorUid: uid})).mailbox;
+    let companyMailbox, companyAddress, personalMailbox;
+    it("connects company mailboxes for owners and administrators and personal mailboxes for their owner only; one company per mailbox", async () => {
+      await forbidden(sdk.saveMailboxConnection, "owner-a", {organizationId: f.orgA, id: randomUUID(), actorUid: "owner-a", provider: sdk.ChannelProvider.GMAIL, personal: false, existing: false,
+        displayName: "x", mailbox: "x@agency.example.test", tokenCiphertext: "x", tokenKeyId: "k1", scopes: "x", historyId: "1"});
+      await forbidden(sdk.mailboxesOverview, "owner-a", {organizationId: f.orgA, actorUid: "owner-a"});
+      await forbidden(sdk.mailboxForAction, "owner-a", {organizationId: f.orgA, id: randomUUID(), actorUid: "owner-a"});
+      await rejectsWith(mailboxSave({actorUid: "agent-a"}), "INBOX_MAILBOX_NOT_ALLOWED");
+      await rejectsWith(mailboxSave({actorUid: "manager-a"}), "INBOX_MAILBOX_NOT_ALLOWED");
+      await rejectsWith(mailboxSave({organizationId: f.orgB, actorUid: "owner-a"}), "INBOX_MAILBOX_NOT_ALLOWED", "a member of another company cannot connect here");
+      companyMailbox = randomUUID();
+      companyAddress = `sales.${randomUUID().slice(0, 8)}@agency.example.test`;
+      await mailboxSave({id: companyMailbox, mailbox: companyAddress, actorUid: "admin-a"});
+      let row = await mailboxRow(companyMailbox);
+      assert.deepEqual({status: row.connectionStatus, sending: row.sendingEnabled, owner: row.ownerMembershipId ?? null, token: row.account.tokenCiphertext, cursor: row.account.historyId, state: row.account.syncState},
+        {status: "VERIFIED", sending: false, owner: null, token: "v1:sealed-test-value", cursor: "1000", state: "ACTIVE"});
+      await assert.rejects(mailboxSave({organizationId: f.orgB, actorUid: "owner-b", mailbox: companyAddress}), "the same mailbox cannot be connected to another company");
+
+      await rejectsWith(mailboxSave({actorUid: "agent-a", personal: true, ownerMembershipId: f.memberManagerA}), "INBOX_MAILBOX_NOT_ALLOWED", "nobody connects a mailbox as someone else");
+      personalMailbox = randomUUID();
+      await mailboxSave({id: personalMailbox, actorUid: "agent-a", personal: true, ownerMembershipId: f.memberAgentA, displayName: "Agent's Gmail", mailbox: "agent.a@gmail.example.test"});
+      row = await mailboxRow(personalMailbox);
+      assert.equal(key(row.ownerMembershipId), key(f.memberAgentA));
+      assert.equal(row.ownerMembership.userProfileUid, "agent-a");
+      // Reconnecting a personal mailbox is the owner's alone, and keeps it personal.
+      await rejectsWith(mailboxSave({id: personalMailbox, existing: true, actorUid: "manager-a", personal: true, ownerMembershipId: f.memberManagerA, mailbox: "agent.a@gmail.example.test"}), "INBOX_MAILBOX_CHANGED");
+      await rejectsWith(mailboxSave({id: personalMailbox, existing: true, actorUid: "owner-a", personal: false, mailbox: "agent.a@gmail.example.test"}), "INBOX_MAILBOX_CHANGED", "a personal mailbox cannot be taken over as a company one");
+      await mailboxSave({id: personalMailbox, existing: true, actorUid: "agent-a", personal: true, ownerMembershipId: f.memberAgentA, mailbox: "agent.a@gmail.example.test", tokenCiphertext: "v1:new-grant", historyId: "1000"});
+      assert.equal((await mailboxRow(personalMailbox)).account.tokenCiphertext, "v1:new-grant");
+
+      const overview = await server(sdk.mailboxesOverview, {organizationId: f.orgA, actorUid: "agent-a"});
+      assert.ok(overview.mailboxes.some(item => key(item.id) === key(personalMailbox)));
+      assert.equal(JSON.stringify(overview).includes("v1:"), false, "the overview never carries the grant");
+      const channels = (await run(sdk.listChannelConnections, "owner-a", {organizationId: f.orgA})).connections;
+      assert.equal(channels.some(item => key(item.id) === key(personalMailbox)), false, "personal mailboxes are not company channels");
+      const company = channels.find(item => key(item.id) === key(companyMailbox));
+      await rejectsWith(run(sdk.updateChannelConnection, "owner-a", {organizationId: f.orgA, id: companyMailbox, expectedRevision: company.revision, displayName: "Renamed", externalAccountReference: companyAddress, credentialReference: null}),
+        "CHANNEL_CONNECTION_CHANGED", "an OAuth mailbox is never edited through the manual channel form");
+    });
+
+    it("turns mailbox sending on only for its manager, off for administrators too, and disconnects by wiping the grant", async () => {
+      let row = await mailboxRow(personalMailbox);
+      const sending = (id, uid, enabled, revision) => server(sdk.setMailboxSending, {organizationId: f.orgA, id, actorUid: uid, expectedRevision: revision, enabled});
+      await rejectsWith(sending(personalMailbox, "owner-a", true, row.revision), "INBOX_MAILBOX_CHANGED", "not even the owner of the company may send as an agent");
+      await sending(personalMailbox, "agent-a", true, row.revision);
+      row = await mailboxRow(personalMailbox);
+      assert.equal(row.sendingEnabled, true);
+      await rejectsWith(sending(personalMailbox, "manager-a", false, row.revision), "INBOX_MAILBOX_CHANGED");
+      await sending(personalMailbox, "admin-a", false, row.revision);
+      row = await mailboxRow(personalMailbox);
+      assert.equal(row.sendingEnabled, false);
+      let company = await mailboxRow(companyMailbox);
+      await rejectsWith(sending(companyMailbox, "manager-a", true, company.revision), "INBOX_MAILBOX_CHANGED");
+      await rejectsWith(sending(companyMailbox, "agent-a", true, company.revision), "INBOX_MAILBOX_CHANGED");
+      await sending(companyMailbox, "owner-a", true, company.revision);
+      company = await mailboxRow(companyMailbox);
+      assert.equal(company.sendingEnabled, true);
+
+      const disconnect = (id, uid, revision) => server(sdk.disconnectMailbox, {organizationId: f.orgA, id, actorUid: uid, expectedRevision: revision});
+      await rejectsWith(disconnect(personalMailbox, "manager-a", row.revision), "INBOX_MAILBOX_CHANGED");
+      await rejectsWith(disconnect(personalMailbox, "owner-b", row.revision), "INBOX_MAILBOX_CHANGED");
+      await rejectsWith(disconnect(personalMailbox, "agent-a", row.revision - 1), "INBOX_MAILBOX_CHANGED", "a stale revision is refused");
+      await disconnect(personalMailbox, "admin-a", row.revision);
+      row = await mailboxRow(personalMailbox);
+      assert.deepEqual({status: row.connectionStatus, sending: row.sendingEnabled, token: row.account.tokenCiphertext ?? null, keyId: row.account.tokenKeyId ?? null, state: row.account.syncState},
+        {status: "DISABLED", sending: false, token: null, keyId: null, state: "DISCONNECTED"});
+      await rejectsWith(sending(personalMailbox, "agent-a", true, row.revision), "INBOX_MAILBOX_CHANGED", "a disconnected mailbox cannot send");
+      await disconnect(companyMailbox, "owner-a", company.revision);
+      assert.equal((await mailboxRow(companyMailbox)).sendingEnabled, false);
+      // Reconnecting later reuses the same connection (its conversations stay linked).
+      await mailboxSave({id: personalMailbox, existing: true, actorUid: "agent-a", personal: true, ownerMembershipId: f.memberAgentA, mailbox: "agent.a@gmail.example.test", tokenCiphertext: "v1:third", historyId: "1200"});
+      row = await mailboxRow(personalMailbox);
+      assert.deepEqual({status: row.connectionStatus, sending: row.sendingEnabled, token: row.account.tokenCiphertext, state: row.account.syncState}, {status: "VERIFIED", sending: false, token: "v1:third", state: "ACTIVE"});
+    });
   });
 }

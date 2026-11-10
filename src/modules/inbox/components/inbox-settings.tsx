@@ -1,18 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 import { Copy, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { communicationsGet, communicationsSend, errorMessage } from "@/modules/communications/client";
 import { formatLeadDate, LeadField, LeadFormMessage, selectClassName } from "@/modules/leads/components/lead-ui";
 import { CAPABILITIES, type Capability, type CapabilityState } from "../adapters/types";
 import type { ConnectionsView } from "../server/connections";
 import type { inboxSettings } from "../server/conversations";
+import { FormDialog, Section, text } from "./settings-ui";
+import { MailboxesSection } from "./mailboxes-section";
 
 type SettingsView = Awaited<ReturnType<typeof inboxSettings>>;
 type Connection = ConnectionsView["connections"][number];
@@ -25,29 +25,7 @@ const CAPABILITY_LABELS: Record<Capability, string> = {
 };
 const STATE_LABELS: Record<CapabilityState, string> = {SUPPORTED: "Built", PLANNED: "Planned (later phase)", UNSUPPORTED: "Not offered"};
 
-function Section({title, description, action, children}: {title: string; description: ReactNode; action?: ReactNode; children: ReactNode}) {
-  return <Card className="gap-4 py-5 shadow-xs ring-border"><CardHeader className="px-5"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 space-y-1"><CardTitle role="heading" aria-level={2}>{title}</CardTitle><CardDescription>{description}</CardDescription></div>{action}</div></CardHeader><CardContent className="px-5">{children}</CardContent></Card>;
-}
 
-function FormDialog({trigger, title, description, submitLabel, children, onSubmit}: {trigger: ReactNode; title: string; description: string; submitLabel: string; children: ReactNode; onSubmit: (form: FormData) => Promise<boolean>}) {
-  const [open, setOpen] = useState(false);
-  const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(""); setPending(true);
-    try { if (await onSubmit(new FormData(event.currentTarget))) setOpen(false); }
-    catch (problem) { setError(errorMessage(problem, "The change could not be saved.")); }
-    finally { setPending(false); }
-  }
-  return <Dialog open={open} onOpenChange={value => { if (!pending) { setOpen(value); setError(""); } }}>
-    <DialogTrigger render={<Button variant="outline" size="sm" />}>{trigger}</DialogTrigger>
-    <DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader>
-      <form onSubmit={submit} className="space-y-4"><fieldset disabled={pending} className="space-y-4">{children}<Button type="submit">{pending ? "Saving…" : submitLabel}</Button></fieldset><LeadFormMessage message={error} /></form>
-    </DialogContent>
-  </Dialog>;
-}
-
-const text = (form: FormData, name: string) => String(form.get(name) ?? "").trim();
 
 function RulesSection({settings, send}: {settings: SettingsView; send: Send}) {
   const prefix = useId();
@@ -169,8 +147,9 @@ export function InboxSettingsView({organizationId}: {organizationId: string}) {
   if (error) return <div role="alert" className="space-y-3 rounded-xl border p-6"><p className="text-sm text-destructive">{error}</p><Button variant="outline" size="sm" onClick={() => void load()}><RefreshCw aria-hidden="true" />Try again</Button></div>;
   if (!settings || (settings.canEdit && !connections)) return <div role="status" className="animate-pulse rounded-xl border p-6 text-sm text-muted-foreground">Loading inbox settings...</div>;
   return <div className="space-y-5">
-    {!settings.canEdit && <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">These are your company&apos;s inbox rules. Only owners and administrators can change them or manage channels.</p>}
+    {!settings.canEdit && <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">These are your company&apos;s inbox rules. Only owners and administrators can change them or manage company channels; you can connect your own mailbox below.</p>}
     <RulesSection key={`rules-${settings.revision}`} settings={settings} send={send} />
+    <MailboxesSection organizationId={organizationId} />
     {connections && <ConnectionsSection view={connections} send={send} />}
   </div>;
 }
