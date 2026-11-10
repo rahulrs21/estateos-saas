@@ -20,7 +20,7 @@ async function CompanyOnboarding({ searchParams }: { searchParams: Promise<Recor
   const workspace = await getCompanyWorkspace();
   const parameters = await searchParams;
   const createAnother = parameters.new === "1";
-  const state = companyOnboardingState(workspace, createAnother);
+  const state = companyOnboardingState(workspace, createAnother, parameters.select === "1");
   if (state.redirect) redirect(state.redirect);
   const selectOnly = state.view === "select";
   const createCompany = state.view === "create";

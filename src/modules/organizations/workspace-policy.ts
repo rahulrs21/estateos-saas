@@ -29,9 +29,15 @@ export function companyWorkspaceDestination(workspace: CompanyWorkspace): string
   return workspace.hasPendingInvitations ? "/invite/accept" : "/onboarding/company";
 }
 
-/** Company registration is an explicit intent, never a requirement for invitees. */
-export function companyOnboardingState(workspace: CompanyWorkspace, createAnother: boolean) {
+/**
+ * Company registration is an explicit intent, never a requirement for invitees.
+ * `?select=1` is an explicit request to choose a workspace, so it shows the
+ * chooser even with an active company (which offers "Return to …") instead of
+ * redirecting from inside the page's streamed Suspense boundary.
+ */
+export function companyOnboardingState(workspace: CompanyWorkspace, createAnother: boolean, selectRequested = false) {
   if (createAnother) return { view: "create", redirect: null } as const;
+  if (selectRequested && workspace.companies.length) return { view: "select", redirect: null } as const;
   if (workspace.activeCompany) return { view: "choose", redirect: "/workspace/dashboard" } as const;
   if (workspace.companies.length) return { view: "select", redirect: null } as const;
   if (workspace.hasPendingInvitations) return { view: "choose", redirect: "/invite/accept" } as const;

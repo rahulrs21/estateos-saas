@@ -75,6 +75,17 @@ test("pending invitations never manufacture access and existing companies retain
   assert.equal(companyWorkspaceDestination(unselected), "/onboarding/company?select=1");
   assert.deepEqual(companyOnboardingState(unselected, false), { view: "select", redirect: null });
 });
+
+test("an explicit workspace selection shows the chooser without redirecting, and never invents companies", () => {
+  const active = resolveCompanyWorkspace("me", a, [member()], false);
+  assert.deepEqual(companyOnboardingState(active, false, true), { view: "select", redirect: null });
+  assert.deepEqual(companyOnboardingState(active, false, false), { view: "choose", redirect: "/workspace/dashboard" });
+  assert.deepEqual(companyOnboardingState(active, true, true), { view: "create", redirect: null });
+  const none = resolveCompanyWorkspace("new", null, [], true);
+  assert.deepEqual(companyOnboardingState(none, false, true), { view: "choose", redirect: "/invite/accept" });
+  const foreign = resolveCompanyWorkspace("me", null, [member(a, { userProfileUid: "someone-else" })], false);
+  assert.deepEqual(companyOnboardingState(foreign, false, true), { view: "choose", redirect: null });
+});
 test("a stale or foreign preference does not establish a company", () => {
   const workspace = resolveCompanyWorkspace("me", b, [member()]);
   assert.equal(workspace.activeCompany, null);
