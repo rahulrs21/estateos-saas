@@ -2358,6 +2358,13 @@ function applyInboxRetention(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.applyInboxRetention = applyInboxRetention;
 
+function emailReplyThread(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('EmailReplyThread', inputVars, inputOpts);
+}
+exports.emailReplyThread = emailReplyThread;
+
 function matchInboxIdentity(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

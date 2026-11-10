@@ -2065,6 +2065,12 @@ export function applyInboxRetention(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeMutation('ApplyInboxRetention', inputVars, inputOpts);
 }
 
+export function emailReplyThread(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('EmailReplyThread', inputVars, inputOpts);
+}
+
 export function matchInboxIdentity(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

@@ -3618,6 +3618,18 @@ export interface DueMailboxesVariables {
   limit: number;
 }
 
+export interface EmailReplyThreadData {
+  messages: ({
+    internetMessageId?: string | null;
+    direction: InboxDirection;
+  })[];
+}
+
+export interface EmailReplyThreadVariables {
+  organizationId: UUIDString;
+  conversationId: UUIDString;
+}
+
 export interface EnsureAutomationOrgStateData {
   automationOrgState_insert: AutomationOrgState_Key;
 }
@@ -4957,6 +4969,14 @@ export interface GetInboxConversationData {
       displayName: string;
       connectionStatus: ChannelConnectionStatus;
       sendingEnabled: boolean;
+      externalAccountReference?: string | null;
+      ownerMembershipId?: UUIDString | null;
+      ownerMembership?: {
+        userProfileUid?: string | null;
+        userProfile?: {
+          displayName: string;
+        };
+      };
     };
     notes: ({
       id: UUIDString;
@@ -6862,6 +6882,8 @@ export interface InboxReplyFactsData {
       optedOut: boolean;
       lastInboundAt?: TimestampString | null;
       customerIdentity: string;
+      externalThreadId: string;
+      subject?: string | null;
       channelConnectionId?: UUIDString | null;
       channelConnection?: {
         id: UUIDString;
@@ -6870,6 +6892,10 @@ export interface InboxReplyFactsData {
         sendingEnabled: boolean;
         externalAccountReference?: string | null;
         accessTokenReference?: string | null;
+        ownerMembershipId?: UUIDString | null;
+        ownerMembership?: {
+          userProfileUid?: string | null;
+        };
       };
     };
   };
@@ -14343,6 +14369,11 @@ export function inboxRetentionCandidates(vars: InboxRetentionCandidatesVariables
 export function applyInboxRetention(dc: DataConnect, vars: ApplyInboxRetentionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ApplyInboxRetentionData>>;
 /** Generated Node Admin SDK operation action function for the 'ApplyInboxRetention' Mutation. Allow users to pass in custom DataConnect instances. */
 export function applyInboxRetention(vars: ApplyInboxRetentionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ApplyInboxRetentionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'EmailReplyThread' Query. Allow users to execute without passing in DataConnect. */
+export function emailReplyThread(dc: DataConnect, vars: EmailReplyThreadVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<EmailReplyThreadData>>;
+/** Generated Node Admin SDK operation action function for the 'EmailReplyThread' Query. Allow users to pass in custom DataConnect instances. */
+export function emailReplyThread(vars: EmailReplyThreadVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<EmailReplyThreadData>>;
 
 /** Generated Node Admin SDK operation action function for the 'MatchInboxIdentity' Query. Allow users to execute without passing in DataConnect. */
 export function matchInboxIdentity(dc: DataConnect, vars: MatchInboxIdentityVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MatchInboxIdentityData>>;

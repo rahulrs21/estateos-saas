@@ -685,5 +685,46 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       const retired = (await server(sdk.mailboxSyncRow, {organizationId: f.orgA, id: departed})).account;
       assert.deepEqual({token: retired.tokenCiphertext ?? null, state: retired.syncState, status: retired.channelConnection.connectionStatus}, {token: null, state: "DISCONNECTED", status: "DISABLED"});
     });
+
+    it("queues email replies only on a connected mailbox with sending on, and from a personal mailbox only for its owner", async () => {
+      const mailbox = randomUUID();
+      await mailboxSave({id: mailbox, mailbox: `queue.${randomUUID().slice(0, 8)}@agency.example.test`});
+      const personal = randomUUID();
+      // A second agent's personal mailbox (the fixture's shared agent), so the owner rule can be checked against agent-a.
+      await mailboxSave({id: personal, actorUid: "shared-agent", personal: true, ownerMembershipId: f.memberSharedA, mailbox: `shared.agent.${randomUUID().slice(0, 6)}@gmail.example.test`});
+      const emailConversation = async connectionId => {
+        const conversationId = randomUUID();
+        await create({conversationId, channelConnectionId: connectionId, channel: sdk.InboxChannel.EMAIL, customerIdentity: "email.customer@example.test", senderIdentity: "email.customer@example.test",
+          externalThreadId: `gmail:${randomUUID()}`, externalMessageId: `gmail-${randomUUID()}`, assignedMembershipId: f.memberAgentA, content: "Is the villa available?", preview: "Is the villa available?"});
+        return conversationId;
+      };
+      const approvedOn = async (conversationId, author = "agent-a") => {
+        const id = randomUUID();
+        await run(sdk.createInboxReplyDraft, author, {organizationId: f.orgA, id, conversationId, content: "Yes, it is. Shall we book a viewing?"});
+        await run(sdk.recordInboxReplyCheck, author, {organizationId: f.orgA, id, expectedRevision: 1, valid: true, validationJson: "{}"});
+        await run(sdk.submitInboxReply, author, {organizationId: f.orgA, id, expectedRevision: 2, approvalRequired: true, notificationId: randomUUID()});
+        await decide("admin-a", id, 3, true);
+        return {id, job: await reply("owner-a", conversationId, id)};
+      };
+      const queue = (conversationId, connectionId, approved, actorUid) => server(sdk.queueInboxReply, {organizationId: f.orgA, id: approved.id, expectedRevision: approved.job.revision, conversationId, channelConnectionId: connectionId,
+        content: approved.job.content, actorUid, messageId: randomUUID(), pendingExternalId: `pending:${approved.id}`, recipientIdentity: "email.customer@example.test", preview: "Yes", simulated: false, template: false});
+
+      const companyThread = await emailConversation(mailbox);
+      const first = await approvedOn(companyThread);
+      await rejectsWith(queue(companyThread, mailbox, first, "agent-a"), "INBOX_SENDING_DISABLED", "sending is off until turned on");
+      const row = await mailboxRow(mailbox);
+      await server(sdk.setMailboxSending, {organizationId: f.orgA, id: mailbox, actorUid: "owner-a", expectedRevision: row.revision, enabled: true});
+      await queue(companyThread, mailbox, first, "agent-a");
+      assert.equal((await reply("owner-a", companyThread, first.id)).stage, "QUEUED", "any member who may see the conversation sends from a company mailbox");
+
+      const personalThread = await emailConversation(personal);
+      const personalRow = await mailboxRow(personal, "shared-agent");
+      await server(sdk.setMailboxSending, {organizationId: f.orgA, id: personal, actorUid: "shared-agent", expectedRevision: personalRow.revision, enabled: true});
+      const second = await approvedOn(personalThread);
+      await rejectsWith(queue(personalThread, personal, second, "agent-a"), "INBOX_SENDING_DISABLED", "nobody sends from someone else's personal mailbox");
+      await rejectsWith(queue(personalThread, personal, second, "owner-a"), "INBOX_SENDING_DISABLED", "not even the company owner");
+      await queue(personalThread, personal, second, "shared-agent");
+      assert.equal((await reply("owner-a", personalThread, second.id)).stage, "QUEUED");
+    });
   });
 }

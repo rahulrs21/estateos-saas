@@ -1250,6 +1250,100 @@ try {
     assert.deepEqual({status: agentRow.connectionStatus, state: agentRow.account.syncState, sameConnection: agentRow.id === mailboxIds[AGENT_MAILBOX]}, {status: "VERIFIED", state: "ACTIVE", sameConnection: true});
     await signIn("owner-a");
     pass("Phase 7C.1b: a grant withdrawn at Google marks the mailbox Reconnect needed with sending off; the owner reconnects the same mailbox");
+
+    // ---------------------------------------------------------- 7C.1c: replying by email (sent through the fake Gmail, test addresses only)
+    /** Drafts a reply as `author`, checks and submits it, has `approver` approve it, then `sender` sends it. */
+    const emailReply = async (conversationId, content, {author = "owner-a", approver = "admin-a", sender = author} = {}) => {
+      await signIn(author);
+      const created = await post(`/api/inbox/conversations/${conversationId}/replies`, {content});
+      assert.equal(created.status, 201, JSON.stringify(created.body));
+      const replyId = created.body.data.id;
+      const row = async () => (await api(`/api/inbox/conversations/${conversationId}/replies`)).body.data.replies.find(item => item.id === replyId);
+      let current = await row();
+      const check = await post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/check`, {expectedRevision: current.revision});
+      current = await row();
+      assert.equal((await post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/submit`, {expectedRevision: current.revision})).status, 200);
+      await signIn(approver);
+      current = await row();
+      assert.equal((await post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/decide`, {expectedRevision: current.revision, decision: "APPROVE"})).status, 200);
+      await signIn(sender);
+      current = await row();
+      const sent = await post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/send`, {expectedRevision: current.revision});
+      return {replyId, check: check.body.data, sent};
+    };
+    const companyRows = await emailConversations(mailboxIds[COMPANY_MAILBOX]);
+    const laylaThread = companyRows.find(row => row.customerIdentity === CUSTOMER);
+    const omarThread = companyRows.find(row => row.customerIdentity === "omar.buyer@example.test");
+    await signIn("owner-a");
+    const beforeOn = await emailReply(laylaThread.id, "Thank you, Layla. Villa 12 is available; Tuesday at 10 works.", {author: "owner-a", approver: "admin-a"});
+    assert.equal(beforeOn.sent.status, 409, "with sending off nothing is sent");
+    let companyRow = (await mailboxRows()).find(row => row.id === mailboxIds[COMPANY_MAILBOX]);
+    await signIn("owner-a");
+    assert.equal((await post(`/api/inbox/mailboxes/${companyRow.id}/sending`, {expectedRevision: companyRow.revision, enabled: true})).status, 200);
+    const sentBefore = fakeGoogle.mailbox(COMPANY_MAILBOX).sent.length;
+    const delivered = await emailReply(laylaThread.id, "Thank you, Layla. Villa 12 is available; Tuesday at 10 works.\nكل التفاصيل مرفقة.", {author: "owner-a", approver: "admin-a"});
+    assert.equal(delivered.sent.status, 200, JSON.stringify(delivered.sent.body));
+    assert.equal(delivered.sent.body.data.stage, "SENT");
+    const outgoing = fakeGoogle.mailbox(COMPANY_MAILBOX).sent.at(-1);
+    assert.equal(fakeGoogle.mailbox(COMPANY_MAILBOX).sent.length, sentBefore + 1, "exactly one email");
+    assert.equal(outgoing.threadId, companyMail.threadId, "sent in the customer's Gmail thread");
+    const [head, body] = outgoing.raw.split("\r\n\r\n");
+    assert.match(head, new RegExp(`^From: ${COMPANY_MAILBOX}\\r\\nTo: ${CUSTOMER}\\r\\nSubject: Re: Villa 12 viewing\\r\\n`));
+    assert.match(head, new RegExp(`In-Reply-To: ${companyMail.messageId}`));
+    assert.match(head, /X-EstateOS-Message: [0-9a-f-]{36}/);
+    assert.equal(Buffer.from(body.replace(/\r\n/g, ""), "base64").toString("utf8"), "Thank you, Layla. Villa 12 is available; Tuesday at 10 works.\r\nكل التفاصيل مرفقة.");
+    assert.ok(fakeGoogle.access.get(outgoing.authorization.replace("Bearer ", "")) === COMPANY_MAILBOX, "sent with the mailbox's own access token");
+    const sentJob = (await sql(`query M($org: UUID!, $id: UUID!) { outboundMessageJob(key: {organizationId: $org, id: $id}) { stage providerMessageId messageId } }`, {org: f.orgA, id: delivered.replyId})).outboundMessageJob;
+    const sentRow = (await sql(`query M($org: UUID!, $id: UUID!) { inboxMessage(key: {organizationId: $org, id: $id}) { deliveryStatus externalMessageId } }`, {org: f.orgA, id: sentJob.messageId})).inboxMessage;
+    const sentMessage = {...sentJob, message: sentRow};
+    assert.deepEqual({stage: sentMessage.stage, id: sentMessage.providerMessageId, status: sentMessage.message.deliveryStatus, external: sentMessage.message.externalMessageId},
+      {stage: "SENT", id: outgoing.id, status: "SENT", external: outgoing.id}, "SENT only under Gmail's own message ID");
+    await workerTick();
+    assert.equal((await emailConversations(mailboxIds[COMPANY_MAILBOX])).length, 2, "the next sync does not import EstateOS's own reply");
+    const notTest = await emailReply(omarThread.id, "Thank you for your budget.", {author: "owner-a", approver: "admin-a"});
+    assert.equal(notTest.check.sendable, false);
+    assert.match(notTest.check.problems.map(problem => problem.message).join(" "), /test addresses/, "a customer who is not a test address is never emailed");
+    assert.equal(notTest.sent.status, 409);
+    pass("Phase 7C.1c: an approved reply is emailed from the company mailbox in the customer's Gmail thread (Re: subject, In-Reply-To, UTF-8 text), SENT under Gmail's message ID; never before sending is on, never to a non-test address");
+
+    // A personal mailbox sends only for its owner.
+    await signIn("owner-a");
+    let agentMailbox = (await mailboxRows()).find(row => row.id === mailboxIds[AGENT_MAILBOX]);
+    assert.equal((await post(`/api/inbox/mailboxes/${agentMailbox.id}/sending`, {expectedRevision: agentMailbox.revision, enabled: true})).status, 403, "nobody else may turn on sending as an agent");
+    await signIn("agent-a");
+    assert.equal((await post(`/api/inbox/mailboxes/${agentMailbox.id}/sending`, {expectedRevision: agentMailbox.revision, enabled: true})).status, 200);
+    const agentThread = (await emailConversations(mailboxIds[AGENT_MAILBOX]))[0];
+    const byOwner = await emailReply(agentThread.id, "Hi Layla, the garden can be seen on Tuesday too.", {author: "agent-a", approver: "admin-a", sender: "owner-a"});
+    assert.equal(byOwner.sent.status, 409, "the company owner cannot send from an agent's personal mailbox");
+    await signIn("agent-a");
+    const ownReplyRow = (await api(`/api/inbox/conversations/${agentThread.id}/replies`)).body.data.replies.find(item => item.id === byOwner.replyId);
+    const ownSend = await post(`/api/inbox/conversations/${agentThread.id}/replies/${byOwner.replyId}/send`, {expectedRevision: ownReplyRow.revision});
+    assert.equal(ownSend.status, 200, JSON.stringify(ownSend.body));
+    const agentOutgoing = fakeGoogle.mailbox(AGENT_MAILBOX).sent.at(-1);
+    assert.equal(agentOutgoing.threadId, personalMail.threadId);
+    assert.match(agentOutgoing.raw, new RegExp(`From: ${AGENT_MAILBOX.replaceAll(".", "\\.")}\\r\\n`));
+    assert.match(agentOutgoing.raw, new RegExp(`References: .*${personalMail.messageId}`), "the thread's earlier messages are referenced");
+    pass("Phase 7C.1c: a personal mailbox sends only for its owner: the company owner can neither turn its sending on nor send from it; the agent's approved reply goes out in their own thread");
+
+    // Google's refusal fails the reply; disconnecting stops sending and withdraws the grant.
+    deliverEmail(COMPANY_MAILBOX, {from: "Refused Customer <refused@example.test>", subject: "Question", text: "Can you call me?"});
+    await workerTick();
+    const refusedThread = (await emailConversations(mailboxIds[COMPANY_MAILBOX])).find(row => row.customerIdentity === "refused@example.test");
+    const googleRefused = await emailReply(refusedThread.id, "Of course, I will call you today.", {author: "owner-a", approver: "admin-a"});
+    assert.equal(googleRefused.sent.body.data.stage, "FAILED");
+    assert.match(googleRefused.sent.body.data.reason, /Google refused it \(FAILED_PRECONDITION\)/);
+    await signIn("owner-a");
+    companyRow = (await mailboxRows()).find(row => row.id === mailboxIds[COMPANY_MAILBOX]);
+    const [currentCompanyGrant] = refreshOf(COMPANY_MAILBOX).filter(token => !fakeGoogle.revoked.includes(token));
+    assert.equal((await post(`/api/inbox/mailboxes/${companyRow.id}/disconnect`, {expectedRevision: companyRow.revision})).status, 200);
+    assert.ok(fakeGoogle.revoked.includes(currentCompanyGrant), "the grant is withdrawn at Google");
+    companyRow = (await mailboxRows()).find(row => row.id === mailboxIds[COMPANY_MAILBOX]);
+    assert.deepEqual({status: companyRow.connectionStatus, sending: companyRow.sendingEnabled, token: companyRow.account.tokenCiphertext ?? null}, {status: "DISABLED", sending: false, token: null});
+    const afterDisconnect = await emailReply(laylaThread.id, "One more thing.", {author: "owner-a", approver: "admin-a"});
+    assert.equal(afterDisconnect.sent.status, 409, "a disconnected mailbox sends nothing");
+    assert.equal((await workerTick()).mailboxes.imported, 0);
+    await signIn("owner-a");
+    pass("Phase 7C.1c: Google's refusal fails the reply with its reason; disconnecting revokes the grant at Google, wipes it, and stops sending and importing");
   }
   await mailboxChecks();
   assert.equal((await post("/api/dev/communication-tests/reset")).status, 200);

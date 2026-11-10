@@ -33,7 +33,7 @@ async function simulatorSend(request: OutboundRequest): Promise<OutboundAck> {
 export const ADAPTERS: Record<ChannelProvider, ChannelAdapter> = {
   WHATSAPP_CLOUD: whatsappAdapter,
   // Gmail (7C.1): OAuth (server/google.ts, server/mailboxes.ts); no webhook. Microsoft 365: Graph subscriptions or delta sync (7C.2).
-  GMAIL: {...notBuilt("GMAIL", "EMAIL", "Gmail (Google Workspace)"), capabilities: {...refuseAll(), VALIDATE_CONNECTION: "SUPPORTED", DISCONNECT: "SUPPORTED", RECEIVE_EVENTS: "SUPPORTED", NORMALIZE_MESSAGE: "SUPPORTED", DELIVERY_RECEIPTS: "UNSUPPORTED"}},
+  GMAIL: {...notBuilt("GMAIL", "EMAIL", "Gmail (Google Workspace)"), capabilities: {...refuseAll(), VALIDATE_CONNECTION: "SUPPORTED", DISCONNECT: "SUPPORTED", RECEIVE_EVENTS: "SUPPORTED", NORMALIZE_MESSAGE: "SUPPORTED", SEND_MESSAGE: "SUPPORTED", RESOLVE_MESSAGE_ID: "SUPPORTED", DELIVERY_RECEIPTS: "UNSUPPORTED"}},
   MICROSOFT_365: notBuilt("MICROSOFT_365", "EMAIL", "Microsoft 365 / Outlook"),
   // Website enquiries arrive through the lead capture transaction, not a webhook.
   WEBSITE_FORM: internal("WEBSITE_FORM", "WEBSITE", "EstateOS website forms", {RECEIVE_EVENTS: "SUPPORTED", NORMALIZE_MESSAGE: "SUPPORTED"}),

@@ -31,7 +31,12 @@ What follows from the rule:
 - **Connections hold only secret names** (`INBOX_…`): the app secret, the verify token and, from Phase 7B.1, the WhatsApp access token. Values live in the server environment or Secret Manager and are read only on the server (`readInboxSecret`). The access token is sent only in the `Authorization` header to Meta's Graph API, and never logged, stored or returned.
 - **Pasted credentials are refused.** The secret-name field refuses anything that is not such a name, so a pasted token or password is not stored.
 - **Nothing reaches a browser.** No credential is ever returned to the browser or written to logs. The settings page shows only whether each secret is set.
-- **No mailbox passwords.** EstateOS never asks for mailbox passwords; email connects through OAuth in Phase 7C.
+- **No mailbox passwords.** EstateOS never asks for mailbox passwords. Gmail connects through Google's own consent screen (Phase 7C.1).
+- **Mailbox grants (7C.1).**
+  - The OAuth refresh token is sealed with AES-256-GCM, bound to its company and connection, with the key only in the server environment (`INBOX_TOKEN_ENCRYPTION_KEY`).
+  - It lives in `InboxMailboxAccount`, which no member operation can read. Access tokens live only in server memory.
+  - The sign-in is protected by PKCE and a sealed, single-use state cookie, and the membership is checked again before saving.
+  - Disconnecting, or the owner leaving, revokes the grant at Google and wipes it.
 
 ## Webhooks
 
@@ -59,7 +64,7 @@ Webhooks are described in [CHANNEL_ADAPTERS.md](CHANNEL_ADAPTERS.md#webhooks). I
 
 - **Plain text only.** Messages, names, subjects, notes and Claude output are shown as plain text with React escaping, never as HTML. Markup and scripts in a message are inert, as the browser test checks.
 - **Links are not clickable.** Links in messages appear as text. Agents copy a link deliberately if they need it, so a phishing link cannot be opened by a stray click.
-- **Email HTML** is converted to text on the server by the Phase 7C connector; remote images are never loaded.
+- **Email HTML** is converted to text on the server (`email.ts`); scripts, styles and remote images are never loaded, and quoted history is cut.
 
 ## Prompt injection
 
@@ -124,4 +129,11 @@ The audit log records:
 
   Without that list, nothing is sent at all.
 - **Enforcement.** The database refuses to queue a real reply on any other connection. `SENT` comes only from Meta's response with a message ID, and nothing is retried automatically.
-- **Approval.** Sending to real customers (7B.2) and email (7C) need explicit approval. See [UNIFIED_INBOX.md](UNIFIED_INBOX.md#outbound).
+- **Phase 7C.1:** email is sent only after approval, from a connected mailbox with sending on, to the server's test addresses (`INBOX_EMAIL_TEST_RECIPIENTS`). A personal mailbox sends only for its owner, which the database enforces as well.
+- **Approval.** Sending to real customers (7B.2, and email beyond test addresses) needs explicit approval. See [UNIFIED_INBOX.md](UNIFIED_INBOX.md#outbound).
+
+## Personal mailboxes
+
+- **What is imported.** Only CRM customers: a thread already in EstateOS, or a sender matching exactly one contact. Everything else is skipped from its headers alone and leaves no record, not even an event.
+- **Who sees it.** Imported conversations are assigned to the mailbox owner and follow the normal visibility rules (the lead's agent, owners and administrators also see them). The lead's own assignment never changes.
+- **Administrators** see which personal mailboxes are connected and can disconnect them. They cannot turn on sending or send as the owner.

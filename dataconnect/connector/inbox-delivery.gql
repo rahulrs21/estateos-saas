@@ -12,7 +12,8 @@
 query InboxReplyFacts($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
   job: outboundMessageJob(key: {organizationId: $organizationId, id: $id}) {
     id stage revision content source edited templateName createdByUid lastEditedByUid conversationId versionsJson messageId
-    conversation {id channel simulated optedOut lastInboundAt customerIdentity channelConnectionId channelConnection {id provider connectionStatus sendingEnabled externalAccountReference accessTokenReference}}
+    conversation {id channel simulated optedOut lastInboundAt customerIdentity externalThreadId subject channelConnectionId
+      channelConnection {id provider connectionStatus sendingEnabled externalAccountReference accessTokenReference ownerMembershipId ownerMembership {userProfileUid}}}
   }
   insight: inboxAiInsights(where: {organizationId: {eq: $organizationId}, draftJobId: {eq: $id}}, limit: 1) {id insightJson}
   settings: inboxSettings(key: {organizationId: $organizationId}) {approvalRequired aiEnabled}
@@ -35,7 +36,10 @@ mutation QueueInboxReply($organizationId: UUID!, $id: UUID!, $expectedRevision: 
       {organizationId: {eq: $organizationId}, id: {eq: $conversationId}, simulated: {eq: $simulated}, optedOut: {eq: false}, channelConnectionId: {eq: $channelConnectionId}},
       {_or: [
         {simulated: {eq: true}, channelConnection: {provider: {eq: DEVELOPMENT_SIMULATOR}, sendingEnabled: {eq: true}}},
-        {simulated: {eq: false}, channelConnection: {provider: {eq: WHATSAPP_CLOUD}, connectionStatus: {eq: VERIFIED}, sendingEnabled: {eq: true}}}
+        {simulated: {eq: false}, channelConnection: {provider: {eq: WHATSAPP_CLOUD}, connectionStatus: {eq: VERIFIED}, sendingEnabled: {eq: true}}},
+        # Phase 7C.1: a connected mailbox with sending on; a personal mailbox sends only for its owner.
+        {simulated: {eq: false}, channelConnection: {provider: {eq: GMAIL}, connectionStatus: {eq: VERIFIED}, sendingEnabled: {eq: true}, ownerMembershipId: {isNull: true}}},
+        {simulated: {eq: false}, channelConnection: {provider: {eq: GMAIL}, connectionStatus: {eq: VERIFIED}, sendingEnabled: {eq: true}, ownerMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}}
       ]}
     ]}}) @check(expr: "this != null", message: "INBOX_SENDING_DISABLED") {id}
   }
@@ -131,4 +135,11 @@ mutation ApplyInboxRetention($organizationId: UUID!, $ids: [UUID!]!, $before: Ti
   previews: inboxConversation_updateMany(where: {organizationId: {eq: $organizationId}, lastMessageAt: {lt: $before}, lastMessagePreview: {isNull: false}}, data: {lastMessagePreview: null})
   replies: outboundMessageJob_updateMany(where: {organizationId: {eq: $organizationId}, updatedAt: {lt: $before}, stage: {in: [SENT, FAILED, CANCELLED]}, content: {ne: ""}}, data: {content: "", versionsJson: "[]", validationJson: null})
   insights: inboxAiInsight_deleteMany(where: {organizationId: {eq: $organizationId}, createdAt: {lt: $before}})
+}
+
+# Phase 7C.1: the conversation's email Message-IDs (newest first), for In-Reply-To and References when replying.
+query EmailReplyThread($organizationId: UUID!, $conversationId: UUID!) @auth(level: NO_ACCESS) {
+  messages: inboxMessages(where: {organizationId: {eq: $organizationId}, conversationId: {eq: $conversationId}, internetMessageId: {isNull: false}}, orderBy: [{createdAt: DESC}], limit: 10) {
+    internetMessageId direction
+  }
 }

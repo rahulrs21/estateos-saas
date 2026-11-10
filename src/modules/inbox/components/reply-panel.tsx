@@ -70,7 +70,7 @@ function ReplyCard({reply, view, busy, act, receipt}: {reply: Reply; view: Repli
         <Input id={`note-${reply.id}`} value={note} onChange={event => setNote(event.target.value)} maxLength={300} placeholder="Reason (needed to return it)" className="h-8 w-56" />
         <Button size="sm" variant="outline" disabled={working || note.trim().length < 3} onClick={() => void run("decide", {decision: "REJECT", note}, "Returned to the author.")}><XCircle aria-hidden />Return</Button>
       </>}
-      {reply.can.send && <Button size="sm" disabled={working} onClick={() => void run("send", {}, view.sendMode === "WHATSAPP" ? "Accepted by WhatsApp." : "Delivered to the simulated conversation.")}><Send aria-hidden />{view.sendMode === "WHATSAPP" ? "Send on WhatsApp" : "Send (simulator)"}</Button>}
+      {reply.can.send && <Button size="sm" disabled={working} onClick={() => void run("send", {}, view.sendMode === "WHATSAPP" ? "Accepted by WhatsApp." : view.sendMode === "EMAIL" ? "Sent by Gmail." : "Delivered to the simulated conversation.")}><Send aria-hidden />{view.sendMode === "WHATSAPP" ? "Send on WhatsApp" : view.sendMode === "EMAIL" ? "Send by email" : "Send (simulator)"}</Button>}
       {reply.can.cancel && <Button size="sm" variant="ghost" disabled={working} onClick={() => void run("cancel", {}, "Reply cancelled.")}>Cancel reply</Button>}
       {view.simulatorSend && reply.stage === "SENT" && reply.messageId && (["DELIVERED", "READ", "FAILED"] as const).map(status =>
         <Button key={status} size="sm" variant="ghost" disabled={working} data-testid={`simulate-${status.toLowerCase()}`} onClick={() => void receipt(reply.messageId!, status)}>Simulate {status.toLowerCase()}</Button>)}
