@@ -1,14 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, FileText, ImageOff, Images, ShieldAlert } from "lucide-react";
+import { Download, FileText, ImageOff, Images, Paperclip, Reply, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { communicationsGet } from "@/modules/communications/client";
 import { formatLeadDate } from "@/modules/leads/components/lead-ui";
 import { DELIVERY_LABELS, type DeliveryStatus } from "../model";
 import type { ConversationView, MessageListView } from "../server/conversations";
+import { ContactAvatar, listTime } from "./inbox-ui";
 
 /*
  * An email shown like a mail client (docs/INBOX_SECURITY.md#safe-rendering).
@@ -21,7 +23,6 @@ import type { ConversationView, MessageListView } from "../server/conversations"
 
 type Message = MessageListView["messages"][number];
 
-const initials = (name: string) => name.replace(/[<>@].*$/, "").split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase() ?? "").join("") || "?";
 const REMOTE = /\s(src|background)\s*=\s*"https?:|url\(\s*['"]?https?:/i;
 
 function frameDocument(html: string, showImages: boolean) {
@@ -60,45 +61,61 @@ function SafeEmailFrame({html, showImages, title}: {html: string; showImages: bo
     data-testid="email-html" className="block w-full rounded-lg border bg-white" style={{height}} />;
 }
 
-export function EmailMessage({message, conversation}: {message: Message; conversation: ConversationView}) {
+
+/** One email in a thread. Older emails start folded to a single line, as in a mail client; the formatted version is fetched only once an email is opened. */
+export function EmailMessage({message, conversation, defaultOpen = true}: {message: Message; conversation: ConversationView; defaultOpen?: boolean}) {
   const inbound = message.direction === "INBOUND";
   const mailbox = conversation.channelConnection?.externalAccountReference ?? null;
-  const fromName = inbound ? (conversation.customerName || message.senderIdentity || conversation.customerIdentity) : (message.author?.displayName ?? "EstateOS");
+  const fromName = inbound ? (conversation.contact?.fullName || conversation.customerName || message.senderIdentity || conversation.customerIdentity) : (message.author?.displayName ?? "EstateOS");
   const fromAddress = inbound ? (message.senderIdentity ?? conversation.customerIdentity) : mailbox;
   const to = inbound ? (message.recipientIdentity ?? mailbox) : (message.recipientIdentity ?? conversation.customerIdentity);
+  const at = message.providerTimestamp ?? message.createdAt;
   // Inbound email: its formatted version is fetched on demand (stored, or looked up once from Gmail).
   const wantsHtml = inbound && !message.contentRedactedAt && (message.contentHtmlBytes === null || message.contentHtmlBytes === undefined || message.contentHtmlBytes > 0);
+  const [open, setOpen] = useState(defaultOpen);
   const [html, setHtml] = useState<string | null>(null);
-  const [state, setState] = useState<"loading" | "done">(wantsHtml ? "loading" : "done");
+  const [state, setState] = useState<"idle" | "done">(wantsHtml ? "idle" : "done");
   const [showImages, setShowImages] = useState(false);
   const [showText, setShowText] = useState(false);
+  const fetched = useRef(false);
   useEffect(() => {
-    if (!wantsHtml) return;
-    let live = true;
+    if (!wantsHtml || !open || fetched.current) return;
+    fetched.current = true;
     communicationsGet<{html: string | null}>(`/api/inbox/conversations/${conversation.id}/messages/${message.id}/html`, "The formatted email could not be loaded.")
-      .then(data => { if (live) { setHtml(data.html); setState("done"); } }, () => { if (live) setState("done"); });
-    return () => { live = false; };
-  }, [wantsHtml, conversation.id, message.id]);
+      .then(data => { setHtml(data.html); setState("done"); }, () => setState("done"));
+  }, [wantsHtml, open, conversation.id, message.id]);
   const remote = Boolean(html && REMOTE.test(html));
+  const snippet = message.contentRedactedAt ? "Removed under the company's retention period." : (message.content ?? "").replace(/\s+/g, " ").slice(0, 160);
+  const reply = () => {
+    const box = document.getElementById(`draft-${conversation.id}`);
+    if (box instanceof HTMLTextAreaElement) { box.focus(); box.scrollIntoView({block: "nearest"}); }
+  };
 
   return <li className="list-none" data-direction={message.direction} data-testid="email-message">
-    <article className="overflow-hidden rounded-xl border bg-card shadow-xs">
-      <header className="flex flex-wrap items-start gap-3 border-b px-4 py-3">
-        <span aria-hidden className={`flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${inbound ? "bg-primary/15 text-primary" : "bg-muted text-foreground"}`}>{initials(fromName ?? "?")}</span>
-        <div className="min-w-0 flex-1">
-          <p className="flex flex-wrap items-baseline gap-x-1.5 text-sm"><span className="font-semibold">{fromName}</span>{fromAddress && <span className="truncate text-xs text-muted-foreground">&lt;{fromAddress}&gt;</span>}</p>
-          <p className="truncate text-xs text-muted-foreground">to {to ?? "you"}</p>
-        </div>
-        <div className="flex flex-col items-end gap-1 text-xs text-muted-foreground">
-          <time dateTime={message.providerTimestamp ?? message.createdAt}>{formatLeadDate(message.providerTimestamp ?? message.createdAt, true)}</time>
+    <article className={cn("overflow-hidden rounded-xl border bg-card transition-shadow", open ? "shadow-sm" : "shadow-none hover:shadow-xs")}>
+      {/* The header folds and unfolds the email. */}
+      <header className="flex items-start gap-3 px-4 py-3">
+        <ContactAvatar name={fromName} size="md" className="mt-0.5" />
+        <button type="button" onClick={() => setOpen(current => !current)} aria-expanded={open} className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">
+          <span className="flex flex-wrap items-baseline gap-x-1.5 text-sm"><span className="font-semibold">{fromName}</span>
+            {open && fromAddress && <span className="truncate text-xs text-muted-foreground">&lt;{fromAddress}&gt;</span>}</span>
+          {open ? <span className="block truncate text-xs text-muted-foreground">to {to ?? "you"}</span>
+            : <span dir="auto" className="block truncate text-xs text-muted-foreground">{snippet || "(no text)"}</span>}
+        </button>
+        <div className="flex shrink-0 flex-col items-end gap-1 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            {message.attachments.length > 0 && <Paperclip aria-label={`${message.attachments.length} attachment${message.attachments.length === 1 ? "" : "s"}`} className="size-3.5" />}
+            <time dateTime={at} title={formatLeadDate(at, true)}>{open ? formatLeadDate(at, true) : listTime(at)}</time>
+            {open && inbound && <Button size="icon-xs" variant="ghost" aria-label="Reply" title="Reply" onClick={reply}><Reply aria-hidden /></Button>}
+          </span>
           {!inbound && <Badge variant="outline" className="h-5 text-[11px]">{DELIVERY_LABELS[message.deliveryStatus as DeliveryStatus] ?? message.deliveryStatus}</Badge>}
           {message.simulated && <Badge variant="destructive" className="h-4 px-1 text-[10px]">SIMULATED</Badge>}
         </div>
       </header>
 
-      <div className="space-y-3 px-4 py-3">
+      {open && <div className="space-y-3 px-4 pb-4">
         {message.contentRedactedAt ? <p className="text-sm italic text-muted-foreground">Removed under the company&apos;s retention period.</p>
-          : state === "loading" ? <div className="space-y-2" role="status" aria-label="Loading the email"><Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-1/2" /><Skeleton className="h-24 w-full" /></div>
+          : state !== "done" ? <div className="space-y-2" role="status" aria-label="Loading the email"><Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-1/2" /><Skeleton className="h-24 w-full" /></div>
           : html && !showText ? <>
             {remote && !showImages && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs" data-testid="email-images-hidden">
               <span className="flex items-center gap-2 text-muted-foreground"><ImageOff aria-hidden className="size-4" />Images are hidden. Loading them can tell the sender you opened this email.</span>
@@ -115,7 +132,7 @@ export function EmailMessage({message, conversation}: {message: Message; convers
             {html && <button type="button" className="text-[11px] text-muted-foreground underline underline-offset-2" onClick={() => setShowText(false)}>Show formatted email</button>}
           </>}
 
-        {message.attachments.length > 0 && <ul className="flex flex-wrap gap-2" aria-label="Attachments">{message.attachments.map(item => <li key={item.id} data-testid="inbox-attachment"
+        {message.attachments.length > 0 && <ul className="flex flex-wrap gap-2 border-t pt-3" aria-label="Attachments">{message.attachments.map(item => <li key={item.id} data-testid="inbox-attachment"
           className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-xs sm:max-w-[16rem]">
           <FileText aria-hidden className="size-4 shrink-0 text-primary" />
           <span className="min-w-0 flex-1"><span className="block truncate font-medium">{item.fileName}</span>
@@ -123,7 +140,7 @@ export function EmailMessage({message, conversation}: {message: Message; convers
           {/* Downloaded through an authorized, audited route; never opened inline. */}
           {item.available && <a href={`/api/inbox/conversations/${conversation.id}/attachments/${item.id}`} download aria-label={`Download ${item.fileName}`} className="rounded p-1 hover:bg-muted"><Download aria-hidden className="size-4" /></a>}
         </li>)}</ul>}
-      </div>
+      </div>}
     </article>
   </li>;
 }

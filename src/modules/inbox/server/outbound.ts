@@ -55,7 +55,7 @@ export function deliveryOf(input: {provider: ChannelProvider | null; connectionS
     if (input.ownerUid && input.ownerUid !== input.actorUid) return {mode: null, note: "This conversation came through another member's personal mailbox: only they can send from it. The reply can be approved; its owner sends it."};
     if (!input.sendingEnabled) return {mode: null, note: input.ownerUid ? "Sending is off for this personal mailbox. Its owner can turn it on in Inbox settings." : "Sending is off for this mailbox. An owner or administrator can turn it on in Inbox settings."};
     if (!emailSendingConfigured()) return {mode: null, note: "Email sending is off on this server (Phase 7C.1 sends only to test addresses set in INBOX_EMAIL_TEST_RECIPIENTS)."};
-    if (!emailRecipientAllowed(input.identity)) return {mode: null, note: "Phase 7C.1 test mode: this server sends email only to its test addresses, and this customer's address is not one of them."};
+    if (!emailRecipientAllowed(input.identity)) return {mode: null, note: `Phase 7C.1 test mode: this server sends email only to its test addresses, and ${input.identity} is not one of them. To test with it, add it to INBOX_EMAIL_TEST_RECIPIENTS on the server and restart.`};
     return {mode: "EMAIL", note: null};
   }
   if (provider !== "WHATSAPP_CLOUD") return {mode: null, note: null};

@@ -34,15 +34,17 @@ Indexes cover the list orders (company and last message; assignee; status), lead
 
 ## Interface
 
-- **`/inbox`** has three columns. They collapse to one on mobile, with a back button.
-  - **Left:** channel filters, search, and the views (All, Unread, Assigned to me, Unassigned, Needs matching, Open, Pending, Resolved) with counts.
-  - **Middle:** the conversation list (25 per page, cursor "Load more").
-  - **Main:**
-    - the conversation: header controls for status, priority, assignee and the customer link;
-    - message history (30 per page, "Load earlier"), with delivery badges, attachments and SIMULATED labels;
-    - the reply panel and the Claude assistant;
-    - internal notes;
-    - the customer panel: the lead and contact, follow-ups, viewings, property interests, calls, recent activity, and the customer's other conversations.
+- **`/inbox`** is laid out like a mail client, in panes that scroll on their own. On phones it is one pane at a time, with a back button.
+  - **Folders:** the views (All, Unread, Assigned to me, Unassigned, Needs matching, Open, Pending, Resolved) with counts, and the channels. On medium screens they are an icon rail, and members can collapse them on wide screens (remembered on the device). Phones get two compact choices instead.
+  - **The list:** search, then the conversations (25 per page, cursor "Load more"). Each row shows an avatar with the channel's mark, the time, the subject and last message, and the assignee, needs-matching and priority labels.
+  - **The conversation:**
+    - a header with the contact, then a toolbar for status, priority, assignee and the customer link;
+    - the thread (30 messages per page, "Load earlier"), which opens on the newest message:
+      - WhatsApp and website messages are chat bubbles with day separators and delivery ticks (sent, delivered, read);
+      - email is a mail thread: the subject, then each email as a card. Older emails are folded to one line, and the formatted version is fetched when an email is opened;
+    - replies in progress under the thread, with their steps (draft, checked, approval, approved, sent); sent and cancelled replies are folded away;
+    - the composer, docked at the bottom, which saves a draft (Ctrl + Enter) and can ask Claude for one.
+  - **Details panel** (open on very wide screens; a button opens it elsewhere): the customer (lead and contact, follow-ups, viewings, property interests, calls, recent activity, other conversations), the Claude assistant, and internal notes.
 - **Refresh.** There is no real-time push. The list refreshes every 30 seconds while visible, when the tab becomes visible, and on demand; the inbox badge updates with it.
 - **`/inbox/settings`** (owners and administrators): the inbox rules and the channel connections with their capability matrix and webhook addresses.
 - **States.** Every screen has loading, error and empty states. No conversation is ever invented.

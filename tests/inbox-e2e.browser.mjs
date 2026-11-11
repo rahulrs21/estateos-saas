@@ -1355,6 +1355,9 @@ try {
 
     // Google's refusal fails the reply; disconnecting stops sending and withdraws the grant.
     deliverEmail(COMPANY_MAILBOX, {from: "Refused Customer <refused@example.test>", subject: "Question", text: "Can you call me?"});
+    // The company mailbox may not be due yet: Check now (an owner), so this does not depend on timing.
+    await signIn("owner-a");
+    assert.equal((await post(`/api/inbox/mailboxes/${mailboxIds[COMPANY_MAILBOX]}/sync`, {})).status, 200);
     await workerTick();
     const refusedThread = (await emailConversations(mailboxIds[COMPANY_MAILBOX])).find(row => row.customerIdentity === "refused@example.test");
     const googleRefused = await emailReply(refusedThread.id, "Of course, I will call you today.", {author: "owner-a", approver: "admin-a"});
