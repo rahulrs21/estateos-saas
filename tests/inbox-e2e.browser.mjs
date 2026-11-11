@@ -1242,7 +1242,21 @@ try {
     await clickText("Show images", "button");
     for (let attempt = 0; attempt < 50 && !pixelRequests(); attempt++) await pause(100);
     assert.ok(pixelRequests() > 0, "they load after Show images");
-    pass("Phase 7C.1: an HTML email is shown like a mail client in a sandboxed frame: its formatting and styles kept, scripts and handlers removed and unable to run, links opening in a new tab without a referrer, remote images only after Show images");
+    // A larger view of the email: the same safe frame, in a dialog.
+    await evaluate("document.querySelector('[aria-label=\"Open in a larger view\"]').click()");
+    await waitFor("Boolean(document.querySelector('[role=dialog] [data-testid=email-html]')?.contentDocument?.body?.innerText.includes('Order #9001'))", "the larger view");
+    assert.equal(await evaluate("document.querySelector('[role=dialog] [data-testid=email-html]').getAttribute('sandbox')"), "allow-same-origin allow-popups allow-popups-to-escape-sandbox", "the larger view is sandboxed the same way");
+    await screenshot("inbox-email-large");
+    await command("Input.dispatchKeyEvent", {type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27});
+    await command("Input.dispatchKeyEvent", {type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27});
+    await waitFor("!document.querySelector('[role=dialog]')", "the larger view closed");
+    // Expanded reading: the conversation fills the inbox; Esc brings the list back.
+    await evaluate("document.querySelector('[aria-label=\"Expand the conversation\"]').click()");
+    await waitFor("getComputedStyle(document.querySelector('section[aria-label=Conversations]')).display === 'none'", "the expanded conversation");
+    await screenshot("inbox-email-expanded");
+    await command("Input.dispatchKeyEvent", {type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27});
+    await waitFor("getComputedStyle(document.querySelector('section[aria-label=Conversations]')).display !== 'none'", "the list back");
+    pass("Phase 7C.1: an HTML email is shown like a mail client in a sandboxed frame: its formatting and styles kept, scripts and handlers removed and unable to run, links opening in a new tab without a referrer, remote images only after Show images; it opens in a larger, equally sandboxed view, and the conversation can fill the inbox");
 
     const personalConversations = await emailConversations(mailboxIds[AGENT_MAILBOX]);
     assert.equal(personalConversations.length, 1, "only the CRM customer's email is imported from a personal mailbox");

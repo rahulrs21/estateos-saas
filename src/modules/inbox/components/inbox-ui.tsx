@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { Globe, Inbox, Mail, MessageCircle, UserRound, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CHANNEL_LABELS, type InboxChannel } from "../model";
@@ -76,3 +77,19 @@ export function dayLabel(value: string | null | undefined, now = new Date()) {
 
 /** The calendar day a message belongs to (for grouping). */
 export const messageDay = (value: string | null | undefined) => { const date = valid(value); return date ? dayKey(date) : ""; };
+
+/** A layout choice remembered on this device (folders collapsed, details shown, reading expanded). Off on the server and until read. */
+const preferenceListeners = new Set<() => void>();
+function subscribePreference(listener: () => void) {
+  preferenceListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => { preferenceListeners.delete(listener); window.removeEventListener("storage", listener); };
+}
+export function usePreference(key: string): [boolean, (value: boolean) => void] {
+  const value = useSyncExternalStore(subscribePreference, () => { try { return window.localStorage.getItem(key) === "1"; } catch { return false; } }, () => false);
+  const set = (next: boolean) => {
+    try { window.localStorage.setItem(key, next ? "1" : "0"); } catch { /* storage unavailable */ }
+    preferenceListeners.forEach(listener => listener());
+  };
+  return [value, set];
+}

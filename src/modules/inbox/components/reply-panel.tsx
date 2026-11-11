@@ -107,7 +107,7 @@ function ReplyCard({reply, view, busy, act, receipt}: {reply: Reply; view: Repli
   const problems = reply.validation?.problems ?? [];
   const blocked = problems.some(problem => problem.blocksApproval);
   const Source = reply.source === "AGENT" ? PenLine : Bot;
-  return <li className={cn("space-y-3 rounded-xl border bg-card p-3.5 shadow-xs", reply.stage === "DRAFT" && "border-dashed", reply.stage === "FAILED" && "border-destructive/50",
+  return <li className={cn("space-y-2 rounded-lg border bg-card p-3 shadow-xs", reply.stage === "DRAFT" && "border-dashed", reply.stage === "FAILED" && "border-destructive/50",
     reply.stage === "APPROVED" && "border-primary/50", FINISHED.includes(reply.stage) && "bg-muted/30 shadow-none")} data-testid="inbox-reply" data-stage={reply.stage}>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
       <Badge variant={STAGE_VARIANT[reply.stage] ?? "outline"}>{reply.stageLabel}</Badge>
@@ -182,11 +182,12 @@ export function Composer({replies, conversationId, channel, recipient, notice, o
   async function submit() {
     if (draft.trim() && await save({content: draft})) setDraft("");
   }
-  return <div className="shrink-0 border-t bg-card/95 px-3 py-3 sm:px-4">
-    <div className={cn("mb-2 flex items-start gap-1.5 text-[11px] leading-4", ready ? "text-muted-foreground" : "text-amber-700 dark:text-amber-300")}>
+  const sendingNote = `${view.sendingNote} ${view.approvalRequired ? "Replies need an owner, administrator or manager to approve them." : ""}`;
+  return <div className="shrink-0 border-t bg-card/95 px-2.5 py-2 sm:px-3">
+    <div title={`${notice ? `${notice} ` : ""}${sendingNote}`} className={cn("mb-1.5 flex items-start gap-1.5 text-[11px] leading-4", ready ? "text-muted-foreground" : "text-amber-700 dark:text-amber-300")}>
       {ready ? <Send aria-hidden className="mt-px size-3 shrink-0" /> : <Info aria-hidden className="mt-px size-3 shrink-0" />}
-      <p>{notice && <span className="text-muted-foreground" data-testid="sending-disabled">{notice} </span>}
-        <span data-testid="reply-sending-note">{view.sendingNote} {view.approvalRequired ? "Replies need an owner, administrator or manager to approve them." : ""}</span></p></div>
+      <p className="line-clamp-2">{notice && <span className="text-muted-foreground" data-testid="sending-disabled">{notice} </span>}
+        <span data-testid="reply-sending-note">{sendingNote}</span></p></div>
     {view.templateOnly ? <form className="space-y-2 rounded-xl border bg-background p-3" data-testid="template-composer" onSubmit={event => { event.preventDefault(); void save({template}); }}>
       <p className="text-xs text-muted-foreground">The customer has not written in the last 24 hours, so WhatsApp allows only an approved template. Its text is the one approved in Meta&apos;s WhatsApp Manager. Meta may charge for template messages; check your WhatsApp billing first.</p>
       <div className="flex flex-wrap items-end gap-2">
@@ -198,11 +199,11 @@ export function Composer({replies, conversationId, channel, recipient, notice, o
     : <form className="rounded-xl border bg-background shadow-xs transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
         onSubmit={event => { event.preventDefault(); void submit(); }}>
       <label htmlFor={`draft-${conversationId}`} className="sr-only">Write a reply</label>
-      <textarea id={`draft-${conversationId}`} value={draft} onChange={event => setDraft(event.target.value)} rows={3} maxLength={4000} dir="auto"
+      <textarea id={`draft-${conversationId}`} value={draft} onChange={event => setDraft(event.target.value)} rows={draft ? 4 : 2} maxLength={4000} dir="auto"
         onKeyDown={event => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void submit(); } }}
-        className="block max-h-48 min-h-20 w-full resize-y rounded-t-xl bg-transparent px-3 pt-2.5 text-sm outline-none placeholder:text-muted-foreground"
+        className="block max-h-56 min-h-12 w-full resize-y rounded-t-xl bg-transparent px-3 pt-2 text-sm outline-none placeholder:text-muted-foreground"
         placeholder={`${channel === "EMAIL" ? `Reply to ${recipient}` : channel === "WHATSAPP" ? "Type a WhatsApp reply" : "Write a reply"}. It is saved as a draft and checked before approval.`} />
-      <div className="flex flex-wrap items-center gap-2 px-2 pb-2">
+      <div className="flex flex-wrap items-center gap-2 px-1.5 pb-1.5">
         {view.aiEnabled && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={busy !== null} onClick={() => void analyse().then(ok => ok && onAssistant())}>
           {busy === "assistant" ? <Loader2 aria-hidden className="animate-spin" /> : <Sparkles aria-hidden />}Draft with Claude</Button>}
         <span className="ml-auto hidden text-[11px] text-muted-foreground sm:inline">Ctrl + Enter to save</span>

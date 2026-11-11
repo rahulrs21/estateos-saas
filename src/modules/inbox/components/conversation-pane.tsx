@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft, Check, CheckCheck, CircleAlert, Clock3, Link2, Loader2, PanelRight, Paperclip, ShieldCheck, Sparkles, StickyNote, UserPlus, UserRound, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, CircleAlert, Clock3, Link2, Loader2, Maximize2, Minimize2, PanelRight, Paperclip, ShieldCheck, Sparkles, StickyNote, UserPlus, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,12 +17,12 @@ import { CHANNEL_LABELS, DELIVERY_LABELS, PRIORITIES, PRIORITY_LABELS, STATUS_LA
 import type { ConversationView, CustomerContextView, MessageListView } from "../server/conversations";
 import { AssistantPanel, Composer, ReplyList, useReplies } from "./reply-panel";
 import { EmailMessage } from "./email-message";
-import { CHANNEL_TEXT_TONES, ContactAvatar, clockTime, dayLabel, messageDay } from "./inbox-ui";
+import { CHANNEL_TEXT_TONES, ContactAvatar, clockTime, dayLabel, messageDay, usePreference } from "./inbox-ui";
 
 type Message = MessageListView["messages"][number];
 type Assignee = {id: string; name: string; role: string};
 
-const TOOLBAR_SELECT = "h-8 min-w-0 max-w-44 rounded-md border border-input bg-background px-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-60";
+const TOOLBAR_SELECT = "h-7 min-w-0 max-w-44 rounded-md border border-input bg-background px-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-60";
 
 function DeliveryMark({status, inverted}: {status: string; inverted: boolean}) {
   const label = DELIVERY_LABELS[status as DeliveryStatus] ?? status;
@@ -141,12 +141,13 @@ function Section({title, items, empty}: {title: string; items: string[]; empty: 
 }
 
 function PanelBlock({icon, title, children}: {icon: ReactNode; title: string; children: ReactNode}) {
-  return <section className="space-y-3 border-b px-4 py-4 last:border-b-0">
+  return <section className="space-y-2.5 border-b px-3.5 py-3 last:border-b-0">
     <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{icon}{title}</h3>{children}</section>;
 }
 
 /** One conversation: the contact and controls on top, the thread, the composer, and a details panel (customer, Claude, internal notes). */
-export function ConversationPane({conversationId, organizationId, refreshKey, onBack, onChanged}: {conversationId: string; organizationId: string; refreshKey: number; onBack: () => void; onChanged: () => void}) {
+export function ConversationPane({conversationId, organizationId, refreshKey, expanded, onExpand, onBack, onChanged}: {conversationId: string; organizationId: string; refreshKey: number;
+  /** The conversation fills the inbox (folders and list hidden). */ expanded: boolean; onExpand: (value: boolean) => void; onBack: () => void; onChanged: () => void}) {
   const [conversation, setConversation] = useState<ConversationView | null>(null);
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [earlier, setEarlier] = useState<string | null>(null);
@@ -155,9 +156,8 @@ export function ConversationPane({conversationId, organizationId, refreshKey, on
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState("");
-  /** The details panel: null follows the screen (open on wide screens), otherwise the member's choice. */
-  const [details, setDetails] = useState<boolean | null>(null);
-  const [wide, setWide] = useState(false);
+  /** The details panel (customer, Claude, notes): closed until the member opens it, then remembered on this device. */
+  const [detailsOpen, setDetails] = usePreference("estateos.inbox.details");
   const scroller = useRef<HTMLDivElement>(null);
   const scrolled = useRef(false);
 
@@ -177,13 +177,6 @@ export function ConversationPane({conversationId, organizationId, refreshKey, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
   useEffect(() => { if (refreshKey) void load(); }, [refreshKey, load]);
-  useEffect(() => {
-    const query = window.matchMedia("(min-width: 96rem)");
-    const update = () => setWide(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
   useEffect(() => { void communicationsGet<Assignee[]>("/api/inbox/assignees").then(setAssigneeOptions, () => setAssigneeOptions([])); }, []);
   // Open on the newest message, like a chat or mail client (once; refreshes keep the member's place).
   useLayoutEffect(() => {
@@ -220,15 +213,14 @@ export function ConversationPane({conversationId, organizationId, refreshKey, on
   const channel = conversation.channel as InboxChannel;
   const email = channel === "EMAIL";
   const state = (status: ConversationStatus, priority: Priority) => act("state", `/api/inbox/conversations/${conversation.id}/state`, {expectedRevision: conversation.revision, status, priority}, "Conversation updated.");
-  const detailsOpen = details ?? wide;
   const lastEmail = email ? messages[messages.length - 1]?.id : null;
 
   return <div className="flex min-h-0 flex-1 flex-col">
     {/* The contact and the conversation's controls */}
     <header className="border-b">
-      <div className="flex items-center gap-3 px-3 py-3 sm:px-4">
+      <div className="flex items-center gap-2.5 px-3 py-2">
         <Button size="icon-sm" variant="ghost" className="lg:hidden" aria-label="Back to the conversation list" onClick={onBack}><ArrowLeft aria-hidden /></Button>
-        <ContactAvatar name={name} channel={channel} size="lg" />
+        <ContactAvatar name={name} channel={channel} />
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold leading-tight">{name}</h2>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
@@ -239,11 +231,13 @@ export function ConversationPane({conversationId, organizationId, refreshKey, on
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <LinkDialog conversation={conversation} organizationId={organizationId} onDone={() => { void load(); onChanged(); }} />
-          <Button size="icon-sm" variant={detailsOpen ? "secondary" : "ghost"} aria-label={detailsOpen ? "Hide customer details" : "Show customer details"} aria-pressed={detailsOpen}
+          <Button size="icon-sm" variant={expanded ? "secondary" : "ghost"} className="hidden lg:inline-flex" aria-label={expanded ? "Show the conversation list (Esc)" : "Expand the conversation"} title={expanded ? "Show the conversation list (Esc)" : "Expand the conversation"}
+            aria-pressed={expanded} onClick={() => onExpand(!expanded)}>{expanded ? <Minimize2 aria-hidden /> : <Maximize2 aria-hidden />}</Button>
+          <Button size="icon-sm" variant={detailsOpen ? "secondary" : "ghost"} title={detailsOpen ? "Hide customer details" : "Show customer details"} aria-label={detailsOpen ? "Hide customer details" : "Show customer details"} aria-pressed={detailsOpen}
             onClick={() => setDetails(!detailsOpen)}><PanelRight aria-hidden /></Button>
         </div>
       </div>
-      <div className="flex items-center gap-x-3 gap-y-2 overflow-x-auto border-t bg-muted/25 px-3 py-2 text-xs sm:flex-wrap sm:px-4 [&>*]:shrink-0">
+      <div className="flex items-center gap-x-3 gap-y-2 overflow-x-auto border-t bg-muted/25 px-3 py-1.5 text-xs sm:flex-wrap sm:px-4 [&>*]:shrink-0">
         <label className="flex items-center gap-1.5 font-medium text-muted-foreground">Status<select className={TOOLBAR_SELECT} value={conversation.status} disabled={busy !== null} aria-label="Status"
           onChange={event => void state(event.target.value as ConversationStatus, conversation.priority as Priority)}>
           <option value={conversation.status}>{STATUS_LABELS[conversation.status as ConversationStatus]}</option>
@@ -265,8 +259,8 @@ export function ConversationPane({conversationId, organizationId, refreshKey, on
       {/* The thread and the composer */}
       <div className="flex min-w-0 flex-1 flex-col">
         <div ref={scroller} className={cn("min-h-0 flex-1 overflow-y-auto", email ? "bg-muted/20" : "bg-muted/30 bg-[radial-gradient(circle_at_1px_1px,var(--color-border)_1px,transparent_0)] bg-size-[20px_20px]")}>
-          <div className={cn("mx-auto w-full space-y-4 px-3 py-4 sm:px-5", email ? "max-w-4xl" : "max-w-3xl")}>
-            {email && conversation.subject && <h3 dir="auto" className="px-1 text-lg font-normal leading-snug sm:text-xl">{conversation.subject}</h3>}
+          <div className={cn("mx-auto w-full space-y-3 px-2 py-3 sm:px-3", email ? (expanded ? "max-w-6xl" : "max-w-5xl") : expanded ? "max-w-4xl" : "max-w-3xl")}>
+            {email && conversation.subject && <h3 dir="auto" className="px-1 text-lg font-normal leading-snug">{conversation.subject}</h3>}
             {earlier && <div className="flex justify-center"><Button size="sm" variant="outline" className="rounded-full bg-card" onClick={() => void loadEarlier()}>Load earlier messages</Button></div>}
             {messages.length ? <ol className={email ? "space-y-3" : "space-y-1.5"} aria-label="Messages">{messages.map((message, index) => {
               const at = message.providerTimestamp ?? message.createdAt;
@@ -286,7 +280,7 @@ export function ConversationPane({conversationId, organizationId, refreshKey, on
       </div>
 
       {/* Details: the customer, Claude and internal notes */}
-      <aside aria-label="Conversation details" className={cn("absolute inset-y-0 right-0 z-10 w-full max-w-sm flex-col overflow-y-auto border-l bg-card shadow-xl sm:w-80 2xl:static 2xl:z-auto 2xl:w-80 2xl:shadow-none", detailsOpen ? "flex" : "hidden")}>
+      <aside aria-label="Conversation details" className={cn("absolute inset-y-0 right-0 z-10 w-full max-w-sm flex-col overflow-y-auto border-l bg-card shadow-xl sm:w-80 2xl:static 2xl:z-auto 2xl:w-72 2xl:shadow-none", detailsOpen ? "flex" : "hidden")}>
         <div className="flex items-center justify-between border-b px-4 py-2.5 2xl:hidden"><p className="text-sm font-semibold">Details</p>
           <Button size="icon-sm" variant="ghost" aria-label="Close details" onClick={() => setDetails(false)}><X aria-hidden /></Button></div>
         <PanelBlock icon={<UserRound aria-hidden className="size-3.5" />} title="Customer"><CustomerPanel customer={customer} conversation={conversation} /></PanelBlock>

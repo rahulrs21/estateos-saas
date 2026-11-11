@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleCheck, CircleDot, Clock3, FlaskConical, Inbox, Layers, Link2Off, Loader2, MailOpen, MessagesSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, UserRound, UserX,
   type LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -14,20 +14,12 @@ import { communicationsGet, errorMessage } from "@/modules/communications/client
 import { CHANNEL_LABELS, INBOX_CHANNELS, INBOX_VIEWS, PRIORITY_LABELS, VIEW_LABELS, type InboxChannel, type InboxView } from "../model";
 import type { ConversationListView, InboxCountsView } from "../server/conversations";
 import { ConversationPane } from "./conversation-pane";
-import { CHANNEL_ICONS, CHANNEL_TONES, ContactAvatar, listTime } from "./inbox-ui";
+import { CHANNEL_ICONS, CHANNEL_TONES, ContactAvatar, listTime, usePreference } from "./inbox-ui";
 
 export { CHANNEL_ICONS } from "./inbox-ui";
 
 /** How often the open inbox checks for new messages (there is no real-time channel; docs/UNIFIED_INBOX.md#refresh). */
 const REFRESH_MS = 30_000;
-const COMPACT_KEY = "estateos.inbox.compactNav";
-const compactListeners = new Set<() => void>();
-function subscribeCompact(listener: () => void) {
-  compactListeners.add(listener);
-  window.addEventListener("storage", listener);
-  return () => { compactListeners.delete(listener); window.removeEventListener("storage", listener); };
-}
-const readCompact = () => { try { return window.localStorage.getItem(COMPACT_KEY) === "1"; } catch { return false; } };
 
 const VIEW_ICONS: Record<InboxView, LucideIcon> = {
   ALL: Inbox, UNREAD: MailOpen, MINE: UserRound, UNASSIGNED: UserX, NEEDS_MATCHING: Link2Off, OPEN: CircleDot, PENDING: Clock3, RESOLVED: CircleCheck,
@@ -56,13 +48,19 @@ export function InboxApp({organizationId, conversationId}: {organizationId: stri
   const [withSimulated, setWithSimulated] = useState(false);
   const [simulatedAvailable, setSimulatedAvailable] = useState(false);
   /** The folder column as an icon rail (remembered on this device). */
-  const compact = useSyncExternalStore(subscribeCompact, readCompact, () => false);
+  const [compact, setCompact] = usePreference("estateos.inbox.compactNav");
+  /** Reading expanded: the open conversation takes the whole inbox (folders and list hidden). */
+  const [expanded, setExpanded] = usePreference("estateos.inbox.expanded");
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  function toggleCompact() {
-    try { window.localStorage.setItem(COMPACT_KEY, compact ? "0" : "1"); } catch { /* storage unavailable */ }
-    compactListeners.forEach(listener => listener());
-  }
+  const toggleCompact = () => setCompact(!compact);
+  // Escape leaves the expanded reading view.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !document.querySelector("[role=dialog]")) setExpanded(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded, setExpanded]);
 
   const params = useCallback((extra: Record<string, string> = {}) => {
     const values = new URLSearchParams({view, ...(channel ? {channel} : {}), ...(query ? {search: query} : {}), ...(withSimulated ? {includeSimulated: "1"} : {}), ...extra});
@@ -104,6 +102,7 @@ export function InboxApp({organizationId, conversationId}: {organizationId: stri
   function chooseChannel(item: InboxChannel | "") { setChannel(item); setRows(null); }
 
   const showList = !conversationId;
+  const reading = expanded && Boolean(conversationId);
   const countOf = (item: InboxView) => item === "ALL" ? null : counts?.[item as Exclude<InboxView, "ALL">] ?? null;
   // In the rail, labels stay for screen readers; from xl the column shows them unless the member collapsed it.
   const label = compact ? "sr-only" : "sr-only xl:not-sr-only xl:min-w-0 xl:flex-1 xl:truncate xl:text-left";
@@ -124,9 +123,9 @@ export function InboxApp({organizationId, conversationId}: {organizationId: stri
     </button></li>;
   };
 
-  return <div className="flex h-[calc(100svh-6rem)] min-h-[520px] lg:h-[calc(100svh-19.5rem)] lg:min-h-[560px] min-w-0 overflow-hidden rounded-xl border bg-card shadow-xs">
+  return <div className="flex h-[calc(100svh-6rem)] min-h-[520px] lg:h-[calc(100svh-15.5rem)] lg:min-h-[560px] min-w-0 overflow-hidden rounded-xl border bg-card shadow-xs">
     {/* Folders: queues, status and channels */}
-    <nav aria-label="Inbox views" className={cn("hidden shrink-0 flex-col border-r bg-muted/25 lg:flex", compact ? "w-14" : "w-14 xl:w-56")}>
+    <nav aria-label="Inbox views" className={cn("hidden shrink-0 flex-col border-r bg-muted/25 lg:flex", compact ? "w-14" : "w-14 xl:w-56", reading && "lg:hidden")}>
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-2 py-3">
         <div><p className={heading}>Inbox</p><ul className="space-y-0.5">{QUEUES.map(folder)}</ul></div>
         <div><p className={heading}>Status</p><ul className="space-y-0.5">{STATES.map(folder)}</ul></div>
@@ -153,7 +152,7 @@ export function InboxApp({organizationId, conversationId}: {organizationId: stri
     </nav>
 
     {/* Conversation list */}
-    <section aria-label="Conversations" className={cn("flex min-h-0 w-full min-w-0 shrink-0 flex-col border-r lg:w-80 2xl:w-96", !showList && "hidden lg:flex")}>
+    <section aria-label="Conversations" className={cn("flex min-h-0 w-full min-w-0 shrink-0 flex-col border-r lg:w-80 2xl:w-96", !showList && "hidden lg:flex", reading && "lg:hidden")}>
       <div className="space-y-2.5 border-b px-3 pb-3 pt-3">
         <div className="flex items-center gap-2">
           <h2 className="truncate text-sm font-semibold">{VIEW_LABELS[view]}</h2>
@@ -188,7 +187,7 @@ export function InboxApp({organizationId, conversationId}: {organizationId: stri
 
     {/* Open conversation */}
     <section aria-label="Conversation" className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", showList && "hidden lg:flex")}>
-      {conversationId ? <ConversationPane key={conversationId} conversationId={conversationId} organizationId={organizationId} refreshKey={refreshKey}
+      {conversationId ? <ConversationPane key={conversationId} conversationId={conversationId} organizationId={organizationId} refreshKey={refreshKey} expanded={reading} onExpand={setExpanded}
         onBack={() => router.push("/inbox")} onChanged={() => setRefreshKey(key => key + 1)} />
         : <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
             <span className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary/10"><Inbox aria-hidden className="size-6 text-primary" /></span>
