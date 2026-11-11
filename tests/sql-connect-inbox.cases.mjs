@@ -726,5 +726,27 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       await queue(personalThread, personal, second, "shared-agent");
       assert.equal((await reply("owner-a", personalThread, second.id)).stage, "QUEUED");
     });
+
+    it("keeps an email's cleaned HTML for members who may see the conversation, written only by the server and cleared by retention", async () => {
+      const conversationId = randomUUID(), messageId = randomUUID();
+      await create({conversationId, messageId, channel: sdk.InboxChannel.EMAIL, customerIdentity: "html.customer@example.test", senderIdentity: "html.customer@example.test",
+        externalThreadId: `gmail:${randomUUID()}`, externalMessageId: `gmail-${randomUUID()}`, assignedMembershipId: f.memberAgentA, content: "Order #1", preview: "Order #1"});
+      const html = (uid, extra = {}) => run(sdk.getInboxMessageHtml, uid, {organizationId: f.orgA, conversationId, id: messageId, ...extra});
+      let seen = await html("agent-a");
+      assert.equal(seen.message.contentHtmlBytes ?? null, null, "not looked up yet");
+      await forbidden(sdk.setInboxMessageHtml, "owner-a", {organizationId: f.orgA, id: messageId, html: "<p>x</p>", bytes: 8});
+      await server(sdk.setInboxMessageHtml, {organizationId: f.orgA, id: messageId, html: "<p>Order <b>#1</b></p>", bytes: 21});
+      seen = await html("agent-a");
+      assert.deepEqual({html: seen.message.contentHtml, bytes: seen.message.contentHtmlBytes}, {html: "<p>Order <b>#1</b></p>", bytes: 21});
+      assert.equal((await list("agent-a", {})).conversations.length >= 1, true);
+      await rejectsWith(html("manager-a"), "INBOX_CONVERSATION_NOT_FOUND", "a member who may not see the conversation never gets its HTML");
+      await rejectsWith(run(sdk.getInboxMessageHtml, "owner-b", {organizationId: f.orgA, conversationId, id: messageId}), "INBOX_CONVERSATION_NOT_FOUND");
+      // Retention removes the formatted version with the text.
+      await server(sdk.applyInboxRetention, {organizationId: f.orgA, ids: [messageId], before: new Date(Date.now() + 60_000).toISOString()});
+      seen = await html("owner-a");
+      assert.deepEqual({html: seen.message.contentHtml ?? null, removed: Boolean(seen.message.contentRedactedAt)}, {html: null, removed: true});
+      await server(sdk.setInboxMessageHtml, {organizationId: f.orgA, id: messageId, html: "<p>back</p>", bytes: 11});
+      assert.equal((await html("owner-a")).message.contentHtml ?? null, null, "removed content is never written back");
+    });
   });
 }

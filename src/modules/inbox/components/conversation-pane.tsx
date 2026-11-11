@@ -15,6 +15,7 @@ import { formatLeadDate, selectClassName, textareaClassName } from "@/modules/le
 import { CHANNEL_LABELS, DELIVERY_LABELS, PRIORITIES, PRIORITY_LABELS, STATUS_LABELS, type ConversationStatus, type DeliveryStatus, type InboxChannel, type Priority } from "../model";
 import type { ConversationView, CustomerContextView, MessageListView } from "../server/conversations";
 import { ReplyPanel } from "./reply-panel";
+import { EmailMessage } from "./email-message";
 
 type Message = MessageListView["messages"][number];
 type Assignee = {id: string; name: string; role: string};
@@ -195,7 +196,9 @@ export function ConversationPane({conversationId, organizationId, refreshKey, on
 
       <Card className="gap-3 py-4 shadow-xs ring-border"><CardContent className="space-y-3 px-4">
         {earlier && <Button size="sm" variant="ghost" className="w-full" onClick={() => void loadEarlier()}>Load earlier messages</Button>}
-        {messages.length ? <ol className="space-y-2" aria-label="Messages">{messages.map(message => <MessageBubble key={message.id} message={message} conversationId={conversation.id} />)}</ol>
+        {messages.length ? <ol className={conversation.channel === "EMAIL" ? "space-y-3" : "space-y-2"} aria-label="Messages">{messages.map(message => conversation.channel === "EMAIL"
+          ? <EmailMessage key={message.id} message={message} conversation={conversation} />
+          : <MessageBubble key={message.id} message={message} conversationId={conversation.id} />)}</ol>
           : <p className="text-sm text-muted-foreground">No messages.</p>}
         <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground" data-testid="sending-disabled">
           {conversation.channelConnection?.sendingEnabled ? "Replies are prepared as drafts and need approval before they are sent." : `Sending is not connected for this channel. Replies cannot leave EstateOS until ${conversation.channel === "WEBSITE" ? "an email or WhatsApp channel is connected" : "the provider is connected and approved"}.`}

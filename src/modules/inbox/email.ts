@@ -311,3 +311,67 @@ export function mailboxImportDecision(input: {automated: string | null; ownerMem
   if (input.match?.status !== "MATCHED") return {import: false, reason: "NOT_A_CRM_CONTACT"};
   return {import: true, link: {contactId: input.match.contactId, leadId: input.match.leadId, assignedMembershipId: input.ownerMembershipId}};
 }
+
+// --- Email HTML (shown only inside a sandboxed frame) ----------------------------------------
+export const MAX_EMAIL_HTML = 400_000;
+const BLOCKED_ELEMENTS = /<(script|iframe|frame|frameset|object|embed|applet|noembed|template|xml|title|audio|video|canvas|math|portal)\b[\s\S]*?<\/\1\s*>/gi;
+const BLOCKED_TAGS = /<\/?(script|iframe|frame|frameset|object|embed|applet|meta|link|base|form|input|button|select|option|optgroup|textarea|keygen|isindex|noscript|html|head|body|title|audio|video|source|track|canvas|portal|param)\b[^>]*>/gi;
+const URL_ATTRIBUTES = /\s(href|src|background|poster|action|formaction|xlink:href|lowsrc|dynsrc|longdesc|cite|data)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi;
+const SAFE_LINK = /^(https?:|mailto:|tel:|#)/i;
+const SAFE_IMAGE = /^(https?:|cid:|data:image\/(png|gif|jpe?g|webp);base64,)/i;
+const UNSAFE_CSS = /(expression\s*\(|javascript\s*:|vbscript\s*:|behavior\s*:|-moz-binding|@import|<\/?\s*style)/gi;
+/** The same check without the global flag (a global pattern's test() keeps state between calls). */
+const UNSAFE_CSS_TEST = new RegExp(UNSAFE_CSS.source, "i");
+
+const unquote = (value: string) => value.replace(/^["']|["']$/g, "");
+
+/** CSS from the email, without imports, bindings or script URLs, unable to close its style element. */
+export function sanitizeEmailCss(css: string): string {
+  // Whole @import rules go (they would load another stylesheet); other unsafe constructs are neutralised.
+  return css.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/@import\b[^;]*;?/gi, " ").replace(UNSAFE_CSS, "/*removed*/").replace(/</g, "\\3C ").slice(0, 100_000);
+}
+
+/**
+ * Email HTML cleaned for display (docs/INBOX_SECURITY.md#safe-rendering). The real
+ * boundary is the sandboxed frame it is shown in (no scripts, its own content
+ * policy, remote images only on request); this removes everything active as
+ * well: scripts, frames, plugins, forms, meta refreshes, base URLs, event
+ * handlers, srcdoc and every link or image URL that is not http(s), mail or a
+ * plain inline image. Returns the body and the email's own styles, or null when
+ * there is nothing usable or it is too large.
+ */
+export function sanitizeEmailHtml(html: string | null | undefined): {body: string; css: string} | null {
+  if (!html || !html.trim() || html.length > MAX_EMAIL_HTML * 2) return null;
+  let source = html.replace(/<!--[\s\S]*?-->/g, "").replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "").replace(/<!doctype[^>]*>/gi, "").replace(/<\?[\s\S]*?\?>/g, "");
+  const css: string[] = [];
+  source = source.replace(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi, (_whole, content: string) => { css.push(sanitizeEmailCss(content)); return ""; });
+  const body = /<body\b[^>]*>([\s\S]*?)(<\/body\s*>|$)/i.exec(source);
+  source = (body ? body[1] : source.replace(/<head\b[\s\S]*?<\/head\s*>/gi, ""));
+  for (let pass = 0; pass < 3; pass++) source = source.replace(BLOCKED_ELEMENTS, "");
+  source = source
+    .replace(BLOCKED_TAGS, "")
+    .replace(/\s(on[a-z]+|srcdoc|srcset|http-equiv|formaction|ping|nonce|integrity)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s(on[a-z]+)(?=[\s>/])/gi, "")
+    .replace(URL_ATTRIBUTES, (whole, name: string, raw: string) => {
+      const value = decodeEntities(unquote(raw)).replace(/[\u0000- ]+/g, "");
+      const attribute = name.toLowerCase();
+      const allowed = attribute === "href" ? SAFE_LINK.test(value) : attribute === "src" || attribute === "background" ? SAFE_IMAGE.test(value) : false;
+      return allowed ? ` ${attribute}="${value.replace(/"/g, "&quot;")}"` : "";
+    })
+    .replace(/\sstyle\s*=\s*("[^"]*"|'[^']*')/gi, (whole, raw: string) => UNSAFE_CSS_TEST.test(decodeEntities(unquote(raw))) ? "" : whole)
+    .replace(/<a\b/gi, "<a rel=\"noopener noreferrer\" target=\"_blank\"");
+  source = source.trim();
+  if (!source || source.length > MAX_EMAIL_HTML) return null;
+  return {body: source, css: css.join("\n").slice(0, 100_000)};
+}
+
+/** Whether cleaned HTML would load anything from the internet (shown as "Show images"). */
+export const hasRemoteContent = (html: string) => /\s(src|background)\s*=\s*"https?:|url\(\s*['"]?https?:/i.test(html);
+
+/** The stored form: the email's own (cleaned) styles followed by its cleaned body; null when none is usable. */
+export function emailHtmlForStorage(payload: GmailPart | undefined): string | null {
+  const cleaned = sanitizeEmailHtml(messageParts(payload).html);
+  if (!cleaned) return null;
+  const stored = `${cleaned.css ? `<style>${cleaned.css}</style>` : ""}${cleaned.body}`;
+  return stored.length <= MAX_EMAIL_HTML ? stored : null;
+}

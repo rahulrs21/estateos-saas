@@ -163,3 +163,8 @@ query MailboxSyncRow($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS)
     channelConnection {provider connectionStatus externalAccountReference ownerMembershipId ownerMembership {status}}
   }
 }
+
+# Stores an email's cleaned HTML (size 0: none usable), never on a message already removed by retention.
+mutation SetInboxMessageHtml($organizationId: UUID!, $id: UUID!, $html: String, $bytes: Int!) @auth(level: NO_ACCESS) {
+  inboxMessage_updateMany(where: {organizationId: {eq: $organizationId}, id: {eq: $id}, contentRedactedAt: {isNull: true}}, data: {contentHtml: $html, contentHtmlBytes: $bytes})
+}

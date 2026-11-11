@@ -62,9 +62,14 @@ Webhooks are described in [CHANNEL_ADAPTERS.md](CHANNEL_ADAPTERS.md#webhooks). I
 
 ## Safe rendering
 
-- **Plain text only.** Messages, names, subjects, notes and Claude output are shown as plain text with React escaping, never as HTML. Markup and scripts in a message are inert, as the browser test checks.
-- **Links are not clickable.** Links in messages appear as text. Agents copy a link deliberately if they need it, so a phishing link cannot be opened by a stray click.
-- **Email HTML** is converted to text on the server (`email.ts`); scripts, styles and remote images are never loaded, and quoted history is cut.
+- **Plain text everywhere else.** WhatsApp and website messages, names, subjects, notes and Claude output are shown as plain text with React escaping, never as HTML. Markup and scripts in them are inert, as the browser test checks. Their links appear as text.
+- **Email keeps a plain-text version** (`email.ts`): HTML converted on the server, quoted history cut. It is what Claude reads, what search uses, and what is shown when there is no formatted version.
+- **Formatted email (Phase 7C, shown like a mail client).** An email's HTML is kept beside its text and displayed with two layers of protection:
+  - **Cleaned on the server** (`sanitizeEmailHtml`). Scripts, frames, plugins, forms, `meta` refreshes, `base` URLs, event handlers, `srcdoc`, `@import`, CSS expressions and every link or image URL that is not http(s), mail, phone, `cid:` or an inline image are removed. The email's CSS can never close its style element.
+  - **Shown only inside a sandboxed frame.** The frame has `sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"`, without `allow-scripts`, so nothing in it can run. Its own content policy has no script source, blocks forms and base URLs, and allows images only from `data:` and `cid:`. It can't navigate EstateOS, and EstateOS only reads its height.
+  - **Remote images load only on request.** They are hidden until a member clicks **Show images**, because they often track opens and reveal the reader's IP address. Gmail behaves the same way.
+  - **Links open in a new tab** with `noopener noreferrer`. This is a deliberate change from Phase 7A, where links were not clickable, so people can read email the way they expect. The frame reminds the reader to check an address before clicking.
+- **Who sees it.** The formatted version is returned only to members who may see the conversation (the visibility rule in `GetInboxMessageHtml`). It is written only by server operations and cleared by retention with the text. Emails imported before this was kept are fetched once from Gmail when first opened.
 
 ## Prompt injection
 

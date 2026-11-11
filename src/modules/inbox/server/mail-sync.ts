@@ -10,7 +10,8 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import type { NormalizedAttachment, NormalizedEvent } from "../adapters/types";
 import { attachmentFileName, attachmentPath, MAX_ATTACHMENT_BYTES, sniffAttachment } from "../attachments";
-import { automatedReason, decodeBase64Url, header, mailboxImportDecision, normalizeGmailMessage, parseMailbox } from "../email";
+import { automatedReason, decodeBase64Url, emailHtmlForStorage, header, mailboxImportDecision, normalizeGmailMessage, parseMailbox } from "../email";
+import { storeMessageHtml } from "./email-html";
 import { accessTokenFor, forgetAccessTokens, gmailAttachment, gmailHistory, gmailMessage, gmailMessageHeaders, gmailProfile, gmailRecent, revokeGrant, type GoogleFailure } from "./google";
 import { findConversation, matchIdentity } from "./ingest";
 import { mailboxGrant } from "./mailboxes";
@@ -127,7 +128,8 @@ async function importMessage(token: string, row: Row, mailbox: string, messageId
   if (!decision.import) return decision.reason;
   const full = await gmailMessage(token, messageId);
   if (!full.ok) { if (full.status === 404) return "GONE"; fail(full); }
-  const message = normalizeGmailMessage((full as Extract<typeof full, {ok: true}>).data);
+  const fullMessage = (full as Extract<typeof full, {ok: true}>).data;
+  const message = normalizeGmailMessage(fullMessage);
   if (!message.externalMessageId || !message.from.email) return "NO_SENDER";
   const attachments = await attachmentsOf(token, organizationId, message.externalMessageId, message.attachments);
   const event: NormalizedEvent = {
@@ -137,6 +139,8 @@ async function importMessage(token: string, row: Row, mailbox: string, messageId
   };
   const outcome = await receiveEvent({organizationId, id: connectionId, provider: "GMAIL"}, event, {payloadDigest: null, simulated: false});
   if (outcome.status === "FAILED") throw new SyncError(`EVENT_${outcome.errorCode}`.slice(0, 64));
+  // The formatted version, cleaned, kept beside the text (shown only in a sandboxed frame).
+  if (outcome.status === "PROCESSED" && outcome.messageId) await storeMessageHtml(organizationId, outcome.messageId, emailHtmlForStorage(fullMessage.payload));
   return outcome.status === "PROCESSED" ? "IMPORTED" : outcome.status;
 }
 

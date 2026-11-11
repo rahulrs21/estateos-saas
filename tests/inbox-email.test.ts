@@ -5,7 +5,7 @@ import { openSecret, sealSecret, TokenVaultError, vaultKey } from "../src/module
 import { newOAuthState, openOAuthState, pkceChallenge, sealOAuthState } from "../src/modules/inbox/oauth-state";
 import {
   automatedReason, buildReplyMessage, cutQuotedHistory, decodeEncodedWords, encodeHeaderText, headerValue, htmlToText, internetMessageIdOf, messageParts, messageText,
-  mailboxImportDecision, normalizeGmailMessage, parseMailbox, parseMailboxes, replySubject, type GmailMessage,
+  emailHtmlForStorage, hasRemoteContent, mailboxImportDecision, normalizeGmailMessage, parseMailbox, parseMailboxes, replySubject, sanitizeEmailHtml, type GmailMessage,
 } from "../src/modules/inbox/email";
 
 const key = randomBytes(32);
@@ -175,4 +175,35 @@ test("a company mailbox imports people writing; a personal one only CRM customer
   assert.deepEqual(mailboxImportDecision({automated: null, ownerMembershipId: "m1", existingThread: false, match: matched}), {import: true, link: {contactId: "c1", leadId: "l1", assignedMembershipId: "m1"}});
   assert.deepEqual(mailboxImportDecision({automated: null, ownerMembershipId: "m1", existingThread: true, match: null}), {import: true, link: null}, "later messages in an imported thread follow it");
   assert.deepEqual(mailboxImportDecision({automated: "LABEL_SPAM", ownerMembershipId: "m1", existingThread: true, match: matched}), {import: false, reason: "LABEL_SPAM"}, "automated mail is never imported, even in a known thread");
+});
+
+test("email HTML keeps its layout but loses everything active: scripts, handlers, frames, forms, unsafe URLs and CSS tricks", () => {
+  const dirty = `<!doctype html><html><head><meta http-equiv="refresh" content="0;url=https://evil.example.test"><base href="https://evil.example.test/"><title>x</title>
+    <style>.box{color:#123;background:url(javascript:alert(1))} @import url(https://evil.example.test/a.css); </style><style>p{margin:0}</style></head>
+    <body onload="alert(1)"><div class="box" style="color:red">Order <b>#16466</b></div>
+    <script>alert(1)</script><SCRIPT src="https://evil.example.test/x.js"></SCRIPT><iframe src="https://evil.example.test"></iframe><object data="x.swf"></object>
+    <img src="https://shop.example.test/logo.png" onerror="alert(1)" alt="Logo"><img src="javascript:alert(1)"><img src="cid:logo@shop"><img src="data:image/png;base64,iVBORw0KGgo=">
+    <a href="https://fazahome.example.test/orders/16466">View order</a> <a href="javascript:alert(1)">bad</a> <a href=" java&#x73;cript:alert(1)">encoded</a> <a href="mailto:help@example.test">mail</a>
+    <form action="https://evil.example.test"><input name="password"><button>Go</button></form><p style="width:expression(alert(1))">x</p><svg onload=alert(1)><circle/></svg>
+    <img src=x onerror=alert(1)><div title="</style><script>alert(1)</script>">t</div></body></html>`;
+  const clean = sanitizeEmailHtml(dirty);
+  assert.ok(clean);
+  const all = `${clean.css}\n${clean.body}`;
+  assert.doesNotMatch(all, /<script|<iframe|<object|<form|<input|<button|<meta|<base|<title|onload|onerror|javascript:|expression\(|@import|evil\.example\.test/i);
+  assert.match(clean.body, /Order <b>#16466<\/b>/, "formatting is kept");
+  assert.match(clean.body, /<a rel="noopener noreferrer" target="_blank" href="https:\/\/fazahome\.example\.test\/orders\/16466">View order<\/a>/, "safe links open in a new tab without a referrer");
+  assert.match(clean.body, /href="mailto:help@example\.test"/);
+  assert.match(clean.body, /src="https:\/\/shop\.example\.test\/logo\.png"/, "remote images are kept (the frame shows them only on request)");
+  assert.match(clean.body, /src="cid:logo@shop"/);
+  assert.match(clean.body, /src="data:image\/png;base64,/);
+  assert.match(clean.body, /style="color:red"/);
+  assert.match(clean.css, /p\{margin:0\}/);
+  assert.doesNotMatch(clean.css, /<\/style/i, "the email's CSS can never close its style element");
+  assert.equal(sanitizeEmailHtml(""), null);
+  assert.equal(sanitizeEmailHtml("<script>alert(1)</script>"), null, "nothing usable");
+  assert.equal(sanitizeEmailHtml("x".repeat(900_001)), null, "too large");
+  assert.equal(hasRemoteContent(clean.body), true);
+  assert.equal(hasRemoteContent(`<img src="cid:a">`), false);
+  const stored = emailHtmlForStorage({mimeType: "text/html", body: {data: b64("<p onclick=\"x()\">Hi</p>")}});
+  assert.equal(stored, "<p>Hi</p>");
 });

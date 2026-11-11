@@ -139,7 +139,14 @@ export async function completeMailboxConnect(url: URL): Promise<ConnectOutcome> 
   const tokens = await exchangeCode(code, state.verifier);
   if (!tokens.ok) return refused(`GOOGLE_${tokens.code}`, tokens.code === "SCOPES_MISSING" || tokens.code === "NO_REFRESH_TOKEN" ? tokens.message : `Google refused the sign-in (${tokens.code}).`);
   const profile = await gmailProfile(tokens.accessToken);
-  if (!profile.ok) { await revokeGrant(tokens.refreshToken); return refused(`GOOGLE_${profile.code}`, "Google did not confirm the mailbox address."); }
+  if (!profile.ok) {
+    await revokeGrant(tokens.refreshToken);
+    // The usual cause is a project without the Gmail API turned on (403); say so, with Google's own code.
+    const apiOff = profile.status === 403 || /PERMISSION_DENIED|SERVICE_DISABLED|accessNotConfigured/i.test(`${profile.code} ${profile.message}`);
+    return refused(`GOOGLE_${profile.code}`, apiOff
+      ? `Google signed you in, but the Gmail API is not enabled for this OAuth client's Google Cloud project (${profile.code}). Enable it (APIs & Services → Library → Gmail API), wait a few minutes, and connect again.`
+      : `Google did not confirm the mailbox address (${profile.code}: ${profile.message}).`);
+  }
 
   const conflicts = await asServer("MailboxConflicts", dc => sdk.mailboxConflicts(dc, {provider: sdk.ChannelProvider.GMAIL, mailbox: profile.address, organizationId: state.organizationId, actorUid: state.uid}));
   const sameAddress = conflicts.sameAddress.map(row => ({...row, id: canonicalUuid(row.id), organizationId: canonicalUuid(row.organizationId)}));

@@ -48,6 +48,7 @@ Related: [CHANNEL_ADAPTERS.md](CHANNEL_ADAPTERS.md), [INBOX_SECURITY.md](INBOX_S
   - Private mail never enters EstateOS, not even as an event record.
 - **Accepted messages** go through the same durable, deduplicated event pipeline as webhooks:
   - plain text (text/plain preferred; HTML converted on the server; quoted history and signatures cut; at most 8000 characters);
+  - the formatted (HTML) version, cleaned and shown like a mail client in a sandboxed frame, with remote images only on request ([INBOX_SECURITY.md](INBOX_SECURITY.md#safe-rendering));
   - the RFC Message-ID kept for replies;
   - attachments checked by content and stored privately. A file whose content is not allowed is listed but never stored or served.
 - **Failures.** A grant withdrawn at Google marks the mailbox **Reconnect needed** and turns sending off. Other failures are retried with growing delays. The cursor advances only after every message is recorded.

@@ -5004,6 +5004,31 @@ export interface GetInboxConversationVariables {
   id: UUIDString;
 }
 
+export interface GetInboxMessageHtmlData {
+  conversation?: {
+    id: UUIDString;
+    channel: InboxChannel;
+    channelConnectionId?: UUIDString | null;
+    channelConnection?: {
+      provider: ChannelProvider;
+    };
+  };
+  message?: {
+    id: UUIDString;
+    direction: InboxDirection;
+    externalMessageId: string;
+    contentHtml?: string | null;
+    contentHtmlBytes?: number | null;
+    contentRedactedAt?: TimestampString | null;
+  };
+}
+
+export interface GetInboxMessageHtmlVariables {
+  organizationId: UUIDString;
+  conversationId: UUIDString;
+  id: UUIDString;
+}
+
 export interface GetInboxSettingsData {
   me?: {
     id: UUIDString;
@@ -8424,6 +8449,7 @@ export interface ListInboxMessagesData {
     messageType: InboxMessageType;
     content?: string | null;
     contentRedactedAt?: TimestampString | null;
+    contentHtmlBytes?: number | null;
     deliveryStatus: InboxDeliveryStatus;
     providerStatusRaw?: string | null;
     providerTimestamp?: TimestampString | null;
@@ -12285,6 +12311,17 @@ export interface SetInboxConversationStateVariables {
   emitResolved: boolean;
 }
 
+export interface SetInboxMessageHtmlData {
+  inboxMessage_updateMany: number;
+}
+
+export interface SetInboxMessageHtmlVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  html?: string | null;
+  bytes: number;
+}
+
 export interface SetInventoryAmenityActiveData {
   inventoryAmenity_update?: InventoryAmenity_Key | null;
   activity_insert: Activity_Key;
@@ -14465,6 +14502,11 @@ export function mailboxSyncRow(dc: DataConnect, vars: MailboxSyncRowVariables, o
 /** Generated Node Admin SDK operation action function for the 'MailboxSyncRow' Query. Allow users to pass in custom DataConnect instances. */
 export function mailboxSyncRow(vars: MailboxSyncRowVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MailboxSyncRowData>>;
 
+/** Generated Node Admin SDK operation action function for the 'SetInboxMessageHtml' Mutation. Allow users to execute without passing in DataConnect. */
+export function setInboxMessageHtml(dc: DataConnect, vars: SetInboxMessageHtmlVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetInboxMessageHtmlData>>;
+/** Generated Node Admin SDK operation action function for the 'SetInboxMessageHtml' Mutation. Allow users to pass in custom DataConnect instances. */
+export function setInboxMessageHtml(vars: SetInboxMessageHtmlVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetInboxMessageHtmlData>>;
+
 /** Generated Node Admin SDK operation action function for the 'ListInboxReplies' Query. Allow users to execute without passing in DataConnect. */
 export function listInboxReplies(dc: DataConnect, vars: ListInboxRepliesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListInboxRepliesData>>;
 /** Generated Node Admin SDK operation action function for the 'ListInboxReplies' Query. Allow users to pass in custom DataConnect instances. */
@@ -14684,6 +14726,11 @@ export function inboxAssignees(vars: InboxAssigneesVariables, options?: Operatio
 export function inboxCustomerContext(dc: DataConnect, vars: InboxCustomerContextVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxCustomerContextData>>;
 /** Generated Node Admin SDK operation action function for the 'InboxCustomerContext' Query. Allow users to pass in custom DataConnect instances. */
 export function inboxCustomerContext(vars: InboxCustomerContextVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxCustomerContextData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetInboxMessageHtml' Query. Allow users to execute without passing in DataConnect. */
+export function getInboxMessageHtml(dc: DataConnect, vars: GetInboxMessageHtmlVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetInboxMessageHtmlData>>;
+/** Generated Node Admin SDK operation action function for the 'GetInboxMessageHtml' Query. Allow users to pass in custom DataConnect instances. */
+export function getInboxMessageHtml(vars: GetInboxMessageHtmlVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetInboxMessageHtmlData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListPropertyMapPins' Query. Allow users to execute without passing in DataConnect. */
 export function listPropertyMapPins(dc: DataConnect, vars: ListPropertyMapPinsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListPropertyMapPinsData>>;

@@ -105,7 +105,7 @@ query ListInboxMessages($organizationId: UUID!, $conversationId: UUID!, $limit: 
     ]}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {id}
   messages: inboxMessages(where: {_and: [{organizationId: {eq: $organizationId}, conversationId: {eq: $conversationId}},
     {_or: [{createdAt: {lt: $cursorAt}}, {createdAt: {eq: $cursorAt}, id: {nin: $seenIds}}]}]}, orderBy: [{createdAt: DESC}, {id: ASC}], limit: $limit) {
-    id direction senderIdentity recipientIdentity messageType content contentRedactedAt deliveryStatus providerStatusRaw providerTimestamp simulated createdAt author {displayName}
+    id direction senderIdentity recipientIdentity messageType content contentRedactedAt contentHtmlBytes deliveryStatus providerStatusRaw providerTimestamp simulated createdAt author {displayName}
     attachments: inboxAttachments_on_message(where: {deletedAt: {isNull: true}}, orderBy: [{createdAt: ASC}], limit: 10) {id fileName mimeType sizeBytes scanStatus storagePath}
   }
 }
@@ -314,5 +314,21 @@ query InboxCustomerContext($organizationId: UUID!, $conversationId: UUID!, $hasL
       {assignedMembershipId: {isNull: true}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {eq: MANAGER}}}}}
     ]}]}, orderBy: [{lastMessageAt: DESC}], limit: 10) @include(if: $hasContact) {
     id channel status lastMessageAt lastMessagePreview
+  }
+}
+
+# One email's cleaned HTML (Phase 7C), with the same visibility rule as its conversation.
+query GetInboxMessageHtml($organizationId: UUID!, $conversationId: UUID!, $id: UUID!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+  conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $conversationId}}, {_or: [
+      {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+      {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
+      {lead: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}},
+      {assignedMembershipId: {isNull: true}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {eq: MANAGER}}}}}
+    ]}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {
+    id channel channelConnectionId channelConnection {provider}
+  }
+  message: inboxMessage(first: {where: {organizationId: {eq: $organizationId}, conversationId: {eq: $conversationId}, id: {eq: $id}}}) {
+    id direction externalMessageId contentHtml contentHtmlBytes contentRedactedAt
   }
 }

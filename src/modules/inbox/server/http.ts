@@ -16,6 +16,7 @@ import { cancelReply, checkReply, createReply, decideReply, listReplies, sendRep
 import { devToolsEnabled } from "@/modules/communications/dev/guard";
 import { completeMailboxConnect, disconnectMailbox, listMailboxes, setMailboxSending, startMailboxConnect, type ConnectOutcome } from "./mailboxes";
 import { syncMailboxNow } from "./mail-sync";
+import { messageHtml } from "./email-html";
 
 /*
  * Inbox endpoints (docs/UNIFIED_INBOX.md#api). The same request policy as the
@@ -37,6 +38,7 @@ export const listConversationsResponse = (request: Request) => read(request, "in
 export const countsResponse = (request: Request) => read(request, "inbox.counts", inboxCounts);
 export const getConversationResponse = (request: Request, id: string) => read(request, "inbox.get", context => getConversation(context, id));
 export const messagesResponse = (request: Request, id: string) => read(request, "inbox.messages", (context, query) => listMessages(context, id, query));
+export const messageHtmlResponse = (request: Request, id: string, messageId: string) => read(request, "inbox.message.html", context => messageHtml(context, id, messageId));
 export const assigneesResponse = (request: Request) => read(request, "inbox.assignees", context => assignees(context));
 export const assignResponse = (request: Request, id: string) => write(request, "inbox.assign", (context, body) => assignConversation(context, id, body));
 export const stateResponse = (request: Request, id: string) => write(request, "inbox.state", (context, body) => setConversationState(context, id, body));

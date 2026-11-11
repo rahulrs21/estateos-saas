@@ -171,6 +171,11 @@ type InboxMessage @table(key: ["organization", "id"])
   providerTimestamp: Timestamp
   # Phase 7C: the email's RFC 5322 Message-ID, for In-Reply-To and References when replying.
   internetMessageId: String @col(dataType: "varchar(300)")
+  # Phase 7C: the email's HTML, cleaned on the server and only ever shown inside a sandboxed frame
+  # (no scripts, remote images on request). Null: not looked up yet; size 0: the email has no usable HTML.
+  # Cleared by retention with the text.
+  contentHtml: String @col(dataType: "varchar(400000)")
+  contentHtmlBytes: Int
   author: UserProfile
   simulated: Boolean! @default(value: false)
   createdAt: Timestamp! @default(expr: "request.time")

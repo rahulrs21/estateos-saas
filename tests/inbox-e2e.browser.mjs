@@ -1216,6 +1216,34 @@ try {
     assert.equal((await eventsFor(mailboxIds[COMPANY_MAILBOX])).length, 2, "skipped mail is never recorded");
     pass("Phase 7C.1b: the worker imports customer email from a company mailbox (matched by exact address, quoted history cut, HTML to text, a real PDF stored privately, a disguised program refused); newsletters, promotions, spam and robots leave no trace");
 
+    // The formatted email: cleaned on the server, shown in a sandboxed frame, remote images only on request.
+    const pixelPath = "/e2e-tracking-pixel.gif";
+    deliverEmail(COMPANY_MAILBOX, {from: `Layla Customer <${CUSTOMER}>`, subject: "Order #9001", text: "Order #9001 (plain text)",
+      html: `<html><head><style>h2{color:#0b8043}</style></head><body><h2>Order #9001</h2><p>Thank you, <b>Layla</b>.</p><img src="http://127.0.0.1:${googlePort}${pixelPath}" alt="tracking">
+        <script>parent.__emailScriptRan = true</script><img src=x onerror="parent.__emailScriptRan = true"><a href="https://fazahome.example.test/orders/9001">View order</a></body></html>`});
+    // The mailbox was just synced, so it is not due yet: Check now, as a person would.
+    assert.equal((await post(`/api/inbox/mailboxes/${mailboxIds[COMPANY_MAILBOX]}/sync`, {})).status, 200);
+    const orderThread = (await emailConversations(mailboxIds[COMPANY_MAILBOX])).find(row => row.subject === "Order #9001");
+    assert.ok(orderThread, "the HTML email was imported");
+    const pixelRequests = () => fakeGoogle.requests.filter(item => item.path === pixelPath).length;
+    await load(`/inbox/${orderThread.id}`, "Boolean(document.querySelector('[data-testid=email-html]')) && document.querySelector('[data-testid=email-html]').contentDocument?.body?.innerText.includes('Order #9001')");
+    const frame = await evaluate(`(()=>{const f=document.querySelector('[data-testid=email-html]');const d=f.contentDocument;const a=d.querySelector('a');
+      return {sandbox: f.getAttribute('sandbox'), text: d.body.innerText, scripts: d.querySelectorAll('script').length, handlers: d.body.innerHTML.includes('onerror'),
+        link: a && {href: a.getAttribute('href'), target: a.getAttribute('target'), rel: a.getAttribute('rel')}, ran: Boolean(window.__emailScriptRan), heading: getComputedStyle(d.querySelector('h2')).color};})()`);
+    assert.equal(frame.sandbox, "allow-same-origin allow-popups allow-popups-to-escape-sandbox", "the frame may never run scripts");
+    assert.match(frame.text, /Order #9001[\s\S]*Thank you, Layla\./);
+    assert.deepEqual({scripts: frame.scripts, handlers: frame.handlers, ran: frame.ran}, {scripts: 0, handlers: false, ran: false}, "scripts and handlers are removed and nothing ran");
+    assert.deepEqual(frame.link, {href: "https://fazahome.example.test/orders/9001", target: "_blank", rel: "noopener noreferrer"});
+    assert.equal(frame.heading, "rgb(11, 128, 67)", "the email's own styles apply inside the frame");
+    await pause(800);
+    assert.equal(pixelRequests(), 0, "remote images are not loaded until asked");
+    assert.ok(await evaluate("Boolean(document.querySelector('[data-testid=email-images-hidden]'))"));
+    await screenshot("inbox-email-html");
+    await clickText("Show images", "button");
+    for (let attempt = 0; attempt < 50 && !pixelRequests(); attempt++) await pause(100);
+    assert.ok(pixelRequests() > 0, "they load after Show images");
+    pass("Phase 7C.1: an HTML email is shown like a mail client in a sandboxed frame: its formatting and styles kept, scripts and handlers removed and unable to run, links opening in a new tab without a referrer, remote images only after Show images");
+
     const personalConversations = await emailConversations(mailboxIds[AGENT_MAILBOX]);
     assert.equal(personalConversations.length, 1, "only the CRM customer's email is imported from a personal mailbox");
     assert.equal(personalConversations[0].assignedMembershipId.replaceAll("-", ""), f.memberAgentA.replaceAll("-", ""), "assigned to the mailbox owner");
@@ -1272,7 +1300,7 @@ try {
       return {replyId, check: check.body.data, sent};
     };
     const companyRows = await emailConversations(mailboxIds[COMPANY_MAILBOX]);
-    const laylaThread = companyRows.find(row => row.customerIdentity === CUSTOMER);
+    const laylaThread = companyRows.find(row => row.subject === "Villa 12 viewing");
     const omarThread = companyRows.find(row => row.customerIdentity === "omar.buyer@example.test");
     await signIn("owner-a");
     const beforeOn = await emailReply(laylaThread.id, "Thank you, Layla. Villa 12 is available; Tuesday at 10 works.", {author: "owner-a", approver: "admin-a"});
@@ -1299,7 +1327,7 @@ try {
     assert.deepEqual({stage: sentMessage.stage, id: sentMessage.providerMessageId, status: sentMessage.message.deliveryStatus, external: sentMessage.message.externalMessageId},
       {stage: "SENT", id: outgoing.id, status: "SENT", external: outgoing.id}, "SENT only under Gmail's own message ID");
     await workerTick();
-    assert.equal((await emailConversations(mailboxIds[COMPANY_MAILBOX])).length, 2, "the next sync does not import EstateOS's own reply");
+    assert.equal((await emailConversations(mailboxIds[COMPANY_MAILBOX])).length, 3, "the next sync does not import EstateOS's own reply");
     const notTest = await emailReply(omarThread.id, "Thank you for your budget.", {author: "owner-a", approver: "admin-a"});
     assert.equal(notTest.check.sendable, false);
     assert.match(notTest.check.problems.map(problem => problem.message).join(" "), /test addresses/, "a customer who is not a test address is never emailed");

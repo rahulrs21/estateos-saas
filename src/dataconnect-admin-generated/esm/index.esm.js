@@ -2179,6 +2179,12 @@ export function mailboxSyncRow(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeQuery('MailboxSyncRow', inputVars, inputOpts);
 }
 
+export function setInboxMessageHtml(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetInboxMessageHtml', inputVars, inputOpts);
+}
+
 export function listInboxReplies(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
@@ -2441,6 +2447,12 @@ export function inboxCustomerContext(dcOrVarsOrOptions, varsOrOptions, options) 
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeQuery('InboxCustomerContext', inputVars, inputOpts);
+}
+
+export function getInboxMessageHtml(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetInboxMessageHtml', inputVars, inputOpts);
 }
 
 export function listPropertyMapPins(dcOrVarsOrOptions, varsOrOptions, options) {
