@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { Brand } from "@/components/shared/brand";
+import BlurText from "@/components/react-bits/BlurText";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { buttonVariants } from "@/components/ui/button";
 import { MobileNavigation } from "@/modules/marketing/components/mobile-navigation";
@@ -206,6 +207,30 @@ export function MarketingHome() {
             </div>
           </div>
         </section>
+
+
+        <section className="mx-auto max-w-7xl px-5 pt-16 sm:px-8 sm:pt-20">
+          <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
+            <p className="mb-4 text-xs font-semibold tracking-[0.18em] text-primary uppercase">One workspace for your agency</p>
+            <BlurText
+              text="From first enquiry to final handover, every detail in one place."
+              animateBy="words"
+              direction="top"
+              delay={120}
+              className="justify-center text-3xl font-semibold leading-tight tracking-tight sm:text-5xl"
+            />
+            <p className="mt-6 max-w-xl text-sm leading-7 text-muted-foreground">
+              EstateOS brings your leads, listings and team together in a calm, focused workspace, designed around the way UAE agencies actually work.
+            </p>
+            <div className="mt-8 flex flex-wrap justify-center gap-x-6 gap-y-3 text-xs text-muted-foreground">
+              <span className="flex items-center gap-2"><Check className="size-4 text-primary" aria-hidden="true" />Multi-branch ready</span>
+              <span className="flex items-center gap-2"><Check className="size-4 text-primary" aria-hidden="true" />Role-based access</span>
+              <span className="flex items-center gap-2"><Check className="size-4 text-primary" aria-hidden="true" />Light and dark themes</span>
+            </div>
+          </div>
+        </section>
+
+
 
         <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-20">
           <div className="flex flex-col items-start justify-between gap-7 rounded-2xl border bg-primary/[0.04] px-7 py-10 sm:p-12 md:flex-row md:items-center">
