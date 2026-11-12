@@ -201,14 +201,16 @@ const googlePort = google.address().port;
 // ---------------------------------------------------------------- a fake Microsoft identity platform and Graph mail API (Phase 7C.2)
 // Like the fake Google: sign-in on "localhost" (a cross-site return), PKCE and the client secret checked, and a
 // new refresh token handed back on every refresh, as Microsoft does. Access tokens last 30 seconds, so every
-// sync refreshes and the rotation is exercised. It records each request, including the Prefer header.
+// sync refreshes and the rotation is exercised. It records each request, including the Prefer header, and
+// enforces delegated permissions like Graph: drafting or editing mail needs Mail.ReadWrite (never granted to
+// EstateOS), replying needs Mail.Send.
 const microsoftClient = {id: randomUUID(), secret: "e2e-microsoft-secret-" + randomBytes(12).toString("hex")};
 const MS_SCOPE = "https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/User.Read";
 const fakeMicrosoft = {
   next: {account: null, scope: MS_SCOPE, deny: false, error: null},
-  codes: new Map(), refresh: new Map(), access: new Map(), refreshUses: [], requests: [], mailboxes: new Map(),
+  codes: new Map(), refresh: new Map(), access: new Map(), accessScope: new Map(), refreshUses: [], requests: [], mailboxes: new Map(),
   mailbox(address) {
-    if (!this.mailboxes.has(address)) this.mailboxes.set(address, {messages: new Map(), drafts: new Map(), sent: [], deleted: []});
+    if (!this.mailboxes.has(address)) this.mailboxes.set(address, {messages: new Map(), sent: []});
     return this.mailboxes.get(address);
   },
 };
@@ -242,6 +244,7 @@ const microsoft = createHttpServer((request, response) => {
         const refreshToken = "M.e2e-refresh-" + randomBytes(16).toString("hex"), accessToken = "EwB.e2e-access-" + randomBytes(16).toString("hex");
         fakeMicrosoft.refresh.set(refreshToken, account);
         fakeMicrosoft.access.set(accessToken, account);
+        fakeMicrosoft.accessScope.set(accessToken, scope);
         return reply(200, {token_type: "Bearer", scope, expires_in: 30, access_token: accessToken, refresh_token: refreshToken});
       };
       if (form.grant_type === "authorization_code") {
@@ -258,7 +261,10 @@ const microsoft = createHttpServer((request, response) => {
       }
       return reply(400, {error: "unsupported_grant_type"});
     }
-    const account = fakeMicrosoft.access.get((request.headers.authorization ?? "").replace(/^Bearer /, ""));
+    const bearer = (request.headers.authorization ?? "").replace(/^Bearer /, "");
+    const account = fakeMicrosoft.access.get(bearer);
+    const granted = permission => (fakeMicrosoft.accessScope.get(bearer) ?? "").split(" ").some(item => item.replace("https://graph.microsoft.com/", "") === permission);
+    const denied = () => reply(403, {error: {code: "ErrorAccessDenied", message: "Access is denied. Check credentials and try again."}});
     if (url.pathname.startsWith("/v1.0/me")) {
       if (!account) return reply(401, {error: {code: "InvalidAuthenticationToken", message: "Access token is empty."}});
       const box = fakeMicrosoft.mailbox(account);
@@ -268,11 +274,10 @@ const microsoft = createHttpServer((request, response) => {
         const listed = [...box.messages.values()].filter(item => Date.parse(item.receivedDateTime) >= since).sort((a, b) => Date.parse(a.receivedDateTime) - Date.parse(b.receivedDateTime));
         return reply(200, {value: listed.slice(0, Number(url.searchParams.get("$top") ?? 10)).map(item => ({id: item.id, receivedDateTime: item.receivedDateTime}))});
       }
-      const match = /^\/v1\.0\/me\/messages\/([^/]+)(?:\/(attachments|createReply|send)(?:\/([^/]+))?)?$/.exec(url.pathname);
+      const match = /^\/v1\.0\/me\/messages\/([^/]+)(?:\/(attachments|createReply|reply|send)(?:\/([^/]+))?)?$/.exec(url.pathname);
       if (match) {
         const id = decodeURIComponent(match[1]);
         const found = box.messages.get(id);
-        const draft = box.drafts.get(id);
         const notFound = () => reply(404, {error: {code: "ErrorItemNotFound", message: "The specified object was not found in the store."}});
         if (!match[2] && request.method === "GET") {
           if (!found) return notFound();
@@ -285,28 +290,20 @@ const microsoft = createHttpServer((request, response) => {
           if (match[3]) { const file = found.attachments.find(item => item.id === decodeURIComponent(match[3])); return file ? reply(200, file) : notFound(); }
           return reply(200, {value: found.attachments.map(file => ({...file, contentBytes: undefined}))});
         }
-        if (match[2] === "createReply" && request.method === "POST") {
+        // Drafts (createReply, editing, sending or deleting a message) need Mail.ReadWrite, which EstateOS never has.
+        if (match[2] === "createReply" || match[2] === "send" || (!match[2] && (request.method === "PATCH" || request.method === "DELETE"))) {
+          if (!granted("Mail.ReadWrite")) return denied();
+        }
+        if (match[2] === "reply" && request.method === "POST") {
+          if (!granted("Mail.Send")) return denied();
           if (!found) return notFound();
-          // Outlook addresses a reply to the original's Reply-To when it has one; EstateOS must set the customer itself.
-          const draftId = "AAkALg-e2e-draft-" + randomBytes(8).toString("hex");
-          const created = {id: draftId, conversationId: found.conversationId, isDraft: true, replyTo: id, toRecipients: found.replyTo ?? [found.from], ccRecipients: [{emailAddress: {address: "cc.copy@example.test"}}],
-            body: {contentType: "html", content: "<html><head></head><body><div id=\"quoted\">From: " + found.from.emailAddress.address + "<br>" + found.body.content.replace(/<\/?(html|head|body)[^>]*>/g, "") + "</div></body></html>"}};
-          box.drafts.set(draftId, created);
-          return reply(201, created);
-        }
-        if (!match[2] && request.method === "PATCH") {
-          if (!draft) return notFound();
-          Object.assign(draft, json);
-          return reply(200, draft);
-        }
-        if (match[2] === "send" && request.method === "POST") {
-          if (!draft) return notFound();
-          if ((draft.toRecipients ?? []).some(item => item.emailAddress.address === "refused@example.test")) return reply(400, {error: {code: "ErrorInvalidRecipients", message: "At least one recipient is not valid."}});
-          box.drafts.delete(id);
-          box.sent.push({...draft, authorization: request.headers.authorization});
+          // Outlook addresses a reply to the original's Reply-To when it has one; EstateOS must name the customer itself.
+          const toRecipients = json?.message?.toRecipients ?? found.replyTo ?? [found.from];
+          if (toRecipients.some(item => item.emailAddress.address === "refused@example.test")) return reply(400, {error: {code: "ErrorInvalidRecipients", message: "At least one recipient is not valid."}});
+          box.sent.push({replyTo: id, conversationId: found.conversationId, toRecipients, ccRecipients: json?.message?.ccRecipients ?? [], bccRecipients: json?.message?.bccRecipients ?? [],
+            comment: json?.comment ?? "", authorization: request.headers.authorization});
           return reply(202);
         }
-        if (!match[2] && request.method === "DELETE") { if (box.drafts.delete(id)) box.deleted.push(id); return reply(204); }
       }
     }
     reply(404, {error: {code: "ResourceNotFound", message: "Unknown path"}});
@@ -1663,10 +1660,13 @@ try {
     assert.equal(outgoing.replyTo, customerMail.id, "a reply to the customer's own email, in its thread");
     assert.deepEqual({to: outgoing.toRecipients.map(item => item.emailAddress.address), cc: outgoing.ccRecipients, bcc: outgoing.bccRecipients}, {to: [CUSTOMER], cc: [], bcc: []},
       "only the customer: never the original's Reply-To or a copy");
-    assert.match(outgoing.body.content, /^<html><head><\/head><body><div style="[^"]+">Thank you, Layla\. Apartment 7 is available &lt;today&gt;\.<br>Shall we book a viewing\?<\/div><br><div id="quoted">/, "the approved text, escaped, above the quoted original");
+    assert.equal(outgoing.comment, "<div>Thank you, Layla. Apartment 7 is available &lt;today&gt;.<br>Shall we book a viewing?</div>", "the approved text, escaped, with its lines kept");
+    assert.equal(fakeMicrosoft.requests.some(item => /\/(createReply|send)$/.test(item.path) || item.method === "PATCH" || item.method === "DELETE"), false,
+      "no draft is ever created or edited: replying needs only Mail.Send");
     assert.ok(fakeMicrosoft.access.get(outgoing.authorization.replace("Bearer ", "")) === OFFICE, "sent with the mailbox's own access token");
     const job = (await sql(`query M($org: UUID!, $id: UUID!) { outboundMessageJob(key: {organizationId: $org, id: $id}) { stage providerMessageId } }`, {org: f.orgA, id: delivered.replyId})).outboundMessageJob;
-    assert.deepEqual(job, {stage: "SENT", providerMessageId: outgoing.id}, "SENT under the reply's immutable ID");
+    assert.equal(job.stage, "SENT", "SENT once Microsoft accepted the reply (202)");
+    assert.match(job.providerMessageId, /^m365-reply:[0-9a-f-]{36}$/, "Microsoft returns no ID for a reply, so EstateOS's own reference is kept");
     // Refused by Microsoft: FAILED with its reason, and the unsent draft removed.
     const refusedMail = deliverOutlook(OFFICE, {from: "refused@example.test", name: "Refused Customer", subject: "Question", html: "<p>Can you call me?</p>"});
     assert.equal((await post(`/api/inbox/mailboxes/${office.id}/sync`, {})).status, 200);
@@ -1675,9 +1675,8 @@ try {
     const refused = await sendReply(refusedThread.id, "Of course, I will call you today.");
     assert.equal(refused.sent.body.data.stage, "FAILED");
     assert.match(refused.sent.body.data.reason, /Microsoft refused it \(ErrorInvalidRecipients\)/);
-    assert.equal(fakeMicrosoft.mailbox(OFFICE).drafts.size, 0, "the unsent draft is deleted");
     assert.equal((await conversationsOf(office.id)).length, 2, "EstateOS's own replies are never imported back");
-    pass("Phase 7C.2c: an approved reply goes out in the customer's Outlook thread to the customer only (not the original's Reply-To or copies), the text escaped above the quote, SENT under its immutable ID; Microsoft's refusal fails it and removes the draft");
+    pass("Phase 7C.2c: an approved reply goes out with Outlook's reply action (Mail.Send only, no draft) in the customer's thread to the customer only (not the original's Reply-To or copies), the text escaped; SENT on Microsoft's acceptance; its refusal fails the reply with its reason");
 
     // Disconnecting: the grant wiped and sending off; Microsoft has no per-app revocation, so the member is told where to remove access.
     office = (await outlookRows())[0];

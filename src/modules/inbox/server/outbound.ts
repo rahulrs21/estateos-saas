@@ -299,7 +299,7 @@ export async function sendReply(context: Context, rawConversationId: string, raw
       : {accepted: false, reason: sent.code === "TIMEOUT" || sent.code === "NETWORK" ? `${sent.message} It may or may not have been delivered; check WhatsApp before sending again.` : `Meta refused it (${sent.code}): ${sent.message}`};
   } else if (delivery.mode === "EMAIL" && email) {
     const sent = email.provider === "GMAIL" ? await gmailSend(email.token, email.raw, email.threadId)
-      : await outlookReply(email.token, {replyToId: email.replyToId, to: target.customerIdentity, text: job.content});
+      : await outlookReply(email.token, {replyToId: email.replyToId, to: target.customerIdentity, text: job.content, reference: messageId});
     console.info(JSON.stringify({event: "inbox.email.send", provider: email.provider, replyId: facts.replyId, ok: sent.ok, code: sent.ok ? null : sent.code}));
     ack = sent.ok ? {accepted: true, providerMessageId: sent.providerMessageId}
       : {accepted: false, reason: sent.code === "TIMEOUT" || sent.code === "NETWORK" ? `${sent.message} It may or may not have been sent; check the mailbox's Sent folder before sending again.` : `${providerLabel(email.provider)} refused it (${sent.code}): ${sent.message}`};

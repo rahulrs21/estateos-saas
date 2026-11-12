@@ -3,7 +3,7 @@ import "server-only";
 import { getAppOrigin } from "@/modules/auth/server/config";
 import { normalizeEmailIdentity } from "../identity";
 import { pkceChallenge } from "../oauth-state";
-import { MICROSOFT_SCOPES, microsoftScopesGranted, outlookReplyHtml, type OutlookAttachment, type OutlookMessage } from "../outlook";
+import { MICROSOFT_SCOPES, microsoftScopesGranted, outlookReplyComment, type OutlookAttachment, type OutlookMessage } from "../outlook";
 
 /*
  * Microsoft Entra sign-in and Microsoft Graph mail, server only
@@ -159,26 +159,19 @@ export const outlookAttachments = (token: string, messageId: string) => graph<{v
 export const outlookAttachment = (token: string, messageId: string, attachmentId: string) => graph<OutlookAttachment>(token, `messages/${id(messageId)}/attachments/${id(attachmentId)}`);
 
 /**
- * Replies in the customer's thread: Outlook prepares the reply (quoting the
- * original), EstateOS sets exactly one recipient (the customer: never a Reply-To,
- * copy or blind copy from the original) and its approved text, then sends it.
- * Microsoft answers 202 with no body; the reply keeps its immutable ID in Sent
- * Items, which is the provider message ID. A draft that could not be sent is
- * deleted; after a timeout it is left alone (it may have been sent).
+ * Replies in the customer's thread with Outlook's own reply action, which needs
+ * only Mail.Send (preparing and editing a draft would need Mail.ReadWrite, which
+ * EstateOS does not ask for). Outlook quotes the original; EstateOS sets exactly
+ * one recipient, the customer (never the original's Reply-To, copies or blind
+ * copies), and its approved text, escaped. Microsoft answers 202 Accepted with no
+ * body and no ID, so the reply is recorded under EstateOS's own reference
+ * (`m365-reply:…`); it appears in the mailbox's Sent Items.
  */
-export async function outlookReply(token: string, input: {replyToId: string; to: string; text: string}) {
-  const draft = await graph<{id?: unknown; body?: {content?: unknown}}>(token, `messages/${id(input.replyToId)}/createReply`, {method: "POST", json: {}});
-  if (!draft.ok) return draft;
-  const draftId = typeof draft.data?.id === "string" ? draft.data.id : null;
-  if (!draftId) return {ok: false, status: 200, code: "NO_MESSAGE_ID", message: "Microsoft prepared the reply but returned no message ID."} satisfies MicrosoftFailure;
-  const discard = () => graph(token, `messages/${id(draftId)}`, {method: "DELETE"}).catch(() => undefined);
-  const quoted = typeof draft.data.body?.content === "string" ? draft.data.body.content : null;
-  const updated = await graph(token, `messages/${id(draftId)}`, {method: "PATCH", json: {
-    body: {contentType: "HTML", content: outlookReplyHtml(input.text, quoted)},
-    toRecipients: [{emailAddress: {address: input.to}}], ccRecipients: [], bccRecipients: [],
+export async function outlookReply(token: string, input: {replyToId: string; to: string; text: string; reference: string}) {
+  const sent = await graph(token, `messages/${id(input.replyToId)}/reply`, {method: "POST", json: {
+    message: {toRecipients: [{emailAddress: {address: input.to}}], ccRecipients: [], bccRecipients: []},
+    comment: outlookReplyComment(input.text),
   }});
-  if (!updated.ok) { await discard(); return updated; }
-  const sent = await graph(token, `messages/${id(draftId)}/send`, {method: "POST"});
-  if (!sent.ok) { if (sent.status >= 400 && sent.status < 500) await discard(); return sent; }
-  return {ok: true as const, providerMessageId: draftId.slice(0, 200)};
+  if (!sent.ok) return sent;
+  return {ok: true as const, providerMessageId: `m365-reply:${input.reference}`.slice(0, 200)};
 }

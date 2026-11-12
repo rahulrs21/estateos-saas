@@ -123,12 +123,11 @@ Microsoft 365 uses the same foundation as Gmail: the same mailbox kinds and perm
 ### Sending (test mode)
 
 - **The same requirements** as Gmail: approved, sending on, a test address, and a personal mailbox only for its owner (the database guard covers both providers).
-- **How.**
-  1. Outlook prepares the reply to the customer's newest email (`createReply`), quoting the original in its thread.
-  2. EstateOS sets exactly one recipient, the customer. It never uses the original's Reply-To, copies or blind copies.
-  3. It puts the approved text, escaped, above the quote.
-  4. It sends the reply.
-- **Results.** Microsoft answers 202 with no body. The reply keeps its immutable ID in Sent Items, and that ID is the provider message ID for SENT. A refusal fails the reply with Microsoft's code and deletes the unsent draft. After a timeout the draft is left alone (it may have been sent), and the member is told to check Sent Items.
+- **How.** One call to Outlook's own **reply** action on the customer's newest email, which needs only `Mail.Send`. EstateOS never creates or edits a draft, because that would need `Mail.ReadWrite`, a broader permission (changing and deleting mail) that it does not ask for.
+  - Outlook quotes the original in its thread.
+  - EstateOS names exactly one recipient, the customer. It never uses the original's Reply-To, copies or blind copies.
+  - The approved text is escaped, with its lines kept.
+- **Results.** Microsoft answers 202 Accepted with no body and no message ID. The reply is marked SENT on that acceptance and recorded under EstateOS's own reference (`m365-reply:…`); it appears in the mailbox's Sent Items. A refusal fails the reply with Microsoft's code. A timeout says it may or may not have been sent, so the member checks Sent Items before trying again.
 - **Not imported back.** Only the Inbox is read, so EstateOS's own replies (in Sent Items) never come back as customer mail.
 
 ### Server settings

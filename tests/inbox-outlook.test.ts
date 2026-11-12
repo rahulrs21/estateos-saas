@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { emailHtmlForStorage, htmlForStorage } from "../src/modules/inbox/email";
 import {
-  microsoftScopesGranted, normalizeOutlookMessage, outlookAutomatedReason, outlookCursorAfter, outlookFileAttachments, outlookHeaders, outlookHtmlForStorage, outlookReplyHtml, outlookSince,
+  microsoftScopesGranted, normalizeOutlookMessage, outlookAutomatedReason, outlookCursorAfter, outlookFileAttachments, outlookHeaders, outlookHtmlForStorage, outlookReplyComment, outlookSince,
   outlookThreadId, OUTLOOK_BACKFILL_MS, type OutlookMessage,
 } from "../src/modules/inbox/outlook";
 
@@ -96,10 +96,7 @@ test("the sync cursor starts three days back, resumes at the newest message read
   assert.equal(outlookCursorAfter("2026-11-12T11:00:00Z", []), "2026-11-12T11:00:00Z", "nothing new: unchanged");
 });
 
-test("a reply is the approved text, escaped, placed above the quoted original inside its body", () => {
-  const html = outlookReplyHtml("Hello <Layla> & team\nSee you Tuesday", "<html><head></head><body dir=\"ltr\"><div id=\"quoted\">Original</div></body></html>");
-  assert.match(html, /^<html><head><\/head><body dir="ltr"><div style="[^"]+">Hello &lt;Layla&gt; &amp; team<br>See you Tuesday<\/div><br><div id="quoted">Original<\/div>/);
-  assert.equal(html.includes("<Layla>"), false, "the reply text can never become markup");
-  assert.match(outlookReplyHtml("Only text", null), /^<div style="[^"]+">Only text<\/div><br>$/);
-  assert.match(outlookReplyHtml("Text", "<p>no body tag</p>"), /^<div[^>]*>Text<\/div><br><p>no body tag<\/p>$/);
+test("a reply's comment is the approved text, escaped, with its lines kept (Outlook quotes the original below it)", () => {
+  assert.equal(outlookReplyComment("Hello <Layla> & \"team\"\nSee you Tuesday\r\nRegards"), "<div>Hello &lt;Layla&gt; &amp; &quot;team&quot;<br>See you Tuesday<br>Regards</div>");
+  assert.equal(outlookReplyComment("<script>alert(1)</script>").includes("<script>"), false, "the reply text can never become markup");
 });

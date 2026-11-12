@@ -113,10 +113,8 @@ export function outlookCursorAfter(since: string, messages: Array<{receivedDateT
 // --- Replies --------------------------------------------------------------------------------
 const escapeHtml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-/** The reply body: the approved text (escaped, as plain lines) above the quoted original that Outlook prepared, inside its body. */
-export function outlookReplyHtml(text: string, quotedHtml: string | null | undefined) {
-  const own = `<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">${escapeHtml(text).replace(/\r?\n/g, "<br>")}</div><br>`;
-  if (!quotedHtml) return own;
-  const body = /<body\b[^>]*>/i.exec(quotedHtml);
-  return body ? quotedHtml.slice(0, body.index + body[0].length) + own + quotedHtml.slice(body.index + body[0].length) : own + quotedHtml;
-}
+/**
+ * The reply's comment: the approved text, escaped, its lines kept. Outlook places it
+ * above the quoted original. The text can never become markup.
+ */
+export const outlookReplyComment = (text: string) => `<div>${escapeHtml(text).replace(/\r?\n/g, "<br>")}</div>`;
