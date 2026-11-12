@@ -5,14 +5,16 @@ import { idSchema, parseInput } from "@/modules/communications/server/validation
 import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { emailHtmlForStorage } from "../email";
-import { accessTokenFor, gmailMessage } from "./google";
-import { mailboxGrant } from "./mailboxes";
+import { outlookHtmlForStorage } from "../outlook";
+import { gmailMessage } from "./google";
+import { mailboxAccessToken } from "./mailboxes";
+import { outlookMessage } from "./microsoft";
 
 /*
  * An email's formatted (HTML) version (docs/INBOX_SECURITY.md#safe-rendering).
  * Cleaned on the server and returned only to members who may see the
  * conversation; the browser shows it inside a sandboxed frame. Emails imported
- * before HTML was kept are fetched from Gmail the first time someone opens them,
+ * before HTML was kept are fetched from their mailbox the first time someone opens them,
  * then stored, so each is fetched at most once.
  */
 
@@ -29,22 +31,24 @@ export async function messageHtml(context: Context, rawConversationId: string, r
   if (!data.conversation || !message) throw new WorkspaceError("NOT_FOUND", 404, "This message was not found.");
   if (message.contentRedactedAt) return {html: null, removed: true};
   if (message.contentHtmlBytes !== null && message.contentHtmlBytes !== undefined) return {html: message.contentHtml || null, removed: false};
-  // Not looked up yet: only an incoming Gmail message can be fetched again from its mailbox.
+  // Not looked up yet: only an incoming email from a connected mailbox can be fetched again.
   const connectionId = data.conversation.channelConnectionId ? canonicalUuid(data.conversation.channelConnectionId) : null;
-  if (data.conversation.channel !== "EMAIL" || data.conversation.channelConnection?.provider !== "GMAIL" || message.direction !== "INBOUND" || !connectionId || !message.externalMessageId) {
+  const provider = data.conversation.channelConnection?.provider;
+  if (data.conversation.channel !== "EMAIL" || (provider !== "GMAIL" && provider !== "MICROSOFT_365") || message.direction !== "INBOUND" || !connectionId || !message.externalMessageId) {
     return {html: null, removed: false};
   }
   const mailbox = (await asServer("MailboxForAction", dc => sdk.mailboxForAction(dc, {organizationId: context.organizationId, id: connectionId, actorUid: context.request.user.uid}))).mailbox;
-  const grant = mailbox?.connectionStatus === "VERIFIED" ? mailboxGrant(context.organizationId, connectionId, mailbox.account) : null;
-  const access = grant ? await accessTokenFor(connectionId, grant) : null;
+  const access = mailbox?.connectionStatus === "VERIFIED" ? await mailboxAccessToken(context.organizationId, connectionId, provider, mailbox.account) : null;
   if (!access?.ok) return {html: null, removed: false};
-  const full = await gmailMessage(access.token, message.externalMessageId);
+  const full = provider === "GMAIL"
+    ? await gmailMessage(access.token, message.externalMessageId).then(result => result.ok ? {ok: true as const, html: emailHtmlForStorage(result.data.payload)} : result)
+    : await outlookMessage(access.token, message.externalMessageId).then(result => result.ok ? {ok: true as const, html: outlookHtmlForStorage(result.data.body)} : result);
   if (!full.ok) {
     // Gone from the mailbox: remember that there is nothing to show; other failures are tried again next time.
     if (full.status === 404) await storeMessageHtml(context.organizationId, id, null);
     return {html: null, removed: false};
   }
-  const html = emailHtmlForStorage(full.data.payload);
+  const html = full.html;
   await storeMessageHtml(context.organizationId, id, html);
   return {html, removed: false};
 }

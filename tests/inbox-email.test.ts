@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { test } from "node:test";
+// Phase 7C.2: the Microsoft 365 / Outlook rules run with these (tests/inbox-outlook.test.ts).
+import "./inbox-outlook.test";
 import { openSecret, sealSecret, TokenVaultError, vaultKey } from "../src/modules/inbox/vault";
 import { newOAuthState, openOAuthState, pkceChallenge, sealOAuthState } from "../src/modules/inbox/oauth-state";
 import {

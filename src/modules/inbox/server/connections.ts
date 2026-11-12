@@ -22,7 +22,7 @@ import type { ChannelProvider } from "../model";
 
 const ADMIN_ONLY = "Only company owners and administrators can manage inbox channels.";
 // Gmail is connected through Google sign-in (server/mailboxes.ts), never by entering details here.
-const CONFIGURABLE = ["WHATSAPP_CLOUD", "MICROSOFT_365"] as const;
+const CONFIGURABLE = ["WHATSAPP_CLOUD"] as const;
 export const VERIFY_TOKEN_SUFFIX = "_VERIFY_TOKEN";
 
 /** A secret named by a connection, read on the server only (never returned to a browser). */
@@ -34,7 +34,6 @@ export function readInboxSecret(name: string | null | undefined): string | null 
 
 const ACCOUNT_RULES: Record<(typeof CONFIGURABLE)[number], {pattern: RegExp; label: string}> = {
   WHATSAPP_CLOUD: {pattern: /^\d{5,30}$/, label: "WhatsApp phone number ID (digits, from Meta's WhatsApp Manager)"},
-  MICROSOFT_365: {pattern: /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,}$/i, label: "mailbox address"},
 };
 
 const optional = (max: number) => z.string().trim().max(max).nullable().default(null).transform(value => value || null);
@@ -83,7 +82,7 @@ export async function listConnections(context: Context) {
   const origin = getAppOrigin();
   return {
     providers: CONFIGURABLE.map(provider => ({provider, label: ADAPTERS[provider].label, capabilities: ADAPTERS[provider].capabilities, accountLabel: ACCOUNT_RULES[provider].label})),
-    connections: data.connections.filter(row => row.provider !== "GMAIL").map(row => {
+    connections: data.connections.filter(row => row.provider !== "GMAIL" && row.provider !== "MICROSOFT_365").map(row => {
       const provider = row.provider as ChannelProvider;
       const adapter = ADAPTERS[provider];
       const receives = adapter.capabilities.RECEIVE_EVENTS === "SUPPORTED" && provider !== "DEVELOPMENT_SIMULATOR" && provider !== "WEBSITE_FORM" && provider !== "INTERNAL";

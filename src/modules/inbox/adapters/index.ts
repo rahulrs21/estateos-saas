@@ -34,7 +34,7 @@ export const ADAPTERS: Record<ChannelProvider, ChannelAdapter> = {
   WHATSAPP_CLOUD: whatsappAdapter,
   // Gmail (7C.1): OAuth (server/google.ts, server/mailboxes.ts); no webhook. Microsoft 365: Graph subscriptions or delta sync (7C.2).
   GMAIL: {...notBuilt("GMAIL", "EMAIL", "Gmail (Google Workspace)"), capabilities: {...refuseAll(), VALIDATE_CONNECTION: "SUPPORTED", DISCONNECT: "SUPPORTED", RECEIVE_EVENTS: "SUPPORTED", NORMALIZE_MESSAGE: "SUPPORTED", SEND_MESSAGE: "SUPPORTED", RESOLVE_MESSAGE_ID: "SUPPORTED", DELIVERY_RECEIPTS: "UNSUPPORTED"}},
-  MICROSOFT_365: notBuilt("MICROSOFT_365", "EMAIL", "Microsoft 365 / Outlook"),
+  MICROSOFT_365: {...notBuilt("MICROSOFT_365", "EMAIL", "Microsoft 365 / Outlook"), capabilities: {...refuseAll(), VALIDATE_CONNECTION: "SUPPORTED", DISCONNECT: "SUPPORTED", RECEIVE_EVENTS: "SUPPORTED", NORMALIZE_MESSAGE: "SUPPORTED", SEND_MESSAGE: "SUPPORTED", RESOLVE_MESSAGE_ID: "SUPPORTED", DELIVERY_RECEIPTS: "UNSUPPORTED"}},
   // Website enquiries arrive through the lead capture transaction, not a webhook.
   WEBSITE_FORM: internal("WEBSITE_FORM", "WEBSITE", "EstateOS website forms", {RECEIVE_EVENTS: "SUPPORTED", NORMALIZE_MESSAGE: "SUPPORTED"}),
   INTERNAL: internal("INTERNAL", "INTERNAL", "EstateOS", {}),
@@ -46,7 +46,7 @@ export const ADAPTERS: Record<ChannelProvider, ChannelAdapter> = {
 };
 
 /** URL slugs of providers with webhook routes. Gmail is polled (no webhook), so its old route answers 404. */
-export const WEBHOOK_SLUGS: Record<string, ChannelProvider> = {whatsapp: "WHATSAPP_CLOUD", "microsoft-365": "MICROSOFT_365"};
+export const WEBHOOK_SLUGS: Record<string, ChannelProvider> = {whatsapp: "WHATSAPP_CLOUD"};
 
 /** Secret names a connection may reference (server environment or Secret Manager); never a value. */
 export const CREDENTIAL_REFERENCE = /^INBOX_[A-Z0-9_]{3,56}$/;

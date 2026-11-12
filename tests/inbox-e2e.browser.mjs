@@ -198,6 +198,138 @@ const google = createHttpServer((request, response) => {
 });
 await new Promise(done => google.listen({port: 0, host: "::", ipv6Only: false}, done));
 const googlePort = google.address().port;
+// ---------------------------------------------------------------- a fake Microsoft identity platform and Graph mail API (Phase 7C.2)
+// Like the fake Google: sign-in on "localhost" (a cross-site return), PKCE and the client secret checked, and a
+// new refresh token handed back on every refresh, as Microsoft does. Access tokens last 30 seconds, so every
+// sync refreshes and the rotation is exercised. It records each request, including the Prefer header.
+const microsoftClient = {id: randomUUID(), secret: "e2e-microsoft-secret-" + randomBytes(12).toString("hex")};
+const MS_SCOPE = "https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/User.Read";
+const fakeMicrosoft = {
+  next: {account: null, scope: MS_SCOPE, deny: false, error: null},
+  codes: new Map(), refresh: new Map(), access: new Map(), refreshUses: [], requests: [], mailboxes: new Map(),
+  mailbox(address) {
+    if (!this.mailboxes.has(address)) this.mailboxes.set(address, {messages: new Map(), drafts: new Map(), sent: [], deleted: []});
+    return this.mailboxes.get(address);
+  },
+};
+const microsoft = createHttpServer((request, response) => {
+  let raw = "";
+  request.on("data", chunk => { raw += chunk; });
+  request.on("end", () => {
+    const url = new URL(request.url, "http://fake.microsoft");
+    const form = Object.fromEntries(new URLSearchParams(request.headers["content-type"]?.includes("x-www-form-urlencoded") ? raw : ""));
+    const json = request.headers["content-type"]?.includes("json") && raw ? JSON.parse(raw) : null;
+    fakeMicrosoft.requests.push({method: request.method, path: url.pathname, query: Object.fromEntries(url.searchParams), form, json, prefer: request.headers.prefer ?? null, authorization: request.headers.authorization ?? null});
+    const reply = (status, value) => { response.writeHead(status, {"Content-Type": "application/json"}); response.end(value === undefined ? "" : JSON.stringify(value)); };
+    if (request.method === "GET" && url.pathname === "/common/oauth2/v2.0/authorize") {
+      const q = Object.fromEntries(url.searchParams);
+      const target = new URL(q.redirect_uri);
+      target.searchParams.set("state", q.state ?? "");
+      if (fakeMicrosoft.next.deny) target.searchParams.set("error", "access_denied");
+      else if (fakeMicrosoft.next.error) { target.searchParams.set("error", "invalid_request"); target.searchParams.set("error_description", fakeMicrosoft.next.error); }
+      else {
+        if (q.client_id !== microsoftClient.id || q.response_type !== "code" || q.code_challenge_method !== "S256" || !q.code_challenge || !/offline_access/.test(q.scope ?? "")) return reply(400, {error: "invalid_request"});
+        const code = "e2e-ms-code-" + randomBytes(10).toString("hex");
+        fakeMicrosoft.codes.set(code, {challenge: q.code_challenge, redirect: q.redirect_uri, account: fakeMicrosoft.next.account ?? q.login_hint, scope: fakeMicrosoft.next.scope, used: false});
+        target.searchParams.set("code", code);
+      }
+      response.writeHead(302, {Location: target.toString()});
+      return response.end();
+    }
+    if (request.method === "POST" && url.pathname === "/common/oauth2/v2.0/token") {
+      if (form.client_id !== microsoftClient.id || form.client_secret !== microsoftClient.secret) return reply(401, {error: "invalid_client", error_description: "AADSTS7000215: Invalid client secret provided."});
+      const issue = (account, scope) => {
+        const refreshToken = "M.e2e-refresh-" + randomBytes(16).toString("hex"), accessToken = "EwB.e2e-access-" + randomBytes(16).toString("hex");
+        fakeMicrosoft.refresh.set(refreshToken, account);
+        fakeMicrosoft.access.set(accessToken, account);
+        return reply(200, {token_type: "Bearer", scope, expires_in: 30, access_token: accessToken, refresh_token: refreshToken});
+      };
+      if (form.grant_type === "authorization_code") {
+        const grant = fakeMicrosoft.codes.get(form.code);
+        if (!grant || grant.used || grant.redirect !== form.redirect_uri || createHash("sha256").update(form.code_verifier ?? "").digest("base64url") !== grant.challenge) return reply(400, {error: "invalid_grant", error_description: "AADSTS70008: The provided authorization code has expired."});
+        grant.used = true;
+        return issue(grant.account, grant.scope);
+      }
+      if (form.grant_type === "refresh_token") {
+        const account = fakeMicrosoft.refresh.get(form.refresh_token);
+        if (!account) return reply(400, {error: "invalid_grant", error_description: "AADSTS70000: The refresh token is invalid."});
+        fakeMicrosoft.refreshUses.push(form.refresh_token);
+        return issue(account, MS_SCOPE);
+      }
+      return reply(400, {error: "unsupported_grant_type"});
+    }
+    const account = fakeMicrosoft.access.get((request.headers.authorization ?? "").replace(/^Bearer /, ""));
+    if (url.pathname.startsWith("/v1.0/me")) {
+      if (!account) return reply(401, {error: {code: "InvalidAuthenticationToken", message: "Access token is empty."}});
+      const box = fakeMicrosoft.mailbox(account);
+      if (url.pathname === "/v1.0/me") return reply(200, {mail: account, userPrincipalName: account});
+      if (url.pathname === "/v1.0/me/mailFolders/inbox/messages") {
+        const since = Date.parse(/receivedDateTime ge (\S+)/.exec(url.searchParams.get("$filter") ?? "")?.[1] ?? "");
+        const listed = [...box.messages.values()].filter(item => Date.parse(item.receivedDateTime) >= since).sort((a, b) => Date.parse(a.receivedDateTime) - Date.parse(b.receivedDateTime));
+        return reply(200, {value: listed.slice(0, Number(url.searchParams.get("$top") ?? 10)).map(item => ({id: item.id, receivedDateTime: item.receivedDateTime}))});
+      }
+      const match = /^\/v1\.0\/me\/messages\/([^/]+)(?:\/(attachments|createReply|send)(?:\/([^/]+))?)?$/.exec(url.pathname);
+      if (match) {
+        const id = decodeURIComponent(match[1]);
+        const found = box.messages.get(id);
+        const draft = box.drafts.get(id);
+        const notFound = () => reply(404, {error: {code: "ErrorItemNotFound", message: "The specified object was not found in the store."}});
+        if (!match[2] && request.method === "GET") {
+          if (!found) return notFound();
+          // Like Graph: the files are a separate call, and the body only when it is selected.
+          const message = {...found, attachments: undefined};
+          return reply(200, /body/.test(url.searchParams.get("$select") ?? "") ? message : {...message, body: undefined, uniqueBody: undefined});
+        }
+        if (match[2] === "attachments" && request.method === "GET") {
+          if (!found) return notFound();
+          if (match[3]) { const file = found.attachments.find(item => item.id === decodeURIComponent(match[3])); return file ? reply(200, file) : notFound(); }
+          return reply(200, {value: found.attachments.map(file => ({...file, contentBytes: undefined}))});
+        }
+        if (match[2] === "createReply" && request.method === "POST") {
+          if (!found) return notFound();
+          // Outlook addresses a reply to the original's Reply-To when it has one; EstateOS must set the customer itself.
+          const draftId = "AAkALg-e2e-draft-" + randomBytes(8).toString("hex");
+          const created = {id: draftId, conversationId: found.conversationId, isDraft: true, replyTo: id, toRecipients: found.replyTo ?? [found.from], ccRecipients: [{emailAddress: {address: "cc.copy@example.test"}}],
+            body: {contentType: "html", content: "<html><head></head><body><div id=\"quoted\">From: " + found.from.emailAddress.address + "<br>" + found.body.content.replace(/<\/?(html|head|body)[^>]*>/g, "") + "</div></body></html>"}};
+          box.drafts.set(draftId, created);
+          return reply(201, created);
+        }
+        if (!match[2] && request.method === "PATCH") {
+          if (!draft) return notFound();
+          Object.assign(draft, json);
+          return reply(200, draft);
+        }
+        if (match[2] === "send" && request.method === "POST") {
+          if (!draft) return notFound();
+          if ((draft.toRecipients ?? []).some(item => item.emailAddress.address === "refused@example.test")) return reply(400, {error: {code: "ErrorInvalidRecipients", message: "At least one recipient is not valid."}});
+          box.drafts.delete(id);
+          box.sent.push({...draft, authorization: request.headers.authorization});
+          return reply(202);
+        }
+        if (!match[2] && request.method === "DELETE") { if (box.drafts.delete(id)) box.deleted.push(id); return reply(204); }
+      }
+    }
+    reply(404, {error: {code: "ResourceNotFound", message: "Unknown path"}});
+  });
+});
+await new Promise(done => microsoft.listen({port: 0, host: "::", ipv6Only: false}, done));
+const microsoftPort = microsoft.address().port;
+/** Puts a message in a fake Outlook Inbox, the way Microsoft Graph shows it. */
+function deliverOutlook(address, {from, name, subject, html, unique, headers = {}, replyTo = null, attachments = []}) {
+  const box = fakeMicrosoft.mailbox(address);
+  const id = "AAkALgAAAAAAHYQDEapmEc2byACqAC-EWg0AmRJyzi4v-E6DIdBVrL9EhQAAA" + randomBytes(10).toString("hex") + "=";
+  const internetMessageId = "<" + randomBytes(6).toString("hex") + "@outlook.example.test>";
+  const message = {
+    id, conversationId: "AAQkAGVmMDEzMTM4LTZmYWUt" + randomBytes(8).toString("hex") + "=", receivedDateTime: new Date(Date.now() - 2000).toISOString().replace(/\.\d{3}Z$/, "Z"), subject, isDraft: false,
+    from: {emailAddress: {address: from, name}}, toRecipients: [{emailAddress: {address}}], ...(replyTo ? {replyTo: [{emailAddress: {address: replyTo}}]} : {}), internetMessageId,
+    internetMessageHeaders: [["From", name + " <" + from + ">"], ["To", address], ["Subject", subject], ["Message-ID", internetMessageId], ...Object.entries(headers)].map(([headerName, value]) => ({name: headerName, value})),
+    body: {contentType: "html", content: html}, uniqueBody: {contentType: "html", content: unique ?? html}, hasAttachments: attachments.length > 0,
+    attachments: attachments.map((file, index) => ({"@odata.type": "#microsoft.graph.fileAttachment", id: "ATT-" + index + "-" + randomBytes(4).toString("hex"), name: file.name, contentType: file.mimeType, size: file.bytes.length, isInline: false, contentBytes: file.bytes.toString("base64")})),
+  };
+  box.messages.set(id, message);
+  return message;
+}
+
 /** Puts a message in a fake mailbox, the way Gmail shows it to the history and messages APIs. */
 function deliverEmail(address, {from, subject, text, html, headers = {}, labels = ["INBOX", "UNREAD", "CATEGORY_PERSONAL"], threadId, attachments = []}) {
   const box = fakeGoogle.mailbox(address);
@@ -241,6 +373,9 @@ function startNext() {
       INBOX_GOOGLE_OAUTH_BASE: `http://localhost:${googlePort}`, INBOX_GOOGLE_API_BASE: `http://127.0.0.1:${googlePort}`,
       INBOX_GOOGLE_CLIENT_ID: googleClient.id, INBOX_GOOGLE_CLIENT_SECRET: googleClient.secret, INBOX_TOKEN_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
       INBOX_EMAIL_TEST_RECIPIENTS: "layla.customer@example.test, refused@example.test",
+      // Phase 7C.2: the fake Microsoft (sign-in on localhost, Graph on 127.0.0.1) and a per-run app registration.
+      INBOX_MICROSOFT_OAUTH_BASE: `http://localhost:${microsoftPort}`, INBOX_MICROSOFT_API_BASE: `http://127.0.0.1:${microsoftPort}`,
+      INBOX_MICROSOFT_CLIENT_ID: microsoftClient.id, INBOX_MICROSOFT_CLIENT_SECRET: microsoftClient.secret,
       // The developer simulator (local emulators and a demo project only).
       ESTATEOS_DEV_TOOLS: "1",
     },
@@ -368,7 +503,7 @@ try {
   assert.equal((await api("/api/inbox/conversations")).status, 401);
   assert.equal((await post("/api/inbox/conversations/" + randomUUID() + "/notes", {body: "x"})).status, 401);
   pass("Unauthenticated inbox reads and changes are rejected");
-  if (process.env.INBOX_E2E_ONLY === "mailboxes") { await mailboxChecks(); throw ONLY_DONE; }
+  if (process.env.INBOX_E2E_ONLY === "mailboxes") { await mailboxChecks(); await microsoftChecks(); throw ONLY_DONE; }
 
   // ------------------------------------------------------------ fixtures through the server-only storage (as ingestion writes them)
   await signIn("owner-a");
@@ -562,7 +697,7 @@ try {
   await signIn("owner-b");
   const claimed = await post("/api/inbox/connections", {provider: "WHATSAPP_CLOUD", displayName: "Someone else", externalAccountReference: WA_ACCOUNT, credentialReference: "INBOX_E2E_WA_SECRET"}, f.orgB);
   assert.equal(claimed.status, 409, "another company cannot claim the same WhatsApp number");
-  const pasted = await post("/api/inbox/connections", {provider: "MICROSOFT_365", displayName: "Mailbox", externalAccountReference: "sales@example.test", credentialReference: "my-password-123"}, f.orgB);
+  const pasted = await post("/api/inbox/connections", {provider: "WHATSAPP_CLOUD", displayName: "Pasted", externalAccountReference: "109876543210", credentialReference: "my-password-123"}, f.orgB);
   assert.equal(pasted.status, 400, "a pasted password or token is refused: only a secret name is accepted");
   pass("Administrators add a WhatsApp channel: configured but not verified, sending off, only the secret's name stored; one company per number");
 
@@ -1390,7 +1525,176 @@ try {
     await signIn("owner-a");
     pass("Phase 7C.1c: Google's refusal fails the reply with its reason; disconnecting revokes the grant at Google, wipes it, and stops sending and importing");
   }
+
+  // ---------------------------------------------------------- 7C.2: Microsoft 365 / Outlook mailboxes (the fake Microsoft)
+  async function microsoftChecks() {
+    const OFFICE = "office@fazahome.example.test", CUSTOMER = "layla.customer@example.test";
+    const workerTick = async () => {
+      const response = await fetch(origin + "/api/internal/automations/tick", {method: "POST", headers: {Authorization: `Bearer ${workerSecret}`}, signal: AbortSignal.timeout(180000)});
+      assert.equal(response.status, 200);
+      return (await response.json()).data;
+    };
+    const outlookRows = async () => (await sql(`query M($org: UUID!) { channelConnections(where: {organizationId: {eq: $org}, provider: {eq: MICROSOFT_365}}) { id externalAccountReference connectionStatus sendingEnabled ownerMembershipId revision
+      account: inboxMailboxAccount_on_channelConnection { tokenCiphertext tokenKeyId historyId syncState scopes } } }`, {org: f.orgA})).channelConnections;
+    const conversationsOf = async connectionId => (await sql(`query C($org: UUID!, $connection: UUID!) { inboxConversations(where: {organizationId: {eq: $org}, channelConnectionId: {eq: $connection}}) {
+      id externalThreadId customerIdentity customerName subject contactId messages: inboxMessages_on_conversation(orderBy: [{createdAt: ASC}]) { id content contentHtml externalMessageId internetMessageId direction deliveryStatus
+      attachments: inboxAttachments_on_message { fileName mimeType storagePath } } } }`, {org: f.orgA, connection: connectionId})).inboxConversations;
+
+    // Connecting through the page: the dialog, Microsoft's sign-in (the fake), the callback, back to settings.
+    await signIn("owner-a");
+    fakeMicrosoft.next = {account: OFFICE, scope: MS_SCOPE, deny: false, error: null};
+    await load("/inbox/settings", "document.body.innerText.includes('Email mailboxes')");
+    await waitFor("[...document.querySelectorAll('button')].some(b=>b.textContent.trim().startsWith('Connect company Microsoft 365'))", "the Microsoft button");
+    await clickText("Connect company Microsoft 365", "button");
+    await waitFor("Boolean(document.querySelector('[role=dialog] [name=displayName]'))", "the connect dialog");
+    await setField("displayName", "Office mailbox");
+    await clickText("Continue to Microsoft", "button");
+    await waitFor("location.pathname === '/inbox/settings' && location.search.includes('mailbox=') && Boolean(document.querySelector('[data-testid=mailbox-notice]'))", "the return to Inbox settings");
+    assert.match(await evaluate("document.querySelector('[data-testid=mailbox-notice]').innerText"), /Mailbox connected/);
+    const authorize = fakeMicrosoft.requests.find(item => item.path === "/common/oauth2/v2.0/authorize");
+    assert.deepEqual({method: authorize.query.code_challenge_method, prompt: authorize.query.prompt, mode: authorize.query.response_mode, redirect: authorize.query.redirect_uri, scope: authorize.query.scope.split(" ").sort()},
+      {method: "S256", prompt: "select_account", mode: "query", redirect: `${origin}/api/inbox/oauth/microsoft/callback`,
+        scope: ["https://graph.microsoft.com/Mail.Read", "https://graph.microsoft.com/Mail.Send", "https://graph.microsoft.com/User.Read", "offline_access"]}, "PKCE, a query return and only mail, profile and lasting access");
+    const exchange = fakeMicrosoft.requests.find(item => item.path === "/common/oauth2/v2.0/token" && item.form.grant_type === "authorization_code");
+    assert.ok(exchange.form.code_verifier && exchange.form.client_secret === microsoftClient.secret, "the code is exchanged on the server with the verifier and the client secret");
+    let [office] = (await outlookRows()).filter(row => row.externalAccountReference === OFFICE);
+    assert.deepEqual({status: office.connectionStatus, sending: office.sendingEnabled, owner: office.ownerMembershipId ?? null, state: office.account.syncState, keyId: office.account.tokenKeyId},
+      {status: "VERIFIED", sending: false, owner: null, state: "ACTIVE", keyId: "k1"});
+    const [firstGrant] = [...fakeMicrosoft.refresh.keys()];
+    assert.match(office.account.tokenCiphertext, /^v1:/);
+    assert.equal(office.account.tokenCiphertext.includes(firstGrant), false, "the refresh token is stored only encrypted");
+    const seen = JSON.stringify((await api("/api/inbox/mailboxes")).body) + await evaluate("document.body.innerText");
+    for (const secret of [firstGrant, ...fakeMicrosoft.access.keys(), office.account.tokenCiphertext, microsoftClient.secret]) assert.equal(seen.includes(secret), false, "no token, grant or client secret reaches the browser");
+    assert.match(await evaluate("[...document.querySelectorAll('[data-testid=mailbox]')].map(e=>e.innerText).join('|')"), new RegExp(`${OFFICE}[\\s\\S]*Microsoft 365[\\s\\S]*Company mailbox[\\s\\S]*Connected`));
+    await screenshot("inbox-mailboxes-microsoft");
+    assert.equal((await post("/api/inbox/mailboxes/microsoft/start", {kind: "COMPANY", displayName: "Reconnect as Gmail", connectionId: office.id.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5")})).status, 200, "reconnecting stays with Microsoft");
+    assert.equal((await post("/api/inbox/mailboxes/google/start", {kind: "COMPANY", displayName: "Wrong provider", connectionId: office.id.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5")})).status, 400, "a Microsoft mailbox is not reconnected through Google");
+    pass("Phase 7C.2: an owner connects a company Microsoft 365 mailbox through Microsoft's sign-in (PKCE, mail scopes only, cross-site return); VERIFIED, sending off, the grant stored only encrypted and never shown");
+
+    // Refusals: an organisation needing an administrator's consent, missing send permission, and the wrong provider's return.
+    await load("/api/auth/csrf");
+    fakeMicrosoft.next = {account: null, scope: MS_SCOPE, deny: false, error: "AADSTS65001: The user or administrator has not consented to use the application."};
+    let started = await post("/api/inbox/mailboxes/microsoft/start", {kind: "COMPANY", displayName: "Needs consent"});
+    currentPath = "microsoft-consent";
+    await command("Page.navigate", {url: started.body.data.authorizationUrl});
+    await waitFor("Boolean(document.querySelector('[data-testid=mailbox-connect-result]'))", "the refused callback");
+    assert.match(await evaluate("document.querySelector('[data-testid=mailbox-connect-result]').innerText"), /AADSTS65001/);
+    await load("/api/auth/csrf");
+    fakeMicrosoft.next = {account: "readonly@fazahome.example.test", scope: "https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/User.Read", deny: false, error: null};
+    started = await post("/api/inbox/mailboxes/microsoft/start", {kind: "COMPANY", displayName: "Read only"});
+    await command("Page.navigate", {url: started.body.data.authorizationUrl});
+    await waitFor("Boolean(document.querySelector('[data-testid=mailbox-connect-result]'))", "the refused callback");
+    assert.match(await evaluate("document.querySelector('[data-testid=mailbox-connect-result]').innerText"), /both to read and to send/);
+    await load("/api/auth/csrf");
+    fakeMicrosoft.next = {account: OFFICE, scope: MS_SCOPE, deny: false, error: null};
+    started = await post("/api/inbox/mailboxes/microsoft/start", {kind: "COMPANY", displayName: "Crossed"});
+    const state = new URL(started.body.data.authorizationUrl).searchParams.get("state");
+    await command("Page.navigate", {url: `${origin}/api/inbox/oauth/google/callback?state=${encodeURIComponent(state)}&code=crossed`});
+    await waitFor("Boolean(document.querySelector('[data-testid=mailbox-connect-result]'))", "the crossed callback");
+    assert.match(await evaluate("document.body.innerText"), /could not be confirmed/, "a Microsoft sign-in is never completed through Google's return");
+    assert.equal((await outlookRows()).length, 1, "nothing else was stored");
+    await signIn("agent-a");
+    assert.equal((await post("/api/inbox/mailboxes/microsoft/start", {kind: "COMPANY", displayName: "Sneaky"})).status, 403, "agents cannot connect company mailboxes");
+    assert.equal((await post("/api/inbox/mailboxes/microsoft/start", {kind: "PERSONAL", displayName: "Second"})).status, 409, "one personal mailbox per member, whichever provider");
+    pass("Phase 7C.2: an organisation's consent refusal, missing send permission and a return to the wrong provider store nothing; agents cannot connect company mailboxes; one personal mailbox each");
+
+    // Importing: the Inbox read by received time; people imported (new part only, HTML kept, files stored), automated mail skipped.
+    const customerMail = deliverOutlook(OFFICE, {from: CUSTOMER, name: "Layla Customer", subject: "Apartment 7 on the Palm", replyTo: "assistant.of.layla@example.test",
+      html: "<html><head><style>p{color:#0b5394}</style></head><body><p>Hello, is <b>Apartment 7</b> still available?</p><div>On Monday the agent wrote:</div><blockquote>old</blockquote></body></html>",
+      unique: "<p>Hello, is <b>Apartment 7</b> still available?</p>",
+      attachments: [{name: "floor-plan.pdf", mimeType: "application/pdf", bytes: Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n")}, {name: "invoice.pdf", mimeType: "application/pdf", bytes: Buffer.from("MZ\u0090\u0000 not really a pdf")}]});
+    deliverOutlook(OFFICE, {from: "news@portal.example.test", name: "Portal News", subject: "This week's listings", html: "<p>Newsletter</p>", headers: {"List-Unsubscribe": "<https://portal.example.test/u>"}});
+    deliverOutlook(OFFICE, {from: "no-reply@bank.example.test", name: "Bank", subject: "Statement", html: "<p>Statement</p>"});
+    await signIn("owner-a");
+    const checked = await post(`/api/inbox/mailboxes/${office.id}/sync`, {});
+    assert.equal(checked.status, 200, JSON.stringify(checked.body));
+    let threads = await conversationsOf(office.id);
+    assert.equal(threads.length, 1, "newsletters and robots are not imported");
+    const [thread] = threads;
+    assert.deepEqual({thread: thread.externalThreadId, identity: thread.customerIdentity, name: thread.customerName, subject: thread.subject, linked: Boolean(thread.contactId)},
+      {thread: `m365:${customerMail.conversationId}`, identity: CUSTOMER, name: "Layla Customer", subject: "Apartment 7 on the Palm", linked: true}, "matched to the CRM contact by the exact address");
+    const [first] = thread.messages;
+    assert.equal(first.content, "Hello, is Apartment 7 still available?", "the new part only");
+    assert.equal(first.externalMessageId, customerMail.id);
+    assert.equal(first.internetMessageId, customerMail.internetMessageId);
+    assert.ok(first.contentHtml.includes("<style>p{color:#0b5394}</style>") && first.contentHtml.includes("<b>Apartment 7</b>"), "the cleaned formatted version is kept");
+    assert.deepEqual(first.attachments.map(item => [item.fileName, Boolean(item.storagePath)]).sort(), [["floor-plan.pdf", true], ["invoice.pdf", false]],
+      "a real PDF is stored privately; a disguised program is listed but never stored");
+    assert.equal(first.attachments.find(item => item.fileName === "floor-plan.pdf").mimeType, "application/pdf");
+    const graphCalls = fakeMicrosoft.requests.filter(item => item.path.startsWith("/v1.0/me/"));
+    assert.ok(graphCalls.length > 0 && graphCalls.every(item => item.prefer === 'IdType="ImmutableId"'), "every mail call asks for immutable IDs");
+    assert.equal(fakeMicrosoft.requests.some(item => item.path.includes(encodeURIComponent([...fakeMicrosoft.mailbox(OFFICE).messages.values()].find(m => m.subject === "This week's listings").id)) && /body/.test(item.query.$select ?? "")), false,
+      "skipped mail is judged by its headers alone: its content is never fetched");
+    // A new refresh token is handed back on each refresh; the next refresh uses the one stored.
+    assert.equal(fakeMicrosoft.refreshUses[0], firstGrant, "the first refresh used the grant from sign-in");
+    const usesBefore = fakeMicrosoft.refreshUses.length;
+    const latestIssued = [...fakeMicrosoft.refresh.keys()].at(-1);
+    const before = (await outlookRows())[0].account.tokenCiphertext;
+    await signIn("owner-a");
+    assert.equal((await post(`/api/inbox/mailboxes/${office.id}/sync`, {})).status, 200);
+    assert.notEqual((await outlookRows())[0].account.tokenCiphertext, before, "the rotated refresh token is stored (sealed)");
+    assert.equal(fakeMicrosoft.refreshUses.length, usesBefore + 1);
+    assert.equal(fakeMicrosoft.refreshUses.at(-1), latestIssued, "the next refresh uses the newest token Microsoft handed back");
+    assert.equal((await conversationsOf(office.id))[0].messages.length, 1, "a repeated sync imports nothing again");
+    pass("Phase 7C.2: the worker imports a CRM customer's Outlook email (new part only, formatted version cleaned, a real PDF stored, a disguised program refused) with immutable IDs; automated mail is judged by its headers and skipped; rotated refresh tokens are stored and used");
+
+    // Replying: in the customer's Outlook thread, to the customer only, SENT under the reply's own (immutable) ID.
+    office = (await outlookRows())[0];
+    const sendReply = async (conversationId, content) => {
+      await signIn("owner-a");
+      const created = await post(`/api/inbox/conversations/${conversationId}/replies`, {content});
+      const replyId = created.body.data.id;
+      const row = async () => (await api(`/api/inbox/conversations/${conversationId}/replies`)).body.data.replies.find(item => item.id === replyId);
+      await post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/check`, {expectedRevision: (await row()).revision});
+      await post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/submit`, {expectedRevision: (await row()).revision});
+      await signIn("admin-a");
+      await post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/decide`, {expectedRevision: (await row()).revision, decision: "APPROVE"});
+      await signIn("owner-a");
+      return {replyId, sent: await post(`/api/inbox/conversations/${conversationId}/replies/${replyId}/send`, {expectedRevision: (await row()).revision})};
+    };
+    const off = await sendReply(thread.id, "Thank you, Layla.");
+    assert.equal(off.sent.status, 409, "with sending off nothing is sent");
+    office = (await outlookRows())[0];
+    assert.equal((await post(`/api/inbox/mailboxes/${office.id}/sending`, {expectedRevision: office.revision, enabled: true})).status, 200);
+    const delivered = await sendReply(thread.id, "Thank you, Layla. Apartment 7 is available <today>.\nShall we book a viewing?");
+    assert.equal(delivered.sent.status, 200, JSON.stringify(delivered.sent.body));
+    assert.equal(delivered.sent.body.data.stage, "SENT");
+    const outgoing = fakeMicrosoft.mailbox(OFFICE).sent.at(-1);
+    assert.equal(outgoing.replyTo, customerMail.id, "a reply to the customer's own email, in its thread");
+    assert.deepEqual({to: outgoing.toRecipients.map(item => item.emailAddress.address), cc: outgoing.ccRecipients, bcc: outgoing.bccRecipients}, {to: [CUSTOMER], cc: [], bcc: []},
+      "only the customer: never the original's Reply-To or a copy");
+    assert.match(outgoing.body.content, /^<html><head><\/head><body><div style="[^"]+">Thank you, Layla\. Apartment 7 is available &lt;today&gt;\.<br>Shall we book a viewing\?<\/div><br><div id="quoted">/, "the approved text, escaped, above the quoted original");
+    assert.ok(fakeMicrosoft.access.get(outgoing.authorization.replace("Bearer ", "")) === OFFICE, "sent with the mailbox's own access token");
+    const job = (await sql(`query M($org: UUID!, $id: UUID!) { outboundMessageJob(key: {organizationId: $org, id: $id}) { stage providerMessageId } }`, {org: f.orgA, id: delivered.replyId})).outboundMessageJob;
+    assert.deepEqual(job, {stage: "SENT", providerMessageId: outgoing.id}, "SENT under the reply's immutable ID");
+    // Refused by Microsoft: FAILED with its reason, and the unsent draft removed.
+    const refusedMail = deliverOutlook(OFFICE, {from: "refused@example.test", name: "Refused Customer", subject: "Question", html: "<p>Can you call me?</p>"});
+    assert.equal((await post(`/api/inbox/mailboxes/${office.id}/sync`, {})).status, 200);
+    const refusedThread = (await conversationsOf(office.id)).find(row => row.customerIdentity === "refused@example.test");
+    assert.ok(refusedThread && refusedThread.messages[0].externalMessageId === refusedMail.id);
+    const refused = await sendReply(refusedThread.id, "Of course, I will call you today.");
+    assert.equal(refused.sent.body.data.stage, "FAILED");
+    assert.match(refused.sent.body.data.reason, /Microsoft refused it \(ErrorInvalidRecipients\)/);
+    assert.equal(fakeMicrosoft.mailbox(OFFICE).drafts.size, 0, "the unsent draft is deleted");
+    assert.equal((await conversationsOf(office.id)).length, 2, "EstateOS's own replies are never imported back");
+    pass("Phase 7C.2c: an approved reply goes out in the customer's Outlook thread to the customer only (not the original's Reply-To or copies), the text escaped above the quote, SENT under its immutable ID; Microsoft's refusal fails it and removes the draft");
+
+    // Disconnecting: the grant wiped and sending off; Microsoft has no per-app revocation, so the member is told where to remove access.
+    office = (await outlookRows())[0];
+    const disconnected = await post(`/api/inbox/mailboxes/${office.id}/disconnect`, {expectedRevision: office.revision});
+    assert.equal(disconnected.status, 200);
+    assert.deepEqual({revoked: disconnected.body.data.revoked, provider: disconnected.body.data.provider}, {revoked: false, provider: "MICROSOFT_365"});
+    office = (await outlookRows())[0];
+    assert.deepEqual({status: office.connectionStatus, sending: office.sendingEnabled, token: office.account.tokenCiphertext ?? null, state: office.account.syncState}, {status: "DISABLED", sending: false, token: null, state: "DISCONNECTED"});
+    const afterDisconnect = await sendReply(thread.id, "One more thing.");
+    assert.equal(afterDisconnect.sent.status, 409, "a disconnected mailbox sends nothing");
+    deliverOutlook(OFFICE, {from: CUSTOMER, name: "Layla Customer", subject: "After disconnecting", html: "<p>Hello?</p>"});
+    assert.equal((await workerTick()).mailboxes.imported, 0, "nor imports");
+    await signIn("owner-a");
+    pass("Phase 7C.2: disconnecting a Microsoft mailbox wipes its grant and stops sending and importing (Microsoft offers no per-app revocation; the member is told where to remove access)");
+  }
   await mailboxChecks();
+  await microsoftChecks();
   assert.equal((await post("/api/dev/communication-tests/reset")).status, 200);
 
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");
@@ -1401,7 +1705,7 @@ try {
   else console.log(`\n${checks} live Claude inbox checks passed.`);
 } finally {
   try { socket?.close(); } catch { /* closed */ }
-  stop(browser); stop(server); graph.close(); google.close();
+  stop(browser); stop(server); graph.close(); google.close(); microsoft.close();
   await deleteApp(authApp).catch(() => {}); await deleteApp(sqlApp).catch(() => {});
 }
 if (failure) { console.error(failure); console.error(`--- Next.js server log (tail) ---

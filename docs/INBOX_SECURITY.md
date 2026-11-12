@@ -31,12 +31,14 @@ What follows from the rule:
 - **Connections hold only secret names** (`INBOX_…`): the app secret, the verify token and, from Phase 7B.1, the WhatsApp access token. Values live in the server environment or Secret Manager and are read only on the server (`readInboxSecret`). The access token is sent only in the `Authorization` header to Meta's Graph API, and never logged, stored or returned.
 - **Pasted credentials are refused.** The secret-name field refuses anything that is not such a name, so a pasted token or password is not stored.
 - **Nothing reaches a browser.** No credential is ever returned to the browser or written to logs. The settings page shows only whether each secret is set.
-- **No mailbox passwords.** EstateOS never asks for mailbox passwords. Gmail connects through Google's own consent screen (Phase 7C.1).
+- **No mailbox passwords.** EstateOS never asks for mailbox passwords. Gmail connects through Google's own consent screen (Phase 7C.1), Microsoft 365 / Outlook through Microsoft's sign-in (Phase 7C.2).
 - **Mailbox grants (7C.1).**
   - The OAuth refresh token is sealed with AES-256-GCM, bound to its company and connection, with the key only in the server environment (`INBOX_TOKEN_ENCRYPTION_KEY`).
   - It lives in `InboxMailboxAccount`, which no member operation can read. Access tokens live only in server memory.
   - The sign-in is protected by PKCE and a sealed, single-use state cookie, and the membership is checked again before saving.
-  - Disconnecting, or the owner leaving, revokes the grant at Google and wipes it.
+  - Disconnecting, or the owner leaving, wipes the grant. Google's grant is also revoked at Google. Microsoft has no per-app revocation, so the member is told where to remove EstateOS (myapps.microsoft.com or account.live.com/consent/Manage).
+  - Microsoft replaces refresh tokens as they are used. The new one is sealed and stored only over the exact grant that was read (compare-and-set), so a late refresh can never restore a disconnected mailbox or overwrite a newer sign-in.
+  - Each provider's sign-in has its own return address. A sign-in started for one provider is refused at the other's return.
 
 ## Webhooks
 
@@ -134,7 +136,7 @@ The audit log records:
 
   Without that list, nothing is sent at all.
 - **Enforcement.** The database refuses to queue a real reply on any other connection. `SENT` comes only from Meta's response with a message ID, and nothing is retried automatically.
-- **Phase 7C.1:** email is sent only after approval, from a connected mailbox with sending on, to the server's test addresses (`INBOX_EMAIL_TEST_RECIPIENTS`). A personal mailbox sends only for its owner, which the database enforces as well.
+- **Phases 7C.1 and 7C.2:** email (Gmail or Microsoft 365) is sent only after approval, from a connected mailbox with sending on, to the server's test addresses (`INBOX_EMAIL_TEST_RECIPIENTS`). A personal mailbox sends only for its owner, which the database enforces as well. A Microsoft reply is addressed to the customer alone, never to the original's Reply-To or copies.
 - **Approval.** Sending to real customers (7B.2, and email beyond test addresses) needs explicit approval. See [UNIFIED_INBOX.md](UNIFIED_INBOX.md#outbound).
 
 ## Personal mailboxes

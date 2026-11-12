@@ -19,7 +19,7 @@ export interface OAuthState {
   verifier: string;
   uid: string;
   organizationId: string;
-  provider: "GMAIL";
+  provider: "GMAIL" | "MICROSOFT_365";
   personal: boolean;
   displayName: string;
   /** Reconnecting this existing connection (the mailbox address must stay the same). */

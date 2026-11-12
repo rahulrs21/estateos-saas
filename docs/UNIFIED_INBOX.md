@@ -4,8 +4,7 @@ Status: **Phase 7A complete (foundation).** WhatsApp, email and website conversa
 
 Providers in test mode:
 - **WhatsApp** (Phase 7B.1) sends only to the server's test recipients;
-- **Gmail** (Phase 7C.1) imports company and personal mailboxes and sends only to the server's test addresses ([EMAIL_INTEGRATION_PLAN.md](EMAIL_INTEGRATION_PLAN.md#phase-7c1-gmail-built));
-- Microsoft 365 is Phase 7C.2. Sending to real customers needs approval.
+- **Gmail** (Phase 7C.1) and **Microsoft 365 / Outlook** (Phase 7C.2) import company and personal mailboxes and send only to the server's test addresses ([EMAIL_INTEGRATION_PLAN.md](EMAIL_INTEGRATION_PLAN.md)). Sending to real customers needs approval.
 
 Related:
 - [INBOX_SECURITY.md](INBOX_SECURITY.md): permissions, privacy, retention and opt-out;
@@ -120,7 +119,7 @@ Turn on Claude in Inbox settings to use the assistant (it needs `ANTHROPIC_API_K
 
 - **No live provider.**
   - WhatsApp webhooks are verified (and were tested against Meta's dashboard test event), but there is no sending, template messaging or media download.
-  - Microsoft 365 is an interface only (Gmail is built in test mode, Phase 7C.1).
+  - Gmail and Microsoft 365 are built in test mode (Phases 7C.1 and 7C.2).
 - **Templates.** WhatsApp replies outside the 24-hour window need approved templates, which are Phase 7B. Until then, such replies fail the checks.
 - **No malware scanner** is connected (`NOT_SCANNED`).
 - **No real-time push**, only the controlled refresh.

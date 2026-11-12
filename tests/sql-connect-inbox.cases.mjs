@@ -748,5 +748,63 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       await server(sdk.setInboxMessageHtml, {organizationId: f.orgA, id: messageId, html: "<p>back</p>", bytes: 11});
       assert.equal((await html("owner-a")).message.contentHtml ?? null, null, "removed content is never written back");
     });
+
+    // --- 7C.2: Microsoft 365 / Outlook mailboxes ---
+    it("Microsoft 365 mailboxes follow the mailbox rules; a rotated grant replaces only the exact one read; imports are recognised per mailbox", async () => {
+      const id = randomUUID(), address = `outlook.${randomUUID().slice(0, 8)}@agency.example.test`;
+      await rejectsWith(mailboxSave({id, mailbox: address, provider: sdk.ChannelProvider.MICROSOFT_365, actorUid: "agent-a"}), "INBOX_MAILBOX_NOT_ALLOWED", "only owners and administrators connect company mailboxes");
+      await mailboxSave({id, mailbox: address, provider: sdk.ChannelProvider.MICROSOFT_365, scopes: "mail.read mail.send user.read", historyId: "2026-11-12T09:00:00Z", tokenCiphertext: "v1:outlook-one"});
+      let row = await mailboxRow(id);
+      assert.deepEqual({provider: row.provider, status: row.connectionStatus, sending: row.sendingEnabled, cursor: row.account.historyId},
+        {provider: "MICROSOFT_365", status: "VERIFIED", sending: false, cursor: "2026-11-12T09:00:00Z"});
+      assert.ok((await server(sdk.mailboxesOverview, {organizationId: f.orgA, actorUid: "owner-a"})).mailboxes.some(item => key(item.id) === key(id)), "listed with the mailboxes");
+      // Never a manual channel: it cannot be created or edited through the channel form.
+      await rejectsWith(run(sdk.createChannelConnection, "owner-a", {organizationId: f.orgA, id: randomUUID(), provider: sdk.ChannelProvider.MICROSOFT_365, displayName: "Manual mailbox", externalAccountReference: "manual@agency.example.test", credentialReference: "INBOX_E2E_MAILBOX"}), "");
+      const listed = (await run(sdk.listChannelConnections, "owner-a", {organizationId: f.orgA})).connections.find(item => key(item.id) === key(id));
+      await rejectsWith(run(sdk.updateChannelConnection, "owner-a", {organizationId: f.orgA, id, expectedRevision: listed.revision, displayName: "Renamed", externalAccountReference: address, credentialReference: null}),
+        "CHANNEL_CONNECTION_CHANGED", "an OAuth mailbox is never edited through the manual channel form");
+
+      // Microsoft hands back a new refresh token as it is used: stored only over the exact grant that was read.
+      const rotate = (previousCiphertext, tokenCiphertext) => server(sdk.updateMailboxToken, {organizationId: f.orgA, id, previousCiphertext, tokenCiphertext, tokenKeyId: "k1"});
+      await forbidden(sdk.updateMailboxToken, "owner-a", {organizationId: f.orgA, id, previousCiphertext: "v1:outlook-one", tokenCiphertext: "v1:browser", tokenKeyId: "k1"});
+      await rotate("v1:stale", "v1:late");
+      assert.equal((await mailboxRow(id)).account.tokenCiphertext, "v1:outlook-one", "a refresh based on an older grant (for example before a reconnect) changes nothing");
+      await rotate("v1:outlook-one", "v1:outlook-two");
+      assert.equal((await mailboxRow(id)).account.tokenCiphertext, "v1:outlook-two");
+      await server(sdk.updateMailboxToken, {organizationId: f.orgB, id, previousCiphertext: "v1:outlook-two", tokenCiphertext: "v1:other-company", tokenKeyId: "k1"});
+      assert.equal((await mailboxRow(id)).account.tokenCiphertext, "v1:outlook-two", "scoped to its company");
+
+      // Imported messages are recognised per mailbox (so a sync does not fetch them again).
+      const conversationId = randomUUID(), graphId = `AAkALg-${randomUUID()}`;
+      await create({conversationId, channelConnectionId: id, channel: sdk.InboxChannel.EMAIL, customerIdentity: "outlook.customer@example.test", senderIdentity: "outlook.customer@example.test",
+        externalThreadId: `m365:${randomUUID()}`, externalMessageId: graphId, assignedMembershipId: f.memberAgentA, content: "Hello from Outlook", preview: "Hello from Outlook"});
+      await forbidden(sdk.knownMailboxMessages, "owner-a", {organizationId: f.orgA, channelConnectionId: id, externalMessageIds: [graphId]});
+      const known = await server(sdk.knownMailboxMessages, {organizationId: f.orgA, channelConnectionId: id, externalMessageIds: [graphId, "AAkALg-not-imported"]});
+      assert.deepEqual(known.messages.map(item => item.externalMessageId), [graphId]);
+      assert.deepEqual((await server(sdk.knownMailboxMessages, {organizationId: f.orgA, channelConnectionId: companyMailbox, externalMessageIds: [graphId]})).messages, [], "another mailbox's messages are not this one's");
+      assert.deepEqual((await server(sdk.knownMailboxMessages, {organizationId: f.orgB, channelConnectionId: id, externalMessageIds: [graphId]})).messages, [], "nor another company's");
+
+      // Replies queue only once sending is on, like Gmail.
+      const draft = randomUUID();
+      await run(sdk.createInboxReplyDraft, "agent-a", {organizationId: f.orgA, id: draft, conversationId, content: "Thank you, the villa is available."});
+      await run(sdk.recordInboxReplyCheck, "agent-a", {organizationId: f.orgA, id: draft, expectedRevision: 1, valid: true, validationJson: "{}"});
+      await run(sdk.submitInboxReply, "agent-a", {organizationId: f.orgA, id: draft, expectedRevision: 2, approvalRequired: true, notificationId: randomUUID()});
+      await decide("admin-a", draft, 3, true);
+      const job = await reply("owner-a", conversationId, draft);
+      const queue = () => server(sdk.queueInboxReply, {organizationId: f.orgA, id: draft, expectedRevision: job.revision, conversationId, channelConnectionId: id, content: job.content, actorUid: "agent-a",
+        messageId: randomUUID(), pendingExternalId: `pending:${draft}`, recipientIdentity: "outlook.customer@example.test", preview: "Thank you", simulated: false, template: false});
+      await rejectsWith(queue(), "INBOX_SENDING_DISABLED", "sending is off until turned on");
+      row = await mailboxRow(id);
+      await server(sdk.setMailboxSending, {organizationId: f.orgA, id, actorUid: "owner-a", expectedRevision: row.revision, enabled: true});
+      await queue();
+      assert.equal((await reply("owner-a", conversationId, draft)).stage, "QUEUED");
+
+      // Disconnecting wipes the grant, and a late refresh cannot bring it back.
+      row = await mailboxRow(id);
+      await server(sdk.disconnectMailbox, {organizationId: f.orgA, id, actorUid: "owner-a", expectedRevision: row.revision});
+      await rotate("v1:outlook-two", "v1:after-disconnect");
+      row = await mailboxRow(id);
+      assert.deepEqual({token: row.account.tokenCiphertext ?? null, state: row.account.syncState, sending: row.sendingEnabled}, {token: null, state: "DISCONNECTED", sending: false});
+    });
   });
 }

@@ -368,9 +368,12 @@ export function sanitizeEmailHtml(html: string | null | undefined): {body: strin
 /** Whether cleaned HTML would load anything from the internet (shown as "Show images"). */
 export const hasRemoteContent = (html: string) => /\s(src|background)\s*=\s*"https?:|url\(\s*['"]?https?:/i.test(html);
 
+/** The stored form of a Gmail message's HTML part (see htmlForStorage). */
+export const emailHtmlForStorage = (payload: GmailPart | undefined): string | null => htmlForStorage(messageParts(payload).html);
+
 /** The stored form: the email's own (cleaned) styles followed by its cleaned body; null when none is usable. */
-export function emailHtmlForStorage(payload: GmailPart | undefined): string | null {
-  const cleaned = sanitizeEmailHtml(messageParts(payload).html);
+export function htmlForStorage(html: string | null | undefined): string | null {
+  const cleaned = sanitizeEmailHtml(html);
   if (!cleaned) return null;
   const stored = `${cleaned.css ? `<style>${cleaned.css}</style>` : ""}${cleaned.body}`;
   return stored.length <= MAX_EMAIL_HTML ? stored : null;

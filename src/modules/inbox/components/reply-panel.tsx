@@ -131,7 +131,7 @@ function ReplyCard({reply, view, busy, act, receipt}: {reply: Reply; view: Repli
     {reply.failureReason && <p className="text-xs text-destructive">Not delivered: {reply.failureReason}</p>}
     {reply.can.ownReply && <p className="flex items-center gap-1 text-xs text-muted-foreground"><ShieldAlert aria-hidden className="size-3.5" />You wrote or edited this reply, so someone else must approve it.</p>}
     <div className="flex flex-wrap items-center gap-2">
-      {reply.can.send && <Button size="sm" disabled={working} onClick={() => void run("send", {}, view.sendMode === "WHATSAPP" ? "Accepted by WhatsApp." : view.sendMode === "EMAIL" ? "Sent by Gmail." : "Delivered to the simulated conversation.")}>
+      {reply.can.send && <Button size="sm" disabled={working} onClick={() => void run("send", {}, view.sendMode === "WHATSAPP" ? "Accepted by WhatsApp." : view.sendMode === "EMAIL" ? "Email sent." : "Delivered to the simulated conversation.")}>
         {busy === `${base}:send` ? <Loader2 aria-hidden className="animate-spin" /> : <Send aria-hidden />}{view.sendMode === "WHATSAPP" ? "Send on WhatsApp" : view.sendMode === "EMAIL" ? "Send by email" : "Send (simulator)"}</Button>}
       {reply.can.check && <Button size="sm" disabled={working} onClick={() => void run("check", {}, "Reply checked.")}>{busy === `${base}:check` && <Loader2 aria-hidden className="animate-spin" />}Check reply</Button>}
       {reply.can.submit && <Button size="sm" disabled={working} onClick={() => void run("submit", {}, view.approvalRequired ? "Sent for approval." : "Approved (your company does not require approval).")}>

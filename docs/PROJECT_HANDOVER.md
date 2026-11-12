@@ -2,7 +2,7 @@
 
 EstateOS is a multi-tenant, AI-ready real estate CRM SaaS for brokerages, starting with Dubai and the UAE. Each company has an isolated workspace, team and role-based permissions. Read [AGENTS.md](../AGENTS.md) first; it contains the binding development rules.
 
-_Last updated: 2026-11-10 (Phase 7C.1 Gmail on branch `feature/email-gmail`; Phases 7A and 7B.1 merged into `main` locally; nothing pushed)._
+_Last updated: 2026-11-12 (Phases 7C.1 Gmail and 7C.2 Microsoft 365 on branch `feature/email-gmail`; Phases 7A and 7B.1 merged into `main` locally; nothing pushed)._
 
 ## Technology
 
@@ -31,7 +31,8 @@ Next.js App Router (Next 16, see the version notice in AGENTS.md), React 19, Typ
 | 7A | Unified inbox foundation: WhatsApp, email and website conversations in `/inbox`, linked to leads and contacts; exact-identity matching; assignment, status, notes and the customer panel; channel connections (secret names only), signed WhatsApp webhooks, durable deduplicated events, receipts and private attachments; replies with server checks and approval (no self-approval unless OWNER); Claude analyses and reply drafts with checked quotes; inbox workflow triggers, `inbox.draft_reply`, `inbox.reassign` and template J; opt-outs and retention. **No provider sends**: only the developer simulator delivers, to simulated conversations | **Implemented and tested on emulators; see verification status below**. [Inbox](UNIFIED_INBOX.md), [security](INBOX_SECURITY.md), [adapters](CHANNEL_ADAPTERS.md), [WhatsApp plan](WHATSAPP_INTEGRATION_PLAN.md), [email plan](EMAIL_INTEGRATION_PLAN.md) |
 | 7B.1 | WhatsApp Cloud API in test mode: live connection check (VERIFIED only when Meta confirms the number with the access token), an administrator sending switch, approved free-text and template replies, business-started conversations, SENT only from Meta's message ID, refusals as FAILED with a workflow event. Sends only to the server's test recipients (`INBOX_WHATSAPP_TEST_RECIPIENTS`) | **Built and merged into `main`; tested against a local fake Graph API, then verified live on 2026-11-09 with Meta's test number: Check connection, approved `hello_world` template sends delivered to the owner's phone, and the owner's answers received through the webhook into the same conversation**. [Plan](WHATSAPP_INTEGRATION_PLAN.md#phase-7b1-test-mode-built) |
 | 7C.1 | Gmail in test mode: company and personal mailboxes connected with Google sign-in (PKCE, narrow scopes, grants encrypted in a server-only table); import every minute (history cursor, bounded backfill and resync; automated mail and, in personal mailboxes, non-customers skipped before any content is read); approved threaded replies to the server's test addresses; personal mailboxes send only for their owner | **Built on branch `feature/email-gmail`; tested against a local fake Google; the live test with the owner's Gmail needs the Google Cloud setup and approval**. [Plan](EMAIL_INTEGRATION_PLAN.md#phase-7c1-gmail-built) |
-| 7B.2, 7C.2 | WhatsApp for real customers (business number, approved templates, payment, published app, media download); Microsoft 365 | Not started; need approval and provider accounts |
+| 7C.2 | Microsoft 365 / Outlook in test mode on the same foundation: Microsoft sign-in (PKCE, delegated mail scopes, rotated refresh tokens stored by compare-and-set); the Inbox read by received time with immutable IDs; replies through Outlook in the customer's thread to the customer only; no per-app revocation, so disconnect wipes the grant and the member is told where to remove access | **Built on branch `feature/email-gmail`; tested against a local fake Microsoft; the live test needs an Entra app registration** ([setup](EMAIL_INTEGRATION_PLAN.md#trying-it-with-your-own-microsoft-mailbox)) |
+| 7B.2 | WhatsApp for real customers (business number, approved templates, payment, published app, media download) | Not started; needs approval and provider accounts |
 | 6F+ | Organization AI usage dashboard; multi-page agency websites and custom domains | Not started |
 | 7 | Marketing campaigns and advertising integrations | Not started |
 | 8 | Further communications (SMS, campaigns) | Not started |
@@ -324,7 +325,7 @@ Verified on 2026-11-06 on branch `feature/unified-inbox` (commits 7A.1 a78745e t
 - **Not verified:**
   - **A real customer message from Meta.** The webhook was verified against Meta's dashboard: the handshake, and the dashboard test event refused as expected because Meta's sample uses a placeholder phone number ID. (Verified live in Phase 7B.1 with the test number: real answers arrive with the app unpublished once the WhatsApp Business Account is subscribed to the app.)
   - **Any sending, template or media download through a provider.**
-  - **Microsoft 365**, which is an interface only (Gmail: Phase 7C.1).
+  - **Live email to real customers** (Gmail and Microsoft 365 send only to test addresses: Phases 7C.1 and 7C.2).
   - **Malware scanning**: no scanner is connected.
   - **The hosted rollout** of the inbox schema and operations.
 

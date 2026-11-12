@@ -11,7 +11,7 @@ query MailboxActor($organizationId: UUID!, $actorUid: String!) @auth(level: NO_A
   actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) {id role}
 }
 
-# Gmail connections with the same address anywhere (a mailbox belongs to one company), and the actor's own personal one.
+# Mailbox connections of this provider with the same address anywhere (a mailbox belongs to one company), and the actor's own personal one.
 query MailboxConflicts($provider: ChannelProvider!, $mailbox: String!, $organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
   sameAddress: channelConnections(where: {provider: {eq: $provider}, externalAccountReference: {eq: $mailbox}}, limit: 5) {
     id organizationId ownerMembershipId ownerMembership {userProfileUid} connectionStatus revision
@@ -49,7 +49,7 @@ mutation SaveMailboxConnection($organizationId: UUID!, $id: UUID!, $actorUid: St
 # administrators everything and others only their own). Never the encrypted grant.
 query MailboxesOverview($organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
   actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
-  mailboxes: channelConnections(where: {organizationId: {eq: $organizationId}, provider: {in: [GMAIL]}}, orderBy: [{createdAt: ASC}, {id: ASC}], limit: 200) {
+  mailboxes: channelConnections(where: {organizationId: {eq: $organizationId}, provider: {in: [GMAIL, MICROSOFT_365]}}, orderBy: [{createdAt: ASC}, {id: ASC}], limit: 200) {
     id provider displayName externalAccountReference connectionStatus sendingEnabled verifiedAt revision createdAt ownerMembershipId
     ownerMembership {id userProfileUid status userProfile {displayName}}
     account: inboxMailboxAccount_on_channelConnection {syncState backfilled lastSyncedAt failures lastErrorCode connectedAt}
@@ -59,7 +59,7 @@ query MailboxesOverview($organizationId: UUID!, $actorUid: String!) @auth(level:
 # One mailbox with its grant, for the server acting on it (disconnect, sending switch, a check, a sync or a send).
 query MailboxForAction($organizationId: UUID!, $id: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
   actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id role}
-  mailbox: channelConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, provider: {in: [GMAIL]}}}) {
+  mailbox: channelConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, provider: {in: [GMAIL, MICROSOFT_365]}}}) {
     id provider displayName externalAccountReference connectionStatus sendingEnabled revision ownerMembershipId ownerMembership {userProfileUid status}
     account: inboxMailboxAccount_on_channelConnection {tokenCiphertext tokenKeyId historyId syncState}
   }
@@ -69,7 +69,7 @@ query MailboxForAction($organizationId: UUID!, $id: UUID!, $actorUid: String!) @
 # (the server has revoked it at the provider first); conversations stay, sending stops.
 mutation DisconnectMailbox($organizationId: UUID!, $id: UUID!, $actorUid: String!, $expectedRevision: Int!) @auth(level: NO_ACCESS) @transaction {
   before: query @redact {
-    mailbox: channelConnection(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, provider: {in: [GMAIL]}}, {_or: [
+    mailbox: channelConnection(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, provider: {in: [GMAIL, MICROSOFT_365]}}, {_or: [
       {ownerMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}},
       {organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
     ]}]}}) @check(expr: "this != null", message: "INBOX_MAILBOX_CHANGED") {id}
@@ -85,11 +85,11 @@ mutation DisconnectMailbox($organizationId: UUID!, $id: UUID!, $actorUid: String
 # requires its test recipients (Phase 7C.1).
 mutation SetMailboxSending($organizationId: UUID!, $id: UUID!, $actorUid: String!, $expectedRevision: Int!, $enabled: Boolean!) @auth(level: NO_ACCESS) @transaction {
   before: query @redact {
-    on: channelConnection(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, provider: {in: [GMAIL]}, connectionStatus: {eq: VERIFIED}}, {_or: [
+    on: channelConnection(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, provider: {in: [GMAIL, MICROSOFT_365]}, connectionStatus: {eq: VERIFIED}}, {_or: [
       {ownerMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}},
       {ownerMembershipId: {isNull: true}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
     ]}]}}) @check(expr: "!vars.enabled || this != null", message: "INBOX_MAILBOX_CHANGED") {id}
-    off: channelConnection(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, provider: {in: [GMAIL]}}, {_or: [
+    off: channelConnection(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, provider: {in: [GMAIL, MICROSOFT_365]}}, {_or: [
       {ownerMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}},
       {organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
     ]}]}}) @check(expr: "vars.enabled || this != null", message: "INBOX_MAILBOX_CHANGED") {id}
@@ -148,7 +148,7 @@ mutation RetireMailbox($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCES
 # "Check now": the mailbox's manager (the owner of a personal mailbox) or an OWNER or ADMIN asks for a sync.
 mutation RequestMailboxSync($organizationId: UUID!, $id: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) @transaction {
   before: query @redact {
-    mailbox: channelConnection(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, provider: {in: [GMAIL]}, connectionStatus: {eq: VERIFIED}}, {_or: [
+    mailbox: channelConnection(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, provider: {in: [GMAIL, MICROSOFT_365]}, connectionStatus: {eq: VERIFIED}}, {_or: [
       {ownerMembership: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}},
       {organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
     ]}]}}) @check(expr: "this != null", message: "INBOX_MAILBOX_CHANGED") {id}
@@ -167,4 +167,19 @@ query MailboxSyncRow($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS)
 # Stores an email's cleaned HTML (size 0: none usable), never on a message already removed by retention.
 mutation SetInboxMessageHtml($organizationId: UUID!, $id: UUID!, $html: String, $bytes: Int!) @auth(level: NO_ACCESS) {
   inboxMessage_updateMany(where: {organizationId: {eq: $organizationId}, id: {eq: $id}, contentRedactedAt: {isNull: true}}, data: {contentHtml: $html, contentHtmlBytes: $bytes})
+}
+
+# --- Microsoft 365 (Phase 7C.2) ---------------------------------------------------------------
+
+# Stores the refresh token Microsoft handed back in place of the one just used (sealed by the server).
+# Compare-and-set on the previous ciphertext: a disconnected mailbox, or one reconnected meanwhile with a
+# new grant, is never overwritten by a late refresh.
+mutation UpdateMailboxToken($organizationId: UUID!, $id: UUID!, $previousCiphertext: String!, $tokenCiphertext: String!, $tokenKeyId: String!) @auth(level: NO_ACCESS) {
+  inboxMailboxAccount_updateMany(where: {organizationId: {eq: $organizationId}, id: {eq: $id}, tokenCiphertext: {eq: $previousCiphertext}, syncState: {ne: DISCONNECTED}},
+    data: {tokenCiphertext: $tokenCiphertext, tokenKeyId: $tokenKeyId, updatedAt_expr: "request.time"})
+}
+
+# Which of these provider message IDs a mailbox has already imported (so a sync does not fetch them again).
+query KnownMailboxMessages($organizationId: UUID!, $channelConnectionId: UUID!, $externalMessageIds: [String!]!) @auth(level: NO_ACCESS) {
+  messages: inboxMessages(where: {organizationId: {eq: $organizationId}, channelConnectionId: {eq: $channelConnectionId}, externalMessageId: {in: $externalMessageIds}}, limit: 100) {externalMessageId}
 }

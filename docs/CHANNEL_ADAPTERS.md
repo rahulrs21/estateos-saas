@@ -32,11 +32,11 @@ States: **SUPPORTED** (built and tested), **PLANNED** (designed for a later phas
 
 | Capability | WhatsApp Cloud | Gmail | Microsoft 365 | Website form | Developer simulator |
 | --- | --- | --- | --- | --- | --- |
-| Validate connection | SUPPORTED (7B.1) | SUPPORTED (7C.1, Google sign-in) | PLANNED (7C.2) | UNSUPPORTED | UNSUPPORTED |
+| Validate connection | SUPPORTED (7B.1) | SUPPORTED (7C.1, Google sign-in) | SUPPORTED (7C.2, Microsoft sign-in) | UNSUPPORTED | UNSUPPORTED |
 | Receive events | SUPPORTED | SUPPORTED (polled every minute) | PLANNED | SUPPORTED | SUPPORTED |
 | Normalize message | SUPPORTED | SUPPORTED | PLANNED | SUPPORTED | SUPPORTED |
 | Sync history | UNSUPPORTED | PLANNED | PLANNED | UNSUPPORTED | UNSUPPORTED |
-| Send message | SUPPORTED (7B.1, test recipients only) | SUPPORTED (7C.1, test addresses only) | PLANNED (7C.2) | UNSUPPORTED | SUPPORTED (simulated conversations only) |
+| Send message | SUPPORTED (7B.1, test recipients only) | SUPPORTED (7C.1, test addresses only) | SUPPORTED (7C.2, test addresses only) | UNSUPPORTED | SUPPORTED (simulated conversations only) |
 | Delivery receipts | SUPPORTED | UNSUPPORTED (email has none) | PLANNED | UNSUPPORTED | SUPPORTED |
 | Resolve provider message ID | SUPPORTED | SUPPORTED | PLANNED | UNSUPPORTED | UNSUPPORTED |
 | Health check | PLANNED | PLANNED | PLANNED | UNSUPPORTED | UNSUPPORTED |
@@ -44,7 +44,7 @@ States: **SUPPORTED** (built and tested), **PLANNED** (designed for a later phas
 
 `canSend(provider)` in `adapters/index.ts` is true only for `DEVELOPMENT_SIMULATOR`. The settings page shows the matrix for each connection.
 
-Gmail (Phase 7C.1) connects with Google sign-in and is polled by the worker (`server/mail-sync.ts`). It has no webhook, so `/api/inbox/webhooks/gmail/…` answers 404. Microsoft 365 is still an interface only: its `verifyWebhook` always returns false and its route refuses every request. See [EMAIL_INTEGRATION_PLAN.md](EMAIL_INTEGRATION_PLAN.md#phase-7c1-gmail-built).
+Gmail (Phase 7C.1) and Microsoft 365 (Phase 7C.2) connect with the provider's own sign-in and are polled by the worker (`server/mail-sync.ts`). They have no webhook, so `/api/inbox/webhooks/gmail/…` and `/api/inbox/webhooks/microsoft-365/…` answer 404. See [EMAIL_INTEGRATION_PLAN.md](EMAIL_INTEGRATION_PLAN.md#phase-7c2-microsoft-365--outlook-built).
 
 ## Connections
 
@@ -52,7 +52,7 @@ A `ChannelConnection` row is a company's account with a provider. Managed at **I
 
 | Field | Meaning |
 | --- | --- |
-| `provider` | WHATSAPP_CLOUD or MICROSOFT_365 here; GMAIL mailboxes are created only by Google sign-in (Phase 7C.1); the simulator connection only by developer tools |
+| `provider` | WHATSAPP_CLOUD here; GMAIL and MICROSOFT_365 mailboxes are created only by signing in (Phases 7C.1 and 7C.2); the simulator connection only by developer tools |
 | `externalAccountReference` | The provider account, for example the WhatsApp phone number ID. Unique across EstateOS: one account belongs to one company |
 | `credentialReference` | The **name** of a server secret, matching `^INBOX_[A-Z0-9_]{3,56}$`. Never the value |
 | `connectionStatus` | NOT_CONFIGURED, CONFIGURED, VERIFIED, DISABLED, ERROR. Phase 7A stops at CONFIGURED |
@@ -134,7 +134,7 @@ Adapters that can send implement `send(request)`, which returns the provider's a
   - Acknowledged: the reply becomes SENT under the provider's ID, which receipts match on.
   - Refused: it becomes FAILED, with the `inbox.message.failed` event.
 - The approval pipeline in front of sending is described in [UNIFIED_INBOX.md](UNIFIED_INBOX.md#outbound).
-- **Gmail (Phase 7C.1)** sends through the server-only `server/google.ts`, never the shared adapter. It needs a connected mailbox with sending on, a recipient on the server's test list (`INBOX_EMAIL_TEST_RECIPIENTS`) and, for a personal mailbox, the owner as sender. Microsoft 365 sending is 7C.2; WhatsApp beyond test recipients is 7B.2. Both need approval.
+- **Gmail (Phase 7C.1) and Microsoft 365 (Phase 7C.2)** send through the server-only `server/google.ts` and `server/microsoft.ts`, never the shared adapter. They need a connected mailbox with sending on, a recipient on the server's test list (`INBOX_EMAIL_TEST_RECIPIENTS`) and, for a personal mailbox, the owner as sender. Real customers (email beyond test addresses, and WhatsApp 7B.2) need approval.
 
 ## Attachments
 

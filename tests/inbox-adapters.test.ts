@@ -76,11 +76,14 @@ test("malformed or implausible WhatsApp payloads are refused", () => {
 });
 
 test("capabilities are explicit, and adapters existing never means connected or able to send", () => {
-  assert.ok(Object.values(ADAPTERS.MICROSOFT_365.capabilities).every(state => state === "PLANNED"), "Microsoft 365 is still an interface only (Phase 7C.2)");
-  // Phase 7C.1: Gmail connects through OAuth and is polled; it has no webhook, so nothing is ever verified or parsed from one.
-  assert.equal(ADAPTERS.GMAIL.capabilities.VALIDATE_CONNECTION, "SUPPORTED");
-  assert.equal(ADAPTERS.GMAIL.capabilities.DELIVERY_RECEIPTS === "SUPPORTED", false, "email has no delivery receipts");
-  assert.equal(Object.values(WEBHOOK_SLUGS).includes("GMAIL"), false, "Gmail has no webhook route");
+  // Phase 7C: Gmail (7C.1) and Microsoft 365 (7C.2) connect through OAuth and are polled; they have no webhook, so nothing is ever verified or parsed from one.
+  for (const provider of ["GMAIL", "MICROSOFT_365"] as const) {
+    assert.equal(ADAPTERS[provider].capabilities.VALIDATE_CONNECTION, "SUPPORTED");
+    assert.equal(ADAPTERS[provider].capabilities.SEND_MESSAGE, "SUPPORTED");
+    assert.equal(ADAPTERS[provider].capabilities.DELIVERY_RECEIPTS === "SUPPORTED", false, "email has no delivery receipts");
+    assert.equal(Object.values(WEBHOOK_SLUGS).includes(provider), false, `${provider} has no webhook route`);
+    assert.equal(ADAPTERS[provider].send, undefined, "mailbox sending is server-only, never through the registry");
+  }
   for (const provider of ["GMAIL", "MICROSOFT_365"] as const) {
     const adapter = ADAPTERS[provider];
     assert.equal(adapter.verifyWebhook(request(textMessage), SECRET), false, `${provider} verifies no webhook`);

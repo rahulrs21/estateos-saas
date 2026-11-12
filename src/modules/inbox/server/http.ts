@@ -14,7 +14,7 @@ import { SIMULATOR_BODY_BYTES, inboxSimulatorState, simulateInbound, simulateRec
 import { analyseConversation, applyRequirements } from "./assistant";
 import { cancelReply, checkReply, createReply, decideReply, listReplies, sendReply, startWhatsAppConversation, submitReply, updateReply } from "./outbound";
 import { devToolsEnabled } from "@/modules/communications/dev/guard";
-import { completeMailboxConnect, disconnectMailbox, listMailboxes, setMailboxSending, startMailboxConnect, type ConnectOutcome } from "./mailboxes";
+import { completeMailboxConnect, disconnectMailbox, listMailboxes, setMailboxSending, startMailboxConnect, type ConnectOutcome, type MailProvider } from "./mailboxes";
 import { syncMailboxNow } from "./mail-sync";
 import { messageHtml } from "./email-html";
 
@@ -73,7 +73,8 @@ export const connectionEnabledResponse = (request: Request, id: string) => write
 
 // --- Mailboxes connected through OAuth (Phase 7C) ----------------------------------------------
 export const mailboxesResponse = (request: Request) => read(request, "inbox.mailboxes", context => listMailboxes(context));
-export const mailboxStartResponse = (request: Request) => write(request, "inbox.mailboxes.start", startMailboxConnect);
+/** Starts connecting a mailbox: the route decides the provider (Gmail or Microsoft 365). */
+export const mailboxStartResponse = (request: Request, provider: MailProvider = "GMAIL") => write(request, "inbox.mailboxes.start", (context, body) => startMailboxConnect(context, body, provider));
 export const mailboxDisconnectResponse = (request: Request, id: string) => write(request, "inbox.mailboxes.disconnect", (context, body) => disconnectMailbox(context, id, body));
 export const mailboxSendingResponse = (request: Request, id: string) => write(request, "inbox.mailboxes.sending", (context, body) => setMailboxSending(context, id, body));
 export const mailboxSyncResponse = (request: Request, id: string) => write(request, "inbox.mailboxes.sync", context => syncMailboxNow(context, id));
@@ -81,19 +82,19 @@ export const mailboxSyncResponse = (request: Request, id: string) => write(reque
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"})[char]!);
 
 /**
- * Google's return (no session cookie: it is SameSite=strict). The page then
+ * The provider's return (no session cookie: it is SameSite=strict). The page then
  * navigates to Inbox settings from this site, so the session cookie is sent again.
  * Nothing secret is placed in the page or its address.
  */
-export async function oauthCallbackResponse(request: Request) {
+export async function oauthCallbackResponse(request: Request, provider: MailProvider = "GMAIL") {
   await connection();
   let outcome: ConnectOutcome;
-  try { outcome = await completeMailboxConnect(new URL(request.url)); }
+  try { outcome = await completeMailboxConnect(new URL(request.url), provider); }
   catch (error) {
     console.error(JSON.stringify({event: "inbox.mailbox.connect_failed", name: error instanceof Error ? error.name : typeof error}));
     outcome = {ok: false, code: "ERROR", message: "The mailbox could not be connected. Try again in a moment."};
   }
-  if (!outcome.ok) console.warn(JSON.stringify({event: "inbox.mailbox.connect_refused", code: outcome.code}));
+  if (!outcome.ok) console.warn(JSON.stringify({event: "inbox.mailbox.connect_refused", provider, code: outcome.code}));
   const target = outcome.ok ? "/inbox/settings?mailbox=connected" : `/inbox/settings?mailbox=failed&reason=${encodeURIComponent(outcome.code)}`;
   const title = outcome.ok ? "Mailbox connected" : "Mailbox not connected";
   const message = outcome.ok ? `${outcome.address} is connected. EstateOS will start importing ${outcome.personal ? "emails from your CRM customers" : "customer emails"} within a minute.` : outcome.message;

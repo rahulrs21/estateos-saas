@@ -20,8 +20,9 @@ import { accessToken, liveSendingConfigured, recipientAllowed, sendWhatsAppMessa
 import { preview } from "../policy";
 import { getConversation } from "./conversations";
 import { buildReplyMessage, replySubject } from "../email";
-import { accessTokenFor, gmailSend } from "./google";
-import { emailRecipientAllowed, emailSendingConfigured, mailboxGrant } from "./mailboxes";
+import { gmailSend } from "./google";
+import { emailRecipientAllowed, emailSendingConfigured, mailboxAccessToken, providerLabel } from "./mailboxes";
+import { outlookReply } from "./microsoft";
 
 /*
  * Inbox replies (docs/UNIFIED_INBOX.md#outbound). Members draft, check and
@@ -29,8 +30,9 @@ import { emailRecipientAllowed, emailSendingConfigured, mailboxGrant } from "./m
  * approve them (never their own, unless an OWNER). Sending is offered only in
  * developer tools, for simulated conversations on the developer simulator, and
  * the database refuses anything else; a reply is SENT only when the adapter
- * acknowledges it. WhatsApp (7B.1) and email (7C.1) send in test mode only: to
- * the server's test recipients, and email from a personal mailbox only for its owner.
+ * acknowledges it. WhatsApp (7B.1) and email (Gmail 7C.1, Microsoft 365 7C.2) send in
+ * test mode only: to the server's test recipients, and email from a personal mailbox
+ * only for its owner.
  */
 
 const id = (value: string | null | undefined) => value ? canonicalUuid(value) : null;
@@ -50,12 +52,12 @@ export function deliveryOf(input: {provider: ChannelProvider | null; connectionS
   if (input.simulated) {
     return devToolsEnabled() && provider !== null && canSend(provider) && input.sendingEnabled ? {mode: "SIMULATOR", note: null} : {mode: null, note: null};
   }
-  if (provider === "GMAIL") {
+  if (provider === "GMAIL" || provider === "MICROSOFT_365") {
     if (input.connectionStatus !== "VERIFIED") return {mode: null, note: "This mailbox needs to be reconnected (Inbox settings) before replies can be sent. The message can be approved but not sent."};
     if (input.ownerUid && input.ownerUid !== input.actorUid) return {mode: null, note: "This conversation came through another member's personal mailbox: only they can send from it. The reply can be approved; its owner sends it."};
     if (!input.sendingEnabled) return {mode: null, note: input.ownerUid ? "Sending is off for this personal mailbox. Its owner can turn it on in Inbox settings." : "Sending is off for this mailbox. An owner or administrator can turn it on in Inbox settings."};
-    if (!emailSendingConfigured()) return {mode: null, note: "Email sending is off on this server (Phase 7C.1 sends only to test addresses set in INBOX_EMAIL_TEST_RECIPIENTS)."};
-    if (!emailRecipientAllowed(input.identity)) return {mode: null, note: `Phase 7C.1 test mode: this server sends email only to its test addresses, and ${input.identity} is not one of them. To test with it, add it to INBOX_EMAIL_TEST_RECIPIENTS on the server and restart.`};
+    if (!emailSendingConfigured()) return {mode: null, note: "Email sending is off on this server (test mode sends only to test addresses set in INBOX_EMAIL_TEST_RECIPIENTS)."};
+    if (!emailRecipientAllowed(input.identity)) return {mode: null, note: `Email test mode: this server sends email only to its test addresses, and ${input.identity} is not one of them. To test with it, add it to INBOX_EMAIL_TEST_RECIPIENTS on the server and restart.`};
     return {mode: "EMAIL", note: null};
   }
   if (provider !== "WHATSAPP_CLOUD") return {mode: null, note: null};
@@ -98,7 +100,7 @@ export async function listReplies(context: Context, rawConversationId: string) {
     templateOnly: conversation.channel === "WHATSAPP" && !conversation.simulated && Boolean(window && !window.open),
     sendingNote: simulatorSend ? "Developer simulator: approved replies are delivered to this simulated conversation only."
       : delivery.mode === "WHATSAPP" ? "WhatsApp (Phase 7B.1 test mode): approved replies are sent by Meta to this test recipient."
-      : delivery.mode === "EMAIL" ? `Email (Phase 7C.1 test mode): approved replies are sent from ${conversation.channelConnection?.externalAccountReference ?? "the mailbox"} in this thread, to this test address.`
+      : delivery.mode === "EMAIL" ? `Email (test mode): approved replies are sent from ${conversation.channelConnection?.externalAccountReference ?? "the mailbox"} in this thread, to this test address.`
       : conversation.channel === "WEBSITE" ? "Website enquiries have no reply channel yet; reply by WhatsApp or email once one is connected."
       : delivery.note ?? "Sending is disabled until this provider is connected and approved (Phase 7B/7C). Replies can be drafted, checked and approved.",
     insight: insightRow ? {id: canonicalUuid(insightRow.id), createdAt: insightRow.createdAt, createdBy: insightRow.createdBy?.displayName ?? null, model: insightRow.model, source: insightRow.source,
@@ -260,22 +262,29 @@ export async function sendReply(context: Context, rawConversationId: string, raw
   }
   const messageId = randomUUID();
   const simulated = target.simulated;
-  // Email: the grant and the threaded message are ready before anything is queued, so a mailbox that cannot send queues nothing.
-  let email: {token: string; raw: string; threadId: string | null} | null = null;
+  // Email: the grant and the threaded reply are ready before anything is queued, so a mailbox that cannot send queues nothing.
+  let email: {provider: "GMAIL"; token: string; raw: string; threadId: string | null} | {provider: "MICROSOFT_365"; token: string; replyToId: string} | null = null;
   if (delivery.mode === "EMAIL") {
     const connectionId = canonicalUuid(target.channelConnectionId);
+    const label = providerLabel(provider);
     const mailbox = (await asServer("MailboxForAction", dc => sdk.mailboxForAction(dc, {organizationId: context.organizationId, id: connectionId, actorUid: uid(context)}))).mailbox;
-    const grant = mailbox ? mailboxGrant(context.organizationId, connectionId, mailbox.account) : null;
-    const access = grant ? await accessTokenFor(connectionId, grant) : null;
-    if (!mailbox?.externalAccountReference || !access?.ok) throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, "Google no longer accepts this mailbox's sign-in. Reconnect it in Inbox settings, then send again.");
+    const access = mailbox ? await mailboxAccessToken(context.organizationId, connectionId, mailbox.provider, mailbox.account) : null;
+    if (!mailbox?.externalAccountReference || !access?.ok) throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, `${label} no longer accepts this mailbox's sign-in. Reconnect it in Inbox settings, then send again.`);
     const thread = await asServer("EmailReplyThread", dc => sdk.emailReplyThread(dc, {organizationId: context.organizationId, conversationId: facts.conversation.id}));
-    const ids = thread.messages.map(row => row.internetMessageId).filter((value): value is string => Boolean(value));
-    email = {
-      token: access.token,
-      threadId: target.externalThreadId?.startsWith("gmail:") ? target.externalThreadId.slice(6) : null,
-      raw: buildReplyMessage({from: mailbox.externalAccountReference, to: target.customerIdentity, subject: replySubject(target.subject), text: job.content, estateosMessageId: messageId,
-        inReplyTo: thread.messages.find(row => row.direction === "INBOUND")?.internetMessageId ?? null, references: [...ids].reverse()}),
-    };
+    if (provider === "MICROSOFT_365") {
+      // Outlook replies to a message in its own thread: the newest email from the customer.
+      const replyToId = thread.messages.find(row => row.direction === "INBOUND" && row.externalMessageId && !row.externalMessageId.startsWith("pending:"))?.externalMessageId;
+      if (!replyToId) throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, "There is no email from the customer in this conversation to reply to.");
+      email = {provider: "MICROSOFT_365", token: access.token, replyToId};
+    } else {
+      const ids = thread.messages.map(row => row.internetMessageId).filter((value): value is string => Boolean(value));
+      email = {
+        provider: "GMAIL", token: access.token,
+        threadId: target.externalThreadId?.startsWith("gmail:") ? target.externalThreadId.slice(6) : null,
+        raw: buildReplyMessage({from: mailbox.externalAccountReference, to: target.customerIdentity, subject: replySubject(target.subject), text: job.content, estateosMessageId: messageId,
+          inReplyTo: thread.messages.find(row => row.direction === "INBOUND")?.internetMessageId ?? null, references: [...ids].reverse()}),
+      };
+    }
   }
   const variables = {organizationId: context.organizationId, id: facts.replyId, conversationId: facts.conversation.id, messageId, actorUid: uid(context)};
   await asServer("QueueInboxReply", dc => sdk.queueInboxReply(dc, {...variables, expectedRevision, channelConnectionId: canonicalUuid(target.channelConnectionId!), content: job.content,
@@ -289,10 +298,11 @@ export async function sendReply(context: Context, rawConversationId: string, raw
     ack = sent.ok ? {accepted: true, providerMessageId: sent.providerMessageId}
       : {accepted: false, reason: sent.code === "TIMEOUT" || sent.code === "NETWORK" ? `${sent.message} It may or may not have been delivered; check WhatsApp before sending again.` : `Meta refused it (${sent.code}): ${sent.message}`};
   } else if (delivery.mode === "EMAIL" && email) {
-    const sent = await gmailSend(email.token, email.raw, email.threadId);
-    console.info(JSON.stringify({event: "inbox.email.send", replyId: facts.replyId, ok: sent.ok, code: sent.ok ? null : sent.code}));
+    const sent = email.provider === "GMAIL" ? await gmailSend(email.token, email.raw, email.threadId)
+      : await outlookReply(email.token, {replyToId: email.replyToId, to: target.customerIdentity, text: job.content});
+    console.info(JSON.stringify({event: "inbox.email.send", provider: email.provider, replyId: facts.replyId, ok: sent.ok, code: sent.ok ? null : sent.code}));
     ack = sent.ok ? {accepted: true, providerMessageId: sent.providerMessageId}
-      : {accepted: false, reason: sent.code === "TIMEOUT" || sent.code === "NETWORK" ? `${sent.message} It may or may not have been sent; check the mailbox's Sent folder before sending again.` : `Google refused it (${sent.code}): ${sent.message}`};
+      : {accepted: false, reason: sent.code === "TIMEOUT" || sent.code === "NETWORK" ? `${sent.message} It may or may not have been sent; check the mailbox's Sent folder before sending again.` : `${providerLabel(email.provider)} refused it (${sent.code}): ${sent.message}`};
   } else {
     const adapter = ADAPTERS[provider!];
     try {

@@ -3621,6 +3621,7 @@ export interface DueMailboxesVariables {
 export interface EmailReplyThreadData {
   messages: ({
     internetMessageId?: string | null;
+    externalMessageId: string;
     direction: InboxDirection;
   })[];
 }
@@ -7100,6 +7101,18 @@ export interface InviteMembershipVariables {
   role: MembershipRole;
   tokenHash: string;
   expiresAt: TimestampString;
+}
+
+export interface KnownMailboxMessagesData {
+  messages: ({
+    externalMessageId: string;
+  })[];
+}
+
+export interface KnownMailboxMessagesVariables {
+  organizationId: UUIDString;
+  channelConnectionId: UUIDString;
+  externalMessageIds: string[];
 }
 
 export interface LeadAssignmentHistory_Key {
@@ -13118,6 +13131,18 @@ export interface UpdateLeadVariables {
   priority?: LeadPriority | null;
 }
 
+export interface UpdateMailboxTokenData {
+  inboxMailboxAccount_updateMany: number;
+}
+
+export interface UpdateMailboxTokenVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  previousCiphertext: string;
+  tokenCiphertext: string;
+  tokenKeyId: string;
+}
+
 export interface UpdateMeetingData {
   meeting?: CommunicationMeeting_Key | null;
   auditLog_insert: AuditLog_Key;
@@ -14506,6 +14531,16 @@ export function mailboxSyncRow(vars: MailboxSyncRowVariables, options?: Operatio
 export function setInboxMessageHtml(dc: DataConnect, vars: SetInboxMessageHtmlVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetInboxMessageHtmlData>>;
 /** Generated Node Admin SDK operation action function for the 'SetInboxMessageHtml' Mutation. Allow users to pass in custom DataConnect instances. */
 export function setInboxMessageHtml(vars: SetInboxMessageHtmlVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetInboxMessageHtmlData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateMailboxToken' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateMailboxToken(dc: DataConnect, vars: UpdateMailboxTokenVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateMailboxTokenData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateMailboxToken' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateMailboxToken(vars: UpdateMailboxTokenVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateMailboxTokenData>>;
+
+/** Generated Node Admin SDK operation action function for the 'KnownMailboxMessages' Query. Allow users to execute without passing in DataConnect. */
+export function knownMailboxMessages(dc: DataConnect, vars: KnownMailboxMessagesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<KnownMailboxMessagesData>>;
+/** Generated Node Admin SDK operation action function for the 'KnownMailboxMessages' Query. Allow users to pass in custom DataConnect instances. */
+export function knownMailboxMessages(vars: KnownMailboxMessagesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<KnownMailboxMessagesData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListInboxReplies' Query. Allow users to execute without passing in DataConnect. */
 export function listInboxReplies(dc: DataConnect, vars: ListInboxRepliesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListInboxRepliesData>>;

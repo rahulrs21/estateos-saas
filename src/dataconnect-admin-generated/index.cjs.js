@@ -2498,6 +2498,20 @@ function setInboxMessageHtml(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.setInboxMessageHtml = setInboxMessageHtml;
 
+function updateMailboxToken(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateMailboxToken', inputVars, inputOpts);
+}
+exports.updateMailboxToken = updateMailboxToken;
+
+function knownMailboxMessages(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('KnownMailboxMessages', inputVars, inputOpts);
+}
+exports.knownMailboxMessages = knownMailboxMessages;
+
 function listInboxReplies(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
