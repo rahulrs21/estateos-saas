@@ -2365,6 +2365,20 @@ function emailReplyThread(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.emailReplyThread = emailReplyThread;
 
+function inboxInsightDraft(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('InboxInsightDraft', inputVars, inputOpts);
+}
+exports.inboxInsightDraft = inboxInsightDraft;
+
+function createClaudeReplyFromInsight(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateClaudeReplyFromInsight', inputVars, inputOpts);
+}
+exports.createClaudeReplyFromInsight = createClaudeReplyFromInsight;
+
 function matchInboxIdentity(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
@@ -2560,6 +2574,13 @@ function cancelInboxReply(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeMutation('CancelInboxReply', inputVars, inputOpts);
 }
 exports.cancelInboxReply = cancelInboxReply;
+
+function deleteInboxReply(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DeleteInboxReply', inputVars, inputOpts);
+}
+exports.deleteInboxReply = deleteInboxReply;
 
 function listChannelConnections(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);

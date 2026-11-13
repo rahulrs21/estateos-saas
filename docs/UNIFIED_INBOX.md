@@ -33,7 +33,7 @@ Indexes cover the list orders (company and last message; assignee; status), lead
 
 ## Interface
 
-- **`/inbox`** is laid out like a mail client, in panes that scroll on their own. On phones it is one pane at a time, with a back button.
+- **`/inbox`** is laid out like a mail client, in panes that scroll on their own. Opening a conversation changes the address without reloading the page (only the reading pane loads; Back returns to the list), and a full load of `/inbox/{id}` opens the same conversation. On phones it is one pane at a time, with a back button.
   - **Folders:** the views (All, Unread, Assigned to me, Unassigned, Needs matching, Open, Pending, Resolved) with counts, and the channels. On medium screens they are an icon rail, and members can collapse them on wide screens (remembered on the device). Phones get two compact choices instead.
   - **The list:** search, then the conversations (25 per page, cursor "Load more"). Each row shows an avatar with the channel's mark, the time, the subject and last message, and the assignee, needs-matching and priority labels.
   - **The conversation:**
@@ -42,8 +42,8 @@ Indexes cover the list orders (company and last message; assignee; status), lead
       - WhatsApp and website messages are chat bubbles with day separators and delivery ticks (sent, delivered, read);
       - email is a mail thread: the subject, then each email as a card. Older emails are folded to one line, and the formatted version is fetched when an email is opened. **Open in a larger view** shows an email in a large dialog, in the same sandboxed frame;
     - **Expand** (wide screens) hides the folders and the list so the conversation fills the inbox; Esc or the same button brings them back (remembered on the device);
-    - replies in progress under the thread, with their steps (draft, checked, approval, approved, sent); sent and cancelled replies are folded away;
-    - the composer, docked at the bottom, which saves a draft (Ctrl + Enter) and can ask Claude for one.
+    - replies in progress in a collapsible panel docked above the composer (not in the thread, so emails keep their room), each compact with its steps (draft, checked, approval, approved, sent) and a **Delete** for any reply never sent (its author, or an owner, administrator or manager; sent replies stay as the record); sent and cancelled replies are folded away;
+    - the composer, docked at the bottom, which saves a draft (Ctrl + Enter). **Draft with Claude** puts Claude's suggested reply in the box to edit; saved from there it stays a Claude draft (edited or not), so an unedited one keeps the checks for Claude drafts.
   - **Details panel** (closed until opened with its button, then remembered on the device): the customer (lead and contact, follow-ups, viewings, property interests, calls, recent activity, other conversations), the Claude assistant, and internal notes.
 - **Refresh.** There is no real-time push. The list refreshes every 30 seconds while visible, when the tab becomes visible, and on demand; the inbox badge updates with it.
 - **`/inbox/settings`** (owners and administrators): the inbox rules and the channel connections with their capability matrix and webhook addresses.

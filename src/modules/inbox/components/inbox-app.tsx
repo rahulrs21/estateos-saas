@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleCheck, CircleDot, Clock3, FlaskConical, Inbox, Layers, Link2Off, Loader2, MailOpen, MessagesSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, UserRound, UserX,
   type LucideIcon } from "lucide-react";
@@ -14,7 +14,7 @@ import { communicationsGet, errorMessage } from "@/modules/communications/client
 import { CHANNEL_LABELS, INBOX_CHANNELS, INBOX_VIEWS, PRIORITY_LABELS, VIEW_LABELS, type InboxChannel, type InboxView } from "../model";
 import type { ConversationListView, InboxCountsView } from "../server/conversations";
 import { ConversationPane } from "./conversation-pane";
-import { CHANNEL_ICONS, CHANNEL_TONES, ContactAvatar, listTime, usePreference } from "./inbox-ui";
+import { CHANNEL_ICONS, CHANNEL_TONES, ContactAvatar, inPlace, listTime, openConversation, usePreference } from "./inbox-ui";
 
 export { CHANNEL_ICONS } from "./inbox-ui";
 
@@ -31,8 +31,16 @@ const CHANNELS = INBOX_CHANNELS.filter(item => item !== "INTERNAL");
 type Row = ConversationListView["conversations"][number];
 
 /** The unified inbox, laid out like a mail client: folders, the conversation list and the open conversation. */
-export function InboxApp({organizationId, conversationId, me}: {organizationId: string; conversationId: string | null; me: {name: string; company: string}}) {
-  const router = useRouter();
+/**
+ * Opening a conversation stays inside the inbox: the address changes (history.pushState, kept in step by Next's
+ * router), only the reading pane loads, and the folders and list stay as they are. A full page load of
+ * /inbox/{id} (a link from elsewhere, a refresh) opens the same conversation.
+ */
+const CONVERSATION_PATH = /^\/inbox\/([0-9a-fA-F-]{32,36})\/?$/;
+
+export function InboxApp({organizationId, conversationId: initialConversation, me}: {organizationId: string; conversationId: string | null; me: {name: string; company: string}}) {
+  const pathname = usePathname();
+  const conversationId = pathname ? CONVERSATION_PATH.exec(pathname)?.[1] ?? null : initialConversation;
   const [view, setView] = useState<InboxView>("ALL");
   const [channel, setChannel] = useState<InboxChannel | "">("");
   const [search, setSearch] = useState("");
@@ -188,7 +196,7 @@ export function InboxApp({organizationId, conversationId, me}: {organizationId: 
     {/* Open conversation */}
     <section aria-label="Conversation" className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", showList && "hidden lg:flex")}>
       {conversationId ? <ConversationPane key={conversationId} conversationId={conversationId} organizationId={organizationId} refreshKey={refreshKey} expanded={reading} onExpand={setExpanded} me={me}
-        onBack={() => router.push("/inbox")} onChanged={() => setRefreshKey(key => key + 1)} />
+        onBack={() => openConversation(null)} onChanged={() => setRefreshKey(key => key + 1)} />
         : <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
             <span className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary/10"><Inbox aria-hidden className="size-6 text-primary" /></span>
             <p className="text-sm font-medium">Choose a conversation to read it.</p>
@@ -202,7 +210,8 @@ function ConversationRow({row, selected}: {row: Row; selected: boolean}) {
   const name = row.contact?.fullName ?? row.customerName ?? row.customerIdentity;
   const unread = row.unreadCount > 0;
   const urgent = row.priority === "HIGH" || row.priority === "URGENT";
-  return <li className="border-b last:border-b-0"><Link href={`/inbox/${row.id}`} aria-current={selected ? "page" : undefined}
+  return <li className="border-b last:border-b-0"><Link href={`/inbox/${row.id}`} prefetch={false} aria-current={selected ? "page" : undefined}
+    onClick={event => { if (inPlace(event)) { event.preventDefault(); if (!selected) openConversation(row.id); } }}
     className={cn("relative flex gap-3 px-3 py-3 transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none", selected && "bg-primary/[0.07] hover:bg-primary/10")}>
     {selected && <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-primary" />}
     <ContactAvatar name={name} channel={row.channel as InboxChannel} />

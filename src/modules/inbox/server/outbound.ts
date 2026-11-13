@@ -122,7 +122,8 @@ export async function listReplies(context: Context, rawConversationId: string) {
         can: {
           edit: EDITABLE_STAGES.includes(stage) && !job.templateName, check: stage === "DRAFT", submit: stage === "VALIDATED",
           decide: stage === "PENDING_APPROVAL" && approval.allowed, ownReply: stage === "PENDING_APPROVAL" && approver && !approval.allowed,
-          cancel: CANCELLABLE_STAGES.includes(stage) && (approver || own), send: stage === "APPROVED" && delivery.mode !== null,
+          cancel: CANCELLABLE_STAGES.includes(stage) && (approver || own),
+          remove: !["QUEUED", "SENT"].includes(stage) && (approver || own), send: stage === "APPROVED" && delivery.mode !== null,
         },
       };
     }),
@@ -150,7 +151,7 @@ async function preparedTemplate(organizationId: string, connectionId: string, in
   if (rendered.length > MAX_OUTBOUND_CHARS) throw new WorkspaceError("VALIDATION_ERROR", 400, "The filled template is too long.");
   return {template, values, rendered};
 }
-const createSchema = z.strictObject({content: contentSchema.optional(), template: templateSchema.optional()})
+const createSchema = z.strictObject({content: contentSchema.optional(), template: templateSchema.optional(), fromInsightId: idSchema.optional()})
   .refine(value => Boolean(value.content) !== Boolean(value.template), "Write a reply or choose a template.");
 
 /** A reply draft: the member's text, or (WhatsApp) an approved template, which goes through the same checks and approval. */
@@ -166,6 +167,17 @@ export async function createReply(context: Context, rawConversationId: string, b
   const content = prepared ? prepared.rendered : input.content!;
   const templateParamsJson = prepared && Object.keys(prepared.values).length ? JSON.stringify(prepared.values).slice(0, 4000) : null;
   const replyId = randomUUID();
+  // Claude's suggested reply, taken into the message box (and perhaps edited there): kept as a Claude draft, so an
+  // unedited one is still checked like any Claude draft (numbers not in the sources block approval).
+  if (input.fromInsightId && !input.template) {
+    const insight = (await asServer("InboxInsightDraft", dc => sdk.inboxInsightDraft(dc, {organizationId: context.organizationId, conversationId: conversation.id, id: input.fromInsightId!}))).insight;
+    const suggested = parseJson<{reply?: string} | null>(insight?.insightJson, null)?.reply?.trim() ?? "";
+    if (insight && !insight.draftJobId && suggested) {
+      await asServer("CreateClaudeReplyFromInsight", dc => sdk.createClaudeReplyFromInsight(dc, {organizationId: context.organizationId, insightId: input.fromInsightId!, conversationId: conversation.id, jobId: replyId,
+        actorUid: uid(context), content, edited: content.trim() !== suggested}));
+      return {id: replyId};
+    }
+  }
   await asMember(context, "CreateInboxReplyDraft", (dc, options) => sdk.createInboxReplyDraft(dc, {organizationId: context.organizationId, id: replyId, conversationId: conversation.id, content, templateName, templateParamsJson}, options));
   return {id: replyId};
 }
@@ -247,6 +259,15 @@ export async function decideReply(context: Context, rawConversationId: string, r
   await asMember(context, "DecideInboxReply", (dc, options) => sdk.decideInboxReply(dc, {organizationId: context.organizationId, id: facts.replyId, expectedRevision: input.expectedRevision,
     approve: input.decision === "APPROVE", note: input.note || null}, options));
   return {id: facts.replyId, stage: input.decision === "APPROVE" ? "APPROVED" as const : "DRAFT" as const, selfApproved: input.decision === "APPROVE" && rule.allowed && rule.selfApproved};
+}
+
+/** Deletes a reply that was never sent: its author, or an OWNER, ADMIN or MANAGER (the database checks again). Sent replies stay. */
+export async function deleteReply(context: Context, rawConversationId: string, rawId: string, body: unknown) {
+  const {expectedRevision} = parseInput(revisionSchema, body);
+  const {replyId, job} = await replyFacts(context, rawConversationId, rawId);
+  if (job.stage === "QUEUED" || job.stage === "SENT") throw new WorkspaceError("INBOX_REPLY_CHANGED", 409, "A reply that was sent (or is being sent) cannot be deleted.");
+  await asMember(context, "DeleteInboxReply", (dc, options) => sdk.deleteInboxReply(dc, {organizationId: context.organizationId, id: replyId, expectedRevision}, options));
+  return {id: replyId, deleted: true};
 }
 
 export async function cancelReply(context: Context, rawConversationId: string, rawId: string, body: unknown) {

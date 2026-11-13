@@ -668,6 +668,43 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       await forbidden(sdk.storeInboxMedia, "owner-a", {organizationId: f.orgA, id: disguised, storagePath: "x", mimeType: "image/jpeg", sizeBytes: 1, fileName: "x"});
     });
 
+    it("deletes only replies that were never sent, for their author or an approver, and saves Claude's reply from the message box once, as Claude's", async () => {
+      const conversationId = randomUUID();
+      await create({conversationId, assignedMembershipId: f.memberAgentA});
+      const draft = async (uid, content) => {
+        const id = randomUUID();
+        await run(sdk.createInboxReplyDraft, uid, {organizationId: f.orgA, id, conversationId, content});
+        return id;
+      };
+      const remove = (uid, id, expectedRevision = 1) => run(sdk.deleteInboxReply, uid, {organizationId: f.orgA, id, expectedRevision});
+      const agentDraft = await draft("agent-a", "Thank you, I will call you this afternoon.");
+      const adminDraft = await draft("admin-a", "We have two options for you.");
+      await rejectsWith(remove("agent-a", adminDraft), "INBOX_REPLY_FORBIDDEN", "an agent deletes only their own replies");
+      await rejectsWith(remove("shared-agent", agentDraft), "INBOX_REPLY_CHANGED", "nobody who cannot see the conversation");
+      await rejectsWith(remove("owner-b", agentDraft), "", "nor another company");
+      await rejectsWith(remove("agent-a", agentDraft, 2), "INBOX_REPLY_CHANGED", "a stale revision is refused");
+      await remove("agent-a", agentDraft);
+      await remove("admin-a", adminDraft);
+      assert.equal((await run(sdk.listInboxReplies, "admin-a", {organizationId: f.orgA, conversationId})).conversation.jobs.length, 0, "both are gone");
+      const sentDraft = await draft("admin-a", "Already on its way.");
+      await dc.executeGraphql(`mutation S($org: UUID!, $id: UUID!) { outboundMessageJob_update(key: {organizationId: $org, id: $id}, data: {stage: SENT}) }`, {variables: {org: f.orgA, id: sentDraft}});
+      await rejectsWith(remove("owner-a", sentDraft), "INBOX_REPLY_CHANGED", "a sent reply is the record of what the customer received");
+
+      // Claude's reply, taken into the message box: saved once, as Claude's, edited or not.
+      const insightId = randomUUID();
+      await dc.executeGraphql(`mutation I($org: UUID!, $id: UUID!, $conversation: UUID!, $json: String!) { inboxAiInsight_insert(data: {organizationId: $org, id: $id, conversationId: $conversation, insightJson: $json,
+        model: "test", promptVersion: "inbox-assistant-1", source: "CLAUDE", createdByUid: "agent-a"}) }`, {variables: {org: f.orgA, id: insightId, conversation: conversationId, json: JSON.stringify({reply: "Hello, the villa is available."})}});
+      const fromBox = (jobId, content, edited) => server(sdk.createClaudeReplyFromInsight, {organizationId: f.orgA, insightId, conversationId, jobId, actorUid: "agent-a", content, edited});
+      await forbidden(sdk.createClaudeReplyFromInsight, "agent-a", {organizationId: f.orgA, insightId, conversationId, jobId: randomUUID(), actorUid: "agent-a", content: "x", edited: false});
+      await rejectsWith(server(sdk.createClaudeReplyFromInsight, {organizationId: f.orgB, insightId, conversationId, jobId: randomUUID(), actorUid: "owner-b", content: "x", edited: false}), "INBOX_INSIGHT_USED", "not from another company");
+      const jobId = randomUUID();
+      await fromBox(jobId, "Hello, the villa is available. Shall we book a viewing?", true);
+      const job = await reply("agent-a", conversationId, jobId);
+      assert.deepEqual({source: job.source, edited: job.edited, stage: job.stage, author: job.createdByUid}, {source: "CLAUDE", edited: true, stage: "DRAFT", author: "agent-a"});
+      assert.equal(key((await server(sdk.inboxInsightDraft, {organizationId: f.orgA, conversationId, id: insightId})).insight.draftJobId), key(jobId), "the analysis now points at its draft");
+      await rejectsWith(fromBox(randomUUID(), "Again", false), "INBOX_INSIGHT_USED", "one draft per analysis");
+    });
+
     it("keeps a template reply's filled blanks with its rendered text, and only with a template", async () => {
       const id = randomUUID();
       await forbidden(sdk.createInboxReplyDraft, "owner-a", {organizationId: f.orgA, id: randomUUID(), conversationId: started, content: "Hi Layla", templateParamsJson: "{\"BODY:1\":\"Layla\"}"});

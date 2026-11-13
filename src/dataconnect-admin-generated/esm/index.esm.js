@@ -2071,6 +2071,18 @@ export function emailReplyThread(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeQuery('EmailReplyThread', inputVars, inputOpts);
 }
 
+export function inboxInsightDraft(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('InboxInsightDraft', inputVars, inputOpts);
+}
+
+export function createClaudeReplyFromInsight(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateClaudeReplyFromInsight', inputVars, inputOpts);
+}
+
 export function matchInboxIdentity(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
@@ -2237,6 +2249,12 @@ export function cancelInboxReply(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeMutation('CancelInboxReply', inputVars, inputOpts);
+}
+
+export function deleteInboxReply(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DeleteInboxReply', inputVars, inputOpts);
 }
 
 export function listChannelConnections(dcOrVarsOrOptions, varsOrOptions, options) {

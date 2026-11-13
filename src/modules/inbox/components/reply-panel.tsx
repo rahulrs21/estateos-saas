@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bot, Check, CheckCircle2, ChevronDown, FileText, Info, Loader2, PenLine, Send, ShieldAlert, Sparkles, XCircle } from "lucide-react";
+import { Bot, Check, CheckCircle2, ChevronDown, FileText, Info, Loader2, PenLine, Send, ShieldAlert, Sparkles, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,9 +28,9 @@ const STEPS = ["Draft", "Checked", "Approval", "Approved", "Sent"] as const;
 const STEP_OF: Record<string, number> = {DRAFT: 0, VALIDATED: 1, PENDING_APPROVAL: 2, APPROVED: 3, QUEUED: 3, SENT: 4};
 const FINISHED = ["SENT", "CANCELLED"];
 
-type Act = (key: string, path: string, body: unknown, success: string, method?: "POST" | "PUT") => Promise<boolean>;
+type Act = (key: string, path: string, body: unknown, success: string, method?: "POST" | "PUT" | "DELETE") => Promise<boolean>;
 
-/** Replies (draft, check, approve, send) and the Claude assistant for one conversation, shared by the thread, the composer and the details panel. */
+/** Replies (draft, check, approve, send, delete) and the Claude assistant for one conversation, shared by the replies tray, the composer and the details panel. */
 export function useReplies({conversationId, organizationId, onSent}: {conversationId: string; organizationId: string; onSent: () => void}) {
   const [view, setView] = useState<RepliesView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +43,7 @@ export function useReplies({conversationId, organizationId, onSent}: {conversati
     setBusy(key);
     const [replyId] = key.split(":");
     try {
-      const url = method === "PUT" ? `${path}/replies/${replyId}` : `${path}/replies/${replyId}/${suffix}`;
+      const url = method === "POST" ? `${path}/replies/${replyId}/${suffix}` : `${path}/replies/${replyId}`;
       const result = await communicationsSend<{stage?: string; valid?: boolean}>(url, organizationId, method, body);
       if (result?.valid === false) toast.warning("The reply needs changes before it can be approved."); else toast.success(result?.stage === "FAILED" ? "The simulator refused the reply." : success);
       if (suffix === "send") onSent();
@@ -56,20 +56,25 @@ export function useReplies({conversationId, organizationId, onSent}: {conversati
     try { await communicationsSend("/api/dev/communication-tests/inbox/receipt", organizationId, "POST", {messageId, status}); toast.success(`Simulated receipt: ${status.toLowerCase()}.`); onSent(); }
     catch (problem) { toast.error(errorMessage(problem, "The receipt could not be simulated.")); }
   }
-  async function save(body: {content: string} | {template: ChosenTemplate}) {
+  async function save(body: {content: string; fromInsightId?: string} | {template: ChosenTemplate}) {
     setBusy("new");
     try {
       await communicationsSend(`${path}/replies`, organizationId, "POST", body);
-      toast.success("Draft saved. Check it, then request approval.");
+      toast.success(view?.approvalRequired ? "Draft saved. Check it, then request approval." : "Draft saved. Check it, then send.");
       return true;
     }
     catch (problem) { toast.error(errorMessage(problem, "The draft could not be saved.")); return false; }
     finally { setBusy(null); void load(); }
   }
-  async function analyse() {
-    setBusy("assistant");
-    try { await communicationsSend(`${path}/assistant`, organizationId, "POST", {}); toast.success("Claude's analysis is ready. Check it before using it."); return true; }
-    catch (problem) { toast.error(errorMessage(problem, "Claude could not analyse the conversation.")); return false; }
+  /** Claude's analysis. For the composer, the suggested reply comes back to be edited in the message box. */
+  async function analyse(target: "panel" | "composer" = "panel"): Promise<{insightId: string; draft: string | null} | null> {
+    setBusy(target === "composer" ? "compose" : "assistant");
+    try {
+      const result = await communicationsSend<{insightId: string; draft: string | null}>(`${path}/assistant`, organizationId, "POST", target === "composer" ? {target} : {});
+      if (target === "panel") toast.success("Claude's analysis is ready. Check it before using it.");
+      return result;
+    }
+    catch (problem) { toast.error(errorMessage(problem, "Claude could not analyse the conversation.")); return null; }
     finally { setBusy(null); void load(); }
   }
   async function apply(fields: RequirementField[]) {
@@ -93,13 +98,15 @@ function Stepper({stage}: {stage: string}) {
   return <ol className="flex items-center gap-1 text-[10px] text-muted-foreground" aria-label="Reply progress">{STEPS.map((step, index) => <li key={step} className="flex items-center gap-1">
     <span className={cn("flex size-4 items-center justify-center rounded-full border text-[9px]", index < at ? "border-primary bg-primary text-primary-foreground" : index === at ? "border-primary text-primary" : "border-border")}>
       {index < at ? <Check aria-hidden className="size-2.5" strokeWidth={3} /> : index + 1}</span>
-    <span className={cn("hidden sm:inline", index === at && "font-medium text-foreground")}>{step}</span>
-    {index < STEPS.length - 1 && <span aria-hidden className={cn("h-px w-3 sm:w-5", index < at ? "bg-primary" : "bg-border")} />}
+    <span className={cn("hidden lg:inline", index === at && "font-medium text-foreground")}>{step}</span>
+    {index < STEPS.length - 1 && <span aria-hidden className={cn("h-px w-2.5 lg:w-4", index < at ? "bg-primary" : "bg-border")} />}
   </li>)}</ol>;
 }
 
+/** One reply: compact (its text folded when long), with the next steps as buttons. */
 function ReplyCard({reply, view, busy, act, receipt}: {reply: Reply; view: RepliesView; busy: string | null; act: Act; receipt: RepliesState["receipt"]}) {
   const [editing, setEditing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [text, setText] = useState(reply.content);
   const [note, setNote] = useState("");
   const base = `${reply.id}`;
@@ -108,22 +115,29 @@ function ReplyCard({reply, view, busy, act, receipt}: {reply: Reply; view: Repli
   const problems = reply.validation?.problems ?? [];
   const blocked = problems.some(problem => problem.blocksApproval);
   const Source = reply.source === "AGENT" ? PenLine : Bot;
-  return <li className={cn("space-y-2 rounded-lg border bg-card p-3 shadow-xs", reply.stage === "DRAFT" && "border-dashed", reply.stage === "FAILED" && "border-destructive/50",
-    reply.stage === "APPROVED" && "border-primary/50", FINISHED.includes(reply.stage) && "bg-muted/30 shadow-none")} data-testid="inbox-reply" data-stage={reply.stage}>
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
-      <Badge variant={STAGE_VARIANT[reply.stage] ?? "outline"}>{reply.stageLabel}</Badge>
+  const long = reply.content.length > 220 || reply.content.split("\n").length > 4;
+  const remove = () => {
+    if (window.confirm("Delete this reply? It was never sent, and it cannot be brought back.")) void act(`${base}:delete`, "", {expectedRevision: reply.revision}, "Reply deleted.", "DELETE");
+  };
+  return <li className={cn("space-y-2 rounded-lg border bg-card px-3 py-2.5", reply.stage === "DRAFT" && "border-dashed", reply.stage === "FAILED" && "border-destructive/50",
+    reply.stage === "APPROVED" && "border-primary/50", FINISHED.includes(reply.stage) && "bg-muted/30")} data-testid="inbox-reply" data-stage={reply.stage}>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+      <Badge variant={STAGE_VARIANT[reply.stage] ?? "outline"} className="h-5">{reply.stageLabel}</Badge>
       <span className="flex items-center gap-1"><Source aria-hidden className="size-3.5" />{reply.template ? "Approved WhatsApp template" : SOURCE_LABEL[reply.source]}{reply.source !== "AGENT" && reply.edited ? ", edited" : ""}</span>
-      <span>· {reply.lastEditedBy ?? reply.createdBy ?? "Team member"} · {formatLeadDate(reply.updatedAt, true)}</span>
-      {reply.selfApproved && <Badge variant="outline">Self-approved (owner)</Badge>}
-      <span className="ml-auto"><Stepper stage={reply.stage} /></span>
+      <span className="truncate">· {reply.lastEditedBy ?? reply.createdBy ?? "Team member"} · {formatLeadDate(reply.updatedAt, true)}</span>
+      {reply.selfApproved && <Badge variant="outline" className="h-5">Self-approved (owner)</Badge>}
+      <span className="ml-auto hidden sm:block"><Stepper stage={reply.stage} /></span>
     </div>
     {editing ? <div className="space-y-2">
       <label htmlFor={`reply-${reply.id}`} className="sr-only">Edit the reply</label>
-      <textarea id={`reply-${reply.id}`} value={text} onChange={event => setText(event.target.value)} rows={4} maxLength={4000} className={textareaClassName} dir="auto" />
+      <textarea id={`reply-${reply.id}`} value={text} onChange={event => setText(event.target.value)} rows={5} maxLength={4000} className={textareaClassName} dir="auto" />
       <div className="flex gap-2"><Button size="sm" disabled={working || !text.trim()} onClick={() => void act(`${base}:edit`, "", {expectedRevision: reply.revision, content: text}, "Reply updated.", "PUT").then(ok => ok && setEditing(false))}>Save changes</Button>
         <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setText(reply.content); }}>Discard</Button></div>
-    </div> : <p dir="auto" className="whitespace-pre-wrap wrap-break-word text-sm leading-6">{reply.content}</p>}
-    {problems.length > 0 && <ul className={cn("space-y-1 rounded-lg px-3 py-2 text-xs", blocked ? "bg-destructive/10" : "bg-muted/60")} aria-label="Checks">{problems.map(problem =>
+    </div> : <div>
+      <p dir="auto" className={cn("whitespace-pre-wrap wrap-break-word text-sm leading-6", long && !expanded && "line-clamp-3")}>{reply.content}</p>
+      {long && <button type="button" className="text-[11px] font-medium text-primary hover:underline" onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Show more"}</button>}
+    </div>}
+    {problems.length > 0 && <ul className={cn("space-y-1 rounded-md px-2.5 py-1.5 text-xs", blocked ? "bg-destructive/10" : "bg-muted/60")} aria-label="Checks">{problems.map(problem =>
       <li key={problem.code} className={cn("flex gap-1.5", problem.blocksApproval ? "text-destructive" : "text-muted-foreground")}>
         {problem.blocksApproval ? <XCircle aria-hidden className="mt-0.5 size-3.5 shrink-0" /> : <Info aria-hidden className="mt-0.5 size-3.5 shrink-0" />}
         <span>{problem.blocksApproval ? "Must fix: " : "Note: "}{problem.message}</span></li>)}</ul>}
@@ -131,7 +145,7 @@ function ReplyCard({reply, view, busy, act, receipt}: {reply: Reply; view: Repli
     {reply.approvedBy && ["APPROVED", "QUEUED", "SENT", "FAILED"].includes(reply.stage) && <p className="text-xs text-muted-foreground">Approved by {reply.approvedBy}{reply.approvedAt ? ` · ${formatLeadDate(reply.approvedAt, true)}` : ""}</p>}
     {reply.failureReason && <p className="text-xs text-destructive">Not delivered: {reply.failureReason}</p>}
     {reply.can.ownReply && <p className="flex items-center gap-1 text-xs text-muted-foreground"><ShieldAlert aria-hidden className="size-3.5" />You wrote or edited this reply, so someone else must approve it.</p>}
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-1.5">
       {reply.can.send && <Button size="sm" disabled={working} onClick={() => void run("send", {}, view.sendMode === "WHATSAPP" ? "Accepted by WhatsApp." : view.sendMode === "EMAIL" ? "Email sent." : "Delivered to the simulated conversation.")}>
         {busy === `${base}:send` ? <Loader2 aria-hidden className="animate-spin" /> : <Send aria-hidden />}{view.sendMode === "WHATSAPP" ? "Send on WhatsApp" : view.sendMode === "EMAIL" ? "Send by email" : "Send (simulator)"}</Button>}
       {reply.can.check && <Button size="sm" disabled={working} onClick={() => void run("check", {}, "Reply checked.")}>{busy === `${base}:check` && <Loader2 aria-hidden className="animate-spin" />}Check reply</Button>}
@@ -140,50 +154,68 @@ function ReplyCard({reply, view, busy, act, receipt}: {reply: Reply; view: Repli
       {reply.can.decide && <>
         <Button size="sm" disabled={working} onClick={() => void run("decide", {decision: "APPROVE", note: note || undefined}, "Reply approved.")}><CheckCircle2 aria-hidden />Approve</Button>
         <label htmlFor={`reply-note-${reply.id}`} className="sr-only">Reason to return the reply</label>
-        <Input id={`reply-note-${reply.id}`} value={note} onChange={event => setNote(event.target.value)} maxLength={300} placeholder="Reason (needed to return it)" className="h-7 w-52 text-xs" />
+        <Input id={`reply-note-${reply.id}`} value={note} onChange={event => setNote(event.target.value)} maxLength={300} placeholder="Reason (needed to return it)" className="h-7 w-48 text-xs" />
         <Button size="sm" variant="outline" disabled={working || note.trim().length < 3} onClick={() => void run("decide", {decision: "REJECT", note}, "Returned to the author.")}><XCircle aria-hidden />Return</Button>
       </>}
       {reply.can.edit && !editing && <Button size="sm" variant="outline" disabled={working} onClick={() => setEditing(true)}>Edit</Button>}
-      {reply.can.cancel && <Button size="sm" variant="ghost" disabled={working} onClick={() => void run("cancel", {}, "Reply cancelled.")}>Cancel reply</Button>}
       {view.simulatorSend && reply.stage === "SENT" && reply.messageId && (["DELIVERED", "READ", "FAILED"] as const).map(status =>
         <Button key={status} size="sm" variant="ghost" disabled={working} data-testid={`simulate-${status.toLowerCase()}`} onClick={() => void receipt(reply.messageId!, status)}>Simulate {status.toLowerCase()}</Button>)}
+      {reply.can.remove && <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive" disabled={working} onClick={remove} aria-label="Delete reply" title="Delete this reply">
+        {busy === `${base}:delete` ? <Loader2 aria-hidden className="animate-spin" /> : <Trash2 aria-hidden />}Delete</Button>}
     </div>
   </li>;
 }
 
-/** Replies on their way (in the thread, under the messages), then the finished ones folded away. */
-export function ReplyList({replies}: {replies: RepliesState}) {
+/**
+ * The replies tray, docked above the composer (not in the thread, so emails keep their room): replies on their way,
+ * collapsible, then the sent and cancelled ones folded away.
+ */
+export function ReplyTray({replies}: {replies: RepliesState}) {
   const {view, busy, act, receipt, error} = replies;
-  if (error) return <p role="alert" className="text-sm text-destructive">{error}</p>;
+  const [open, setOpen] = useState(true);
+  if (error) return <p role="alert" className="shrink-0 border-t px-4 py-2 text-sm text-destructive">{error}</p>;
   if (!view || !view.replies.length) return null;
   const active = view.replies.filter(reply => !FINISHED.includes(reply.stage));
   const finished = view.replies.filter(reply => FINISHED.includes(reply.stage));
   const card = (reply: Reply) => <ReplyCard key={`${reply.id}:${reply.revision}`} reply={reply} view={view} busy={busy} act={act} receipt={receipt} />;
-  return <section aria-label="Replies" className="space-y-3">
-    {active.length > 0 && <>
-      <h3 className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground"><span className="h-px flex-1 bg-border" />Replies in progress ({active.length})<span className="h-px flex-1 bg-border" /></h3>
-      <ul className="space-y-3">{active.map(card)}</ul>
-    </>}
-    {finished.length > 0 && <details className="group rounded-xl border bg-muted/20 px-3 py-2">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-muted-foreground">
-        <ChevronDown aria-hidden className="size-3.5 transition-transform group-open:rotate-180" />Sent and cancelled replies ({finished.length})</summary>
-      <ul className="mt-3 space-y-3">{finished.map(card)}</ul>
-    </details>}
+  return <section aria-label="Replies" className="flex max-h-[45%] min-h-0 shrink-0 flex-col border-t bg-muted/25">
+    <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open}
+      className="flex shrink-0 items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-muted-foreground hover:text-foreground sm:px-4">
+      <ChevronDown aria-hidden className={cn("size-3.5 transition-transform", !open && "-rotate-90")} />
+      {active.length ? `Replies in progress (${active.length})` : "Replies"}
+      {finished.length > 0 && <span className="font-normal">· {finished.length} sent or cancelled</span>}
+    </button>
+    {open && <div className="min-h-0 space-y-2 overflow-y-auto px-3 pb-2.5 sm:px-4">
+      {active.length > 0 && <ul className="space-y-2">{active.map(card)}</ul>}
+      {finished.length > 0 && <details className="group rounded-lg border bg-card/60 px-3 py-1.5">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-muted-foreground">
+          <ChevronDown aria-hidden className="size-3.5 transition-transform group-open:rotate-180" />Sent and cancelled replies ({finished.length})</summary>
+        <ul className="mt-2 space-y-2">{finished.map(card)}</ul>
+      </details>}
+    </div>}
   </section>;
 }
 
-/** The reply box, docked under the thread like a mail or chat composer. Everything written is saved as a draft and approved before it is sent. */
-export function Composer({replies, conversationId, channel, recipient, notice, templates, onAssistant}: {replies: RepliesState; conversationId: string; channel: InboxChannel; recipient: string;
+/** The reply box, docked under the thread like a mail or chat composer. Everything written is saved as a draft and checked before it is sent. */
+export function Composer({replies, conversationId, channel, recipient, notice, templates}: {replies: RepliesState; conversationId: string; channel: InboxChannel; recipient: string;
   /** Why this channel cannot send at all, when it cannot. */ notice: string | null;
-  /** Phase 7B.2: approved WhatsApp templates (a real WhatsApp conversation), with quick fills for their blanks. */ templates: {source: string; quickFills: QuickFill[]} | null;
-  onAssistant: () => void}) {
+  /** Phase 7B.2: approved WhatsApp templates (a real WhatsApp conversation), with quick fills for their blanks. */ templates: {source: string; quickFills: QuickFill[]} | null}) {
   const {view, busy, save, analyse} = replies;
   const [draft, setDraft] = useState("");
+  /** The analysis the text in the box came from (Draft with Claude), so it is saved as Claude's draft. */
+  const [fromInsight, setFromInsight] = useState<string | null>(null);
   const [usingTemplate, setUsingTemplate] = useState(false);
   if (!view) return <div role="status" className="border-t px-4 py-4 text-sm text-muted-foreground">Loading replies…</div>;
   const ready = view.sendMode !== null;
   async function submit() {
-    if (draft.trim() && await save({content: draft})) setDraft("");
+    if (draft.trim() && await save({content: draft, ...(fromInsight ? {fromInsightId: fromInsight} : {})})) { setDraft(""); setFromInsight(null); }
+  }
+  async function draftWithClaude() {
+    if (draft.trim() && !window.confirm("Replace the text in the message box with Claude's draft?")) return;
+    const result = await analyse("composer");
+    if (!result) return;
+    if (result.draft) { setDraft(result.draft); setFromInsight(result.insightId); toast.success("Claude's draft is in the message box. Read and edit it, then save it."); }
+    else toast.info("Claude had no reply to suggest for this conversation. Its analysis is in the details panel.");
   }
   const sendingNote = `${view.sendingNote} ${view.approvalRequired ? "Replies need an owner, administrator or manager to approve them." : ""}`;
   return <div className="shrink-0 border-t bg-card/95 px-2.5 py-2 sm:px-3">
@@ -203,14 +235,16 @@ export function Composer({replies, conversationId, channel, recipient, notice, t
     : <form className="rounded-xl border bg-background shadow-xs transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
         onSubmit={event => { event.preventDefault(); void submit(); }}>
       <label htmlFor={`draft-${conversationId}`} className="sr-only">Write a reply</label>
-      <textarea id={`draft-${conversationId}`} value={draft} onChange={event => setDraft(event.target.value)} rows={draft ? 4 : 2} maxLength={4000} dir="auto"
+      <textarea id={`draft-${conversationId}`} value={draft} onChange={event => { setDraft(event.target.value); if (!event.target.value.trim()) setFromInsight(null); }}
+        rows={draft ? Math.min(10, Math.max(4, draft.split("\n").length + 1)) : 2} maxLength={4000} dir="auto" disabled={busy === "compose"}
         onKeyDown={event => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void submit(); } }}
-        className="block max-h-56 min-h-12 w-full resize-y rounded-t-xl bg-transparent px-3 pt-2 text-sm outline-none placeholder:text-muted-foreground"
-        placeholder={`${channel === "EMAIL" ? `Reply to ${recipient}` : channel === "WHATSAPP" ? "Type a WhatsApp reply" : "Write a reply"}. It is saved as a draft and checked before approval.`} />
+        className="block max-h-72 min-h-12 w-full resize-y rounded-t-xl bg-transparent px-3 pt-2 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60"
+        placeholder={busy === "compose" ? "Claude is drafting a reply…" : `${channel === "EMAIL" ? `Reply to ${recipient}` : channel === "WHATSAPP" ? "Type a WhatsApp reply" : "Write a reply"}. It is saved as a draft and checked before it is sent.`} />
       <div className="flex flex-wrap items-center gap-2 px-1.5 pb-1.5">
-        {view.aiEnabled && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={busy !== null} onClick={() => void analyse().then(ok => ok && onAssistant())}>
-          {busy === "assistant" ? <Loader2 aria-hidden className="animate-spin" /> : <Sparkles aria-hidden />}Draft with Claude</Button>}
+        {view.aiEnabled && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={busy !== null} onClick={() => void draftWithClaude()}>
+          {busy === "compose" ? <Loader2 aria-hidden className="animate-spin" /> : <Sparkles aria-hidden />}Draft with Claude</Button>}
         {templates && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={busy !== null} onClick={() => setUsingTemplate(true)}><FileText aria-hidden />Template</Button>}
+        {fromInsight && <span className="text-[11px] text-muted-foreground">Claude&apos;s draft: check it before saving</span>}
         <span className="ml-auto hidden text-[11px] text-muted-foreground sm:inline">Ctrl + Enter to save</span>
         <Button type="submit" size="sm" disabled={busy !== null || !draft.trim()}>{busy === "new" ? <Loader2 aria-hidden className="animate-spin" /> : <PenLine aria-hidden />}Save draft</Button>
       </div>
@@ -237,7 +271,7 @@ export function AssistantPanel({replies, customer}: {replies: RepliesState; cust
   return <div className="space-y-3" data-testid="inbox-assistant">
     {!view.aiEnabled ? <p className="text-sm text-muted-foreground">Claude is off for the inbox. An owner or administrator can turn it on in Inbox settings.</p> : <>
       <p className="text-xs text-muted-foreground">Claude reads the latest messages (phone numbers and emails removed), the linked lead&apos;s requirements and matching listings. Its analysis is advice: quotes are checked, and nothing is sent or saved to the lead without you.</p>
-      <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void analyse().then(ok => ok && setChosen([]))}>{busy === "assistant" ? <Loader2 aria-hidden className="animate-spin" /> : <Sparkles aria-hidden />}{insight ? "Analyse again" : "Analyse with Claude"}</Button>
+      <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void analyse("panel").then(ok => ok && setChosen([]))}>{busy === "assistant" ? <Loader2 aria-hidden className="animate-spin" /> : <Sparkles aria-hidden />}{insight ? "Analyse again" : "Analyse with Claude"}</Button>
     </>}
     {insight && view.insight && <div className="space-y-3 border-t pt-3">
       <p className="text-[11px] text-muted-foreground">{view.insight.source === "WORKFLOW" ? "From a workflow" : `Asked by ${view.insight.createdBy ?? "a team member"}`} · {formatLeadDate(view.insight.createdAt, true)}
@@ -249,7 +283,7 @@ export function AssistantPanel({replies, customer}: {replies: RepliesState; cust
       {insight.listings.length > 0 && <div><h4 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Matching listings</h4>
         <ul className="space-y-0.5 text-sm">{insight.listings.map(item => <li key={item.listingId}>{item.title} · {item.reference} · {item.location} · {item.price}</li>)}</ul></div>}
       {insight.replyWarnings.length > 0 && <ul className="space-y-0.5 text-xs text-amber-900 dark:text-amber-200">{insight.replyWarnings.map(item => <li key={item}>{item}</li>)}</ul>}
-      {view.insight.draftJobId && <p className="text-xs text-muted-foreground">Claude&apos;s reply was saved as a draft in the conversation. Edit and check it before approval.</p>}
+      {view.insight.draftJobId && <p className="text-xs text-muted-foreground">Claude&apos;s reply is a draft among the replies. Edit and check it before it is sent.</p>}
       {insight.proposedChanges.length > 0 && <div className="space-y-2 rounded-md border p-2" data-testid="proposed-changes">
         <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Review before saving to the lead</h4>
         {!lead ? <p className="text-xs text-muted-foreground">Link the conversation to a lead you can open to apply these.</p> : <>

@@ -127,3 +127,22 @@ mutation CancelInboxReply($organizationId: UUID!, $id: UUID!, $expectedRevision:
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
     metadata_expr: "{'event': 'CANCELLED', 'conversationId': response.before.job.conversationId}"})
 }
+
+# Deletes a reply that was never sent (a draft, one checked, waiting for approval, approved, cancelled or
+# failed): its author, or an OWNER, ADMIN or MANAGER, on a conversation they may see. Queued and sent
+# replies stay (they are the record of what the customer received).
+mutation DeleteInboxReply($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+  authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
+  before: query @redact {
+    me: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}) {id role}
+    job: outboundMessageJob(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {in: [DRAFT, VALIDATED, PENDING_APPROVAL, APPROVED, CANCELLED, FAILED]}}, {conversation: {{V}}}]}})
+      @check(expr: "this != null", message: "INBOX_REPLY_CHANGED") {id conversationId createdByUid lastEditedByUid}
+  }
+  authority: query @redact @check(expr: "response.before.me.role in ['OWNER', 'ADMIN', 'MANAGER'] || response.before.job.createdByUid == auth.uid || response.before.job.lastEditedByUid == auth.uid", message: "INBOX_REPLY_FORBIDDEN") {
+    job: outboundMessageJob(key: {organizationId: $organizationId, id: $id}) {id}
+  }
+  outboundMessageJob_deleteMany(where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}, stage: {in: [DRAFT, VALIDATED, PENDING_APPROVAL, APPROVED, CANCELLED, FAILED]}})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
+    metadata_expr: "{'event': 'DELETED', 'conversationId': response.before.job.conversationId}"})
+}

@@ -570,6 +570,17 @@ try {
   assert.doesNotMatch(listText, /Someone New/, "agents never see unassigned conversations");
   assert.equal((await api("/api/inbox/conversations/" + unknown)).status, 404);
   assert.equal((await api("/api/inbox/counts")).body.data.UNREAD, 1);
+  // Opening a conversation from the list loads only the reading pane: the page itself stays (a marker survives).
+  await evaluate("window.__inboxStayed = true");
+  const linkedKey = linked.replaceAll("-", "");
+  await evaluate(`[...document.querySelectorAll('[data-testid=conversation-list] a')].find(a=>a.getAttribute('href').replaceAll('-','').endsWith(${JSON.stringify(linkedKey)})).click()`);
+  await waitFor("document.querySelector('[aria-label=Messages]')?.innerText.includes('payment plan')", "the conversation opened in place");
+  assert.equal(await evaluate("window.__inboxStayed === true"), true, "no page load: the folders and list stayed");
+  assert.equal((await evaluate("location.pathname")).replaceAll("-", ""), `/inbox/${linkedKey}`, "the address names the conversation");
+  await evaluate("history.back()");
+  await waitFor("location.pathname === '/inbox' && document.body.innerText.includes('Choose a conversation to read it.')", "back to the list");
+  assert.equal(await evaluate("window.__inboxStayed === true"), true);
+  // A full load of the address (a refresh or a link from elsewhere) opens the same conversation.
   await load("/inbox/" + linked, "document.querySelector('[aria-label=Messages]')?.innerText.includes('payment plan')");
   await waitFor("fetch('/api/inbox/counts').then(r=>r.json()).then(b=>b.data.UNREAD === 0)", "the conversation marked read");
   assert.match(await evaluate("document.body.innerText"), /Sending is not connected for this channel/);
@@ -1032,6 +1043,30 @@ try {
   assert.equal(appliedLead.assignedMembershipId, leadBefore.assignedMembershipId, "the lead's assignment is untouched");
   assert.equal((await post(`/api/inbox/conversations/${simConversation}/assistant/apply`, {insightId, fields: ["BEDROOMS"]})).body.data.applied.length, 0, "applying again changes nothing");
   pass("Requirements apply to the lead only when a member picks them from the latest analysis, through the normal lead update; the lead's assignment is untouched");
+
+  // A reply that was never sent can be deleted from the replies panel; a sent one cannot.
+  const doomed = await post(`/api/inbox/conversations/${simConversation}/replies`, {content: "A draft we no longer need."});
+  assert.equal(doomed.status, 201, JSON.stringify(doomed.body));
+  await load(`/inbox/${simConversation}`, "[...document.querySelectorAll('[data-testid=inbox-reply]')].some(e=>e.innerText.includes('no longer need'))");
+  await evaluate("window.confirm = () => true");
+  await evaluate("[...document.querySelectorAll('[data-testid=inbox-reply]')].find(e=>e.innerText.includes('no longer need')).querySelector('button[aria-label=\"Delete reply\"]').click()");
+  await waitFor("![...document.querySelectorAll('[data-testid=inbox-reply]')].some(e=>e.innerText.includes('no longer need'))", "the deleted reply");
+  const afterDelete = (await api(`/api/inbox/conversations/${simConversation}/replies`)).body.data.replies;
+  assert.equal(afterDelete.some(item => item.id === doomed.body.data.id), false, "it is gone");
+  const sentOne = afterDelete.find(item => item.stage === "SENT");
+  assert.ok(sentOne && sentOne.can.remove === false, "a sent reply offers no delete");
+  assert.equal((await post(`/api/inbox/conversations/${simConversation}/replies/${sentOne.id}`, {expectedRevision: sentOne.revision}, f.orgA, "DELETE")).status, 409, "and refuses one");
+  // Draft with Claude puts the reply in the message box; saved from there it stays Claude's draft (an unedited one keeps Claude's checks).
+  const boxInsight = randomUUID();
+  await sql(`mutation I($org: UUID!, $id: UUID!, $conversation: UUID!, $json: String!) { inboxAiInsight_insert(data: {organizationId: $org, id: $id, conversationId: $conversation, insightJson: $json, model: "test", promptVersion: "inbox-assistant-1", source: "CLAUDE", createdByUid: "owner-a"}) }`,
+    {org: f.orgA, id: boxInsight, conversation: simConversation, json: JSON.stringify({...checkedInsight, proposedChanges: [], reply: "Thank you! The payment plan for Dubai Marina is attached."})});
+  const fromBox = await post(`/api/inbox/conversations/${simConversation}/replies`, {content: "Thank you! The payment plan for Dubai Marina is attached.", fromInsightId: boxInsight});
+  assert.equal(fromBox.status, 201, JSON.stringify(fromBox.body));
+  const boxDraft = (await api(`/api/inbox/conversations/${simConversation}/replies`)).body.data.replies.find(item => item.id === fromBox.body.data.id);
+  assert.deepEqual({source: boxDraft.source, edited: boxDraft.edited}, {source: "CLAUDE", edited: false}, "Claude's words, unedited, stay Claude's draft");
+  const again = await post(`/api/inbox/conversations/${simConversation}/replies`, {content: "My own words now.", fromInsightId: boxInsight});
+  assert.equal((await api(`/api/inbox/conversations/${simConversation}/replies`)).body.data.replies.find(item => item.id === again.body.data.id).source, "AGENT", "an analysis gives one Claude draft; later text is the member's");
+  pass("A reply never sent is deleted from the replies panel (a sent one cannot be); Claude's reply taken into the message box is saved as Claude's draft, once");
 
   // ------------------------------------------------------------ 7A.5: template J (unanswered conversation) and an approved conversation reassignment
   const workerTick = async () => {

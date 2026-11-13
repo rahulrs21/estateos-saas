@@ -105,8 +105,9 @@ async function analyse(context: Context, sources: Awaited<ReturnType<typeof assi
 }
 
 /** Stores the checked analysis and, when Claude suggested one, a reply DRAFT (never sent). */
-async function store(context: Context, input: {insightId: string; draftJobId: string; conversationId: string; checked: CheckedInsight; model: string; coveredUntil: string | null; source: "CLAUDE" | "WORKFLOW"}) {
-  const hasDraft = Boolean(input.checked.reply);
+async function store(context: Context, input: {insightId: string; draftJobId: string; conversationId: string; checked: CheckedInsight; model: string; coveredUntil: string | null; source: "CLAUDE" | "WORKFLOW";
+  /** False when the reply goes to the member's message box instead (it is saved from there). */ saveDraft?: boolean}) {
+  const hasDraft = Boolean(input.checked.reply) && input.saveDraft !== false;
   await sdk.saveInboxAiInsight(serverDataConnect(), {
     organizationId: context.organizationId, id: input.insightId, conversationId: input.conversationId, actorUid: context.request.user.uid, insightJson: JSON.stringify(input.checked).slice(0, 24_000),
     unverifiedCount: input.checked.unverifiedCount, coveredUntil: input.coveredUntil, model: input.model.slice(0, 80), promptVersion: ASSISTANT_PROMPT_VERSION, source: input.source,
@@ -114,8 +115,13 @@ async function store(context: Context, input: {insightId: string; draftJobId: st
   });
 }
 
-/** A member asks Claude to analyse the conversation. */
-export async function analyseConversation(request: Request, context: Context, rawConversationId: string) {
+/**
+ * A member asks Claude to analyse the conversation. With `target: "composer"` (Draft with Claude in the message
+ * box) the suggested reply is returned for the member to edit instead of being saved as a separate draft; saving it
+ * from the box keeps it a Claude draft (createReply, fromInsightId).
+ */
+export async function analyseConversation(request: Request, context: Context, rawConversationId: string, body: unknown = {}) {
+  const composer = typeof body === "object" && body !== null && (body as {target?: unknown}).target === "composer";
   await getConversation(context, rawConversationId); // not found before anything else
   if (!await aiEnabled(context)) throw new WorkspaceError("INBOX_AI_DISABLED", 409, "Claude is not turned on for the inbox. An owner or administrator can enable it in Inbox settings.");
   const config = requireAiConfig();
@@ -124,9 +130,9 @@ export async function analyseConversation(request: Request, context: Context, ra
   if (!sources.lines.length) throw new WorkspaceError("VALIDATION_ERROR", 400, "There are no messages with text to analyse yet.");
   const {checked, model} = await analyse(context, sources);
   const insightId = randomUUID(), draftJobId = randomUUID();
-  try { await store(context, {insightId, draftJobId, conversationId: sources.conversation.id, checked, model, coveredUntil: sources.coveredUntil, source: "CLAUDE"}); }
+  try { await store(context, {insightId, draftJobId, conversationId: sources.conversation.id, checked, model, coveredUntil: sources.coveredUntil, source: "CLAUDE", saveDraft: !composer}); }
   catch (error) { throw mapWorkspaceDataError(error); }
-  return {insightId, draftJobId: checked.reply ? draftJobId : null, unverifiedCount: checked.unverifiedCount, proposedChanges: checked.proposedChanges.length};
+  return {insightId, draftJobId: checked.reply && !composer ? draftJobId : null, draft: composer ? checked.reply || null : null, unverifiedCount: checked.unverifiedCount, proposedChanges: checked.proposedChanges.length};
 }
 
 /**

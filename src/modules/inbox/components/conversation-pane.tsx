@@ -15,9 +15,9 @@ import { CALL_OUTCOME_LABELS, CALL_STATUS_LABELS, type CallOutcome, type CallSta
 import { formatLeadDate, textareaClassName } from "@/modules/leads/components/lead-ui";
 import { CHANNEL_LABELS, DELIVERY_LABELS, PRIORITIES, PRIORITY_LABELS, STATUS_LABELS, type ConversationStatus, type DeliveryStatus, type InboxChannel, type Priority } from "../model";
 import type { ConversationView, CustomerContextView, MessageListView } from "../server/conversations";
-import { AssistantPanel, Composer, ReplyList, useReplies } from "./reply-panel";
+import { AssistantPanel, Composer, ReplyTray, useReplies } from "./reply-panel";
 import { EmailMessage } from "./email-message";
-import { CHANNEL_TEXT_TONES, ContactAvatar, clockTime, dayLabel, messageDay, usePreference } from "./inbox-ui";
+import { CHANNEL_TEXT_TONES, ContactAvatar, clockTime, dayLabel, inPlace, messageDay, openConversation, usePreference } from "./inbox-ui";
 import { MEDIA_ERROR_LABELS } from "../whatsapp-media";
 
 const PREVIEW_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -151,7 +151,8 @@ function CustomerPanel({customer, conversation}: {customer: CustomerContextView 
       <Section title="Recent activity" empty="None" items={lead.activities.map(item => `${item.kind.replaceAll("_", " ").toLowerCase()} · ${formatLeadDate(item.createdAt, true)}`)} />
     </div>}
     {customer.others.length > 0 && <div><h4 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Other conversations</h4>
-      <ul className="space-y-1">{customer.others.map(item => <li key={item.id}><Link href={`/inbox/${item.id}`} className="text-primary hover:underline">{CHANNEL_LABELS[item.channel as InboxChannel]}</Link>
+      <ul className="space-y-1">{customer.others.map(item => <li key={item.id}><Link href={`/inbox/${item.id}`} prefetch={false} className="text-primary hover:underline"
+        onClick={event => { if (inPlace(event)) { event.preventDefault(); openConversation(item.id); } }}>{CHANNEL_LABELS[item.channel as InboxChannel]}</Link>
         <span className="text-xs text-muted-foreground"> · {formatLeadDate(item.lastMessageAt, true)} · {item.lastMessagePreview}</span></li>)}</ul></div>}
   </div>;
 }
@@ -281,10 +282,10 @@ export function ConversationPane({conversationId, organizationId, refreshKey, ex
       {/* The thread and the composer */}
       <div className="flex min-w-0 flex-1 flex-col">
         <div ref={scroller} className={cn("min-h-0 flex-1 overflow-y-auto", email ? "bg-muted/20" : "bg-muted/30 bg-[radial-gradient(circle_at_1px_1px,var(--color-border)_1px,transparent_0)] bg-size-[20px_20px]")}>
-          <div className={cn("mx-auto w-full space-y-3 px-2 py-3 sm:px-3", email ? (expanded ? "max-w-6xl" : "max-w-5xl") : expanded ? "max-w-4xl" : "max-w-3xl")}>
-            {email && conversation.subject && <h3 dir="auto" className="px-1 text-lg font-normal leading-snug">{conversation.subject}</h3>}
+          <div className={cn("mx-auto w-full px-2 py-4 sm:px-4", email ? (expanded ? "max-w-6xl space-y-4" : "max-w-5xl space-y-4") : expanded ? "max-w-4xl space-y-3" : "max-w-3xl space-y-3")}>
+            {email && conversation.subject && <h3 dir="auto" className="px-1 text-xl font-normal leading-snug">{conversation.subject}</h3>}
             {earlier && <div className="flex justify-center"><Button size="sm" variant="outline" className="rounded-full bg-card" onClick={() => void loadEarlier()}>Load earlier messages</Button></div>}
-            {messages.length ? <ol className={email ? "space-y-3" : "space-y-1.5"} aria-label="Messages">{messages.map((message, index) => {
+            {messages.length ? <ol className={email ? "space-y-4" : "space-y-1.5"} aria-label="Messages">{messages.map((message, index) => {
               const at = message.providerTimestamp ?? message.createdAt;
               const newDay = !email && (index === 0 || messageDay(at) !== messageDay(messages[index - 1].providerTimestamp ?? messages[index - 1].createdAt));
               return <Fragment key={message.id}>
@@ -294,15 +295,15 @@ export function ConversationPane({conversationId, organizationId, refreshKey, ex
               </Fragment>;
             })}</ol>
               : <p className="py-10 text-center text-sm text-muted-foreground">No messages.</p>}
-            <ReplyList replies={replies} />
           </div>
         </div>
+        <ReplyTray replies={replies} />
         <Composer replies={replies} conversationId={conversation.id} channel={channel} recipient={conversation.customerIdentity}
           templates={channel === "WHATSAPP" && !conversation.simulated && conversation.channelConnectionId ? {source: `/api/inbox/conversations/${conversation.id}/templates`, quickFills: [
             {label: "Customer name", value: name}, {label: "First name", value: (conversation.contact?.fullName ?? conversation.customerName ?? "").trim().split(/\s+/)[0] ?? ""},
             {label: "Your name", value: me.name}, {label: "Company", value: me.company},
           ].filter(fill => fill.value && !/^\+?\d[\d\s]+$/.test(fill.value))} : null}
-          notice={conversation.channelConnection?.sendingEnabled ? null : `Sending is not connected for this channel. Replies cannot leave EstateOS until ${channel === "WEBSITE" ? "an email or WhatsApp channel is connected" : "the provider is connected and approved"}.`} onAssistant={() => setDetails(true)} />
+          notice={conversation.channelConnection?.sendingEnabled ? null : `Sending is not connected for this channel. Replies cannot leave EstateOS until ${channel === "WEBSITE" ? "an email or WhatsApp channel is connected" : "the provider is connected and approved"}.`} />
       </div>
 
       {/* Details: the customer, Claude and internal notes */}

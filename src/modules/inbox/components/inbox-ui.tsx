@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore, type MouseEvent } from "react";
 import { Globe, Inbox, Mail, MessageCircle, UserRound, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CHANNEL_LABELS, type InboxChannel } from "../model";
@@ -93,3 +93,8 @@ export function usePreference(key: string): [boolean, (value: boolean) => void] 
   };
   return [value, set];
 }
+
+/** Opens a conversation inside the inbox without reloading the page (the address changes; Next's router keeps in step). */
+export function openConversation(id: string | null) { window.history.pushState(null, "", id ? `/inbox/${id}` : "/inbox"); }
+/** A plain left click opens in place; a click with a modifier (a new tab or window) keeps the browser's own behaviour. */
+export const inPlace = (event: MouseEvent) => event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;

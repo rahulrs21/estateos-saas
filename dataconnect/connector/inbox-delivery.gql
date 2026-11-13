@@ -143,3 +143,29 @@ query EmailReplyThread($organizationId: UUID!, $conversationId: UUID!) @auth(lev
     internetMessageId externalMessageId direction
   }
 }
+
+# --- Claude's reply in the message box (server only) ------------------------------------------
+
+# An analysis of this conversation, for the server saving the reply a member took from it into the message box.
+query InboxInsightDraft($organizationId: UUID!, $conversationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  insight: inboxAiInsight(first: {where: {organizationId: {eq: $organizationId}, conversationId: {eq: $conversationId}, id: {eq: $id}}}) {id insightJson draftJobId}
+}
+
+# Saves the reply a member took from Claude's analysis (in the message box, edited or not) as a Claude draft, so
+# the checks for unedited Claude drafts still apply. Once per analysis; the server has checked the member may see
+# the conversation.
+mutation CreateClaudeReplyFromInsight($organizationId: UUID!, $insightId: UUID!, $conversationId: UUID!, $jobId: UUID!, $actorUid: String!, $content: String!, $edited: Boolean!)
+  @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}}) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") {id}
+    insight: inboxAiInsight(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $insightId}, conversationId: {eq: $conversationId}, draftJobId: {isNull: true}}})
+      @check(expr: "this != null", message: "INBOX_INSIGHT_USED") {id}
+    open: outboundMessageJobs(where: {organizationId: {eq: $organizationId}, conversationId: {eq: $conversationId}, stage: {in: [DRAFT, VALIDATED, PENDING_APPROVAL, APPROVED]}}, limit: 10)
+      @check(expr: "this.size() < 10", message: "INBOX_REPLY_LIMIT") {id}
+  }
+  outboundMessageJob_insert(data: {organizationId: $organizationId, id: $jobId, conversationId: $conversationId, stage: DRAFT, source: "CLAUDE", content: $content, edited: $edited,
+    createdByUid: $actorUid, lastEditedByUid: $actorUid})
+  inboxAiInsight_update(key: {organizationId: $organizationId, id: $insightId}, data: {draftJobId: $jobId})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $jobId,
+    metadata_expr: "{'event': 'DRAFTED', 'conversationId': vars.conversationId, 'source': 'CLAUDE', 'edited': vars.edited}"})
+}

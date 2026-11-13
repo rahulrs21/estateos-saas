@@ -12,7 +12,7 @@ import {
 } from "./conversations";
 import { SIMULATOR_BODY_BYTES, inboxSimulatorState, simulateInbound, simulateReceipt, simulateWebsiteEnquiry } from "./simulator";
 import { analyseConversation, applyRequirements } from "./assistant";
-import { cancelReply, checkReply, createReply, decideReply, listReplies, sendReply, startWhatsAppConversation, submitReply, updateReply } from "./outbound";
+import { cancelReply, checkReply, createReply, decideReply, listReplies, sendReply, startWhatsAppConversation, submitReply, updateReply, deleteReply } from "./outbound";
 import { devToolsEnabled } from "@/modules/communications/dev/guard";
 import { completeMailboxConnect, disconnectMailbox, listMailboxes, setMailboxSending, startMailboxConnect, type ConnectOutcome, type MailProvider } from "./mailboxes";
 import { syncMailboxNow } from "./mail-sync";
@@ -57,13 +57,14 @@ export const conversationTemplatesResponse = (request: Request, id: string) => r
 export const connectionTemplatesResponse = (request: Request, id: string) => read(request, "inbox.connections.templates", context => connectionTemplates(context, id));
 export const createReplyResponse = (request: Request, id: string) => write(request, "inbox.replies.create", (context, body) => createReply(context, id, body), 201);
 export const updateReplyResponse = (request: Request, id: string, replyId: string) => write(request, "inbox.replies.update", (context, body) => updateReply(context, id, replyId, body));
+export const deleteReplyResponse = (request: Request, id: string, replyId: string) => write(request, "inbox.replies.delete", (context, body) => deleteReply(context, id, replyId, body));
 const REPLY_ACTIONS = {check: checkReply, submit: submitReply, decide: decideReply, cancel: cancelReply, send: sendReply} as const;
 export function replyActionResponse(request: Request, id: string, replyId: string, action: string) {
   const work = REPLY_ACTIONS[action as keyof typeof REPLY_ACTIONS];
   if (!work || !Object.hasOwn(REPLY_ACTIONS, action)) return new Response(null, {status: 404, headers: {"Cache-Control": "no-store"}});
   return write(request, `inbox.replies.${action}`, (context, body) => work(context, id, replyId, body));
 }
-export const assistantResponse = (request: Request, id: string) => write(request, "inbox.assistant", context => analyseConversation(request, context, id), 201);
+export const assistantResponse = (request: Request, id: string) => write(request, "inbox.assistant", (context, body) => analyseConversation(request, context, id, body), 201);
 export const applyRequirementsResponse = (request: Request, id: string) => write(request, "inbox.assistant.apply", (context, body) => applyRequirements(context, id, body));
 
 // --- Channel connections (OWNER or ADMIN) -----------------------------------------------------

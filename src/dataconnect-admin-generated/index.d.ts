@@ -2649,6 +2649,22 @@ export interface CreateChannelConnectionVariables {
   businessAccountReference?: string | null;
 }
 
+export interface CreateClaudeReplyFromInsightData {
+  outboundMessageJob_insert: OutboundMessageJob_Key;
+  inboxAiInsight_update?: InboxAiInsight_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CreateClaudeReplyFromInsightVariables {
+  organizationId: UUIDString;
+  insightId: UUIDString;
+  conversationId: UUIDString;
+  jobId: UUIDString;
+  actorUid: string;
+  content: string;
+  edited: boolean;
+}
+
 export interface CreateCommunicationPhoneLineData {
   line: CommunicationPhoneLine_Key;
   auditLog_insert: AuditLog_Key;
@@ -3467,6 +3483,17 @@ export interface DeleteCallTranscriptData {
 export interface DeleteCallTranscriptVariables {
   organizationId: UUIDString;
   id: UUIDString;
+}
+
+export interface DeleteInboxReplyData {
+  outboundMessageJob_deleteMany: number;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface DeleteInboxReplyVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
 }
 
 export interface DeleteMyAiConversationData {
@@ -6850,6 +6877,20 @@ export interface InboxEvent_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'InboxEvent_Key';
+}
+
+export interface InboxInsightDraftData {
+  insight?: {
+    id: UUIDString;
+    insightJson: string;
+    draftJobId?: UUIDString | null;
+  };
+}
+
+export interface InboxInsightDraftVariables {
+  organizationId: UUIDString;
+  conversationId: UUIDString;
+  id: UUIDString;
 }
 
 export interface InboxLinkTargetData {
@@ -14551,6 +14592,16 @@ export function emailReplyThread(dc: DataConnect, vars: EmailReplyThreadVariable
 /** Generated Node Admin SDK operation action function for the 'EmailReplyThread' Query. Allow users to pass in custom DataConnect instances. */
 export function emailReplyThread(vars: EmailReplyThreadVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<EmailReplyThreadData>>;
 
+/** Generated Node Admin SDK operation action function for the 'InboxInsightDraft' Query. Allow users to execute without passing in DataConnect. */
+export function inboxInsightDraft(dc: DataConnect, vars: InboxInsightDraftVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxInsightDraftData>>;
+/** Generated Node Admin SDK operation action function for the 'InboxInsightDraft' Query. Allow users to pass in custom DataConnect instances. */
+export function inboxInsightDraft(vars: InboxInsightDraftVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxInsightDraftData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateClaudeReplyFromInsight' Mutation. Allow users to execute without passing in DataConnect. */
+export function createClaudeReplyFromInsight(dc: DataConnect, vars: CreateClaudeReplyFromInsightVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateClaudeReplyFromInsightData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateClaudeReplyFromInsight' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createClaudeReplyFromInsight(vars: CreateClaudeReplyFromInsightVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateClaudeReplyFromInsightData>>;
+
 /** Generated Node Admin SDK operation action function for the 'MatchInboxIdentity' Query. Allow users to execute without passing in DataConnect. */
 export function matchInboxIdentity(dc: DataConnect, vars: MatchInboxIdentityVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MatchInboxIdentityData>>;
 /** Generated Node Admin SDK operation action function for the 'MatchInboxIdentity' Query. Allow users to pass in custom DataConnect instances. */
@@ -14690,6 +14741,11 @@ export function decideInboxReply(vars: DecideInboxReplyVariables, options?: Oper
 export function cancelInboxReply(dc: DataConnect, vars: CancelInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CancelInboxReplyData>>;
 /** Generated Node Admin SDK operation action function for the 'CancelInboxReply' Mutation. Allow users to pass in custom DataConnect instances. */
 export function cancelInboxReply(vars: CancelInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CancelInboxReplyData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DeleteInboxReply' Mutation. Allow users to execute without passing in DataConnect. */
+export function deleteInboxReply(dc: DataConnect, vars: DeleteInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeleteInboxReplyData>>;
+/** Generated Node Admin SDK operation action function for the 'DeleteInboxReply' Mutation. Allow users to pass in custom DataConnect instances. */
+export function deleteInboxReply(vars: DeleteInboxReplyVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeleteInboxReplyData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListChannelConnections' Query. Allow users to execute without passing in DataConnect. */
 export function listChannelConnections(dc: DataConnect, vars: ListChannelConnectionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListChannelConnectionsData>>;
