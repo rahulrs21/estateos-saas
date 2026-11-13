@@ -2281,6 +2281,12 @@ export function setChannelConnectionSending(dcOrVarsOrOptions, varsOrOptions, op
   return dcInstance.executeMutation('SetChannelConnectionSending', inputVars, inputOpts);
 }
 
+export function setChannelConnectionLiveSending(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetChannelConnectionLiveSending', inputVars, inputOpts);
+}
+
 export function startWhatsAppConversation(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
@@ -2339,6 +2345,12 @@ export function channelAccountInUse(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeQuery('ChannelAccountInUse', inputVars, inputOpts);
+}
+
+export function whatsAppTemplateConnection(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('WhatsAppTemplateConnection', inputVars, inputOpts);
 }
 
 export function inboxSimulatorChannel(dcOrVarsOrOptions, varsOrOptions, options) {

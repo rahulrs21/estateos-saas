@@ -72,6 +72,9 @@ function ConnectionFields({view, connection}: {view: ConnectionsView; connection
     {provider === "WHATSAPP_CLOUD" && <LeadField id={`${prefix}-token`} label="Access token secret name (for sending)"
       hint="The NAME of the server secret holding the WhatsApp access token from Meta, for example INBOX_WHATSAPP_ACCESS_TOKEN. Needed for Check connection and sending. Never paste the token here.">
       <Input id={`${prefix}-token`} name="accessTokenReference" maxLength={64} defaultValue={connection?.accessTokenReference ?? ""} autoComplete="off" pattern="INBOX_[A-Z0-9_]{3,56}" /></LeadField>}
+    {provider === "WHATSAPP_CLOUD" && <LeadField id={`${prefix}-waba`} label="WhatsApp Business Account ID (for templates)"
+      hint="In WhatsApp Manager, the number shown under the account name (digits only). Not secret. EstateOS lists this account's approved templates.">
+      <Input id={`${prefix}-waba`} name="businessAccountReference" maxLength={40} defaultValue={connection?.businessAccountReference ?? ""} autoComplete="off" inputMode="numeric" pattern="[0-9]{5,30}" /></LeadField>}
   </>;
 }
 
@@ -85,7 +88,7 @@ function ConnectionsSection({view, send}: {view: ConnectionsView; send: Send}) {
   const copy = (value: string) => { void navigator.clipboard?.writeText(value).then(() => toast.success("Webhook address copied.")); };
   return <Section title="Channels" description="Company accounts with WhatsApp and email providers. Adding one here does not connect it: EstateOS verifies a connection and sends messages only after the live integration is built and approved (Phase 7B for WhatsApp, 7C for email)."
     action={<FormDialog trigger={<><Plus aria-hidden="true" />Add channel</>} title="Add a channel" description="Saving does not contact the provider and does not enable sending." submitLabel="Add channel"
-      onSubmit={form => send("/api/inbox/connections", "POST", {provider: text(form, "provider"), displayName: text(form, "displayName"), externalAccountReference: text(form, "externalAccountReference") || null, credentialReference: text(form, "credentialReference") || null, accessTokenReference: text(form, "accessTokenReference") || null}, "Channel added.")}>
+      onSubmit={form => send("/api/inbox/connections", "POST", {provider: text(form, "provider"), displayName: text(form, "displayName"), externalAccountReference: text(form, "externalAccountReference") || null, credentialReference: text(form, "credentialReference") || null, accessTokenReference: text(form, "accessTokenReference") || null, businessAccountReference: text(form, "businessAccountReference") || null}, "Channel added.")}>
       <ConnectionFields view={view} /></FormDialog>}>
     {!view.connections.length ? <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No channel is set up. Website enquiries still arrive in the inbox.</p>
       : <ul className="space-y-3">{view.connections.map(connection => <li key={connection.id} className="space-y-2 rounded-lg border p-4" data-testid="inbox-connection">
@@ -100,7 +103,8 @@ function ConnectionsSection({view, send}: {view: ConnectionsView; send: Send}) {
         {!connection.simulator && <p className="text-xs text-muted-foreground">Account: {connection.externalAccountReference ?? "not set"} · Secret name: {connection.credentialReference ?? "not set"}
           {connection.verifyTokenName ? ` · Verify token secret: ${connection.verifyTokenName} (${connection.verifyTokenAvailable ? "set" : "not set"})` : ""}
           {connection.lastEventAt ? ` · Last verified event ${formatLeadDate(connection.lastEventAt, true)}` : ""}
-          {connection.provider === "WHATSAPP_CLOUD" ? ` · Access token secret: ${connection.accessTokenReference ?? "not set"}${connection.accessTokenReference ? ` (${connection.accessTokenAvailable ? "set" : "not set"})` : ""}` : ""}</p>}
+          {connection.provider === "WHATSAPP_CLOUD" ? ` · Access token secret: ${connection.accessTokenReference ?? "not set"}${connection.accessTokenReference ? ` (${connection.accessTokenAvailable ? "set" : "not set"})` : ""}` : ""}
+          {connection.provider === "WHATSAPP_CLOUD" ? ` · WhatsApp Business Account: ${connection.businessAccountReference ?? "not set (templates unavailable)"}` : ""}</p>}
         {connection.verifiedAt && <p className="text-xs" data-testid="connection-verified">Meta confirmed {connection.verifiedName ?? "this number"}{connection.verifiedDisplayNumber ? ` (${connection.verifiedDisplayNumber})` : ""} · {formatLeadDate(connection.verifiedAt, true)}</p>}
         {connection.liveSending && <p className="text-xs text-muted-foreground">{connection.liveSending.configured
           ? `Phase 7B.1 test mode: this server sends only to ${connection.liveSending.testRecipients} test recipient${connection.liveSending.testRecipients === 1 ? "" : "s"} (INBOX_WHATSAPP_TEST_RECIPIENTS). Sending needs approval of each reply.`
@@ -111,7 +115,7 @@ function ConnectionsSection({view, send}: {view: ConnectionsView; send: Send}) {
         <Capabilities capabilities={connection.capabilities} />
         {!connection.simulator && <div className="flex flex-wrap gap-2">
           <FormDialog trigger="Edit" title="Edit channel" description="Saving does not contact the provider." submitLabel="Save"
-            onSubmit={form => send(`/api/inbox/connections/${connection.id}`, "PUT", {expectedRevision: connection.revision, displayName: text(form, "displayName"), externalAccountReference: text(form, "externalAccountReference") || null, credentialReference: text(form, "credentialReference") || null, accessTokenReference: text(form, "accessTokenReference") || null}, "Channel saved. Check the connection again before sending.")}>
+            onSubmit={form => send(`/api/inbox/connections/${connection.id}`, "PUT", {expectedRevision: connection.revision, displayName: text(form, "displayName"), externalAccountReference: text(form, "externalAccountReference") || null, credentialReference: text(form, "credentialReference") || null, accessTokenReference: text(form, "accessTokenReference") || null, businessAccountReference: text(form, "businessAccountReference") || null}, "Channel saved. Check the connection again before sending.")}>
             <ConnectionFields view={view} connection={connection} /></FormDialog>
           <Button variant="outline" size="sm" onClick={() => void send(`/api/inbox/connections/${connection.id}/enabled`, "POST", {expectedRevision: connection.revision, enabled: connection.connectionStatus === "DISABLED"}, connection.connectionStatus === "DISABLED" ? "Channel enabled." : "Channel disabled; its webhooks are refused.").catch(() => undefined)}>
             {connection.connectionStatus === "DISABLED" ? "Enable" : "Disable"}</Button>

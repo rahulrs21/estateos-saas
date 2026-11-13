@@ -16,7 +16,7 @@ query ListInboxReplies($organizationId: UUID!, $conversationId: UUID!)
     ]}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {
     id
     jobs: outboundMessageJobs_on_conversation(orderBy: [{createdAt: DESC}], limit: 20) {
-      id stage source content templateName versionsJson validationJson edited createdByUid createdBy {displayName} lastEditedByUid lastEditedBy {displayName}
+      id stage source content templateName templateParamsJson versionsJson validationJson edited createdByUid createdBy {displayName} lastEditedByUid lastEditedBy {displayName}
       approvalRequestedAt approvedByUid approvedBy {displayName} approvedAt approvalNote selfApproved messageId providerMessageId failureReason revision createdAt updatedAt
     }
     insights: inboxAiInsights_on_conversation(orderBy: [{createdAt: DESC}], limit: 1) {id insightJson unverifiedCount coveredUntil draftJobId model source createdAt createdBy {displayName}}
@@ -24,9 +24,10 @@ query ListInboxReplies($organizationId: UUID!, $conversationId: UUID!)
 }
 
 # A reply written by the member (at most ten open replies per conversation). templateName (Phase 7B) names an
-# approved WhatsApp template as "name:language"; the server checks it, and the content describes it.
-mutation CreateInboxReplyDraft($organizationId: UUID!, $id: UUID!, $conversationId: UUID!, $content: String!, $templateName: String)
-  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.content.size() >= 1 && vars.content.size() <= 4000 && (!has(vars.templateName) || vars.templateName == null || vars.templateName.matches('^[a-z0-9_]{1,100}:[a-z]{2,3}(_[A-Z]{2})?$'))") @transaction {
+# approved WhatsApp template as "name:language"; from 7B.2 its filled blanks are kept in templateParamsJson and the
+# content is the rendered text. The server checks the template with Meta.
+mutation CreateInboxReplyDraft($organizationId: UUID!, $id: UUID!, $conversationId: UUID!, $content: String!, $templateName: String, $templateParamsJson: String)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.content.size() >= 1 && vars.content.size() <= 4000 && (!has(vars.templateName) || vars.templateName == null || vars.templateName.matches('^[a-z0-9_]{1,100}:[a-z]{2,3}(_[A-Z]{2})?$')) && (!has(vars.templateParamsJson) || vars.templateParamsJson == null || (vars.templateParamsJson.size() <= 4000 && has(vars.templateName) && vars.templateName != null))") @transaction {
   authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
   current: query @redact {
     conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $conversationId}}, {_or: [
@@ -37,7 +38,7 @@ mutation CreateInboxReplyDraft($organizationId: UUID!, $id: UUID!, $conversation
     ]}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {id}
     open: outboundMessageJobs(where: {organizationId: {eq: $organizationId}, conversationId: {eq: $conversationId}, stage: {in: [DRAFT, VALIDATED, PENDING_APPROVAL, APPROVED]}}, limit: 10) @check(expr: "this.size() < 10", message: "INBOX_REPLY_LIMIT") {id}
   }
-  outboundMessageJob_insert(data: {organizationId: $organizationId, id: $id, conversationId: $conversationId, stage: DRAFT, source: "AGENT", content: $content, templateName: $templateName, createdByUid_expr: "auth.uid", lastEditedByUid_expr: "auth.uid"})
+  outboundMessageJob_insert(data: {organizationId: $organizationId, id: $id, conversationId: $conversationId, stage: DRAFT, source: "AGENT", content: $content, templateName: $templateName, templateParamsJson: $templateParamsJson, createdByUid_expr: "auth.uid", lastEditedByUid_expr: "auth.uid"})
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_OUTBOUND_CHANGED, targetType: OUTBOUND_MESSAGE, targetId: $id,
     metadata_expr: "{'event': 'DRAFTED', 'conversationId': vars.conversationId, 'source': 'AGENT'}"})
 }

@@ -2018,9 +2018,11 @@ export interface ChannelConnectionForCheckData {
     provider: ChannelProvider;
     connectionStatus: ChannelConnectionStatus;
     externalAccountReference?: string | null;
+    businessAccountReference?: string | null;
     credentialReference?: string | null;
     accessTokenReference?: string | null;
     sendingEnabled: boolean;
+    liveSending: boolean;
     verifiedAt?: TimestampString | null;
     revision: number;
   };
@@ -2633,6 +2635,7 @@ export interface CreateChannelConnectionVariables {
   externalAccountReference?: string | null;
   credentialReference?: string | null;
   accessTokenReference?: string | null;
+  businessAccountReference?: string | null;
 }
 
 export interface CreateCommunicationPhoneLineData {
@@ -2859,6 +2862,7 @@ export interface CreateInboxReplyDraftVariables {
   conversationId: UUIDString;
   content: string;
   templateName?: string | null;
+  templateParamsJson?: string | null;
 }
 
 export interface CreateInboxSimulatorChannelData {
@@ -6896,6 +6900,7 @@ export interface InboxReplyFactsData {
     source: string;
     edited: boolean;
     templateName?: string | null;
+    templateParamsJson?: string | null;
     createdByUid: string;
     lastEditedByUid?: string | null;
     conversationId: UUIDString;
@@ -6916,7 +6921,9 @@ export interface InboxReplyFactsData {
         provider: ChannelProvider;
         connectionStatus: ChannelConnectionStatus;
         sendingEnabled: boolean;
+        liveSending: boolean;
         externalAccountReference?: string | null;
+        businessAccountReference?: string | null;
         accessTokenReference?: string | null;
         ownerMembershipId?: UUIDString | null;
         ownerMembership?: {
@@ -8104,6 +8111,7 @@ export interface ListChannelConnectionsData {
     provider: ChannelProvider;
     displayName: string;
     externalAccountReference?: string | null;
+    businessAccountReference?: string | null;
     connectionStatus: ChannelConnectionStatus;
     credentialReference?: string | null;
     accessTokenReference?: string | null;
@@ -8111,6 +8119,11 @@ export interface ListChannelConnectionsData {
     verifiedName?: string | null;
     verifiedDisplayNumber?: string | null;
     sendingEnabled: boolean;
+    liveSending: boolean;
+    liveSendingAt?: TimestampString | null;
+    liveSendingBy?: {
+      displayName: string;
+    };
     lastEventAt?: TimestampString | null;
     revision: number;
     createdAt: TimestampString;
@@ -8507,6 +8520,7 @@ export interface ListInboxRepliesData {
       source: string;
       content: string;
       templateName?: string | null;
+      templateParamsJson?: string | null;
       versionsJson: string;
       validationJson?: string | null;
       edited: boolean;
@@ -12284,6 +12298,19 @@ export interface SetChannelConnectionEnabledVariables {
   enabled: boolean;
 }
 
+export interface SetChannelConnectionLiveSendingData {
+  channelConnection_update?: ChannelConnection_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SetChannelConnectionLiveSendingVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  actorUid: string;
+  enabled: boolean;
+}
+
 export interface SetChannelConnectionSendingData {
   channelConnection_update?: ChannelConnection_Key | null;
   auditLog_insert: AuditLog_Key;
@@ -12877,6 +12904,7 @@ export interface UpdateChannelConnectionVariables {
   externalAccountReference?: string | null;
   credentialReference?: string | null;
   accessTokenReference?: string | null;
+  businessAccountReference?: string | null;
 }
 
 export interface UpdateCommunicationPhoneLineData {
@@ -13474,6 +13502,23 @@ export interface Website_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'Website_Key';
+}
+
+export interface WhatsAppTemplateConnectionData {
+  connection?: {
+    id: UUIDString;
+    connectionStatus: ChannelConnectionStatus;
+    externalAccountReference?: string | null;
+    businessAccountReference?: string | null;
+    accessTokenReference?: string | null;
+    sendingEnabled: boolean;
+    liveSending: boolean;
+  };
+}
+
+export interface WhatsAppTemplateConnectionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
 }
 
 export interface WithdrawCallConsentData {
@@ -14612,6 +14657,11 @@ export function setChannelConnectionSending(dc: DataConnect, vars: SetChannelCon
 /** Generated Node Admin SDK operation action function for the 'SetChannelConnectionSending' Mutation. Allow users to pass in custom DataConnect instances. */
 export function setChannelConnectionSending(vars: SetChannelConnectionSendingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetChannelConnectionSendingData>>;
 
+/** Generated Node Admin SDK operation action function for the 'SetChannelConnectionLiveSending' Mutation. Allow users to execute without passing in DataConnect. */
+export function setChannelConnectionLiveSending(dc: DataConnect, vars: SetChannelConnectionLiveSendingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetChannelConnectionLiveSendingData>>;
+/** Generated Node Admin SDK operation action function for the 'SetChannelConnectionLiveSending' Mutation. Allow users to pass in custom DataConnect instances. */
+export function setChannelConnectionLiveSending(vars: SetChannelConnectionLiveSendingVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetChannelConnectionLiveSendingData>>;
+
 /** Generated Node Admin SDK operation action function for the 'StartWhatsAppConversation' Mutation. Allow users to execute without passing in DataConnect. */
 export function startWhatsAppConversation(dc: DataConnect, vars: StartWhatsAppConversationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<StartWhatsAppConversationData>>;
 /** Generated Node Admin SDK operation action function for the 'StartWhatsAppConversation' Mutation. Allow users to pass in custom DataConnect instances. */
@@ -14661,6 +14711,11 @@ export function createInboxAttachment(vars: CreateInboxAttachmentVariables, opti
 export function channelAccountInUse(dc: DataConnect, vars: ChannelAccountInUseVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ChannelAccountInUseData>>;
 /** Generated Node Admin SDK operation action function for the 'ChannelAccountInUse' Query. Allow users to pass in custom DataConnect instances. */
 export function channelAccountInUse(vars: ChannelAccountInUseVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ChannelAccountInUseData>>;
+
+/** Generated Node Admin SDK operation action function for the 'WhatsAppTemplateConnection' Query. Allow users to execute without passing in DataConnect. */
+export function whatsAppTemplateConnection(dc: DataConnect, vars: WhatsAppTemplateConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<WhatsAppTemplateConnectionData>>;
+/** Generated Node Admin SDK operation action function for the 'WhatsAppTemplateConnection' Query. Allow users to pass in custom DataConnect instances. */
+export function whatsAppTemplateConnection(vars: WhatsAppTemplateConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<WhatsAppTemplateConnectionData>>;
 
 /** Generated Node Admin SDK operation action function for the 'InboxSimulatorChannel' Query. Allow users to execute without passing in DataConnect. */
 export function inboxSimulatorChannel(dc: DataConnect, vars: InboxSimulatorChannelVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxSimulatorChannelData>>;

@@ -8,7 +8,8 @@ import { idSchema, parseInput } from "@/modules/communications/server/validation
 import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { ADAPTERS, CREDENTIAL_REFERENCE, WEBHOOK_SLUGS, canSend } from "../adapters";
-import { accessToken, checkPhoneNumber, liveSendingConfigured, testRecipients } from "./whatsapp-cloud";
+import { accessToken, checkBusinessAccount, checkPhoneNumber, liveSendingConfigured, testRecipients } from "./whatsapp-cloud";
+import { forgetTemplates } from "./whatsapp-templates";
 import type { ChannelProvider } from "../model";
 
 /*
@@ -45,6 +46,8 @@ const connectionSchema = z.strictObject({
   externalAccountReference: optional(200),
   credentialReference: credential,
   accessTokenReference: credential,
+  /** Phase 7B.2: the WhatsApp Business Account the number belongs to (digits; not a secret). */
+  businessAccountReference: optional(40).refine(value => value === null || /^\d{5,30}$/.test(value), "The WhatsApp Business Account ID is the number shown in WhatsApp Manager (digits only)."),
 });
 const updateSchema = connectionSchema.omit({provider: true}).extend({expectedRevision: z.number().int().min(1)});
 
@@ -88,7 +91,7 @@ export async function listConnections(context: Context) {
       const receives = adapter.capabilities.RECEIVE_EVENTS === "SUPPORTED" && provider !== "DEVELOPMENT_SIMULATOR" && provider !== "WEBSITE_FORM" && provider !== "INTERNAL";
       const path = receives ? webhookPath(provider, row.id) : null;
       return {
-        id: canonicalUuid(row.id), provider, label: adapter.label, displayName: row.displayName, externalAccountReference: row.externalAccountReference ?? null,
+        id: canonicalUuid(row.id), provider, label: adapter.label, displayName: row.displayName, externalAccountReference: row.externalAccountReference ?? null, businessAccountReference: row.businessAccountReference ?? null,
         connectionStatus: row.connectionStatus, credentialReference: row.credentialReference ?? null, revision: row.revision, lastEventAt: row.lastEventAt ?? null,
         createdAt: row.createdAt, createdBy: row.createdBy?.displayName ?? null, capabilities: adapter.capabilities,
         secretAvailable: Boolean(readInboxSecret(row.credentialReference)),
@@ -116,7 +119,7 @@ export async function createConnection(context: Context, body: unknown) {
   const id = randomUUID();
   await asMember(context, "CreateChannelConnection", (dc, options) => sdk.createChannelConnection(dc, {
     organizationId: context.organizationId, id, provider: sdk.ChannelProvider[input.provider], displayName: input.displayName, externalAccountReference, credentialReference: input.credentialReference,
-    accessTokenReference: input.provider === "WHATSAPP_CLOUD" ? input.accessTokenReference : null,
+    accessTokenReference: input.provider === "WHATSAPP_CLOUD" ? input.accessTokenReference : null, businessAccountReference: input.provider === "WHATSAPP_CLOUD" ? input.businessAccountReference : null,
   }, options)).catch(accountTaken);
   return {id};
 }
@@ -133,8 +136,9 @@ export async function updateConnection(context: Context, rawId: string, body: un
   await assertAccountFree(provider as (typeof CONFIGURABLE)[number], externalAccountReference, id);
   await asMember(context, "UpdateChannelConnection", (dc, options) => sdk.updateChannelConnection(dc, {
     organizationId: context.organizationId, id, expectedRevision: input.expectedRevision, displayName: input.displayName, externalAccountReference, credentialReference: input.credentialReference,
-    accessTokenReference: provider === "WHATSAPP_CLOUD" ? input.accessTokenReference : null,
+    accessTokenReference: provider === "WHATSAPP_CLOUD" ? input.accessTokenReference : null, businessAccountReference: provider === "WHATSAPP_CLOUD" ? input.businessAccountReference : null,
   }, options)).catch(accountTaken);
+  forgetTemplates(id);
   return {id};
 }
 
@@ -170,14 +174,18 @@ export async function checkConnection(context: Context, rawId: string) {
   if (!token) throw new WorkspaceError("VALIDATION_ERROR", 400, connection.accessTokenReference
     ? `The server has no value for ${connection.accessTokenReference}. Add it to the server environment and restart.`
     : "Enter the name of the access token secret (for example INBOX_WHATSAPP_ACCESS_TOKEN) on this channel first.");
-  const result = await checkPhoneNumber(token, connection.externalAccountReference);
+  const phone = await checkPhoneNumber(token, connection.externalAccountReference);
+  // Phase 7B.2: with a WhatsApp Business Account ID, the number must belong to it (its templates are listed from it).
+  const account = phone.ok && connection.businessAccountReference ? await checkBusinessAccount(token, connection.businessAccountReference, connection.externalAccountReference) : null;
+  const result = !phone.ok ? phone : account && !account.ok ? account : phone;
+  forgetTemplates(id);
   await asServer("MarkChannelConnectionChecked", dc => sdk.markChannelConnectionChecked(dc, {
     organizationId: context.organizationId, id, expectedRevision: connection.revision, actorUid: context.request.user.uid, verified: result.ok,
     verifiedName: result.ok ? result.verifiedName : null, verifiedDisplayNumber: result.ok ? result.displayNumber : null, errorCode: result.ok ? null : result.code,
   }));
   // Recorded first (the channel is now ERROR, sending off), then explained to the administrator.
   if (!result.ok) throw new WorkspaceError("INBOX_CHECK_FAILED", 409, `Meta did not confirm this number (${result.code}): ${result.message}`);
-  return {id, verified: true, verifiedName: result.verifiedName, displayNumber: result.displayNumber};
+  return {id, verified: true, verifiedName: phone.ok ? phone.verifiedName : null, displayNumber: phone.ok ? phone.displayNumber : null, templatesAvailable: Boolean(connection.businessAccountReference)};
 }
 
 /** Sending on or off for a VERIFIED WhatsApp connection; on only where the server has test recipients (7B.1). */

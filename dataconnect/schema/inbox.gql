@@ -37,11 +37,19 @@ type ChannelConnection @table(key: ["organization", "id"])
   credentialReference: String @col(dataType: "varchar(64)")
   # Phase 7B: the name of the secret holding the provider access token (WhatsApp Cloud API), never its value.
   accessTokenReference: String @col(dataType: "varchar(64)")
+  # Phase 7B.2: the WhatsApp Business Account the phone number belongs to (digits; its templates are listed from it).
+  businessAccountReference: String @col(dataType: "varchar(40)")
   # Set by a live connection check (Phase 7B): the provider confirmed the account with the token.
   verifiedAt: Timestamp
   verifiedName: String @col(dataType: "varchar(160)")
   verifiedDisplayNumber: String @col(dataType: "varchar(32)")
   sendingEnabled: Boolean! @default(value: false)
+  # Phase 7B.2: sends to any customer, not only the server's test numbers. Turned on by an OWNER only (and only
+  # where the server allows it); editing, disabling, a failed check or sending off turn it off again.
+  liveSending: Boolean! @default(value: false)
+  # When and by whom the switch was last changed.
+  liveSendingAt: Timestamp
+  liveSendingBy: UserProfile
   # The last verified webhook event (shown to administrators; never proof of a working connection).
   lastEventAt: Timestamp
   # Phase 7C: a personal mailbox belongs to this member; null for company mailboxes and other channels.
@@ -197,6 +205,12 @@ type InboxAttachment @table(key: ["organization", "id"])
   # file has not been fetched (provider downloads need a live connector, Phase 7B).
   storagePath: String @col(dataType: "varchar(300)")
   providerMediaId: String @col(dataType: "varchar(200)")
+  # Phase 7B.2: downloading a provider file (WhatsApp media). Attempts are compare-and-set, so two workers never fetch
+  # the same file; the next try, when it was stored, and why it was not (for example expired at the provider).
+  mediaFetchAttempts: Int! @default(value: 0)
+  mediaNextAttemptAt: Timestamp
+  mediaFetchedAt: Timestamp
+  mediaError: String @col(dataType: "varchar(64)")
   scanStatus: InboxAttachmentScan! @default(value: PENDING)
   createdAt: Timestamp! @default(expr: "request.time")
   deletedAt: Timestamp
@@ -271,6 +285,8 @@ type OutboundMessageJob @table(key: ["organization", "id"])
   versionsJson: String! @default(value: "[]") @col(dataType: "varchar(20000)")
   validationJson: String @col(dataType: "varchar(2000)")
   templateName: String @col(dataType: "varchar(120)")
+  # Phase 7B.2: the template's filled blanks (JSON object, bounded); the content is the rendered text.
+  templateParamsJson: String @col(dataType: "varchar(4000)")
   createdBy: UserProfile!
   # Who last wrote the content (the author until someone edits it); neither may approve it unless an OWNER.
   lastEditedBy: UserProfile

@@ -11,7 +11,7 @@ import { ADAPTERS, canSend } from "../adapters";
 import type { CheckedInsight } from "../assistant";
 import type { ChannelProvider, InboxChannel, Role } from "../model";
 import {
-  CANCELLABLE_STAGES, EDITABLE_STAGES, MAX_OUTBOUND_CHARS, STAGE_LABELS, TEMPLATE_NAME, nextVersions, outboundApproval, parseTemplate, templateLabel, validateOutbound,
+  CANCELLABLE_STAGES, EDITABLE_STAGES, MAX_OUTBOUND_CHARS, STAGE_LABELS, TEMPLATE_NAME, nextVersions, outboundApproval, parseTemplate, validateOutbound,
   type OutboundSource, type OutboundStage, type ValidationResult,
 } from "../outbound";
 import { channelIdentity } from "../identity";
@@ -23,6 +23,8 @@ import { buildReplyMessage, replySubject } from "../email";
 import { gmailSend } from "./google";
 import { emailRecipientAllowed, emailSendingConfigured, mailboxAccessToken, providerLabel } from "./mailboxes";
 import { outlookReply } from "./microsoft";
+import { renderTemplate, templateComponents, templateValueProblems, templateValues } from "../whatsapp-templates";
+import { approvedTemplate } from "./whatsapp-templates";
 
 /*
  * Inbox replies (docs/UNIFIED_INBOX.md#outbound). Members draft, check and
@@ -111,7 +113,7 @@ export async function listReplies(context: Context, rawConversationId: string) {
       const approval = outboundApproval({approverUid: me, approverRole: role, createdByUid: job.createdByUid, lastEditedByUid: job.lastEditedByUid ?? null});
       return {
         id: canonicalUuid(job.id), stage, stageLabel: STAGE_LABELS[stage], source: job.source as OutboundSource, content: job.content, edited: job.edited, revision: job.revision,
-        template: parseTemplate(job.templateName),
+        template: parseTemplate(job.templateName), templateValues: parseJson<Record<string, string>>(job.templateParamsJson, {}),
         versions: parseJson<Array<{content: string; at: string; by: string | null}>>(job.versionsJson, []), validation: parseJson<ValidationResult | null>(job.validationJson, null),
         createdBy: job.createdBy?.displayName ?? null, lastEditedBy: job.lastEditedBy?.displayName ?? null, approvedBy: job.approvedBy?.displayName ?? null, approvedAt: job.approvedAt ?? null,
         approvalRequestedAt: job.approvalRequestedAt ?? null, approvalNote: job.approvalNote ?? null, selfApproved: job.selfApproved, failureReason: job.failureReason ?? null,
@@ -130,7 +132,23 @@ export type RepliesView = Awaited<ReturnType<typeof listReplies>>;
 const contentSchema = z.string().trim().min(1, "Write the reply first.").max(MAX_OUTBOUND_CHARS);
 
 const templateSchema = z.strictObject({name: z.string().trim().regex(/^[a-z0-9_]{1,100}$/, "Template names use lowercase letters, digits and underscores."),
-  language: z.string().trim().regex(/^[a-z]{2,3}(_[A-Z]{2})?$/, "Use a language code such as en_US or ar.")});
+  language: z.string().trim().regex(/^[a-z]{2,3}(_[A-Z]{2})?$/, "Use a language code such as en_US or ar."),
+  /** Phase 7B.2: the filled blanks, keyed "BODY:1", "HEADER:1" or "BODY:first_name". */
+  values: z.record(z.string().max(40), z.string().max(1000)).default({})});
+
+/**
+ * Phase 7B.2: an approved template of the conversation's channel (read from Meta), its blanks checked, and the
+ * exact text the customer will receive. Throws with the reason a member can act on.
+ */
+async function preparedTemplate(organizationId: string, connectionId: string, input: {name: string; language: string; values: Record<string, unknown>}, fresh = false) {
+  const template = await approvedTemplate(organizationId, connectionId, input.name, input.language, fresh);
+  const values = templateValues(template, input.values);
+  const problems = Object.values(templateValueProblems(template, values));
+  if (problems.length) throw new WorkspaceError("VALIDATION_ERROR", 400, `Fill in the template: ${problems[0]}`);
+  const rendered = renderTemplate(template, values).text;
+  if (rendered.length > MAX_OUTBOUND_CHARS) throw new WorkspaceError("VALIDATION_ERROR", 400, "The filled template is too long.");
+  return {template, values, rendered};
+}
 const createSchema = z.strictObject({content: contentSchema.optional(), template: templateSchema.optional()})
   .refine(value => Boolean(value.content) !== Boolean(value.template), "Write a reply or choose a template.");
 
@@ -139,11 +157,15 @@ export async function createReply(context: Context, rawConversationId: string, b
   const conversation = await getConversation(context, rawConversationId);
   const input = parseInput(createSchema, body);
   if (input.template && conversation.channel !== "WHATSAPP") throw new WorkspaceError("VALIDATION_ERROR", 400, "Templates are only for WhatsApp conversations.");
+  if (input.template && (!conversation.channelConnectionId || conversation.simulated)) throw new WorkspaceError("VALIDATION_ERROR", 400, "Templates are only for real WhatsApp conversations.");
   const templateName = input.template ? `${input.template.name}:${input.template.language}` : null;
   if (templateName && !TEMPLATE_NAME.test(templateName)) throw new WorkspaceError("VALIDATION_ERROR", 400, "Give a valid template name and language.");
-  const content = input.template ? templateLabel(input.template) : input.content!;
+  // A template draft holds the text the customer will receive, and its blanks.
+  const prepared = input.template ? await preparedTemplate(context.organizationId, conversation.channelConnectionId!, input.template) : null;
+  const content = prepared ? prepared.rendered : input.content!;
+  const templateParamsJson = prepared && Object.keys(prepared.values).length ? JSON.stringify(prepared.values).slice(0, 4000) : null;
   const replyId = randomUUID();
-  await asMember(context, "CreateInboxReplyDraft", (dc, options) => sdk.createInboxReplyDraft(dc, {organizationId: context.organizationId, id: replyId, conversationId: conversation.id, content, templateName}, options));
+  await asMember(context, "CreateInboxReplyDraft", (dc, options) => sdk.createInboxReplyDraft(dc, {organizationId: context.organizationId, id: replyId, conversationId: conversation.id, content, templateName, templateParamsJson}, options));
   return {id: replyId};
 }
 
@@ -260,6 +282,15 @@ export async function sendReply(context: Context, rawConversationId: string, raw
   if (delivery.mode === "WHATSAPP" && (!token || !connection.externalAccountReference)) {
     throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, "The server has no access token for this WhatsApp channel. An administrator must set it and check the connection again.");
   }
+  // Phase 7B.2: a template is read fresh from Meta before anything is queued. Paused, rejected, or changed since it
+  // was drafted (it would no longer read as the approved text) means nothing is sent.
+  let components: ReturnType<typeof templateComponents> | undefined;
+  if (delivery.mode === "WHATSAPP" && template) {
+    const values = parseJson<Record<string, string>>(job.templateParamsJson, {});
+    const prepared = await preparedTemplate(context.organizationId, canonicalUuid(target.channelConnectionId), {...template, values}, true);
+    if (prepared.rendered !== job.content) throw new WorkspaceError("INBOX_TEMPLATE_CHANGED", 409, "This template changed in Meta after the reply was drafted, so it was not sent. Draft it again from the template list.");
+    components = templateComponents(prepared.template, prepared.values);
+  }
   const messageId = randomUUID();
   const simulated = target.simulated;
   // Email: the grant and the threaded reply are ready before anything is queued, so a mailbox that cannot send queues nothing.
@@ -293,7 +324,7 @@ export async function sendReply(context: Context, rawConversationId: string, raw
   let ack: {accepted: true; providerMessageId: string} | {accepted: false; reason: string};
   if (delivery.mode === "WHATSAPP") {
     const sent = await sendWhatsAppMessage(token!, connection.externalAccountReference!, target.customerIdentity,
-      template ? {kind: "TEMPLATE", name: template.name, language: template.language} : {kind: "TEXT", text: job.content});
+      template ? {kind: "TEMPLATE", name: template.name, language: template.language, components} : {kind: "TEXT", text: job.content});
     console.info(JSON.stringify({event: "inbox.whatsapp.send", replyId: facts.replyId, ok: sent.ok, code: sent.ok ? null : sent.code, template: Boolean(template)}));
     ack = sent.ok ? {accepted: true, providerMessageId: sent.providerMessageId}
       : {accepted: false, reason: sent.code === "TIMEOUT" || sent.code === "NETWORK" ? `${sent.message} It may or may not have been delivered; check WhatsApp before sending again.` : `Meta refused it (${sent.code}): ${sent.message}`};

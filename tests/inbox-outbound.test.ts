@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+// Phase 7B.2: the WhatsApp template rules run with these (tests/inbox-whatsapp-templates.test.ts).
+import "./inbox-whatsapp-templates.test";
 import { ADAPTERS, canSend } from "../src/modules/inbox/adapters";
 import { assistantFacts, assistantWireZod, checkInsight, messageLines, numbersIn, parseAmount, type AssistantWire, type ListingFact } from "../src/modules/inbox/assistant";
 import {

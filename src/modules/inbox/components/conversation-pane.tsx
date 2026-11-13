@@ -146,7 +146,8 @@ function PanelBlock({icon, title, children}: {icon: ReactNode; title: string; ch
 }
 
 /** One conversation: the contact and controls on top, the thread, the composer, and a details panel (customer, Claude, internal notes). */
-export function ConversationPane({conversationId, organizationId, refreshKey, expanded, onExpand, onBack, onChanged}: {conversationId: string; organizationId: string; refreshKey: number;
+export function ConversationPane({conversationId, organizationId, refreshKey, expanded, onExpand, me, onBack, onChanged}: {conversationId: string; organizationId: string; refreshKey: number;
+  /** The member's own name and the company's, for filling template blanks. */ me: {name: string; company: string};
   /** The conversation fills the inbox (folders and list hidden). */ expanded: boolean; onExpand: (value: boolean) => void; onBack: () => void; onChanged: () => void}) {
   const [conversation, setConversation] = useState<ConversationView | null>(null);
   const [messages, setMessages] = useState<Message[] | null>(null);
@@ -276,6 +277,10 @@ export function ConversationPane({conversationId, organizationId, refreshKey, ex
           </div>
         </div>
         <Composer replies={replies} conversationId={conversation.id} channel={channel} recipient={conversation.customerIdentity}
+          templates={channel === "WHATSAPP" && !conversation.simulated && conversation.channelConnectionId ? {source: `/api/inbox/conversations/${conversation.id}/templates`, quickFills: [
+            {label: "Customer name", value: name}, {label: "First name", value: (conversation.contact?.fullName ?? conversation.customerName ?? "").trim().split(/\s+/)[0] ?? ""},
+            {label: "Your name", value: me.name}, {label: "Company", value: me.company},
+          ].filter(fill => fill.value && !/^\+?\d[\d\s]+$/.test(fill.value))} : null}
           notice={conversation.channelConnection?.sendingEnabled ? null : `Sending is not connected for this channel. Replies cannot leave EstateOS until ${channel === "WEBSITE" ? "an email or WhatsApp channel is connected" : "the provider is connected and approved"}.`} onAssistant={() => setDetails(true)} />
       </div>
 

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { normalizePhoneIdentity } from "../identity";
+import type { MetaTemplate, templateComponents } from "../whatsapp-templates";
 import { readInboxSecret } from "./connections";
 
 /*
@@ -73,14 +74,45 @@ export async function checkPhoneNumber(token: string, phoneNumberId: string) {
   return {ok: true as const, displayNumber: (result.data.display_phone_number ?? "").slice(0, 32) || null, verifiedName: (result.data.verified_name ?? "").slice(0, 160) || null};
 }
 
-export type WhatsAppMessage = {kind: "TEXT"; text: string} | {kind: "TEMPLATE"; name: string; language: string};
+/**
+ * Phase 7B.2: the WhatsApp Business Account really holds this phone number (its templates are listed from it).
+ * A read-only request; nothing is sent to anyone.
+ */
+export async function checkBusinessAccount(token: string, businessAccountId: string, phoneNumberId: string) {
+  if (!/^\d{5,30}$/.test(businessAccountId)) return {ok: false, status: 0, code: "BUSINESS_ACCOUNT", message: "The WhatsApp Business Account ID must be digits."} satisfies GraphFailure;
+  const result = await graph<{data?: Array<{id?: string}>}>(`${businessAccountId}/phone_numbers?fields=id&limit=100`, token);
+  if (!result.ok) return result;
+  if (!(result.data.data ?? []).some(item => item.id === phoneNumberId)) {
+    return {ok: false, status: 200, code: "BUSINESS_ACCOUNT", message: "This phone number does not belong to that WhatsApp Business Account."} satisfies GraphFailure;
+  }
+  return {ok: true as const};
+}
+
+/** Phase 7B.2: the account's message templates (every status; the caller offers only approved ones). Bounded to three pages. */
+export async function listMessageTemplates(token: string, businessAccountId: string) {
+  if (!/^\d{5,30}$/.test(businessAccountId)) return {ok: false, status: 0, code: "BUSINESS_ACCOUNT", message: "Add the WhatsApp Business Account ID to this channel in Inbox settings first."} satisfies GraphFailure;
+  const templates: MetaTemplate[] = [];
+  let after: string | null = null;
+  for (let page = 0; page < 3; page++) {
+    const query: URLSearchParams = new URLSearchParams({fields: "id,name,language,status,category,components,parameter_format", limit: "100", ...(after ? {after} : {})});
+    const result: GraphResult<{data?: MetaTemplate[]; paging?: {cursors?: {after?: string}; next?: string}}> = await graph(`${businessAccountId}/message_templates?${query}`, token);
+    if (!result.ok) return result;
+    templates.push(...(result.data.data ?? []));
+    after = result.data.paging?.next ? result.data.paging.cursors?.after ?? null : null;
+    if (!after) break;
+  }
+  return {ok: true as const, templates};
+}
+
+export type WhatsAppMessage = {kind: "TEXT"; text: string} | {kind: "TEMPLATE"; name: string; language: string; components?: ReturnType<typeof templateComponents>};
 
 /** Sends one message. Only an accepted response with a message ID counts as sent. */
 export async function sendWhatsAppMessage(token: string, phoneNumberId: string, to: string, message: WhatsAppMessage) {
   const recipient = to.replace(/\D/g, "");
   const body = message.kind === "TEXT"
     ? {messaging_product: "whatsapp", recipient_type: "individual", to: recipient, type: "text", text: {preview_url: false, body: message.text}}
-    : {messaging_product: "whatsapp", recipient_type: "individual", to: recipient, type: "template", template: {name: message.name, language: {code: message.language}}};
+    : {messaging_product: "whatsapp", recipient_type: "individual", to: recipient, type: "template",
+      template: {name: message.name, language: {code: message.language}, ...(message.components?.length ? {components: message.components} : {})}};
   const result = await graph<{messages?: Array<{id?: unknown}>}>(`${phoneNumberId}/messages`, token, {method: "POST", body});
   if (!result.ok) return result;
   const id = result.data.messages?.[0]?.id;

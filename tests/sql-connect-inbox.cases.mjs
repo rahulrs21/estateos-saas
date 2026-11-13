@@ -567,6 +567,82 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       assert.deepEqual({status: row.connectionStatus, sending: row.sendingEnabled}, {status: "ERROR", sending: false});
     });
 
+    // --- 7B.2: the WhatsApp Business Account, real customers (OWNER only) and template values ---
+    it("stores the WhatsApp Business Account, lets only an OWNER switch a channel to real customers, and turns that off with any change", async () => {
+      let row = await connection();
+      const update = (extra = {}) => run(sdk.updateChannelConnection, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, displayName: "Sales WhatsApp", externalAccountReference: ACCOUNT,
+        credentialReference: "INBOX_TEST_WA_SECRET", accessTokenReference: "INBOX_TEST_WA_TOKEN", businessAccountReference: "1800453871250567", ...extra});
+      await forbidden(sdk.updateChannelConnection, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, displayName: "Sales WhatsApp", externalAccountReference: ACCOUNT,
+        credentialReference: "INBOX_TEST_WA_SECRET", accessTokenReference: "INBOX_TEST_WA_TOKEN", businessAccountReference: "not-digits"});
+      await update();
+      row = await connection();
+      assert.equal(row.businessAccountReference, "1800453871250567");
+      const verify = async () => {
+        row = await connection();
+        await server(sdk.markChannelConnectionChecked, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "owner-a", verified: true, verifiedName: "Fictional Realty", verifiedDisplayNumber: null, errorCode: null});
+        row = await connection();
+        await server(sdk.setChannelConnectionSending, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "owner-a", enabled: true});
+        row = await connection();
+      };
+      const live = (actorUid, enabled) => server(sdk.setChannelConnectionLiveSending, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid, enabled});
+      await rejectsWith(live("owner-a", true), "CHANNEL_CONNECTION_CHANGED", "not before it is verified with sending on");
+      await verify();
+      assert.equal(row.liveSending, false, "verifying and sending on never reach real customers by themselves");
+      await forbidden(sdk.setChannelConnectionLiveSending, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "owner-a", enabled: true});
+      await rejectsWith(live("admin-a", true), "INBOX_OWNER_REQUIRED", "an administrator cannot switch to real customers");
+      await rejectsWith(live("manager-a", true), "INBOX_OWNER_REQUIRED");
+      await rejectsWith(live("owner-b", true), "INBOX_OWNER_REQUIRED", "nor another company's owner");
+      await live("owner-a", true);
+      row = await connection();
+      assert.deepEqual({live: row.liveSending, by: row.liveSendingBy?.displayName ?? null, at: Boolean(row.liveSendingAt)}, {live: true, by: row.liveSendingBy?.displayName ?? null, at: true});
+      assert.ok(row.liveSendingBy, "who switched it is recorded");
+      const audit = (await dc.executeGraphql(`query A($org: UUID!, $id: UUID!) { auditLogs(where: {organizationId: {eq: $org}, targetId: {eq: $id}}, orderBy: [{createdAt: DESC}], limit: 1) { metadata } }`,
+        {variables: {org: f.orgA, id: connectionId}})).data.auditLogs;
+      assert.match(JSON.stringify(audit), /LIVE_SENDING_ON/);
+      // An administrator may turn it off (for safety).
+      await live("admin-a", false);
+      row = await connection();
+      assert.equal(row.liveSending, false);
+      // Sending off, an edit, disabling or a failed check each turn it off again.
+      const resets = [
+        async () => server(sdk.setChannelConnectionSending, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "admin-a", enabled: false}),
+        async () => update(),
+        async () => server(sdk.markChannelConnectionChecked, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, actorUid: "admin-a", verified: false, errorCode: "190"}),
+        async () => run(sdk.setChannelConnectionEnabled, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, enabled: false}),
+      ];
+      for (const reset of resets) {
+        row = await connection();
+        if (row.connectionStatus === "DISABLED") { await run(sdk.setChannelConnectionEnabled, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, enabled: true}); }
+        await verify();
+        await live("owner-a", true);
+        row = await connection();
+        assert.equal(row.liveSending, true);
+        await reset();
+        row = await connection();
+        assert.equal(row.liveSending, false, "any change turns real customers off");
+      }
+      row = await connection();
+      if (row.connectionStatus === "DISABLED") await run(sdk.setChannelConnectionEnabled, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, enabled: true});
+      // The server reads the channel for templates; never for another company.
+      const forTemplates = await server(sdk.whatsAppTemplateConnection, {organizationId: f.orgA, id: connectionId});
+      assert.equal(forTemplates.connection.businessAccountReference, "1800453871250567");
+      assert.equal((await server(sdk.whatsAppTemplateConnection, {organizationId: f.orgB, id: connectionId})).connection, null);
+      await forbidden(sdk.whatsAppTemplateConnection, "owner-a", {organizationId: f.orgA, id: connectionId});
+    });
+
+    it("keeps a template reply's filled blanks with its rendered text, and only with a template", async () => {
+      const id = randomUUID();
+      await forbidden(sdk.createInboxReplyDraft, "owner-a", {organizationId: f.orgA, id: randomUUID(), conversationId: started, content: "Hi Layla", templateParamsJson: "{\"BODY:1\":\"Layla\"}"});
+      await forbidden(sdk.createInboxReplyDraft, "owner-a", {organizationId: f.orgA, id: randomUUID(), conversationId: started, content: "Hi", templateName: "viewing_followup:en_US", templateParamsJson: "x".repeat(4001)});
+      await run(sdk.createInboxReplyDraft, "owner-a", {organizationId: f.orgA, id, conversationId: started, content: "Hi Layla, would Tuesday suit you?", templateName: "viewing_followup:en_US",
+        templateParamsJson: "{\"BODY:1\":\"Layla\",\"BODY:2\":\"Tuesday\"}"});
+      const job = await reply("owner-a", started, id);
+      assert.deepEqual({name: job.templateName, values: JSON.parse(job.templateParamsJson), content: job.content},
+        {name: "viewing_followup:en_US", values: {"BODY:1": "Layla", "BODY:2": "Tuesday"}, content: "Hi Layla, would Tuesday suit you?"});
+      const facts = (await server(sdk.inboxReplyFacts, {organizationId: f.orgA, id})).job;
+      assert.equal(facts.templateParamsJson, job.templateParamsJson, "the server reads them back to send");
+    });
+
     // --- 7C.1: mailboxes connected through OAuth (company and personal) ---
     const mailboxSave = (extra = {}) => server(sdk.saveMailboxConnection, {organizationId: f.orgA, id: randomUUID(), actorUid: "owner-a", provider: sdk.ChannelProvider.GMAIL, personal: false, ownerMembershipId: null,
       existing: false, displayName: "Sales mailbox", mailbox: `sales.${randomUUID().slice(0, 8)}@agency.example.test`, tokenCiphertext: "v1:sealed-test-value", tokenKeyId: "k1", scopes: "gmail.readonly gmail.send", historyId: "1000", ...extra});

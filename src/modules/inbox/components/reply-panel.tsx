@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bot, Check, CheckCircle2, ChevronDown, Info, Loader2, PenLine, Send, ShieldAlert, Sparkles, XCircle } from "lucide-react";
+import { Bot, Check, CheckCircle2, ChevronDown, FileText, Info, Loader2, PenLine, Send, ShieldAlert, Sparkles, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import type { CheckedPoint, RequirementField } from "../assistant";
 import type { InboxChannel } from "../model";
 import type { CustomerContextView } from "../server/conversations";
 import type { RepliesView } from "../server/outbound";
+import { TemplatePicker, type ChosenTemplate, type QuickFill } from "./template-picker";
 
 type Reply = RepliesView["replies"][number];
 const STAGE_VARIANT: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -55,7 +56,7 @@ export function useReplies({conversationId, organizationId, onSent}: {conversati
     try { await communicationsSend("/api/dev/communication-tests/inbox/receipt", organizationId, "POST", {messageId, status}); toast.success(`Simulated receipt: ${status.toLowerCase()}.`); onSent(); }
     catch (problem) { toast.error(errorMessage(problem, "The receipt could not be simulated.")); }
   }
-  async function save(body: {content: string} | {template: {name: string; language: string}}) {
+  async function save(body: {content: string} | {template: ChosenTemplate}) {
     setBusy("new");
     try {
       await communicationsSend(`${path}/replies`, organizationId, "POST", body);
@@ -172,11 +173,13 @@ export function ReplyList({replies}: {replies: RepliesState}) {
 }
 
 /** The reply box, docked under the thread like a mail or chat composer. Everything written is saved as a draft and approved before it is sent. */
-export function Composer({replies, conversationId, channel, recipient, notice, onAssistant}: {replies: RepliesState; conversationId: string; channel: InboxChannel; recipient: string;
-  /** Why this channel cannot send at all, when it cannot. */ notice: string | null; onAssistant: () => void}) {
+export function Composer({replies, conversationId, channel, recipient, notice, templates, onAssistant}: {replies: RepliesState; conversationId: string; channel: InboxChannel; recipient: string;
+  /** Why this channel cannot send at all, when it cannot. */ notice: string | null;
+  /** Phase 7B.2: approved WhatsApp templates (a real WhatsApp conversation), with quick fills for their blanks. */ templates: {source: string; quickFills: QuickFill[]} | null;
+  onAssistant: () => void}) {
   const {view, busy, save, analyse} = replies;
   const [draft, setDraft] = useState("");
-  const [template, setTemplate] = useState({name: "hello_world", language: "en_US"});
+  const [usingTemplate, setUsingTemplate] = useState(false);
   if (!view) return <div role="status" className="border-t px-4 py-4 text-sm text-muted-foreground">Loading replies…</div>;
   const ready = view.sendMode !== null;
   async function submit() {
@@ -188,14 +191,15 @@ export function Composer({replies, conversationId, channel, recipient, notice, o
       {ready ? <Send aria-hidden className="mt-px size-3 shrink-0" /> : <Info aria-hidden className="mt-px size-3 shrink-0" />}
       <p className="line-clamp-2">{notice && <span className="text-muted-foreground" data-testid="sending-disabled">{notice} </span>}
         <span data-testid="reply-sending-note">{sendingNote}</span></p></div>
-    {view.templateOnly ? <form className="space-y-2 rounded-xl border bg-background p-3" data-testid="template-composer" onSubmit={event => { event.preventDefault(); void save({template}); }}>
-      <p className="text-xs text-muted-foreground">The customer has not written in the last 24 hours, so WhatsApp allows only an approved template. Its text is the one approved in Meta&apos;s WhatsApp Manager. Meta may charge for template messages; check your WhatsApp billing first.</p>
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="space-y-1 text-xs font-medium">Template name<Input value={template.name} onChange={event => setTemplate(current => ({...current, name: event.target.value.trim()}))} maxLength={100} className="h-8 w-48" /></label>
-        <label className="space-y-1 text-xs font-medium">Language<Input value={template.language} onChange={event => setTemplate(current => ({...current, language: event.target.value.trim()}))} maxLength={6} className="h-8 w-24" /></label>
-        <Button type="submit" size="sm" variant="outline" disabled={busy !== null || !template.name || !template.language}>{busy === "new" && <Loader2 aria-hidden className="animate-spin" />}Save template reply</Button>
-      </div>
-    </form>
+    {view.templateOnly || usingTemplate ? <div className="space-y-2" data-testid="template-composer">
+      <p className="text-xs text-muted-foreground">{view.templateOnly
+        ? "The customer has not written in the last 24 hours, so WhatsApp allows only an approved template. Meta may charge for template messages."
+        : "An approved template from your WhatsApp account. Meta may charge for template messages."}</p>
+      {templates ? <TemplatePicker source={templates.source} quickFills={templates.quickFills} submitLabel="Save template reply" busy={busy === "new"}
+        onCancel={view.templateOnly ? undefined : () => setUsingTemplate(false)}
+        onSubmit={async template => { if (await save({template})) setUsingTemplate(false); }} />
+        : <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">Templates are only for real WhatsApp conversations.</p>}
+    </div>
     : <form className="rounded-xl border bg-background shadow-xs transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
         onSubmit={event => { event.preventDefault(); void submit(); }}>
       <label htmlFor={`draft-${conversationId}`} className="sr-only">Write a reply</label>
@@ -206,6 +210,7 @@ export function Composer({replies, conversationId, channel, recipient, notice, o
       <div className="flex flex-wrap items-center gap-2 px-1.5 pb-1.5">
         {view.aiEnabled && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={busy !== null} onClick={() => void analyse().then(ok => ok && onAssistant())}>
           {busy === "assistant" ? <Loader2 aria-hidden className="animate-spin" /> : <Sparkles aria-hidden />}Draft with Claude</Button>}
+        {templates && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={busy !== null} onClick={() => setUsingTemplate(true)}><FileText aria-hidden />Template</Button>}
         <span className="ml-auto hidden text-[11px] text-muted-foreground sm:inline">Ctrl + Enter to save</span>
         <Button type="submit" size="sm" disabled={busy !== null || !draft.trim()}>{busy === "new" ? <Loader2 aria-hidden className="animate-spin" /> : <PenLine aria-hidden />}Save draft</Button>
       </div>

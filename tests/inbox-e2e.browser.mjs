@@ -37,6 +37,17 @@ const BUCKET = "demo-estateos-test.appspot.com";
 const waSecret = randomBytes(24).toString("hex");
 const waVerifyToken = randomBytes(12).toString("hex");
 const WA_ACCOUNT = "1" + String(Date.now()).slice(-14);
+// Phase 7B.2: the fictional WhatsApp Business Account holding that number, and its templates (changed by the tests).
+const WA_WABA = "2" + String(Date.now()).slice(-14);
+const graphTemplates = [
+  {id: "9001", name: "hello_world", language: "en_US", status: "APPROVED", category: "UTILITY", components: [{type: "BODY", text: "Hello World"}]},
+  {id: "9002", name: "viewing_followup", language: "en_US", status: "APPROVED", category: "UTILITY", parameter_format: "POSITIONAL", components: [
+    {type: "HEADER", format: "TEXT", text: "Hello {{1}}", example: {header_text: ["Layla"]}},
+    {type: "BODY", text: "Thank you for your interest in {{1}}. Would {{2}} suit you for a viewing?", example: {body_text: [["Villa 12", "Tuesday at 10"]]}},
+    {type: "FOOTER", text: "Fictional Realty"}, {type: "BUTTONS", buttons: [{type: "QUICK_REPLY", text: "Yes please"}]}]},
+  {id: "9003", name: "spring_offer", language: "en_US", status: "PAUSED", category: "MARKETING", components: [{type: "BODY", text: "Our spring offer"}]},
+  {id: "9004", name: "brochure_image", language: "en_US", status: "APPROVED", category: "MARKETING", components: [{type: "HEADER", format: "IMAGE"}, {type: "BODY", text: "Here is the brochure"}]},
+];
 const pass = message => { checks++; console.log(`✔ ${message}`); };
 
 // ---------------------------------------------------------------- fixtures
@@ -86,6 +97,9 @@ const graph = createHttpServer((request, response) => {
     const reply = (status, value) => { response.writeHead(status, {"Content-Type": "application/json"}); response.end(JSON.stringify(value)); };
     if (request.headers.authorization !== `Bearer ${graphToken}`) return reply(401, {error: {code: 190, message: "Invalid OAuth access token - Cannot parse access token"}});
     if (request.method === "GET" && request.url.startsWith(`/v27.0/${WA_ACCOUNT}?`)) return reply(200, {id: WA_ACCOUNT, display_phone_number: "+44 7700 900001", verified_name: "E2E Fictional Realty", quality_rating: "GREEN"});
+    if (request.method === "GET" && request.url.startsWith(`/v27.0/${WA_WABA}/phone_numbers?`)) return reply(200, {data: [{id: WA_ACCOUNT}]});
+    if (request.method === "GET" && request.url.startsWith(`/v27.0/${WA_WABA}/message_templates?`)) return reply(200, {data: graphTemplates});
+    if (request.method === "GET" && /^\/v27\.0\/\d+\/(phone_numbers|message_templates)\?/.test(request.url)) return reply(400, {error: {code: 100, message: "Unsupported get request. Object does not exist."}});
     if (request.method === "POST" && request.url === `/v27.0/${WA_ACCOUNT}/messages`) {
       if (body?.to === "447700900704") return reply(400, {error: {code: 131026, message: "Message undeliverable."}});
       graphMessages += 1;
@@ -1104,7 +1118,7 @@ try {
   }
   const editChannel = async accessTokenReference => {
     const saved = await post(`/api/inbox/connections/${liveChannel.id}`, {expectedRevision: liveChannel.revision, displayName: liveChannel.displayName, externalAccountReference: WA_ACCOUNT,
-      credentialReference: "INBOX_E2E_WA_SECRET", accessTokenReference}, f.orgA, "PUT");
+      credentialReference: "INBOX_E2E_WA_SECRET", accessTokenReference, businessAccountReference: WA_WABA}, f.orgA, "PUT");
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     liveChannel = await channelRow();
   };
@@ -1122,6 +1136,7 @@ try {
   await waitFor("document.querySelector('[data-testid=connection-verified]')?.innerText.includes('E2E Fictional Realty')", "the verified channel");
   const checkRequest = graphRequests.find(item => item.method === "GET" && item.authorization === `Bearer ${graphToken}`);
   assert.ok(checkRequest && checkRequest.url.includes("fields=id,display_phone_number,verified_name"), "the check reads the phone number with the token");
+  assert.ok(graphRequests.some(item => item.method === "GET" && item.url.startsWith(`/v27.0/${WA_WABA}/phone_numbers?`)), "and that the number belongs to the WhatsApp Business Account");
   await clickText("Turn sending on", "[data-testid=inbox-connection] button");
   await waitFor("[...document.querySelectorAll('[data-testid=inbox-connection]')].some(e=>e.innerText.includes('Sending on (test recipients only)'))", "sending on");
   assert.doesNotMatch(await evaluate("document.body.innerText"), new RegExp(graphToken), "the access token is never shown");
@@ -1141,6 +1156,7 @@ try {
   assert.equal(liveView.sendMode, "WHATSAPP");
   assert.equal(liveView.templateOnly, true, "the customer has not written, so only a template is allowed");
   assert.deepEqual(liveView.replies[0].template, template);
+  assert.equal(liveView.replies[0].content, "Hello World", "the reply holds the template's own text, as the customer will see it");
   assert.equal(liveView.replies[0].can.edit, false, "a template's text is Meta's, not editable");
   const approveAndSend = async (conversationId, replyId) => {
     const row = async () => (await api(`/api/inbox/conversations/${conversationId}/replies`)).body.data.replies.find(item => item.id === replyId);
@@ -1181,6 +1197,60 @@ try {
   await load(`/inbox/${liveConversation}`, "[...document.querySelectorAll('[data-testid=inbox-reply]')].some(e=>e.dataset.stage==='SENT')");
   await screenshot("whatsapp-live-conversation");
   pass("Phase 7B.1: an administrator starts a conversation with a test recipient; the template is checked, approved by someone else and sent with the token; SENT comes from Meta's message ID; the customer's answer joins it and a free-form reply follows");
+
+  // ------------------------------------------------------------ 7B.2a: templates from Meta, chosen from a list, blanks filled, preview, sent exactly
+  const listedTemplates = (await api(`/api/inbox/conversations/${liveConversation}/templates`)).body.data;
+  assert.deepEqual(listedTemplates.templates.map(item => item.name), ["hello_world", "viewing_followup"], "only approved templates EstateOS can send are offered");
+  assert.deepEqual(listedTemplates.others.map(item => [item.name, item.status]).sort(), [["brochure_image", "APPROVED"], ["spring_offer", "PAUSED"]]);
+  await load(`/inbox/${liveConversation}`, "[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Template')");
+  await clickText("Template", "button");
+  await waitFor("document.querySelectorAll('[data-testid=template-option]').length === 2", "the template list");
+  await evaluate("[...document.querySelectorAll('[data-testid=template-option]')].find(b=>b.textContent.includes('viewing_followup')).click()");
+  await waitFor("Boolean(document.querySelector('[name=\"template-BODY:1\"]'))", "the blanks");
+  const typeInto = (name, value) => evaluate(`(()=>{const e=document.querySelector('[name="${name}"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  // A quick fill for the header (the company's name; this customer is known only by number, so no name is offered), typed values for the body.
+  const fills = await evaluate("[...document.querySelector('[name=\"template-HEADER:1\"]').parentElement.querySelectorAll('button')].map(b=>b.textContent)");
+  assert.ok(fills.includes("Company") && !fills.includes("Customer name"), "a number is never offered as a name: " + JSON.stringify(fills));
+  await evaluate("[...document.querySelector('[name=\"template-HEADER:1\"]').parentElement.querySelectorAll('button')].find(b=>b.textContent==='Company').click()");
+  const company = await evaluate("document.querySelector('[name=\"template-HEADER:1\"]').value");
+  assert.ok(company.length > 1, "the quick fill filled the blank");
+  await typeInto("template-BODY:1", "the Marina apartment");
+  await typeInto("template-BODY:2", "Tuesday at 10");
+  await waitFor("document.querySelector('[data-testid=template-preview]').innerText.includes('Tuesday at 10')", "the preview");
+  const preview = await evaluate("document.querySelector('[data-testid=template-preview]').innerText");
+  assert.equal(preview.replace(/\n+/g, "\n"), `Hello ${company}\nThank you for your interest in the Marina apartment. Would Tuesday at 10 suit you for a viewing?\nFictional Realty\nYes please`);
+  await screenshot("whatsapp-template-picker");
+  await clickText("Save template reply", "[data-testid=template-picker] button");
+  await waitFor("[...document.querySelectorAll('[data-testid=inbox-reply]')].some(e=>e.innerText.includes('Marina apartment') && e.dataset.stage==='DRAFT')", "the template draft");
+  liveView = (await api(`/api/inbox/conversations/${liveConversation}/replies`)).body.data;
+  const filled = liveView.replies.find(item => item.template?.name === "viewing_followup");
+  assert.equal(filled.content, `Hello ${company}\n\nThank you for your interest in the Marina apartment. Would Tuesday at 10 suit you for a viewing?\n\nFictional Realty\n\n[Yes please]`, "the draft holds exactly what the customer receives");
+  assert.deepEqual(filled.templateValues, {"HEADER:1": company, "BODY:1": "the Marina apartment", "BODY:2": "Tuesday at 10"});
+  const sentFilled = await approveAndSend(liveConversation, filled.id);
+  assert.equal(sentFilled.body.data.stage, "SENT", JSON.stringify(sentFilled.body));
+  assert.deepEqual(graphRequests.filter(item => item.method === "POST").at(-1).body.template, {name: "viewing_followup", language: {code: "en_US"}, components: [
+    {type: "header", parameters: [{type: "text", text: company}]},
+    {type: "body", parameters: [{type: "text", text: "the Marina apartment"}, {type: "text", text: "Tuesday at 10"}]}]}, "sent with its blanks, as Meta expects");
+  // Missing blanks, an unsupported template and one changed in Meta after drafting are refused; nothing reaches Meta.
+  const postsBeforeTemplates = graphRequests.filter(item => item.method === "POST").length;
+  assert.equal((await post(`/api/inbox/conversations/${liveConversation}/replies`, {template: {name: "viewing_followup", language: "en_US", values: {"BODY:1": "Villa 12"}}})).status, 400, "every blank must be filled");
+  assert.equal((await post(`/api/inbox/conversations/${liveConversation}/replies`, {template: {name: "brochure_image", language: "en_US"}})).status, 409, "an image header is not supported yet");
+  assert.equal((await post(`/api/inbox/conversations/${liveConversation}/replies`, {template: {name: "spring_offer", language: "en_US"}})).status, 409, "a paused template cannot be drafted");
+  const changing = await post(`/api/inbox/conversations/${liveConversation}/replies`, {template: {name: "viewing_followup", language: "en_US", values: {"HEADER:1": "Layla", "BODY:1": "Villa 12", "BODY:2": "Monday"}}});
+  assert.equal(changing.status, 201, JSON.stringify(changing.body));
+  const original = graphTemplates[1].components[1].text;
+  graphTemplates[1].components[1].text = "We have updated {{1}}. Is {{2}} still good?";
+  const changedSend = await approveAndSend(liveConversation, changing.body.data.id);
+  assert.equal(changedSend.status, 409);
+  assert.match(changedSend.body.error.message, /changed in Meta after the reply was drafted/);
+  graphTemplates[1].components[1].text = original;
+  graphTemplates[1].status = "PAUSED";
+  const pausedSend = await post(`/api/inbox/conversations/${liveConversation}/replies/${changing.body.data.id}/send`, {expectedRevision: (await api(`/api/inbox/conversations/${liveConversation}/replies`)).body.data.replies.find(item => item.id === changing.body.data.id).revision});
+  assert.equal(pausedSend.status, 409);
+  assert.match(pausedSend.body.error.message, /paused in Meta/);
+  graphTemplates[1].status = "APPROVED";
+  assert.equal(graphRequests.filter(item => item.method === "POST").length, postsBeforeTemplates, "Meta received nothing for them");
+  pass("Phase 7B.2a: approved templates come from the WhatsApp Business Account; a member picks one, fills its blanks (quick fills too) and sees the exact message; it is sent with its blanks; missing blanks, unsupported, paused or changed templates are never sent");
 
   // ------------------------------------------------------------ 7B.1: refusals and the test-recipient rule
   const refusedStart = await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: "+44 7700 900704", template});

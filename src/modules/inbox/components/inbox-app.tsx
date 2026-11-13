@@ -31,7 +31,7 @@ const CHANNELS = INBOX_CHANNELS.filter(item => item !== "INTERNAL");
 type Row = ConversationListView["conversations"][number];
 
 /** The unified inbox, laid out like a mail client: folders, the conversation list and the open conversation. */
-export function InboxApp({organizationId, conversationId}: {organizationId: string; conversationId: string | null}) {
+export function InboxApp({organizationId, conversationId, me}: {organizationId: string; conversationId: string | null; me: {name: string; company: string}}) {
   const router = useRouter();
   const [view, setView] = useState<InboxView>("ALL");
   const [channel, setChannel] = useState<InboxChannel | "">("");
@@ -187,7 +187,7 @@ export function InboxApp({organizationId, conversationId}: {organizationId: stri
 
     {/* Open conversation */}
     <section aria-label="Conversation" className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", showList && "hidden lg:flex")}>
-      {conversationId ? <ConversationPane key={conversationId} conversationId={conversationId} organizationId={organizationId} refreshKey={refreshKey} expanded={reading} onExpand={setExpanded}
+      {conversationId ? <ConversationPane key={conversationId} conversationId={conversationId} organizationId={organizationId} refreshKey={refreshKey} expanded={reading} onExpand={setExpanded} me={me}
         onBack={() => router.push("/inbox")} onChanged={() => setRefreshKey(key => key + 1)} />
         : <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
             <span className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary/10"><Inbox aria-hidden className="size-6 text-primary" /></span>

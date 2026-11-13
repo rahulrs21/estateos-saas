@@ -16,6 +16,7 @@ import { cancelReply, checkReply, createReply, decideReply, listReplies, sendRep
 import { devToolsEnabled } from "@/modules/communications/dev/guard";
 import { completeMailboxConnect, disconnectMailbox, listMailboxes, setMailboxSending, startMailboxConnect, type ConnectOutcome, type MailProvider } from "./mailboxes";
 import { syncMailboxNow } from "./mail-sync";
+import { connectionTemplates, conversationTemplates } from "./whatsapp-templates";
 import { messageHtml } from "./email-html";
 
 /*
@@ -51,6 +52,9 @@ export const customerResponse = (request: Request, id: string) => read(request, 
 
 // --- Replies and the assistant (7A.5) ---------------------------------------------------------
 export const repliesResponse = (request: Request, id: string) => read(request, "inbox.replies", context => listReplies(context, id));
+// Phase 7B.2: approved WhatsApp templates from Meta (a conversation's channel, or a channel for starting a conversation).
+export const conversationTemplatesResponse = (request: Request, id: string) => read(request, "inbox.templates", context => conversationTemplates(context, id));
+export const connectionTemplatesResponse = (request: Request, id: string) => read(request, "inbox.connections.templates", context => connectionTemplates(context, id));
 export const createReplyResponse = (request: Request, id: string) => write(request, "inbox.replies.create", (context, body) => createReply(context, id, body), 201);
 export const updateReplyResponse = (request: Request, id: string, replyId: string) => write(request, "inbox.replies.update", (context, body) => updateReply(context, id, replyId, body));
 const REPLY_ACTIONS = {check: checkReply, submit: submitReply, decide: decideReply, cancel: cancelReply, send: sendReply} as const;
