@@ -125,3 +125,20 @@ export function validateOutbound(facts: ValidationFacts): ValidationResult {
   const valid = problems.every(problem => !problem.blocksApproval);
   return {valid, sendable: valid && problems.length === 0, problems, checkedAt: new Date(facts.now).toISOString(), window};
 }
+
+/**
+ * Phase 7B.2: whether a WhatsApp reply can go out, and to whom. A channel an OWNER switched to real
+ * customers sends to any customer, but only where the server allows real customers too
+ * (INBOX_WHATSAPP_LIVE_SENDING); otherwise only the server's test numbers. Every customer rule
+ * (opt-out, do-not-contact, the 24-hour window) is checked separately and still applies.
+ */
+export function whatsappDelivery(input: {connectionStatus: string | null | undefined; sendingEnabled: boolean; liveSending: boolean; serverAllowsLive: boolean; testConfigured: boolean; testRecipient: boolean}):
+  {mode: "WHATSAPP" | null; live: boolean; note: string | null} {
+  if (input.connectionStatus !== "VERIFIED") return {mode: null, live: false, note: "Check this WhatsApp channel with Meta (Inbox settings, Check connection) before sending. The message can be approved but not sent."};
+  if (!input.sendingEnabled) return {mode: null, live: false, note: "Sending is off for this WhatsApp channel. An owner or administrator can turn it on in Inbox settings."};
+  if (input.liveSending && input.serverAllowsLive) return {mode: "WHATSAPP", live: true, note: null};
+  if (input.liveSending) return {mode: null, live: false, note: "This channel is switched to real customers, but this server does not allow it (INBOX_WHATSAPP_LIVE_SENDING is not enabled). Nothing is sent."};
+  if (!input.testConfigured) return {mode: null, live: false, note: "This channel sends only to test numbers, and none are set on this server (INBOX_WHATSAPP_TEST_RECIPIENTS). The company owner can switch it to real customers in Inbox settings."};
+  if (!input.testRecipient) return {mode: null, live: false, note: "Test mode: this channel sends only to the server's test numbers, and this customer's number is not one of them. The company owner can switch the channel to real customers in Inbox settings."};
+  return {mode: "WHATSAPP", live: false, note: null};
+}

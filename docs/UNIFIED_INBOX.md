@@ -3,7 +3,7 @@
 Status: **Phase 7A complete (foundation).** WhatsApp, email and website conversations live in one inbox at `/inbox`, linked to the CRM. They come with replies that need approval, a Claude assistant and workflow triggers.
 
 Providers in test mode:
-- **WhatsApp** (Phase 7B.1) sends only to the server's test recipients;
+- **WhatsApp** (Phase 7B.1; 7B.2 adds templates from Meta, media downloads and real customers once the owner switches a channel over);
 - **Gmail** (Phase 7C.1) and **Microsoft 365 / Outlook** (Phase 7C.2) import company and personal mailboxes and send only to the server's test addresses ([EMAIL_INTEGRATION_PLAN.md](EMAIL_INTEGRATION_PLAN.md)). Sending to real customers needs approval.
 
 Related:

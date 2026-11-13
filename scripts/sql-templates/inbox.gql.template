@@ -44,7 +44,7 @@ query GetInboxConversation($organizationId: UUID!, $id: UUID!)
     contact {id fullName email phone normalizedEmail normalizedPhone normalizedAlternatePhone}
     lead {id fullName status assignedMembershipId archivedAt assignedMembership {userProfile {displayName}}}
     assignedMembership {id userProfile {displayName}}
-    channelConnection {id provider displayName connectionStatus sendingEnabled externalAccountReference ownerMembershipId ownerMembership {userProfileUid userProfile {displayName}}}
+    channelConnection {id provider displayName connectionStatus sendingEnabled liveSending externalAccountReference ownerMembershipId ownerMembership {userProfileUid userProfile {displayName}}}
     notes: inboxNotes_on_conversation(orderBy: [{createdAt: DESC}], limit: 50) {id body createdAt author {displayName}}
     assignments: inboxAssignmentHistories_on_conversation(orderBy: [{createdAt: DESC}], limit: 20) {id fromMembershipId toMembershipId reason createdAt changedBy {displayName}}
   }

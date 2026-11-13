@@ -8,7 +8,7 @@ import { idSchema, parseInput } from "@/modules/communications/server/validation
 import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { ADAPTERS, CREDENTIAL_REFERENCE, WEBHOOK_SLUGS, canSend } from "../adapters";
-import { accessToken, checkBusinessAccount, checkPhoneNumber, liveSendingConfigured, testRecipients } from "./whatsapp-cloud";
+import { accessToken, checkBusinessAccount, checkPhoneNumber, liveSendingConfigured, realCustomersAllowed, testRecipients } from "./whatsapp-cloud";
 import { forgetTemplates } from "./whatsapp-templates";
 import type { ChannelProvider } from "../model";
 
@@ -98,12 +98,19 @@ export async function listConnections(context: Context) {
         accessTokenReference: row.accessTokenReference ?? null, accessTokenAvailable: Boolean(readInboxSecret(row.accessTokenReference)),
         verifiedAt: row.verifiedAt ?? null, verifiedName: row.verifiedName ?? null, verifiedDisplayNumber: row.verifiedDisplayNumber ?? null,
         sendingEnabled: row.sendingEnabled,
-        // What this server allows: the 7B.1 test recipients (a count only; numbers stay on the server).
-        liveSending: provider === "WHATSAPP_CLOUD" ? {configured: liveSendingConfigured(), testRecipients: testRecipients().length} : null,
+        // What this server allows: the test numbers (a count only; numbers stay on the server).
+        testMode: provider === "WHATSAPP_CLOUD" ? {configured: liveSendingConfigured(), testRecipients: testRecipients().length} : null,
+        // Phase 7B.2: real customers, switched on by an OWNER only and only where the server allows it.
+        realCustomers: provider === "WHATSAPP_CLOUD" ? {
+          on: row.liveSending, sending: row.liveSending && realCustomersAllowed() && row.sendingEnabled && row.connectionStatus === "VERIFIED",
+          changedAt: row.liveSendingAt ?? null, changedBy: row.liveSendingBy?.displayName ?? null, serverAllows: realCustomersAllowed(),
+          canTurnOn: context.membership.role === "OWNER" && realCustomersAllowed() && !row.liveSending && row.connectionStatus === "VERIFIED" && row.sendingEnabled,
+          canTurnOff: row.liveSending,
+        } : null,
         verifyTokenName: provider === "WHATSAPP_CLOUD" && row.credentialReference ? `${row.credentialReference}${VERIFY_TOKEN_SUFFIX}` : null,
         verifyTokenAvailable: provider === "WHATSAPP_CLOUD" && Boolean(readInboxSecret(row.credentialReference ? `${row.credentialReference}${VERIFY_TOKEN_SUFFIX}` : null)),
         webhookUrl: path ? `${origin}${path}` : null,
-        canSend: (canSend(provider) && row.sendingEnabled) || (provider === "WHATSAPP_CLOUD" && row.sendingEnabled && row.connectionStatus === "VERIFIED" && liveSendingConfigured()),
+        canSend: (canSend(provider) && row.sendingEnabled) || (provider === "WHATSAPP_CLOUD" && row.sendingEnabled && row.connectionStatus === "VERIFIED" && (liveSendingConfigured() || (row.liveSending && realCustomersAllowed()))),
         simulator: provider === "DEVELOPMENT_SIMULATOR",
       };
     }),
@@ -188,14 +195,35 @@ export async function checkConnection(context: Context, rawId: string) {
   return {id, verified: true, verifiedName: phone.ok ? phone.verifiedName : null, displayNumber: phone.ok ? phone.displayNumber : null, templatesAvailable: Boolean(connection.businessAccountReference)};
 }
 
-/** Sending on or off for a VERIFIED WhatsApp connection; on only where the server has test recipients (7B.1). */
+/** Sending on or off for a VERIFIED WhatsApp connection; on only where the server has test numbers or allows real customers. */
 export async function setConnectionSending(context: Context, rawId: string, body: unknown) {
   requireAdministrator(context);
   const id = parseInput(idSchema, rawId);
   const {expectedRevision, enabled} = parseInput(z.strictObject({expectedRevision: z.number().int().min(1), enabled: z.boolean()}), body);
   const connection = await connectionForCheck(context, id);
   if (enabled && connection.connectionStatus !== "VERIFIED") throw new WorkspaceError("VALIDATION_ERROR", 400, "Check the connection with Meta first. Only a verified channel can send.");
-  if (enabled && !liveSendingConfigured()) throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, "Live sending is off on this server. In Phase 7B.1 it needs INBOX_WHATSAPP_TEST_RECIPIENTS (your own test numbers) in the server environment.");
+  if (enabled && !liveSendingConfigured() && !realCustomersAllowed()) throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, "Sending is off on this server: it has no test numbers (INBOX_WHATSAPP_TEST_RECIPIENTS) and does not allow real customers (INBOX_WHATSAPP_LIVE_SENDING).");
   await asServer("SetChannelConnectionSending", dc => sdk.setChannelConnectionSending(dc, {organizationId: context.organizationId, id, expectedRevision, actorUid: context.request.user.uid, enabled}));
   return {id, sendingEnabled: enabled};
+}
+
+/**
+ * Phase 7B.2: switches a WhatsApp channel to real customers (any number) or back to test numbers.
+ * On: an OWNER only, on a VERIFIED channel with sending on, where the server allows real customers, and
+ * after confirming they understand Meta's charges. Off: an OWNER or ADMIN, any time. The database checks
+ * the role and the channel again; editing, disabling, a failed check or sending off turn it off too.
+ */
+export async function setConnectionLiveSending(context: Context, rawId: string, body: unknown) {
+  requireAdministrator(context);
+  const id = parseInput(idSchema, rawId);
+  const {expectedRevision, enabled, confirmed} = parseInput(z.strictObject({expectedRevision: z.number().int().min(1), enabled: z.boolean(), confirmed: z.boolean().default(false)}), body);
+  if (enabled && context.membership.role !== "OWNER") throw new WorkspaceError("PERMISSION_DENIED", 403, "Only the company owner can switch a WhatsApp channel to real customers.");
+  if (enabled && !realCustomersAllowed()) throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, "This server does not allow real customers yet: set INBOX_WHATSAPP_LIVE_SENDING=enabled in the server environment and restart.");
+  if (enabled && !confirmed) throw new WorkspaceError("VALIDATION_ERROR", 400, "Confirm that messages will go to real customers and that Meta may charge for template messages.");
+  const connection = await connectionForCheck(context, id);
+  if (connection.provider !== "WHATSAPP_CLOUD") throw new WorkspaceError("VALIDATION_ERROR", 400, "Only WhatsApp channels have real customers to switch to.");
+  if (enabled && (connection.connectionStatus !== "VERIFIED" || !connection.sendingEnabled)) throw new WorkspaceError("VALIDATION_ERROR", 400, "Check the connection and turn sending on first.");
+  await asServer("SetChannelConnectionLiveSending", dc => sdk.setChannelConnectionLiveSending(dc, {organizationId: context.organizationId, id, expectedRevision, actorUid: context.request.user.uid, enabled}));
+  console.info(JSON.stringify({event: "inbox.whatsapp.live_sending", connectionId: id, enabled}));
+  return {id, liveSending: enabled};
 }

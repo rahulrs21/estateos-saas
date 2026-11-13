@@ -36,7 +36,7 @@ States: **SUPPORTED** (built and tested), **PLANNED** (designed for a later phas
 | Receive events | SUPPORTED | SUPPORTED (polled every minute) | PLANNED | SUPPORTED | SUPPORTED |
 | Normalize message | SUPPORTED | SUPPORTED | PLANNED | SUPPORTED | SUPPORTED |
 | Sync history | UNSUPPORTED | PLANNED | PLANNED | UNSUPPORTED | UNSUPPORTED |
-| Send message | SUPPORTED (7B.1, test recipients only) | SUPPORTED (7C.1, test addresses only) | SUPPORTED (7C.2, test addresses only) | UNSUPPORTED | SUPPORTED (simulated conversations only) |
+| Send message | SUPPORTED (7B.1; real customers from 7B.2 when the owner switches the channel) | SUPPORTED (7C.1, test addresses only) | SUPPORTED (7C.2, test addresses only) | UNSUPPORTED | SUPPORTED (simulated conversations only) |
 | Delivery receipts | SUPPORTED | UNSUPPORTED (email has none) | PLANNED | UNSUPPORTED | SUPPORTED |
 | Resolve provider message ID | SUPPORTED | SUPPORTED | PLANNED | UNSUPPORTED | UNSUPPORTED |
 | Health check | PLANNED | PLANNED | PLANNED | UNSUPPORTED | UNSUPPORTED |
@@ -128,7 +128,7 @@ A message is never SENT because it was queued: SENT, DELIVERED and READ come onl
 Adapters that can send implement `send(request)`, which returns the provider's acknowledgement: `{accepted: true, providerMessageId}` or `{accepted: false, reason}`.
 
 - **The developer simulator** implements it. It refuses any conversation that is not simulated and answers with a `simwamid.…` ID; nothing leaves EstateOS.
-- **WhatsApp Cloud (Phase 7B.1)** sends through the server-only `server/whatsapp-cloud.ts`, never through the shared adapter. It needs a VERIFIED connection (a live check with Meta), sending turned on by an administrator, and a recipient on the server's test list (`INBOX_WHATSAPP_TEST_RECIPIENTS`). See [WHATSAPP_INTEGRATION_PLAN.md](WHATSAPP_INTEGRATION_PLAN.md#phase-7b1-test-mode-built).
+- **WhatsApp Cloud (Phase 7B.1)** sends through the server-only `server/whatsapp-cloud.ts`, never through the shared adapter. It needs a VERIFIED connection (a live check with Meta), sending turned on by an administrator, and a recipient on the server's test list (`INBOX_WHATSAPP_TEST_RECIPIENTS`), unless the company owner switched the channel to real customers on a server that allows it (Phase 7B.2). See [WHATSAPP_INTEGRATION_PLAN.md](WHATSAPP_INTEGRATION_PLAN.md#phase-7b2-templates-media-and-real-customers-built).
 - **The database adds its own guard.** `QueueInboxReply` (`inbox-delivery.gql`) queues only approved replies on conversations that are not opted out, and only on either a `DEVELOPMENT_SIMULATOR` connection (simulated conversations) or a VERIFIED `WHATSAPP_CLOUD` connection with sending on (real conversations).
 - **Outcome.**
   - Acknowledged: the reply becomes SENT under the provider's ID, which receipts match on.

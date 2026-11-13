@@ -34,6 +34,10 @@ export function testRecipients(): string[] {
   return (process.env.INBOX_WHATSAPP_TEST_RECIPIENTS ?? "").split(",").map(item => normalizePhoneIdentity(item.trim())).filter((item): item is string => Boolean(item)).slice(0, 10);
 }
 export const liveSendingConfigured = () => testRecipients().length > 0;
+/** Phase 7B.2: whether this server allows WhatsApp channels switched to real customers to send to them. Off unless set. */
+export const realCustomersAllowed = () => process.env.INBOX_WHATSAPP_LIVE_SENDING?.trim() === "enabled";
+/** Phase 7B.2: the cost guard, template messages per channel per day (Meta charges for them). */
+export const dailyTemplateLimit = () => { const value = Number(process.env.INBOX_WHATSAPP_DAILY_TEMPLATE_LIMIT); return Number.isInteger(value) && value > 0 ? Math.min(value, 100_000) : 100; };
 export const recipientAllowed = (identity: string) => testRecipients().includes(identity);
 
 export const accessToken = (reference: string | null | undefined) => readInboxSecret(reference);

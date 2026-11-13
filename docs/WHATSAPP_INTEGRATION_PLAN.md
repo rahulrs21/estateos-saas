@@ -1,6 +1,6 @@
 # WhatsApp integration plan
 
-Status: **Phase 7A built. Phase 7B.1 (test mode) built: connection check, approved sending and templates, to the server's test recipients only.** Going live with real customers (7B.2) needs a business number, approved templates, a payment method and approval.
+Status: **Phase 7A built. Phase 7B.1 (test mode) built. Phase 7B.2 built: approved templates from Meta with blanks and a preview, media downloads with photo previews, and real customers once the company owner switches a channel over (on a server that allows it).** The first real-customer send needs the owner's go-ahead.
 EstateOS integrates with WhatsApp only through Meta's official WhatsApp Business Platform (Cloud API). It does not and will not use WhatsApp Web scraping, unofficial automation libraries or personal WhatsApp sessions.
 
 Related: [CHANNEL_ADAPTERS.md](CHANNEL_ADAPTERS.md), [INBOX_SECURITY.md](INBOX_SECURITY.md), [UNIFIED_INBOX.md](UNIFIED_INBOX.md).
@@ -64,10 +64,72 @@ Receiving answers and receipts (verified with the test number on 2026-11-09, app
 - **The Callback URL must reach EstateOS.** A `trycloudflare.com` quick tunnel gets a new address on every start and can drop silently, so after a restart update the Callback URL in **WhatsApp → Configuration** and verify it again. A fixed address (a named tunnel or a static ngrok domain) avoids this.
 - Your answers then join the conversation, and open the 24-hour window for free-text replies.
 
-Not in 7B.1:
+Not in 7B.1 (all three are Phase 7B.2, below):
 - **Media download.**
 - **Template management.**
 - **Sending to anyone other than the test recipients.**
+
+## Phase 7B.2: templates, media and real customers (built)
+
+### Templates from Meta
+
+- **The account.** The channel names its **WhatsApp Business Account ID** (Inbox settings; digits, not a secret). **Check connection** confirms the phone number belongs to that account.
+- **The list.** EstateOS reads the account's templates from Meta with the channel's token (`GET /{waba-id}/message_templates`), on the server only. It keeps them in memory for 5 minutes and rate-limits the requests. Only **APPROVED** templates EstateOS can send are offered.
+- **What can be sent.** A text header, the body, a footer and static buttons (quick reply, phone, a plain link). Templates with an image, video or document header, a link button with a blank, or other kinds are listed as "not supported yet".
+- **Choosing one.** In the reply box (**Template**, or automatically when the 24-hour window is closed) and in **Start WhatsApp conversation**:
+  - the member picks from the list and fills each blank, positional `{{1}}` or named `{{first_name}}`;
+  - quick fills are offered: the customer's name (never a bare number), your name and the company;
+  - a WhatsApp-style preview shows exactly what the customer receives.
+- **Meta's rules for blanks.** Every blank is filled, with no line breaks or tabs and at most four spaces in a row. The header stays within 60 characters and the body within 1024.
+- **On the reply.** The reply holds the **rendered text** (what approvers see and the thread shows) and the filled blanks (`templateParamsJson`).
+- **Before sending.** The template is read fresh from Meta. If it was paused or rejected, or changed so that it no longer renders the same text, nothing is sent and the member is asked to draft it again. Otherwise it is sent with Graph `components`.
+
+### Media customers send
+
+- **When.** Photos and documents are downloaded just after the webhook is answered (Meta gets its 200 at once), and on every worker tick for anything left.
+- **How.**
+  1. Each file is claimed (compare-and-set), so two runs never fetch it at once.
+  2. Meta gives a short-lived URL (`GET /{media-id}`).
+  3. The file is fetched with the token **only** from Meta's https media hosts (`*.fbsbx.com`, `*.whatsapp.net`, `*.facebook.com`, `*.fbcdn.net`), with no redirects and at most 25 MB.
+  4. It is checked against Meta's sha256, then by its content.
+  5. It is stored privately like any attachment.
+- **Failures.**
+  - **Final, and recorded:** media Meta no longer has, a file type not allowed (for example a program disguised as a PDF) or too large.
+  - **Retried:** anything else, with growing waits, at most 5 times and for up to 25 days (Meta keeps media for about 30).
+- **Photo previews.** A JPEG, PNG or WebP that passed the content check is shown in the chat bubble. It comes through the same authorized, audited attachment route, inline, with `nosniff`, `no-store` and a sandbox policy. Other files download only. A file not stored shows why ("downloading…", "not downloaded (file type not allowed)").
+
+### Real customers (the owner's switch)
+
+- **Two switches.** A channel sends to any customer only when both are on:
+  - **the server allows it:** `INBOX_WHATSAPP_LIVE_SENDING=enabled`, which is off by default, so a test or development server can never message customers;
+  - **the company OWNER switched the channel** to real customers in Inbox settings, after confirming that messages go to real customers and that Meta charges for template messages.
+- **Who.** An administrator cannot turn it on; an OWNER or ADMIN can switch it back to test numbers at any time.
+- **What turns it off.** Editing the channel, disabling it, a failed check or turning sending off all turn it off again (enforced in the database).
+- **Who receives replies.** Every customer rule still applies: opt-outs and the do-not-contact list, free text only within 24 hours of the customer's last message, and approval when the company requires it. A person always clicks Send.
+- **Safety limits per channel,** counted in the database:
+  - 60 sends a minute;
+  - template messages per day (`INBOX_WHATSAPP_DAILY_TEMPLATE_LIMIT`, default 100), as a cost guard.
+- **Display.** The channel shows **Live: real customers**, and the reply box says replies go to the customer.
+
+### Server settings (7B.2)
+
+| Variable | Purpose |
+| --- | --- |
+| `INBOX_WHATSAPP_LIVE_SENDING` | `enabled` lets channels the owner switched over send to real customers. Anything else: test numbers only |
+| `INBOX_WHATSAPP_DAILY_TEMPLATE_LIMIT` | Template messages per channel per day (default 100) |
+
+### Going live with your number
+
+1. **In Meta (WhatsApp Manager).**
+   - The display name is approved.
+   - A payment method is added to the WhatsApp Business Account.
+   - At least one template is created and **approved**, for example a Utility template that follows up an enquiry.
+2. **In EstateOS (Inbox settings).**
+   1. Edit the WhatsApp channel and enter the **WhatsApp Business Account ID**.
+   2. Click **Check connection**.
+   3. Set `INBOX_WHATSAPP_LIVE_SENDING=enabled` in `.env.local` and restart.
+   4. As the owner, click **Switch to real customers** and confirm.
+3. **The first real send.** Start a conversation with your second number (the new SIM) as a "real customer", using the template. Send a photo from that phone: it shows as a preview in the inbox.
 
 ## Phase 7B: what is needed to go live
 

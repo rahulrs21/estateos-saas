@@ -397,6 +397,8 @@ function startNext() {
       // Phase 7B.1: the fake Graph API, a test access token (and a wrong one), and two fictional test recipients.
       INBOX_WHATSAPP_GRAPH_BASE: `http://127.0.0.1:${graphPort}`, INBOX_E2E_WA_TOKEN: graphToken, INBOX_E2E_WA_BADTOKEN: "e2e-wrong-token-0000000000",
       INBOX_WHATSAPP_TEST_RECIPIENTS: "+447700900703, +447700900704",
+      // Phase 7B.2: this isolated server allows channels an owner switches to real customers (the fake Graph only), with a small daily cost guard.
+      INBOX_WHATSAPP_LIVE_SENDING: "enabled", INBOX_WHATSAPP_DAILY_TEMPLATE_LIMIT: "8",
       // Phase 7C.1: the fake Google (OAuth on localhost, so the return is cross-site), a per-run client and encryption key, and fictional test addresses.
       INBOX_GOOGLE_OAUTH_BASE: `http://localhost:${googlePort}`, INBOX_GOOGLE_API_BASE: `http://127.0.0.1:${googlePort}`,
       INBOX_GOOGLE_CLIENT_ID: googleClient.id, INBOX_GOOGLE_CLIENT_SECRET: googleClient.secret, INBOX_TOKEN_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
@@ -1310,7 +1312,7 @@ try {
   const otherReply = await post(`/api/inbox/conversations/${other.id}/replies`, {content: "Thank you, I will call you."});
   const otherCheck = await post(`/api/inbox/conversations/${other.id}/replies/${otherReply.body.data.id}/check`, {expectedRevision: 1});
   assert.equal(otherCheck.body.data.sendable, false);
-  assert.match(otherCheck.body.data.problems.map(problem => problem.message).join(" "), /test recipients/, "a customer who is not a test recipient is never sent to");
+  assert.match(otherCheck.body.data.problems.map(problem => problem.message).join(" "), /test numbers/, "a customer who is not a test number is never sent to");
   const postsBefore = graphRequests.filter(item => item.method === "POST").length;
   await signIn("agent-a");
   assert.equal((await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: "+44 7700 900703", template})).status, 403, "agents cannot start conversations in this phase");
@@ -1322,6 +1324,54 @@ try {
   assert.equal(offSend.status, 409, "with sending off nothing is sent");
   assert.equal(graphRequests.filter(item => item.method === "POST").length, postsBefore, "Meta received nothing more");
   pass("Phase 7B.1: Meta's refusal fails the reply with a workflow event; customers who are not test recipients, agents and a channel with sending off can never send");
+
+  // ------------------------------------------------------------ 7B.2c: real customers, switched on by the OWNER only
+  liveChannel = await channelRow();
+  assert.equal((await post(`/api/inbox/connections/${liveChannel.id}/sending`, {expectedRevision: liveChannel.revision, enabled: true})).status, 200);
+  liveChannel = await channelRow();
+  assert.deepEqual({on: liveChannel.realCustomers.on, serverAllows: liveChannel.realCustomers.serverAllows, canTurnOn: liveChannel.realCustomers.canTurnOn}, {on: false, serverAllows: true, canTurnOn: true});
+  assert.equal((await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: "+44 7700 900798", template})).status, 409, "in test mode a non-test number is refused");
+  await signIn("admin-a");
+  assert.equal((await post(`/api/inbox/connections/${liveChannel.id}/live`, {expectedRevision: liveChannel.revision, enabled: true, confirmed: true})).status, 403, "an administrator cannot switch to real customers");
+  assert.equal((await api("/api/inbox/connections")).body.data.connections.find(row => row.id === liveChannel.id).realCustomers.canTurnOn, false, "nor is offered it");
+  await signIn("owner-a");
+  assert.equal((await post(`/api/inbox/connections/${liveChannel.id}/live`, {expectedRevision: liveChannel.revision, enabled: true})).status, 400, "the owner must confirm");
+  await load("/inbox/settings", "[...document.querySelectorAll('[data-testid=inbox-connection] button')].some(b=>b.textContent.trim()==='Switch to real customers')");
+  await clickText("Switch to real customers", "[data-testid=inbox-connection] button");
+  await waitFor("Boolean(document.querySelector('[role=dialog] [name=confirmed]'))", "the confirmation");
+  await setField("confirmed", true);
+  await clickText("Switch to real customers", "[role=dialog] button");
+  await waitFor("document.querySelector('[data-testid=real-customers-badge]')?.innerText.includes('Live: real customers')", "the live badge");
+  assert.match(await evaluate("document.querySelector('[data-testid=whatsapp-mode]').innerText"), /Real customers: approved replies and templates go to any customer/);
+  await screenshot("whatsapp-real-customers");
+  liveChannel = await channelRow();
+  assert.equal(liveChannel.realCustomers.on, true);
+  const postsBeforeLive = graphRequests.filter(item => item.method === "POST").length;
+  const realStart = await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: "+44 7700 900798", template});
+  assert.equal(realStart.status, 201, JSON.stringify(realStart.body));
+  const realCustomerView = (await api(`/api/inbox/conversations/${realStart.body.data.conversationId}/replies`)).body.data;
+  assert.match(realCustomerView.sendingNote, /real customers/);
+  const realSend = await approveAndSend(realStart.body.data.conversationId, realStart.body.data.replyId);
+  assert.equal(realSend.body.data.stage, "SENT", JSON.stringify(realSend.body));
+  assert.equal(graphRequests.filter(item => item.method === "POST").at(-1).body.to, "447700900798", "a real customer (not a test number) received it");
+  assert.equal(graphRequests.filter(item => item.method === "POST").length, postsBeforeLive + 1);
+  // The daily cost guard: template messages per channel are limited (8 on this server).
+  let guarded = null;
+  for (let index = 0; index < 8 && !guarded; index++) {
+    const next = await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: `+44 7700 9007${String(70 + index).padStart(2, "0")}`, template});
+    assert.equal(next.status, 201, JSON.stringify(next.body));
+    const attempt = await approveAndSend(next.body.data.conversationId, next.body.data.replyId);
+    if (attempt.status === 429) guarded = attempt;
+    else assert.equal(attempt.body.data.stage, "SENT", JSON.stringify(attempt.body));
+  }
+  assert.ok(guarded, "the daily allowance of template messages is enforced");
+  assert.match(guarded.body.error.message, /daily allowance of template messages/);
+  // Any change turns real customers off: here, sending off.
+  liveChannel = await channelRow();
+  assert.equal((await post(`/api/inbox/connections/${liveChannel.id}/sending`, {expectedRevision: liveChannel.revision, enabled: false})).status, 200);
+  liveChannel = await channelRow();
+  assert.equal(liveChannel.realCustomers.on, false, "turning sending off also ends real customers");
+  pass("Phase 7B.2c: only the OWNER switches a WhatsApp channel to real customers, after confirming; then a non-test number receives a template; a daily cost guard limits template messages; turning sending off ends it");
 
   // ------------------------------------------------------------ 7C.1: connecting Gmail mailboxes with Google sign-in (the fake Google)
   // A function (hoisted in this block) so INBOX_E2E_ONLY=mailboxes can run it straight after sign-in while developing.

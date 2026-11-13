@@ -137,7 +137,14 @@ The audit log records:
   Without that list, nothing is sent at all.
 - **Enforcement.** The database refuses to queue a real reply on any other connection. `SENT` comes only from Meta's response with a message ID, and nothing is retried automatically.
 - **Phases 7C.1 and 7C.2:** email (Gmail or Microsoft 365) is sent only after approval, from a connected mailbox with sending on, to the server's test addresses (`INBOX_EMAIL_TEST_RECIPIENTS`). A personal mailbox sends only for its owner, which the database enforces as well. A Microsoft reply is addressed to the customer alone, never to the original's Reply-To or copies.
-- **Approval.** Sending to real customers (7B.2, and email beyond test addresses) needs explicit approval. See [UNIFIED_INBOX.md](UNIFIED_INBOX.md#outbound).
+- **Phase 7B.2: WhatsApp to real customers.** This needs two switches:
+  - the server's `INBOX_WHATSAPP_LIVE_SENDING=enabled`;
+  - the company **OWNER** switching the channel over, after confirming.
+
+  An administrator cannot turn it on. Any change to the channel turns it off, which the database enforces. Every customer rule still applies, and per-channel limits (60 a minute, and a daily template cap) guard against runaway sends and cost.
+- **Templates (7B.2)** are read from Meta on the server and sent only while approved and unchanged since drafting (the rendered text must match the approved reply).
+- **Media downloads (7B.2).** WhatsApp media is fetched with the token only from Meta's https media hosts, with no redirects and a 25 MB cap. It is checked against Meta's sha256 and by content, and stored privately. A checked photo is previewed inline through the same authorized, audited route.
+- **Approval.** Email beyond test addresses still needs explicit approval. See [UNIFIED_INBOX.md](UNIFIED_INBOX.md#outbound).
 
 ## Personal mailboxes
 

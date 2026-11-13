@@ -97,7 +97,10 @@ function ConnectionsSection({view, send}: {view: ConnectionsView; send: Send}) {
           <div className="flex flex-wrap items-center gap-1.5">
             {connection.simulator ? <Badge variant="destructive">Developer tools only</Badge> : <Badge variant="outline">{STATUS_LABELS[connection.connectionStatus] ?? connection.connectionStatus}</Badge>}
             {!connection.simulator && <Badge variant="outline">{connection.secretAvailable ? "Secret set on server" : "Secret not set on server"}</Badge>}
-            <Badge variant={connection.canSend && !connection.simulator ? "secondary" : "outline"}>{!connection.canSend ? "Sending off" : connection.simulator ? "Sends to simulated conversations only" : "Sending on (test recipients only)"}</Badge>
+            <Badge variant={connection.canSend && !connection.simulator ? "secondary" : "outline"}>{!connection.canSend ? "Sending off" : connection.simulator ? "Sends to simulated conversations only"
+              : connection.realCustomers?.sending ? "Sending on" : "Sending on (test recipients only)"}</Badge>
+            {connection.realCustomers?.on && <Badge className={connection.realCustomers.sending ? "bg-emerald-600 text-white hover:bg-emerald-600" : ""} variant={connection.realCustomers.sending ? "default" : "outline"} data-testid="real-customers-badge">
+              {connection.realCustomers.sending ? "Live: real customers" : "Real customers (not active)"}</Badge>}
           </div>
         </div>
         {!connection.simulator && <p className="text-xs text-muted-foreground">Account: {connection.externalAccountReference ?? "not set"} · Secret name: {connection.credentialReference ?? "not set"}
@@ -106,9 +109,11 @@ function ConnectionsSection({view, send}: {view: ConnectionsView; send: Send}) {
           {connection.provider === "WHATSAPP_CLOUD" ? ` · Access token secret: ${connection.accessTokenReference ?? "not set"}${connection.accessTokenReference ? ` (${connection.accessTokenAvailable ? "set" : "not set"})` : ""}` : ""}
           {connection.provider === "WHATSAPP_CLOUD" ? ` · WhatsApp Business Account: ${connection.businessAccountReference ?? "not set (templates unavailable)"}` : ""}</p>}
         {connection.verifiedAt && <p className="text-xs" data-testid="connection-verified">Meta confirmed {connection.verifiedName ?? "this number"}{connection.verifiedDisplayNumber ? ` (${connection.verifiedDisplayNumber})` : ""} · {formatLeadDate(connection.verifiedAt, true)}</p>}
-        {connection.liveSending && <p className="text-xs text-muted-foreground">{connection.liveSending.configured
-          ? `Phase 7B.1 test mode: this server sends only to ${connection.liveSending.testRecipients} test recipient${connection.liveSending.testRecipients === 1 ? "" : "s"} (INBOX_WHATSAPP_TEST_RECIPIENTS). Sending needs approval of each reply.`
-          : "Live sending is off on this server: no test recipients are set (INBOX_WHATSAPP_TEST_RECIPIENTS)."}</p>}
+        {connection.realCustomers && <p className="text-xs text-muted-foreground" data-testid="whatsapp-mode">{connection.realCustomers.on
+          ? `Real customers: approved replies and templates go to any customer (opt-outs and the do-not-contact list still apply)${connection.realCustomers.changedBy ? `. Switched on by ${connection.realCustomers.changedBy}` : ""}${connection.realCustomers.changedAt ? ` · ${formatLeadDate(connection.realCustomers.changedAt, true)}` : ""}.${connection.realCustomers.serverAllows ? "" : " This server does not allow real customers (INBOX_WHATSAPP_LIVE_SENDING), so nothing is sent."}`
+          : connection.testMode?.configured
+            ? `Test mode: this channel sends only to ${connection.testMode.testRecipients} test number${connection.testMode.testRecipients === 1 ? "" : "s"} (INBOX_WHATSAPP_TEST_RECIPIENTS).${connection.realCustomers.serverAllows ? " The company owner can switch it to real customers." : ""}`
+            : `Test mode, with no test numbers set on this server (INBOX_WHATSAPP_TEST_RECIPIENTS).${connection.realCustomers.serverAllows ? " The company owner can switch it to real customers." : ""}`}</p>}
         {connection.webhookUrl && <p className="flex flex-wrap items-center gap-2 text-xs"><span className="text-muted-foreground">Webhook address for the provider:</span><code className="break-all rounded bg-muted px-1.5 py-0.5">{connection.webhookUrl}</code>
           <Button variant="ghost" size="sm" onClick={() => copy(connection.webhookUrl!)} aria-label="Copy webhook address"><Copy aria-hidden="true" /></Button></p>}
         {!connection.webhookUrl && !connection.simulator && <p className="text-xs text-muted-foreground">EstateOS does not receive messages from this provider yet (planned with OAuth in Phase 7C). It accepts no webhooks for it.</p>}
@@ -125,6 +130,19 @@ function ConnectionsSection({view, send}: {view: ConnectionsView; send: Send}) {
               onClick={() => void send(`/api/inbox/connections/${connection.id}/sending`, "POST", {expectedRevision: connection.revision, enabled: !connection.sendingEnabled},
                 connection.sendingEnabled ? "Sending turned off." : "Sending turned on for test recipients.").catch(() => undefined)}>
               {connection.sendingEnabled ? "Turn sending off" : "Turn sending on"}</Button>}
+            {connection.realCustomers?.canTurnOn && <FormDialog trigger="Switch to real customers" title="Send to real customers?" submitLabel="Switch to real customers"
+              description="This channel will send to any customer, not only your test numbers. Every reply still needs a person to send it (and approval, if your company requires it)."
+              onSubmit={form => send(`/api/inbox/connections/${connection.id}/live`, "POST", {expectedRevision: connection.revision, enabled: true, confirmed: form.get("confirmed") === "on"}, "This channel now sends to real customers.")}>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                <li>Meta charges for template messages (your WhatsApp account&apos;s payment method). There is a daily cost guard per channel.</li>
+                <li>Customers who said STOP, and numbers on the do-not-contact list, are never messaged.</li>
+                <li>Outside 24 hours after the customer&apos;s last message, only approved templates can be sent.</li>
+              </ul>
+              <label className="flex items-start gap-2 text-sm"><input type="checkbox" name="confirmed" required className="mt-0.5 size-4 accent-primary" />
+                I understand that messages will go to real customers and that Meta may charge for them.</label>
+            </FormDialog>}
+            {connection.realCustomers?.canTurnOff && <Button variant="outline" size="sm"
+              onClick={() => void send(`/api/inbox/connections/${connection.id}/live`, "POST", {expectedRevision: connection.revision, enabled: false}, "Back to test numbers only.").catch(() => undefined)}>Back to test numbers</Button>}
           </>}
         </div>}
       </li>)}</ul>}

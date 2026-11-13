@@ -2,6 +2,22 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { normalizeTemplate, renderTemplate, selectable, templateComponents, templateValueProblems, templateValues, type MetaTemplate } from "../src/modules/inbox/whatsapp-templates";
 import { MEDIA_MAX_ATTEMPTS, mediaBackoffMs, mediaUrlAllowed } from "../src/modules/inbox/whatsapp-media";
+import { whatsappDelivery } from "../src/modules/inbox/outbound";
+
+test("WhatsApp reaches real customers only on a channel the owner switched over, and only where the server allows it; otherwise test numbers only", () => {
+  const base = {connectionStatus: "VERIFIED", sendingEnabled: true, liveSending: false, serverAllowsLive: false, testConfigured: true, testRecipient: false};
+  const decide = (extra: Partial<typeof base>) => whatsappDelivery({...base, ...extra});
+  assert.deepEqual(decide({testRecipient: true}), {mode: "WHATSAPP", live: false, note: null}, "a test number in test mode");
+  assert.equal(decide({}).mode, null, "anyone else in test mode");
+  assert.match(decide({}).note!, /test numbers/);
+  assert.deepEqual(decide({liveSending: true, serverAllowsLive: true}), {mode: "WHATSAPP", live: true, note: null}, "any customer on a live channel");
+  assert.equal(decide({liveSending: true, serverAllowsLive: false, testRecipient: true}).mode, null, "a live channel on a server that does not allow it sends nothing, not even to test numbers");
+  assert.match(decide({liveSending: true, serverAllowsLive: false}).note!, /INBOX_WHATSAPP_LIVE_SENDING/);
+  assert.equal(decide({liveSending: false, serverAllowsLive: true}).mode, null, "the server allowing it is not enough: the owner must switch the channel");
+  assert.equal(decide({liveSending: true, serverAllowsLive: true, sendingEnabled: false}).mode, null, "sending off stops everything");
+  assert.equal(decide({liveSending: true, serverAllowsLive: true, connectionStatus: "ERROR"}).mode, null, "an unverified channel sends nothing");
+  assert.match(decide({testConfigured: false}).note!, /none are set/);
+});
 
 test("WhatsApp media is fetched with the token only from Meta's https media hosts, with growing waits between tries", () => {
   for (const ok of ["https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=123&ext=1", "https://mmg.whatsapp.net/v/t62/abc", "https://scontent.xx.fbcdn.net/x.jpg"]) assert.ok(mediaUrlAllowed(ok), ok);

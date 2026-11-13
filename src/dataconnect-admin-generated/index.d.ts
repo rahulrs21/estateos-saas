@@ -4997,6 +4997,7 @@ export interface GetInboxConversationData {
       displayName: string;
       connectionStatus: ChannelConnectionStatus;
       sendingEnabled: boolean;
+      liveSending: boolean;
       externalAccountReference?: string | null;
       ownerMembershipId?: UUIDString | null;
       ownerMembership?: {

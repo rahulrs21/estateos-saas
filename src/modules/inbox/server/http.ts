@@ -5,7 +5,7 @@ import { enforceRateLimit } from "@/lib/rate-limit/server";
 import type { Context } from "@/modules/communications/server/data";
 import { errorResponse, read, readContext, write as baseWrite } from "@/modules/communications/server/http";
 import { attachmentFile } from "./attachments";
-import { checkConnection, createConnection, listConnections, setConnectionEnabled, setConnectionSending, updateConnection } from "./connections";
+import { checkConnection, createConnection, listConnections, setConnectionEnabled, setConnectionLiveSending, setConnectionSending, updateConnection } from "./connections";
 import { inboxWebhookHandshake, inboxWebhookResponse } from "./webhooks";
 import {
   addNote, assignConversation, assignees, customerContext, getConversation, inboxCounts, inboxSettings, linkConversation, listConversations, listMessages, markRead, saveInboxSettings, setConversationState,
@@ -74,6 +74,8 @@ export const connectionCheckResponse = (request: Request, id: string) => write(r
 export const connectionSendingResponse = (request: Request, id: string) => write(request, "inbox.connections.sending", (context, body) => setConnectionSending(context, id, body));
 export const startWhatsAppResponse = (request: Request) => write(request, "inbox.whatsapp.start", startWhatsAppConversation, 201);
 export const connectionEnabledResponse = (request: Request, id: string) => write(request, "inbox.connections.enabled", (context, body) => setConnectionEnabled(context, id, body));
+// Phase 7B.2: real customers (an OWNER turns it on; an OWNER or ADMIN turns it off).
+export const connectionLiveResponse = (request: Request, id: string) => write(request, "inbox.connections.live", (context, body) => setConnectionLiveSending(context, id, body));
 
 // --- Mailboxes connected through OAuth (Phase 7C) ----------------------------------------------
 export const mailboxesResponse = (request: Request) => read(request, "inbox.mailboxes", context => listMailboxes(context));
