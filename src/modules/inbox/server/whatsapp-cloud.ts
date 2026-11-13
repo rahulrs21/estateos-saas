@@ -2,6 +2,7 @@ import "server-only";
 
 import { normalizePhoneIdentity } from "../identity";
 import type { MetaTemplate, templateComponents } from "../whatsapp-templates";
+import { mediaUrlAllowed } from "../whatsapp-media";
 import { readInboxSecret } from "./connections";
 
 /*
@@ -105,6 +106,51 @@ export async function listMessageTemplates(token: string, businessAccountId: str
 }
 
 export type WhatsAppMessage = {kind: "TEXT"; text: string} | {kind: "TEMPLATE"; name: string; language: string; components?: ReturnType<typeof templateComponents>};
+
+/** Phase 7B.2: where a customer's media can be downloaded (Meta answers with a short-lived URL, its type, size and sha256). */
+export async function whatsappMediaLookup(token: string, mediaId: string) {
+  if (!/^[A-Za-z0-9_.-]{1,200}$/.test(mediaId)) return {ok: false, status: 0, code: "MEDIA_ID", message: "Not a WhatsApp media ID."} satisfies GraphFailure;
+  const result = await graph<{url?: unknown; mime_type?: unknown; sha256?: unknown; file_size?: unknown; id?: unknown}>(encodeURIComponent(mediaId), token);
+  if (!result.ok) return result;
+  const url = typeof result.data.url === "string" ? result.data.url : "";
+  return {ok: true as const, url, mimeType: typeof result.data.mime_type === "string" ? result.data.mime_type.slice(0, 100) : null,
+    sha256: typeof result.data.sha256 === "string" && /^[0-9a-f]{64}$/i.test(result.data.sha256) ? result.data.sha256.toLowerCase() : null,
+    sizeBytes: Number(result.data.file_size) > 0 ? Number(result.data.file_size) : null};
+}
+
+/**
+ * Downloads the media with the token: only from Meta's media hosts (the token is sent along), no redirects,
+ * at most maxBytes read. A larger file is refused without being read to the end.
+ */
+export async function downloadWhatsAppMedia(token: string, url: string, maxBytes: number) {
+  const testOrigin = graphBase() === "https://graph.facebook.com" ? null : graphBase();
+  if (!mediaUrlAllowed(url, testOrigin)) return {ok: false, status: 0, code: "URL_NOT_ALLOWED", message: "Not a WhatsApp media address."} satisfies GraphFailure;
+  let response: Response;
+  try {
+    response = await fetch(url, {redirect: "error", cache: "no-store", signal: AbortSignal.timeout(60_000), headers: {Authorization: `Bearer ${token}`}});
+  } catch (error) {
+    const timeout = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    return {ok: false, status: 0, code: timeout ? "TIMEOUT" : "NETWORK", message: timeout ? "WhatsApp did not send the file in time." : "WhatsApp could not be reached."} satisfies GraphFailure;
+  }
+  if (!response.ok) return {ok: false, status: response.status, code: String(response.status), message: `HTTP ${response.status}`} satisfies GraphFailure;
+  const declared = Number(response.headers.get("content-length"));
+  if (declared > maxBytes) { await response.body?.cancel().catch(() => undefined); return {ok: false, status: 413, code: "TOO_LARGE", message: "The file is too large."} satisfies GraphFailure; }
+  const reader = response.body?.getReader();
+  if (!reader) return {ok: false, status: 0, code: "EMPTY", message: "WhatsApp sent no file."} satisfies GraphFailure;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) { await reader.cancel().catch(() => undefined); return {ok: false, status: 413, code: "TOO_LARGE", message: "The file is too large."} satisfies GraphFailure; }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return {ok: true as const, bytes};
+}
 
 /** Sends one message. Only an accepted response with a message ID counts as sent. */
 export async function sendWhatsAppMessage(token: string, phoneNumberId: string, to: string, message: WhatsAppMessage) {

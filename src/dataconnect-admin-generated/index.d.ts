@@ -2095,6 +2095,17 @@ export interface ClaimAutomationOrganizationVariables {
   leaseUntil: TimestampString;
 }
 
+export interface ClaimInboxMediaFetchData {
+  inboxAttachment_update?: InboxAttachment_Key | null;
+}
+
+export interface ClaimInboxMediaFetchVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedAttempts: number;
+  nextAttemptAt: TimestampString;
+}
+
 export interface ClaimMailboxSyncData {
   inboxMailboxAccount_update?: InboxMailboxAccount_Key | null;
 }
@@ -3672,6 +3683,18 @@ export interface FailInboxEventVariables {
   expectedAttempts: number;
   errorCode: string;
   nextAttemptAt: TimestampString;
+}
+
+export interface FailInboxMediaData {
+  retry?: InboxAttachment_Key | null;
+  final?: InboxAttachment_Key | null;
+}
+
+export interface FailInboxMediaVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  error: string;
+  final: boolean;
 }
 
 export interface FailInboxReplyData {
@@ -8491,6 +8514,9 @@ export interface ListInboxMessagesData {
       sizeBytes: number;
       scanStatus: InboxAttachmentScan;
       storagePath?: string | null;
+      providerMediaId?: string | null;
+      mediaFetchAttempts: number;
+      mediaError?: string | null;
     })[];
   })[];
 }
@@ -11097,6 +11123,35 @@ export interface PendingInboxEventsVariables {
   limit: number;
 }
 
+export interface PendingInboxMediaData {
+  attachments: ({
+    organizationId: UUIDString;
+    id: UUIDString;
+    messageId: UUIDString;
+    conversationId: UUIDString;
+    fileName: string;
+    mimeType: string;
+    providerMediaId?: string | null;
+    mediaFetchAttempts: number;
+    createdAt: TimestampString;
+    message: {
+      conversation: {
+        channelConnection?: {
+          id: UUIDString;
+          connectionStatus: ChannelConnectionStatus;
+          accessTokenReference?: string | null;
+        };
+      };
+    };
+  } & InboxAttachment_Key)[];
+}
+
+export interface PendingInboxMediaVariables {
+  now: TimestampString;
+  since: TimestampString;
+  limit: number;
+}
+
 export interface PendingWebsiteEnquiry_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -12651,6 +12706,19 @@ export interface StartWhatsAppConversationVariables {
   externalThreadId: string;
   contactId?: UUIDString | null;
   leadId?: UUIDString | null;
+}
+
+export interface StoreInboxMediaData {
+  inboxAttachment_update?: InboxAttachment_Key | null;
+}
+
+export interface StoreInboxMediaVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  storagePath: string;
+  mimeType: string;
+  sizeBytes: number;
+  fileName: string;
 }
 
 export interface SubmitAutomationWorkflowData {
@@ -14716,6 +14784,26 @@ export function channelAccountInUse(vars: ChannelAccountInUseVariables, options?
 export function whatsAppTemplateConnection(dc: DataConnect, vars: WhatsAppTemplateConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<WhatsAppTemplateConnectionData>>;
 /** Generated Node Admin SDK operation action function for the 'WhatsAppTemplateConnection' Query. Allow users to pass in custom DataConnect instances. */
 export function whatsAppTemplateConnection(vars: WhatsAppTemplateConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<WhatsAppTemplateConnectionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'PendingInboxMedia' Query. Allow users to execute without passing in DataConnect. */
+export function pendingInboxMedia(dc: DataConnect, vars: PendingInboxMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PendingInboxMediaData>>;
+/** Generated Node Admin SDK operation action function for the 'PendingInboxMedia' Query. Allow users to pass in custom DataConnect instances. */
+export function pendingInboxMedia(vars: PendingInboxMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<PendingInboxMediaData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ClaimInboxMediaFetch' Mutation. Allow users to execute without passing in DataConnect. */
+export function claimInboxMediaFetch(dc: DataConnect, vars: ClaimInboxMediaFetchVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ClaimInboxMediaFetchData>>;
+/** Generated Node Admin SDK operation action function for the 'ClaimInboxMediaFetch' Mutation. Allow users to pass in custom DataConnect instances. */
+export function claimInboxMediaFetch(vars: ClaimInboxMediaFetchVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ClaimInboxMediaFetchData>>;
+
+/** Generated Node Admin SDK operation action function for the 'StoreInboxMedia' Mutation. Allow users to execute without passing in DataConnect. */
+export function storeInboxMedia(dc: DataConnect, vars: StoreInboxMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<StoreInboxMediaData>>;
+/** Generated Node Admin SDK operation action function for the 'StoreInboxMedia' Mutation. Allow users to pass in custom DataConnect instances. */
+export function storeInboxMedia(vars: StoreInboxMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<StoreInboxMediaData>>;
+
+/** Generated Node Admin SDK operation action function for the 'FailInboxMedia' Mutation. Allow users to execute without passing in DataConnect. */
+export function failInboxMedia(dc: DataConnect, vars: FailInboxMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FailInboxMediaData>>;
+/** Generated Node Admin SDK operation action function for the 'FailInboxMedia' Mutation. Allow users to pass in custom DataConnect instances. */
+export function failInboxMedia(vars: FailInboxMediaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<FailInboxMediaData>>;
 
 /** Generated Node Admin SDK operation action function for the 'InboxSimulatorChannel' Query. Allow users to execute without passing in DataConnect. */
 export function inboxSimulatorChannel(dc: DataConnect, vars: InboxSimulatorChannelVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<InboxSimulatorChannelData>>;

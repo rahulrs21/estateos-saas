@@ -2694,6 +2694,34 @@ function whatsAppTemplateConnection(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.whatsAppTemplateConnection = whatsAppTemplateConnection;
 
+function pendingInboxMedia(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('PendingInboxMedia', inputVars, inputOpts);
+}
+exports.pendingInboxMedia = pendingInboxMedia;
+
+function claimInboxMediaFetch(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ClaimInboxMediaFetch', inputVars, inputOpts);
+}
+exports.claimInboxMediaFetch = claimInboxMediaFetch;
+
+function storeInboxMedia(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('StoreInboxMedia', inputVars, inputOpts);
+}
+exports.storeInboxMedia = storeInboxMedia;
+
+function failInboxMedia(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('FailInboxMedia', inputVars, inputOpts);
+}
+exports.failInboxMedia = failInboxMedia;
+
 function inboxSimulatorChannel(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

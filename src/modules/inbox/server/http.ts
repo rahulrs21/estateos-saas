@@ -117,9 +117,11 @@ export async function attachmentResponse(request: Request, conversationId: strin
     const body = new Uint8Array(file.bytes.byteLength);
     body.set(file.bytes);
     const ascii = file.fileName.replace(/[^A-Za-z0-9._ -]/g, "_");
+    // Phase 7B.2: a photo may be shown inline as a preview. Its type is the one EstateOS's content check gave it, never the sender's.
+    const inline = new URL(request.url).searchParams.get("inline") === "1" && ["image/jpeg", "image/png", "image/webp"].includes(file.mimeType);
     return new Response(body, {headers: {
       "Content-Type": file.mimeType, "Content-Length": String(body.byteLength), "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+      "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
     }});
   } catch (error) { return errorResponse("inbox.attachment", error); }
 }

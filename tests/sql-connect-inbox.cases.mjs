@@ -630,6 +630,44 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       await forbidden(sdk.whatsAppTemplateConnection, "owner-a", {organizationId: f.orgA, id: connectionId});
     });
 
+    it("downloads each WhatsApp file once at a time (compare-and-set), stops after a final failure, and never touches a stored file", async () => {
+      const conversationId = randomUUID(), messageId = randomUUID();
+      await create({conversationId, messageId, channelConnectionId: connectionId, messageType: sdk.InboxMessageType.IMAGE, content: null, preview: "Photo"});
+      const attachment = (name, mediaId) => {
+        const id = randomUUID();
+        return server(sdk.createInboxAttachment, {organizationId: f.orgA, id, messageId, conversationId, fileName: name, mimeType: "image/jpeg", sizeBytes: 0, storagePath: null, providerMediaId: mediaId,
+          scanStatus: sdk.InboxAttachmentScan.NOT_SCANNED}).then(() => id);
+      };
+      const photo = await attachment("villa.jpg", `MEDIA-${randomUUID().slice(0, 8)}`);
+      const disguised = await attachment("invoice.jpg", `MEDIA-${randomUUID().slice(0, 8)}`);
+      const now = new Date().toISOString(), since = new Date(Date.now() - 86_400_000).toISOString();
+      const pending = async () => (await server(sdk.pendingInboxMedia, {now: new Date(Date.now() + 1000).toISOString(), since, limit: 100})).attachments.map(item => key(item.id));
+      await forbidden(sdk.pendingInboxMedia, "owner-a", {now, since, limit: 5});
+      assert.ok((await pending()).includes(key(photo)), "a received WhatsApp file is due for download");
+      const row = (await server(sdk.pendingInboxMedia, {now: new Date(Date.now() + 1000).toISOString(), since, limit: 100})).attachments.find(item => key(item.id) === key(photo));
+      assert.equal(row.message.conversation.channelConnection.accessTokenReference, "INBOX_TEST_WA_TOKEN", "with the channel's token secret name (read on the server)");
+      const claim = (id, expectedAttempts, minutes = 1) => server(sdk.claimInboxMediaFetch, {organizationId: f.orgA, id, expectedAttempts, nextAttemptAt: new Date(Date.now() + minutes * 60_000).toISOString()});
+      await forbidden(sdk.claimInboxMediaFetch, "owner-a", {organizationId: f.orgA, id: photo, expectedAttempts: 0, nextAttemptAt: now});
+      await claim(photo, 0);
+      await rejectsWith(claim(photo, 0), "INBOX_MEDIA_BUSY", "a second worker cannot take the same file");
+      assert.equal((await pending()).includes(key(photo)), false, "a claimed file waits until its next try");
+      await server(sdk.storeInboxMedia, {organizationId: f.orgA, id: photo, storagePath: `organizations/${f.orgA}/inbox/attachments/${photo}.jpg`, mimeType: "image/jpeg", sizeBytes: 2048, fileName: "villa.jpg"});
+      const stored = (await run(sdk.listInboxMessages, "owner-a", {organizationId: f.orgA, conversationId, limit: 5})).messages[0].attachments.find(item => key(item.id) === key(photo));
+      assert.deepEqual({size: stored.sizeBytes, path: Boolean(stored.storagePath), error: stored.mediaError ?? null}, {size: 2048, path: true, error: null});
+      await rejectsWith(claim(photo, 1), "INBOX_MEDIA_BUSY", "a stored file is never fetched again");
+      await server(sdk.failInboxMedia, {organizationId: f.orgA, id: photo, error: "TYPE_NOT_ALLOWED", final: true});
+      assert.equal((await run(sdk.listInboxMessages, "owner-a", {organizationId: f.orgA, conversationId, limit: 5})).messages[0].attachments.find(item => key(item.id) === key(photo)).mediaError ?? null, null, "nor marked failed");
+      // A final failure records why and ends the tries; a passing one only records why.
+      await claim(disguised, 0, -1);
+      await server(sdk.failInboxMedia, {organizationId: f.orgA, id: disguised, error: "META_131052", final: false});
+      assert.ok((await pending()).includes(key(disguised)), "a passing failure is tried again when due");
+      await server(sdk.failInboxMedia, {organizationId: f.orgA, id: disguised, error: "TYPE_NOT_ALLOWED", final: true});
+      assert.equal((await pending()).includes(key(disguised)), false, "a final failure is never tried again");
+      const failed = (await run(sdk.listInboxMessages, "owner-a", {organizationId: f.orgA, conversationId, limit: 5})).messages[0].attachments.find(item => key(item.id) === key(disguised));
+      assert.deepEqual({error: failed.mediaError, attempts: failed.mediaFetchAttempts, path: failed.storagePath ?? null}, {error: "TYPE_NOT_ALLOWED", attempts: 99, path: null});
+      await forbidden(sdk.storeInboxMedia, "owner-a", {organizationId: f.orgA, id: disguised, storagePath: "x", mimeType: "image/jpeg", sizeBytes: 1, fileName: "x"});
+    });
+
     it("keeps a template reply's filled blanks with its rendered text, and only with a template", async () => {
       const id = randomUUID();
       await forbidden(sdk.createInboxReplyDraft, "owner-a", {organizationId: f.orgA, id: randomUUID(), conversationId: started, content: "Hi Layla", templateParamsJson: "{\"BODY:1\":\"Layla\"}"});

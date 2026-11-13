@@ -18,6 +18,18 @@ import type { ConversationView, CustomerContextView, MessageListView } from "../
 import { AssistantPanel, Composer, ReplyList, useReplies } from "./reply-panel";
 import { EmailMessage } from "./email-message";
 import { CHANNEL_TEXT_TONES, ContactAvatar, clockTime, dayLabel, messageDay, usePreference } from "./inbox-ui";
+import { MEDIA_ERROR_LABELS } from "../whatsapp-media";
+
+const PREVIEW_TYPES = ["image/jpeg", "image/png", "image/webp"];
+type Attachment = Message["attachments"][number];
+/** Why a file is not stored (yet): still downloading, the recorded reason, or not fetched at all. */
+function attachmentState(item: Attachment) {
+  if (item.scanStatus === "BLOCKED") return "blocked by the file check";
+  if (item.available) return item.scanStatus === "NOT_SCANNED" ? "not virus-scanned" : null;
+  const reason = item.mediaError ? MEDIA_ERROR_LABELS[item.mediaError] ?? null : null;
+  if (item.downloading) return item.mediaError ? `not downloaded yet${reason ? ` (${reason})` : ", trying again"}` : "downloading…";
+  return `not downloaded${reason ? ` (${reason})` : " (needs a connected provider)"}`;
+}
 
 type Message = MessageListView["messages"][number];
 type Assignee = {id: string; name: string; role: string};
@@ -44,14 +56,23 @@ function MessageBubble({message, conversationId}: {message: Message; conversatio
       {!inbound && message.author?.displayName && <p className="text-[11px] font-medium opacity-80">{message.author.displayName}</p>}
       {message.contentRedactedAt ? <p className="italic opacity-80">Removed under the company&apos;s retention period.</p>
         : <p dir="auto" className="whitespace-pre-wrap wrap-break-word leading-relaxed">{message.content ?? `[${message.messageType.toLowerCase()} message]`}</p>}
-      {message.attachments.length > 0 && <ul className={cn("space-y-1 text-xs", inbound ? "text-foreground" : "opacity-95")} aria-label="Attachments">{message.attachments.map(item =>
-        <li key={item.id} className={cn("flex flex-wrap items-center gap-1 rounded-lg px-2 py-1.5", inbound ? "bg-muted" : "bg-black/10")} data-testid="inbox-attachment">
-          <Paperclip aria-hidden className="size-3" />
-          {/* Downloaded through an authorized, audited route; never opened inline. */}
-          {item.available ? <a className="font-medium underline underline-offset-2" href={`/api/inbox/conversations/${conversationId}/attachments/${item.id}`} download>{item.fileName}</a> : <span className="font-medium">{item.fileName}</span>}
-          {item.sizeBytes > 0 && <span className="opacity-75">({Math.max(1, Math.ceil(item.sizeBytes / 1024))} KB)</span>}
-          {item.scanStatus === "BLOCKED" ? <span>· blocked by the file check</span> : !item.available ? <span className="opacity-75">· not downloaded (needs a connected provider)</span> : item.scanStatus === "NOT_SCANNED" && <span className="opacity-75">· not virus-scanned</span>}
-        </li>)}</ul>}
+      {message.attachments.length > 0 && <ul className={cn("space-y-1 text-xs", inbound ? "text-foreground" : "opacity-95")} aria-label="Attachments">{message.attachments.map(item => {
+        const href = `/api/inbox/conversations/${conversationId}/attachments/${item.id}`;
+        const state = attachmentState(item);
+        const preview = item.available && PREVIEW_TYPES.includes(item.mimeType);
+        return <li key={item.id} className={cn("rounded-lg", preview ? "overflow-hidden" : cn("flex flex-wrap items-center gap-1 px-2 py-1.5", inbound ? "bg-muted" : "bg-black/10"))} data-testid="inbox-attachment">
+          {/* A checked photo is previewed through the same authorized, audited route; other files only download. */}
+          {preview ? <a href={`${href}?inline=1`} target="_blank" rel="noopener noreferrer" className="block" aria-label={`Open ${item.fileName}`}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- a private, authorized file: never through the public image optimizer */}
+            <img src={`${href}?inline=1`} alt={item.fileName} loading="lazy" className="max-h-64 w-full max-w-xs rounded-lg object-cover" data-testid="attachment-preview" />
+          </a> : <>
+            <Paperclip aria-hidden className="size-3" />
+            {item.available ? <a className="font-medium underline underline-offset-2" href={href} download>{item.fileName}</a> : <span className="font-medium">{item.fileName}</span>}
+            {item.sizeBytes > 0 && <span className="opacity-75">({Math.max(1, Math.ceil(item.sizeBytes / 1024))} KB)</span>}
+            {state && <span className="opacity-75">· {state}</span>}
+          </>}
+        </li>;
+      })}</ul>}
       <div className={cn("flex flex-wrap items-center justify-end gap-1.5 text-[10px] tabular-nums", inbound ? "text-muted-foreground" : "text-primary-foreground/75")}>
         {message.simulated && <Badge variant="destructive" className="h-4 px-1 text-[9px]">SIMULATED</Badge>}
         {message.deliveryStatus === "UNKNOWN" && message.providerStatusRaw && <span>({message.providerStatusRaw})</span>}

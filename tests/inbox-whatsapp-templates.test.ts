@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { normalizeTemplate, renderTemplate, selectable, templateComponents, templateValueProblems, templateValues, type MetaTemplate } from "../src/modules/inbox/whatsapp-templates";
+import { MEDIA_MAX_ATTEMPTS, mediaBackoffMs, mediaUrlAllowed } from "../src/modules/inbox/whatsapp-media";
+
+test("WhatsApp media is fetched with the token only from Meta's https media hosts, with growing waits between tries", () => {
+  for (const ok of ["https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=123&ext=1", "https://mmg.whatsapp.net/v/t62/abc", "https://scontent.xx.fbcdn.net/x.jpg"]) assert.ok(mediaUrlAllowed(ok), ok);
+  for (const bad of ["http://lookaside.fbsbx.com/x", "https://lookaside.fbsbx.com.evil.test/x", "https://evilfbsbx.com/x", "https://user:pass@lookaside.fbsbx.com/x", "https://lookaside.fbsbx.com:8443/x",
+    "https://169.254.169.254/latest/meta-data", "file:///etc/passwd", "javascript:alert(1)", "", null]) assert.equal(mediaUrlAllowed(bad), false, String(bad));
+  assert.ok(mediaUrlAllowed("http://127.0.0.1:4100/media/1", "http://127.0.0.1:4100"), "the local test server, only when it is the configured one");
+  assert.equal(mediaUrlAllowed("http://127.0.0.1:4100/media/1", null), false);
+  assert.deepEqual([0, 1, 2, 3, 4, 9].map(mediaBackoffMs), [60_000, 240_000, 960_000, 3_840_000, 15_360_000, 21_600_000], "a minute, then four times longer, at most six hours");
+  assert.equal(MEDIA_MAX_ATTEMPTS, 5);
+});
 
 /* Phase 7B.2: WhatsApp templates read from Meta, filled in, previewed and sent exactly as approved. */
 

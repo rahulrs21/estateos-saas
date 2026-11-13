@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
+import { after } from "next/server";
 import { enforceRateLimit, requestClientIp } from "@/lib/rate-limit/server";
 import { getAppOrigin } from "@/modules/auth/server/config";
 import { stableUuid } from "@/modules/automations/ids";
@@ -13,6 +14,7 @@ import type { ChannelProvider, DeliveryStatus } from "../model";
 import { deliveryTransition, eventRetry } from "../policy";
 import { VERIFY_TOKEN_SUFFIX, readInboxSecret } from "./connections";
 import { ingestInbound } from "./ingest";
+import { fetchPendingWhatsAppMedia } from "./whatsapp-media";
 
 /*
  * Verified inbox webhooks and durable events (docs/INBOX_SECURITY.md#webhooks).
@@ -102,6 +104,10 @@ export async function inboxWebhookResponse(request: Request, slug: string, rawCo
   const digest = sha256(rawBody);
   // Recording failures (the database is unreachable) give 500, so the provider delivers again.
   for (const event of events) await receiveEvent(connection, event, {payloadDigest: digest, simulated: false});
+  // Phase 7B.2: photos and documents are downloaded just after Meta has its answer (the worker retries anything left).
+  if (connection.provider === "WHATSAPP_CLOUD" && events.some(event => event.kind === "MESSAGE" && event.attachments.length > 0)) {
+    after(() => fetchPendingWhatsAppMedia().then(() => undefined, error => console.warn(JSON.stringify({event: "inbox.media.after_failed", name: error instanceof Error ? error.name : typeof error}))));
+  }
   return new Response(null, {status: 200, headers: {"Cache-Control": "no-store"}});
 }
 

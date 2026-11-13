@@ -210,3 +210,37 @@ query WhatsAppTemplateConnection($organizationId: UUID!, $id: UUID!) @auth(level
     id connectionStatus externalAccountReference businessAccountReference accessTokenReference sendingEnabled liveSending
   }
 }
+
+# --- Phase 7B.2: downloading WhatsApp media (server only) -------------------------------------
+
+# Files customers sent on WhatsApp that are not stored yet and are due a try: the newest first is not
+# needed, so oldest first; at most five tries, and only for media Meta still keeps (received since $since).
+query PendingInboxMedia($now: Timestamp!, $since: Timestamp!, $limit: Int!) @auth(level: NO_ACCESS) {
+  attachments: inboxAttachments(where: {_and: [
+    {storagePath: {isNull: true}, providerMediaId: {isNull: false}, deletedAt: {isNull: true}, mediaFetchAttempts: {lt: 5}, createdAt: {ge: $since}},
+    {_or: [{mediaNextAttemptAt: {isNull: true}}, {mediaNextAttemptAt: {le: $now}}]},
+    {message: {simulated: {eq: false}, direction: {eq: INBOUND}, conversation: {channelConnection: {provider: {eq: WHATSAPP_CLOUD}}}}}
+  ]}, orderBy: [{createdAt: ASC}], limit: $limit) {
+    organizationId id messageId conversationId fileName mimeType providerMediaId mediaFetchAttempts createdAt
+    message {conversation {channelConnection {id connectionStatus accessTokenReference}}}
+  }
+}
+
+# Takes one file for a try (compare-and-set on the attempt count), so two workers never fetch it at once;
+# nextAttemptAt is both the lease and the back-off before the next try.
+mutation ClaimInboxMediaFetch($organizationId: UUID!, $id: UUID!, $expectedAttempts: Int!, $nextAttemptAt: Timestamp!) @auth(level: NO_ACCESS) @transaction {
+  inboxAttachment_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, mediaFetchAttempts: {eq: $expectedAttempts}, storagePath: {isNull: true}}},
+    data: {mediaFetchAttempts_update: {inc: 1}, mediaNextAttemptAt: $nextAttemptAt}) @check(expr: "this != null", message: "INBOX_MEDIA_BUSY")
+}
+
+# Stored privately after the content check (the type and size are the file's own, not the sender's claim).
+mutation StoreInboxMedia($organizationId: UUID!, $id: UUID!, $storagePath: String!, $mimeType: String!, $sizeBytes: Int!, $fileName: String!) @auth(level: NO_ACCESS) {
+  inboxAttachment_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, storagePath: {isNull: true}, deletedAt: {isNull: true}}},
+    data: {storagePath: $storagePath, mimeType: $mimeType, sizeBytes: $sizeBytes, fileName: $fileName, mediaFetchedAt_expr: "request.time", mediaError: null, mediaNextAttemptAt: null})
+}
+
+# Why a file was not stored. A final reason (expired at Meta, type not allowed, too large) also ends the tries.
+mutation FailInboxMedia($organizationId: UUID!, $id: UUID!, $error: String!, $final: Boolean!) @auth(level: NO_ACCESS) {
+  retry: inboxAttachment_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, storagePath: {isNull: true}}}, data: {mediaError: $error}) @skip(if: $final)
+  final: inboxAttachment_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, storagePath: {isNull: true}}}, data: {mediaError: $error, mediaFetchAttempts: 99, mediaNextAttemptAt: null}) @include(if: $final)
+}

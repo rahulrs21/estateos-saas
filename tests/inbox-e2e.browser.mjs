@@ -39,6 +39,11 @@ const waVerifyToken = randomBytes(12).toString("hex");
 const WA_ACCOUNT = "1" + String(Date.now()).slice(-14);
 // Phase 7B.2: the fictional WhatsApp Business Account holding that number, and its templates (changed by the tests).
 const WA_WABA = "2" + String(Date.now()).slice(-14);
+// Phase 7B.2: media customers send (a real 1x1 PNG, and a program disguised as a PDF), served by the fake Graph.
+const graphMedia = new Map([
+  ["MEDIA-PHOTO-1", {mime: "image/png", bytes: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64")}],
+  ["MEDIA-DISGUISED-1", {mime: "application/pdf", bytes: Buffer.from("MZ\u0090\u0000\u0003 This program cannot be run in DOS mode")}],
+]);
 const graphTemplates = [
   {id: "9001", name: "hello_world", language: "en_US", status: "APPROVED", category: "UTILITY", components: [{type: "BODY", text: "Hello World"}]},
   {id: "9002", name: "viewing_followup", language: "en_US", status: "APPROVED", category: "UTILITY", parameter_format: "POSITIONAL", components: [
@@ -96,6 +101,18 @@ const graph = createHttpServer((request, response) => {
     graphRequests.push({method: request.method, url: request.url, authorization: request.headers.authorization ?? null, body});
     const reply = (status, value) => { response.writeHead(status, {"Content-Type": "application/json"}); response.end(JSON.stringify(value)); };
     if (request.headers.authorization !== `Bearer ${graphToken}`) return reply(401, {error: {code: 190, message: "Invalid OAuth access token - Cannot parse access token"}});
+    const mediaFile = /^\/media\/([A-Z0-9-]+)$/.exec(request.url);
+    if (request.method === "GET" && mediaFile && graphMedia.has(mediaFile[1])) {
+      const file = graphMedia.get(mediaFile[1]);
+      response.writeHead(200, {"Content-Type": file.mime, "Content-Length": String(file.bytes.length)});
+      return response.end(file.bytes);
+    }
+    const mediaLookup = /^\/v27\.0\/(MEDIA-[A-Z0-9-]+)$/.exec(request.url);
+    if (request.method === "GET" && mediaLookup) {
+      const file = graphMedia.get(mediaLookup[1]);
+      if (!file) return reply(404, {error: {code: 100, message: "Unsupported get request. Object does not exist."}});
+      return reply(200, {url: `http://127.0.0.1:${graphPort}/media/${mediaLookup[1]}`, mime_type: file.mime, sha256: createHash("sha256").update(file.bytes).digest("hex"), file_size: file.bytes.length, id: mediaLookup[1], messaging_product: "whatsapp"});
+    }
     if (request.method === "GET" && request.url.startsWith(`/v27.0/${WA_ACCOUNT}?`)) return reply(200, {id: WA_ACCOUNT, display_phone_number: "+44 7700 900001", verified_name: "E2E Fictional Realty", quality_rating: "GREEN"});
     if (request.method === "GET" && request.url.startsWith(`/v27.0/${WA_WABA}/phone_numbers?`)) return reply(200, {data: [{id: WA_ACCOUNT}]});
     if (request.method === "GET" && request.url.startsWith(`/v27.0/${WA_WABA}/message_templates?`)) return reply(200, {data: graphTemplates});
@@ -751,7 +768,7 @@ try {
   await load("/inbox/" + waConversationId, "document.querySelector('[aria-label=Messages]')?.innerText.includes('My documents')");
   const mediaText = await evaluate("document.querySelector('[data-testid=inbox-attachment]').innerText");
   assert.match(mediaText, /passport\.pdf/);
-  assert.match(mediaText, /not downloaded/, "provider files are not fetched in Phase 7A");
+  assert.match(mediaText, /downloading|not downloaded/, "a provider file is shown as downloading or not downloaded (Phase 7B.2 fetches it with the channel's token)");
   assert.equal(await evaluate("document.querySelectorAll('[data-testid=inbox-attachment] a').length"), 0, "no download link for a file EstateOS does not have");
   const statusEvents = (await sql(`query E($org: UUID!, $c: UUID!) { inboxEvents(where: {organizationId: {eq: $org}, channelConnectionId: {eq: $c}, kind: {eq: "STATUS"}}) { status errorCode } }`, {org: f.orgA, c: waConnection.id})).inboxEvents;
   assert.deepEqual(statusEvents, [{status: "PROCESSED", errorCode: "UNMATCHED"}], "a receipt for a message EstateOS did not send changes nothing");
@@ -1251,6 +1268,36 @@ try {
   graphTemplates[1].status = "APPROVED";
   assert.equal(graphRequests.filter(item => item.method === "POST").length, postsBeforeTemplates, "Meta received nothing for them");
   pass("Phase 7B.2a: approved templates come from the WhatsApp Business Account; a member picks one, fills its blanks (quick fills too) and sees the exact message; it is sent with its blanks; missing blanks, unsupported, paused or changed templates are never sent");
+
+  // ------------------------------------------------------------ 7B.2b: photos and documents customers send are downloaded, checked and previewed
+  const mediaWebhook = waBody({contacts: [{wa_id: "447700900703", profile: {name: "Fictional test recipient"}}], messages: [
+    {from: "447700900703", id: "wamid.E2E-PHOTO-1", timestamp: nowSeconds(), type: "image", image: {id: "MEDIA-PHOTO-1", mime_type: "image/png", caption: "The view from the balcony"}},
+    {from: "447700900703", id: "wamid.E2E-DISGUISED-1", timestamp: nowSeconds(), type: "document", document: {id: "MEDIA-DISGUISED-1", mime_type: "application/pdf", filename: "contract.pdf"}},
+    {from: "447700900703", id: "wamid.E2E-EXPIRED-1", timestamp: nowSeconds(), type: "document", document: {id: "MEDIA-EXPIRED-1", mime_type: "application/pdf", filename: "old.pdf"}}]});
+  assert.equal((await deliver(mediaWebhook)).status, 200, "Meta gets its answer at once; the files are fetched after");
+  const mediaRows = async () => (await sql(`query A($org: UUID!, $id: UUID!) { inboxAttachments(where: {organizationId: {eq: $org}, conversationId: {eq: $id}}) { fileName mimeType sizeBytes storagePath mediaError mediaFetchAttempts } }`, {org: f.orgA, id: liveConversation})).inboxAttachments;
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const rows = await mediaRows();
+    if (rows.length === 3 && rows.every(row => row.storagePath || row.mediaError)) break;
+    await pause(500);
+  }
+  const byName = Object.fromEntries((await mediaRows()).map(row => [row.fileName, row]));
+  const photoRow = Object.values(byName).find(row => row.mimeType === "image/png");
+  assert.ok(photoRow?.storagePath, "the photo is stored privately: " + JSON.stringify(byName));
+  assert.equal(photoRow.sizeBytes, graphMedia.get("MEDIA-PHOTO-1").bytes.length);
+  assert.deepEqual({path: byName["contract.pdf"].storagePath ?? null, error: byName["contract.pdf"].mediaError}, {path: null, error: "TYPE_NOT_ALLOWED"}, "a program disguised as a PDF is never stored");
+  assert.deepEqual({path: byName["old.pdf"].storagePath ?? null, error: byName["old.pdf"].mediaError}, {path: null, error: "EXPIRED"}, "media Meta no longer has is recorded, not retried");
+  const lookups = graphRequests.filter(item => item.url.startsWith("/v27.0/MEDIA-") || item.url.startsWith("/media/"));
+  assert.ok(lookups.length >= 4 && lookups.every(item => item.authorization === `Bearer ${graphToken}`), "looked up and downloaded with the channel's token");
+  await load(`/inbox/${liveConversation}`, "Boolean(document.querySelector('[data-testid=attachment-preview]')?.complete && document.querySelector('[data-testid=attachment-preview]').naturalWidth > 0)");
+  const shown = await evaluate("[...document.querySelectorAll('[data-testid=inbox-attachment]')].map(e=>e.innerText).join('|')");
+  assert.match(shown, /contract\.pdf[^|]*not downloaded \(file type not allowed\)/);
+  assert.match(shown, /old\.pdf[^|]*not downloaded \(no longer available from WhatsApp\)/);
+  const inlineUrl = await evaluate("document.querySelector('[data-testid=attachment-preview]').getAttribute('src')");
+  const inlineHead = await evaluate(`fetch(${JSON.stringify(inlineUrl)}).then(r=>({type: r.headers.get('content-type'), disposition: r.headers.get('content-disposition'), csp: r.headers.get('content-security-policy'), sniff: r.headers.get('x-content-type-options')}))`);
+  assert.deepEqual({type: inlineHead.type, inline: inlineHead.disposition.startsWith("inline"), csp: inlineHead.csp, sniff: inlineHead.sniff}, {type: "image/png", inline: true, csp: "default-src 'none'; sandbox", sniff: "nosniff"});
+  await screenshot("whatsapp-photo-preview");
+  pass("Phase 7B.2b: photos and documents a customer sends on WhatsApp are downloaded after the webhook with the channel's token, checked by content and stored privately; a photo is previewed; a disguised program and expired media are never stored");
 
   // ------------------------------------------------------------ 7B.1: refusals and the test-recipient rule
   const refusedStart = await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: "+44 7700 900704", template});
