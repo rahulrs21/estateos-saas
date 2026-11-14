@@ -19,6 +19,7 @@ import { AssistantPanel, Composer, ReplyTray, useReplies } from "./reply-panel";
 import { EmailMessage } from "./email-message";
 import { CHANNEL_TEXT_TONES, ContactAvatar, clockTime, dayLabel, inPlace, messageDay, openConversation, usePreference } from "./inbox-ui";
 import { MEDIA_ERROR_LABELS } from "../whatsapp-media";
+import { whatsappFailureReason } from "../whatsapp-errors";
 
 const PREVIEW_TYPES = ["image/jpeg", "image/png", "image/webp"];
 type Attachment = Message["attachments"][number];
@@ -79,6 +80,10 @@ function MessageBubble({message, conversationId}: {message: Message; conversatio
         <time dateTime={message.providerTimestamp ?? message.createdAt} title={formatLeadDate(message.providerTimestamp ?? message.createdAt, true)}>{clockTime(message.providerTimestamp ?? message.createdAt)}</time>
         {!inbound && <DeliveryMark status={message.deliveryStatus} inverted />}
       </div>
+      {/* Phase 7B.2: why WhatsApp did not deliver it, in Meta's words made plain. */}
+      {!inbound && message.deliveryStatus === "FAILED" && <p className="flex items-start gap-1.5 rounded-md bg-black/20 px-2 py-1.5 text-[11px] leading-4 text-primary-foreground" data-testid="delivery-failure">
+        <CircleAlert aria-hidden className="mt-px size-3.5 shrink-0 text-red-200" />
+        <span>Not delivered. {whatsappFailureReason(message.providerStatusRaw) ?? "WhatsApp did not say why. Messages sent from now on show Meta's reason here."}</span></p>}
     </div>
   </li>;
 }

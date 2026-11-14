@@ -131,6 +131,19 @@ Not in 7B.1 (all three are Phase 7B.2, below):
    4. As the owner, click **Switch to real customers** and confirm.
 3. **The first real send.** Start a conversation with your second number (the new SIM) as a "real customer", using the template. Send a photo from that phone: it shows as a preview in the inbox.
 
+### When a message is not delivered
+
+Meta can accept a message and then report in a status receipt that it failed. EstateOS stores Meta's error code with the status (`failed:131042`). The member sees what the code means and what to do, under the message. The codes are explained in `src/modules/inbox/whatsapp-errors.ts`. Common codes:
+
+| Code | Meaning |
+| --- | --- |
+| 131042 | No payment method on the WhatsApp Business Account |
+| 131026 | The number can't receive it |
+| 131049 | Meta limited marketing messages |
+| 132001 | The template doesn't exist in that language |
+
+Messages that failed before this change show "WhatsApp did not say why".
+
 ## Phase 7B: what is needed to go live
 
 Business prerequisites (the company, not EstateOS engineering):
@@ -162,3 +175,25 @@ Engineering work:
 - Unit: `tests/inbox-adapters.test.ts` signs payloads with a test secret.
 - End to end: `npm run test:inbox:e2e` starts an isolated server with a per-run test secret and posts signed, unsigned, tampered, wrong-account and duplicate payloads to the real route.
 - Developer simulator (`/dev/communication-tests`, local emulators only): fictional senders (+44 7700 900xxx) through the same event pipeline.
+
+## Future: per-person WhatsApp (Marketplace plugins), parked
+
+**The idea (14 Nov 2026).** Each owner or agent messages their own clients from EstateOS on their own WhatsApp number, sees the same chats as on the phone, and asks Claude for a suggested reply in the message box.
+
+**The owner's hard rule.** Linking must never log anyone out of a device or switch off features on their phone. That rules out two approaches for now:
+
+- **Meta's official "coexistence" link** of a WhatsApp Business app number (Embedded Signup). Linking:
+  - turns off broadcast lists;
+  - turns off disappearing messages, view once and live location in 1:1 chats;
+  - doesn't sync group chats to EstateOS;
+  - unlinks every linked device, and WhatsApp for Windows can't be linked again.
+- **QR-code clients** that imitate WhatsApp Web (whatsapp-web.js, Baileys, and so on). They break WhatsApp's terms, numbers can be banned without warning, they keep full access to the account on our server, and they need an always-on browser process that App Hosting can't run.
+
+**Direction.** Add per-person WhatsApp later as **Marketplace plugins**: official business solution providers such as Gupshup, behind the existing channel-adapter interface (`docs/CHANNEL_ADAPTERS.md`, `src/modules/inbox/adapters/`).
+
+**Pieces that are already built and can be reused:**
+
+- **Private conversations per member:** `ownerMembershipId`, as personal mailboxes use, plus a visibility rule for agent + owner/administrator, with audited reads.
+- **Sealed provider tokens:** `src/modules/inbox/vault.ts`.
+- **Claude in the message box:** `analyseConversation` with `target: "composer"`.
+- **From Phase 7B.2:** template listing and sending, media download, and failure reasons (`src/modules/inbox/whatsapp-errors.ts`).

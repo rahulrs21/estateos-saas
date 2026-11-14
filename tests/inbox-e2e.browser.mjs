@@ -946,6 +946,13 @@ try {
   await clickText("Request approval", "[data-testid=inbox-reply] button");
   await waitFor("document.querySelector('[data-testid=inbox-reply]')?.dataset.stage === 'PENDING_APPROVAL'", "the reply waiting for approval");
   await screenshot("inbox-reply-pending");
+  // The strip stays one line per reply; the whole reply (text, steps, checks, every action) opens in a pop-up.
+  await evaluate("document.querySelector('[data-testid=inbox-reply] button[aria-label=\"Open the reply\"]').click()");
+  await waitFor("document.querySelector('[role=dialog] [data-testid=inbox-reply-detail]')?.dataset.stage === 'PENDING_APPROVAL'", "the reply pop-up");
+  assert.match(await evaluate("document.querySelector('[role=dialog] [data-testid=inbox-reply-detail]').innerText"), /payment plan for Dubai Marina[\s\S]*Edit[\s\S]*Delete/, "the whole reply and its actions");
+  await screenshot("inbox-reply-popup");
+  await command("Input.dispatchKeyEvent", {type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27});
+  await waitFor("!document.querySelector('[role=dialog] [data-testid=inbox-reply-detail]')", "the closed pop-up");
   replies = await repliesOf(simConversation);
   const replyId = replies.replies[0].id;
   assert.equal(replies.replies[0].can.decide, false, "the author cannot approve their own reply");
@@ -1304,6 +1311,13 @@ try {
   assert.match(pausedSend.body.error.message, /paused in Meta/);
   graphTemplates[1].status = "APPROVED";
   assert.equal(graphRequests.filter(item => item.method === "POST").length, postsBeforeTemplates, "Meta received nothing for them");
+  // Meta accepts, then reports a failure in a receipt: its error code is kept and explained under the message.
+  const failedWamid = (await liveRows()).filter(row => row.direction === "OUTBOUND" && row.messageType === "TEMPLATE").at(-1).externalMessageId;
+  assert.equal((await deliver(waBody({statuses: [{id: failedWamid, status: "failed", timestamp: nowSeconds(), recipient_id: "447700900703",
+    errors: [{code: 131042, title: "Business eligibility payment issue"}]}]}))).status, 200);
+  await waitFor(`false`, "", 1).catch(() => {});
+  await load(`/inbox/${liveConversation}`, "Boolean(document.querySelector('[data-testid=delivery-failure]'))");
+  assert.match(await evaluate("document.querySelector('[data-testid=delivery-failure]').innerText"), /payment method.*WhatsApp error 131042/s);
   pass("Phase 7B.2a: approved templates come from the WhatsApp Business Account; a member picks one, fills its blanks (quick fills too) and sees the exact message; it is sent with its blanks; missing blanks, unsupported, paused or changed templates are never sent");
 
   // ------------------------------------------------------------ 7B.2b: photos and documents customers send are downloaded, checked and previewed
@@ -1477,7 +1491,7 @@ try {
     const personal = rows.find(row => row.externalAccountReference === AGENT_MAILBOX);
     assert.equal(personal.ownerMembershipId.replaceAll("-", ""), f.memberAgentA.replaceAll("-", ""));
     await signIn("owner-a");
-    await load("/inbox/settings", "document.body.innerText.includes('Members')");
+    await load("/inbox/settings", "document.body.innerText.includes('agent.a@gmail.example.test')");
     assert.match(await evaluate("document.body.innerText"), /Members.? personal mailboxes[\s\S]*agent\.a@gmail\.example\.test/);
     pass("Phase 7C.1: any member connects their own Gmail (one each, owned by them); agents cannot connect company mailboxes and see only their own; administrators see that personal mailboxes are connected");
 

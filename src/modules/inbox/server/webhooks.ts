@@ -204,7 +204,7 @@ async function applyDeliveryStatus(connection: EventConnection, event: Extract<N
     const next = decision.apply ? decision.status : current;
     try {
       await sdk.applyInboxDeliveryStatus(dc, {organizationId, id: ids.messageId, conversationId: ids.conversationId, expectedStatus: sdk.InboxDeliveryStatus[current],
-        deliveryStatus: sdk.InboxDeliveryStatus[next], raw: event.raw.slice(0, 40) || null, providerTimestamp: event.timestamp, emitFailed: next === "FAILED" && current !== "FAILED", simulated: simulated || message.simulated});
+        deliveryStatus: sdk.InboxDeliveryStatus[next], raw: (event.errorCode ? `${event.raw}:${event.errorCode}` : event.raw).slice(0, 40) || null, providerTimestamp: event.timestamp, emitFailed: next === "FAILED" && current !== "FAILED", simulated: simulated || message.simulated});
       return {result: decision.apply ? "APPLIED" : "RAW_ONLY", ...ids};
     } catch (error) {
       // Another receipt changed the message first: decide again against its new status.

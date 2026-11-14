@@ -3,6 +3,18 @@ import { test } from "node:test";
 import { normalizeTemplate, renderTemplate, selectable, templateComponents, templateValueProblems, templateValues, type MetaTemplate } from "../src/modules/inbox/whatsapp-templates";
 import { MEDIA_MAX_ATTEMPTS, mediaBackoffMs, mediaUrlAllowed } from "../src/modules/inbox/whatsapp-media";
 import { whatsappDelivery } from "../src/modules/inbox/outbound";
+import { whatsappErrorCode, whatsappFailureReason } from "../src/modules/inbox/whatsapp-errors";
+
+test("a failed WhatsApp message explains Meta's reason in plain words", () => {
+  assert.equal(whatsappErrorCode("failed:131042"), "131042");
+  assert.equal(whatsappErrorCode("failed"), null, "no code, no reason");
+  assert.equal(whatsappErrorCode("delivered"), null);
+  assert.equal(whatsappErrorCode("failed:<script>"), null);
+  assert.match(whatsappFailureReason("failed:131042")!, /payment method.*\(WhatsApp error 131042\)$/);
+  assert.match(whatsappFailureReason("failed:131026")!, /not be on WhatsApp/);
+  assert.equal(whatsappFailureReason("failed:999999"), "Meta did not deliver it. (WhatsApp error 999999)", "an unknown code still shows the code");
+  assert.equal(whatsappFailureReason(null), null);
+});
 
 test("WhatsApp reaches real customers only on a channel the owner switched over, and only where the server allows it; otherwise test numbers only", () => {
   const base = {connectionStatus: "VERIFIED", sendingEnabled: true, liveSending: false, serverAllowsLive: false, testConfigured: true, testRecipient: false};

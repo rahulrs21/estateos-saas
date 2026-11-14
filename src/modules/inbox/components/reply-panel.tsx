@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bot, Check, CheckCircle2, ChevronDown, FileText, Info, Loader2, PenLine, Send, ShieldAlert, Sparkles, Trash2, XCircle } from "lucide-react";
+import { Bot, Check, CheckCircle2, ChevronDown, CircleAlert, FileText, Info, Loader2, Maximize2, PenLine, Send, ShieldAlert, Sparkles, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { communicationsGet, communicationsSend, errorMessage } from "@/modules/communications/client";
@@ -103,10 +104,9 @@ function Stepper({stage}: {stage: string}) {
   </li>)}</ol>;
 }
 
-/** One reply: compact (its text folded when long), with the next steps as buttons. */
-function ReplyCard({reply, view, busy, act, receipt}: {reply: Reply; view: RepliesView; busy: string | null; act: Act; receipt: RepliesState["receipt"]}) {
+/** One reply in full (in its pop-up): the text, the checks, and every step it can take next. */
+function ReplyCard({reply, view, busy, act, receipt, onDeleted}: {reply: Reply; view: RepliesView; busy: string | null; act: Act; receipt: RepliesState["receipt"]; onDeleted: () => void}) {
   const [editing, setEditing] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const [text, setText] = useState(reply.content);
   const [note, setNote] = useState("");
   const base = `${reply.id}`;
@@ -115,29 +115,24 @@ function ReplyCard({reply, view, busy, act, receipt}: {reply: Reply; view: Repli
   const problems = reply.validation?.problems ?? [];
   const blocked = problems.some(problem => problem.blocksApproval);
   const Source = reply.source === "AGENT" ? PenLine : Bot;
-  const long = reply.content.length > 220 || reply.content.split("\n").length > 4;
   const remove = () => {
-    if (window.confirm("Delete this reply? It was never sent, and it cannot be brought back.")) void act(`${base}:delete`, "", {expectedRevision: reply.revision}, "Reply deleted.", "DELETE");
+    if (window.confirm("Delete this reply? It was never sent, and it cannot be brought back.")) void act(`${base}:delete`, "", {expectedRevision: reply.revision}, "Reply deleted.", "DELETE").then(ok => ok && onDeleted());
   };
-  return <li className={cn("space-y-2 rounded-lg border bg-card px-3 py-2.5", reply.stage === "DRAFT" && "border-dashed", reply.stage === "FAILED" && "border-destructive/50",
-    reply.stage === "APPROVED" && "border-primary/50", FINISHED.includes(reply.stage) && "bg-muted/30")} data-testid="inbox-reply" data-stage={reply.stage}>
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-      <Badge variant={STAGE_VARIANT[reply.stage] ?? "outline"} className="h-5">{reply.stageLabel}</Badge>
+  return <div className="space-y-3" data-testid="inbox-reply-detail" data-stage={reply.stage}>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
+      <Badge variant={STAGE_VARIANT[reply.stage] ?? "outline"}>{reply.stageLabel}</Badge>
       <span className="flex items-center gap-1"><Source aria-hidden className="size-3.5" />{reply.template ? "Approved WhatsApp template" : SOURCE_LABEL[reply.source]}{reply.source !== "AGENT" && reply.edited ? ", edited" : ""}</span>
-      <span className="truncate">· {reply.lastEditedBy ?? reply.createdBy ?? "Team member"} · {formatLeadDate(reply.updatedAt, true)}</span>
-      {reply.selfApproved && <Badge variant="outline" className="h-5">Self-approved (owner)</Badge>}
-      <span className="ml-auto hidden sm:block"><Stepper stage={reply.stage} /></span>
+      <span>· {reply.lastEditedBy ?? reply.createdBy ?? "Team member"} · {formatLeadDate(reply.updatedAt, true)}</span>
+      {reply.selfApproved && <Badge variant="outline">Self-approved (owner)</Badge>}
     </div>
+    <Stepper stage={reply.stage} />
     {editing ? <div className="space-y-2">
       <label htmlFor={`reply-${reply.id}`} className="sr-only">Edit the reply</label>
-      <textarea id={`reply-${reply.id}`} value={text} onChange={event => setText(event.target.value)} rows={5} maxLength={4000} className={textareaClassName} dir="auto" />
+      <textarea id={`reply-${reply.id}`} value={text} onChange={event => setText(event.target.value)} rows={8} maxLength={4000} className={textareaClassName} dir="auto" />
       <div className="flex gap-2"><Button size="sm" disabled={working || !text.trim()} onClick={() => void act(`${base}:edit`, "", {expectedRevision: reply.revision, content: text}, "Reply updated.", "PUT").then(ok => ok && setEditing(false))}>Save changes</Button>
         <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setText(reply.content); }}>Discard</Button></div>
-    </div> : <div>
-      <p dir="auto" className={cn("whitespace-pre-wrap wrap-break-word text-sm leading-6", long && !expanded && "line-clamp-3")}>{reply.content}</p>
-      {long && <button type="button" className="text-[11px] font-medium text-primary hover:underline" onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Show more"}</button>}
-    </div>}
-    {problems.length > 0 && <ul className={cn("space-y-1 rounded-md px-2.5 py-1.5 text-xs", blocked ? "bg-destructive/10" : "bg-muted/60")} aria-label="Checks">{problems.map(problem =>
+    </div> : <p dir="auto" className="max-h-[40svh] overflow-y-auto whitespace-pre-wrap wrap-break-word rounded-lg border bg-muted/30 p-3 text-sm leading-6">{reply.content}</p>}
+    {problems.length > 0 && <ul className={cn("space-y-1 rounded-md px-3 py-2 text-xs", blocked ? "bg-destructive/10" : "bg-muted/60")} aria-label="Checks">{problems.map(problem =>
       <li key={problem.code} className={cn("flex gap-1.5", problem.blocksApproval ? "text-destructive" : "text-muted-foreground")}>
         {problem.blocksApproval ? <XCircle aria-hidden className="mt-0.5 size-3.5 shrink-0" /> : <Info aria-hidden className="mt-0.5 size-3.5 shrink-0" />}
         <span>{problem.blocksApproval ? "Must fix: " : "Note: "}{problem.message}</span></li>)}</ul>}
@@ -145,58 +140,89 @@ function ReplyCard({reply, view, busy, act, receipt}: {reply: Reply; view: Repli
     {reply.approvedBy && ["APPROVED", "QUEUED", "SENT", "FAILED"].includes(reply.stage) && <p className="text-xs text-muted-foreground">Approved by {reply.approvedBy}{reply.approvedAt ? ` · ${formatLeadDate(reply.approvedAt, true)}` : ""}</p>}
     {reply.failureReason && <p className="text-xs text-destructive">Not delivered: {reply.failureReason}</p>}
     {reply.can.ownReply && <p className="flex items-center gap-1 text-xs text-muted-foreground"><ShieldAlert aria-hidden className="size-3.5" />You wrote or edited this reply, so someone else must approve it.</p>}
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2 border-t pt-3">
       {reply.can.send && <Button size="sm" disabled={working} onClick={() => void run("send", {}, view.sendMode === "WHATSAPP" ? "Accepted by WhatsApp." : view.sendMode === "EMAIL" ? "Email sent." : "Delivered to the simulated conversation.")}>
         {busy === `${base}:send` ? <Loader2 aria-hidden className="animate-spin" /> : <Send aria-hidden />}{view.sendMode === "WHATSAPP" ? "Send on WhatsApp" : view.sendMode === "EMAIL" ? "Send by email" : "Send (simulator)"}</Button>}
-      {reply.can.check && <Button size="sm" disabled={working} onClick={() => void run("check", {}, "Reply checked.")}>{busy === `${base}:check` && <Loader2 aria-hidden className="animate-spin" />}Check reply</Button>}
+      {reply.can.check && <Button size="sm" disabled={working} onClick={() => void run("check", {}, "Reply checked.")}>Check reply</Button>}
       {reply.can.submit && <Button size="sm" disabled={working} onClick={() => void run("submit", {}, view.approvalRequired ? "Sent for approval." : "Approved (your company does not require approval).")}>
         {view.approvalRequired ? "Request approval" : "Approve"}</Button>}
       {reply.can.decide && <>
         <Button size="sm" disabled={working} onClick={() => void run("decide", {decision: "APPROVE", note: note || undefined}, "Reply approved.")}><CheckCircle2 aria-hidden />Approve</Button>
         <label htmlFor={`reply-note-${reply.id}`} className="sr-only">Reason to return the reply</label>
-        <Input id={`reply-note-${reply.id}`} value={note} onChange={event => setNote(event.target.value)} maxLength={300} placeholder="Reason (needed to return it)" className="h-7 w-48 text-xs" />
+        <Input id={`reply-note-${reply.id}`} value={note} onChange={event => setNote(event.target.value)} maxLength={300} placeholder="Reason (needed to return it)" className="h-7 w-52 text-xs" />
         <Button size="sm" variant="outline" disabled={working || note.trim().length < 3} onClick={() => void run("decide", {decision: "REJECT", note}, "Returned to the author.")}><XCircle aria-hidden />Return</Button>
       </>}
-      {reply.can.edit && !editing && <Button size="sm" variant="outline" disabled={working} onClick={() => setEditing(true)}>Edit</Button>}
+      {reply.can.edit && !editing && <Button size="sm" variant="outline" disabled={working} onClick={() => setEditing(true)}><PenLine aria-hidden />Edit</Button>}
       {view.simulatorSend && reply.stage === "SENT" && reply.messageId && (["DELIVERED", "READ", "FAILED"] as const).map(status =>
         <Button key={status} size="sm" variant="ghost" disabled={working} data-testid={`simulate-${status.toLowerCase()}`} onClick={() => void receipt(reply.messageId!, status)}>Simulate {status.toLowerCase()}</Button>)}
-      {reply.can.remove && <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive" disabled={working} onClick={remove} aria-label="Delete reply" title="Delete this reply">
-        {busy === `${base}:delete` ? <Loader2 aria-hidden className="animate-spin" /> : <Trash2 aria-hidden />}Delete</Button>}
+      {reply.can.remove && <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive" disabled={working} onClick={remove}><Trash2 aria-hidden />Delete</Button>}
+    </div>
+  </div>;
+}
+
+/** One reply as a single row: its stage, its first line, and the next step as a button. The rest opens in a pop-up. */
+function ReplyRow({reply, view, busy, act, onOpen}: {reply: Reply; view: RepliesView; busy: string | null; act: Act; onOpen: () => void}) {
+  const base = `${reply.id}`;
+  const working = busy?.startsWith(base) ?? false;
+  const run = (action: string, success: string) => act(`${base}:${action}`, action, {expectedRevision: reply.revision}, success);
+  const blocked = (reply.validation?.problems ?? []).some(problem => problem.blocksApproval);
+  const remove = () => {
+    if (window.confirm("Delete this reply? It was never sent, and it cannot be brought back.")) void act(`${base}:delete`, "", {expectedRevision: reply.revision}, "Reply deleted.", "DELETE");
+  };
+  return <li className={cn("flex min-w-0 items-center gap-2 rounded-lg border bg-card px-2 py-1.5", reply.stage === "DRAFT" && "border-dashed", reply.stage === "FAILED" && "border-destructive/50",
+    reply.stage === "APPROVED" && "border-primary/50")} data-testid="inbox-reply" data-stage={reply.stage}>
+    <Badge variant={STAGE_VARIANT[reply.stage] ?? "outline"} className="h-5 shrink-0 text-[10px]">{reply.stageLabel}</Badge>
+    <button type="button" onClick={onOpen} className="min-w-0 flex-1 truncate text-left text-[13px] hover:underline" title="Open the reply" dir="auto">{reply.content}</button>
+    {blocked && <XCircle aria-label="Needs changes before approval" className="size-4 shrink-0 text-destructive" />}
+    {reply.failureReason && <CircleAlert aria-label={`Not delivered: ${reply.failureReason}`} className="size-4 shrink-0 text-destructive" />}
+    <div className="flex shrink-0 items-center gap-1">
+      {reply.can.send && <Button size="xs" disabled={working} onClick={() => void run("send", view.sendMode === "WHATSAPP" ? "Accepted by WhatsApp." : view.sendMode === "EMAIL" ? "Email sent." : "Delivered to the simulated conversation.")}>
+        {busy === `${base}:send` ? <Loader2 aria-hidden className="animate-spin" /> : <Send aria-hidden />}{view.sendMode === "WHATSAPP" ? "Send on WhatsApp" : view.sendMode === "EMAIL" ? "Send by email" : "Send (simulator)"}</Button>}
+      {reply.can.check && <Button size="xs" disabled={working} onClick={() => void run("check", "Reply checked.")}>{busy === `${base}:check` && <Loader2 aria-hidden className="animate-spin" />}Check reply</Button>}
+      {reply.can.submit && <Button size="xs" disabled={working} onClick={() => void run("submit", view.approvalRequired ? "Sent for approval." : "Approved (your company does not require approval).")}>{view.approvalRequired ? "Request approval" : "Approve"}</Button>}
+      {reply.can.decide && <Button size="xs" disabled={working} onClick={() => void act(`${base}:decide`, "decide", {expectedRevision: reply.revision, decision: "APPROVE"}, "Reply approved.")}><CheckCircle2 aria-hidden />Approve</Button>}
+      <Button size="icon-xs" variant="ghost" onClick={onOpen} aria-label="Open the reply" title="Open (edit, return with a reason, details)"><Maximize2 aria-hidden /></Button>
+      {reply.can.remove && <Button size="icon-xs" variant="ghost" className="text-muted-foreground hover:text-destructive" disabled={working} onClick={remove} aria-label="Delete reply" title="Delete this reply">
+        {busy === `${base}:delete` ? <Loader2 aria-hidden className="animate-spin" /> : <Trash2 aria-hidden />}</Button>}
     </div>
   </li>;
 }
 
 /**
- * The replies tray, docked above the composer (not in the thread, so emails keep their room): replies on their way,
- * collapsible, then the sent and cancelled ones folded away.
+ * The replies strip, docked above the composer and kept small, so the conversation stays readable:
+ * one row per reply in progress, sent and cancelled ones folded into a history line, and each reply
+ * in full in a pop-up.
  */
 export function ReplyTray({replies}: {replies: RepliesState}) {
   const {view, busy, act, receipt, error} = replies;
-  const [open, setOpen] = useState(true);
+  const [openId, setOpenId] = useState<string | null>(null);
   if (error) return <p role="alert" className="shrink-0 border-t px-4 py-2 text-sm text-destructive">{error}</p>;
   if (!view || !view.replies.length) return null;
   const active = view.replies.filter(reply => !FINISHED.includes(reply.stage));
   const finished = view.replies.filter(reply => FINISHED.includes(reply.stage));
-  const card = (reply: Reply) => <ReplyCard key={`${reply.id}:${reply.revision}`} reply={reply} view={view} busy={busy} act={act} receipt={receipt} />;
-  return <section aria-label="Replies" className="flex max-h-[45%] min-h-0 shrink-0 flex-col border-t bg-muted/25">
-    <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open}
-      className="flex shrink-0 items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-muted-foreground hover:text-foreground sm:px-4">
-      <ChevronDown aria-hidden className={cn("size-3.5 transition-transform", !open && "-rotate-90")} />
-      {active.length ? `Replies in progress (${active.length})` : "Replies"}
-      {finished.length > 0 && <span className="font-normal">· {finished.length} sent or cancelled</span>}
-    </button>
-    {open && <div className="min-h-0 space-y-2 overflow-y-auto px-3 pb-2.5 sm:px-4">
-      {active.length > 0 && <ul className="space-y-2">{active.map(card)}</ul>}
-      {finished.length > 0 && <details className="group rounded-lg border bg-card/60 px-3 py-1.5">
-        <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-muted-foreground">
-          <ChevronDown aria-hidden className="size-3.5 transition-transform group-open:rotate-180" />Sent and cancelled replies ({finished.length})</summary>
-        <ul className="mt-2 space-y-2">{finished.map(card)}</ul>
-      </details>}
-    </div>}
+  const opened = view.replies.find(reply => reply.id === openId) ?? null;
+  const row = (reply: Reply) => <ReplyRow key={`${reply.id}:${reply.revision}`} reply={reply} view={view} busy={busy} act={act} onOpen={() => setOpenId(reply.id)} />;
+  return <section aria-label="Replies" className="shrink-0 space-y-1.5 border-t bg-muted/25 px-3 py-2 sm:px-4">
+    {active.length > 0 && <>
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Replies in progress ({active.length})</p>
+      <ul className="max-h-28 space-y-1 overflow-y-auto">{active.map(row)}</ul>
+    </>}
+    {finished.length > 0 && <details className="group">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground">
+        <ChevronDown aria-hidden className="size-3.5 -rotate-90 transition-transform group-open:rotate-0" />History · {finished.length} sent or cancelled</summary>
+      <ul className="mt-1.5 max-h-28 space-y-1 overflow-y-auto">{finished.map(row)}</ul>
+    </details>}
+    <Dialog open={opened !== null} onOpenChange={value => { if (!value) setOpenId(null); }}>
+      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader><DialogTitle>Reply</DialogTitle>
+          <DialogDescription>{view.approvalRequired ? "Check it, have it approved, then send it." : "Check it, then send it."} Nothing is sent until someone clicks Send.</DialogDescription></DialogHeader>
+        {opened && <ReplyCard key={`${opened.id}:${opened.revision}`} reply={opened} view={view} busy={busy} act={act} receipt={receipt} onDeleted={() => setOpenId(null)} />}
+      </DialogContent>
+    </Dialog>
   </section>;
 }
 
-/** The reply box, docked under the thread like a mail or chat composer. Everything written is saved as a draft and checked before it is sent. */
+/** The reply box, docked under the thread like a mail or chat composer. Templates open in a pop-up. Everything written is saved as a draft and checked before it is sent. */
 export function Composer({replies, conversationId, channel, recipient, notice, templates}: {replies: RepliesState; conversationId: string; channel: InboxChannel; recipient: string;
   /** Why this channel cannot send at all, when it cannot. */ notice: string | null;
   /** Phase 7B.2: approved WhatsApp templates (a real WhatsApp conversation), with quick fills for their blanks. */ templates: {source: string; quickFills: QuickFill[]} | null}) {
@@ -204,7 +230,7 @@ export function Composer({replies, conversationId, channel, recipient, notice, t
   const [draft, setDraft] = useState("");
   /** The analysis the text in the box came from (Draft with Claude), so it is saved as Claude's draft. */
   const [fromInsight, setFromInsight] = useState<string | null>(null);
-  const [usingTemplate, setUsingTemplate] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
   if (!view) return <div role="status" className="border-t px-4 py-4 text-sm text-muted-foreground">Loading replies…</div>;
   const ready = view.sendMode !== null;
   async function submit() {
@@ -221,34 +247,38 @@ export function Composer({replies, conversationId, channel, recipient, notice, t
   return <div className="shrink-0 border-t bg-card/95 px-2.5 py-2 sm:px-3">
     <div title={`${notice ? `${notice} ` : ""}${sendingNote}`} className={cn("mb-1.5 flex items-start gap-1.5 text-[11px] leading-4", ready ? "text-muted-foreground" : "text-amber-700 dark:text-amber-300")}>
       {ready ? <Send aria-hidden className="mt-px size-3 shrink-0" /> : <Info aria-hidden className="mt-px size-3 shrink-0" />}
-      <p className="line-clamp-2">{notice && <span className="text-muted-foreground" data-testid="sending-disabled">{notice} </span>}
+      <p className="line-clamp-1">{notice && <span className="text-muted-foreground" data-testid="sending-disabled">{notice} </span>}
         <span data-testid="reply-sending-note">{sendingNote}</span></p></div>
-    {view.templateOnly || usingTemplate ? <div className="space-y-2" data-testid="template-composer">
-      <p className="text-xs text-muted-foreground">{view.templateOnly
-        ? "The customer has not written in the last 24 hours, so WhatsApp allows only an approved template. Meta may charge for template messages."
-        : "An approved template from your WhatsApp account. Meta may charge for template messages."}</p>
-      {templates ? <TemplatePicker source={templates.source} quickFills={templates.quickFills} submitLabel="Save template reply" busy={busy === "new"}
-        onCancel={view.templateOnly ? undefined : () => setUsingTemplate(false)}
-        onSubmit={async template => { if (await save({template})) setUsingTemplate(false); }} />
-        : <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">Templates are only for real WhatsApp conversations.</p>}
+    {view.templateOnly ? <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-background px-3 py-2.5" data-testid="template-composer">
+      <p className="min-w-0 flex-1 text-xs text-muted-foreground">The customer has not written in the last 24 hours, so WhatsApp allows only an approved template. Meta may charge for template messages.</p>
+      {templates ? <Button size="sm" onClick={() => setTemplateOpen(true)}><FileText aria-hidden />Choose a template</Button>
+        : <span className="text-xs text-muted-foreground">Templates are only for real WhatsApp conversations.</span>}
     </div>
     : <form className="rounded-xl border bg-background shadow-xs transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
         onSubmit={event => { event.preventDefault(); void submit(); }}>
       <label htmlFor={`draft-${conversationId}`} className="sr-only">Write a reply</label>
       <textarea id={`draft-${conversationId}`} value={draft} onChange={event => { setDraft(event.target.value); if (!event.target.value.trim()) setFromInsight(null); }}
-        rows={draft ? Math.min(10, Math.max(4, draft.split("\n").length + 1)) : 2} maxLength={4000} dir="auto" disabled={busy === "compose"}
+        rows={draft ? Math.min(8, Math.max(3, draft.split("\n").length + 1)) : 2} maxLength={4000} dir="auto" disabled={busy === "compose"}
         onKeyDown={event => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void submit(); } }}
-        className="block max-h-72 min-h-12 w-full resize-y rounded-t-xl bg-transparent px-3 pt-2 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60"
+        className="block max-h-56 min-h-12 w-full resize-y rounded-t-xl bg-transparent px-3 pt-2 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60"
         placeholder={busy === "compose" ? "Claude is drafting a reply…" : `${channel === "EMAIL" ? `Reply to ${recipient}` : channel === "WHATSAPP" ? "Type a WhatsApp reply" : "Write a reply"}. It is saved as a draft and checked before it is sent.`} />
       <div className="flex flex-wrap items-center gap-2 px-1.5 pb-1.5">
         {view.aiEnabled && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={busy !== null} onClick={() => void draftWithClaude()}>
           {busy === "compose" ? <Loader2 aria-hidden className="animate-spin" /> : <Sparkles aria-hidden />}Draft with Claude</Button>}
-        {templates && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={busy !== null} onClick={() => setUsingTemplate(true)}><FileText aria-hidden />Template</Button>}
+        {templates && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={busy !== null} onClick={() => setTemplateOpen(true)}><FileText aria-hidden />Template</Button>}
         {fromInsight && <span className="text-[11px] text-muted-foreground">Claude&apos;s draft: check it before saving</span>}
         <span className="ml-auto hidden text-[11px] text-muted-foreground sm:inline">Ctrl + Enter to save</span>
         <Button type="submit" size="sm" disabled={busy !== null || !draft.trim()}>{busy === "new" ? <Loader2 aria-hidden className="animate-spin" /> : <PenLine aria-hidden />}Save draft</Button>
       </div>
     </form>}
+    {templates && <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
+      <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-4xl">
+        <DialogHeader><DialogTitle>Choose a WhatsApp template</DialogTitle>
+          <DialogDescription>Approved templates from your WhatsApp account. Fill in the blanks and check the preview; it is saved as a reply, then checked and sent from there. Meta may charge for template messages.</DialogDescription></DialogHeader>
+        <TemplatePicker source={templates.source} quickFills={templates.quickFills} submitLabel="Save template reply" busy={busy === "new"}
+          onCancel={() => setTemplateOpen(false)} onSubmit={async template => { if (await save({template})) setTemplateOpen(false); }} />
+      </DialogContent>
+    </Dialog>}
   </div>;
 }
 
