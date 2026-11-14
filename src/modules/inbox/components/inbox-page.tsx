@@ -15,7 +15,7 @@ export async function InboxPageBody({ conversationId }: { conversationId: string
   return <div className="-mt-3 space-y-3">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="min-w-0"><h1 className="text-xl font-semibold tracking-tight">Inbox</h1>
-        <p className="text-xs text-muted-foreground">WhatsApp, email and website enquiries in one place. Replies are sent only after approval.</p></div>
+        <p className="text-xs text-muted-foreground">WhatsApp, email and website enquiries in one place.</p></div>
       <div className="flex flex-wrap items-center gap-2"><StartWhatsAppConversation organizationId={activeCompany.id} me={me} />
         <Link href="/inbox/settings" className={buttonVariants({variant: "outline", size: "sm"})}><Settings aria-hidden="true" />Inbox settings</Link></div>
     </div>

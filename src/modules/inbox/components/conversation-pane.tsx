@@ -206,15 +206,21 @@ export function ConversationPane({conversationId, organizationId, refreshKey, ex
   }, [conversationId]);
   useEffect(() => { if (refreshKey) void load(); }, [refreshKey, load]);
   useEffect(() => { void communicationsGet<Assignee[]>("/api/inbox/assignees").then(setAssigneeOptions, () => setAssigneeOptions([])); }, []);
-  // Open on the newest message, like a chat or mail client (once; refreshes keep the member's place).
+  // Open on the newest message, like a chat or mail client, and follow each new message as it arrives (sent or
+  // received). Loading earlier messages or a refresh with nothing new keeps the member's place.
+  const newest = useRef<string | null>(null);
   useLayoutEffect(() => {
     const node = scroller.current;
-    if (!node || !messages?.length || scrolled.current) return;
+    const lastId = messages?.length ? messages[messages.length - 1].id : null;
+    if (!node || !lastId || lastId === newest.current) return;
+    const first = !scrolled.current;
     scrolled.current = true;
+    newest.current = lastId;
     const items = node.querySelectorAll<HTMLElement>("[data-direction]");
     const last = items[items.length - 1];
-    if (conversation?.channel === "EMAIL" && last) node.scrollTop = Math.max(0, last.offsetTop - node.offsetTop - 16);
-    else node.scrollTop = node.scrollHeight;
+    const top = conversation?.channel === "EMAIL" && last ? Math.max(0, last.offsetTop - node.offsetTop - 16) : node.scrollHeight;
+    if (first) node.scrollTop = top;
+    else node.scrollTo({top, behavior: "smooth"});
   }, [messages, conversation?.channel]);
 
   async function act(key: string, path: string, body: unknown, success: string) {

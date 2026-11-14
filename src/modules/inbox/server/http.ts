@@ -12,7 +12,7 @@ import {
 } from "./conversations";
 import { SIMULATOR_BODY_BYTES, inboxSimulatorState, simulateInbound, simulateReceipt, simulateWebsiteEnquiry } from "./simulator";
 import { analyseConversation, applyRequirements } from "./assistant";
-import { cancelReply, checkReply, createReply, decideReply, listReplies, sendReply, startWhatsAppConversation, submitReply, updateReply, deleteReply } from "./outbound";
+import { cancelReply, checkReply, createReply, decideReply, listReplies, sendNow, sendReply, startWhatsAppConversation, submitReply, updateReply, deleteReply } from "./outbound";
 import { devToolsEnabled } from "@/modules/communications/dev/guard";
 import { completeMailboxConnect, disconnectMailbox, listMailboxes, setMailboxSending, startMailboxConnect, type ConnectOutcome, type MailProvider } from "./mailboxes";
 import { syncMailboxNow } from "./mail-sync";
@@ -56,6 +56,7 @@ export const repliesResponse = (request: Request, id: string) => read(request, "
 export const conversationTemplatesResponse = (request: Request, id: string) => read(request, "inbox.templates", context => conversationTemplates(context, id));
 export const connectionTemplatesResponse = (request: Request, id: string) => read(request, "inbox.connections.templates", context => connectionTemplates(context, id));
 export const createReplyResponse = (request: Request, id: string) => write(request, "inbox.replies.create", (context, body) => createReply(context, id, body), 201);
+export const sendNowResponse = (request: Request, id: string) => write(request, "inbox.replies.send-now", (context, body) => sendNow(context, id, body));
 export const updateReplyResponse = (request: Request, id: string, replyId: string) => write(request, "inbox.replies.update", (context, body) => updateReply(context, id, replyId, body));
 export const deleteReplyResponse = (request: Request, id: string, replyId: string) => write(request, "inbox.replies.delete", (context, body) => deleteReply(context, id, replyId, body));
 const REPLY_ACTIONS = {check: checkReply, submit: submitReply, decide: decideReply, cancel: cancelReply, send: sendReply} as const;

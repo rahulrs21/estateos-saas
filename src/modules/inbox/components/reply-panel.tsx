@@ -29,6 +29,7 @@ const STEPS = ["Draft", "Checked", "Approval", "Approved", "Sent"] as const;
 const STEP_OF: Record<string, number> = {DRAFT: 0, VALIDATED: 1, PENDING_APPROVAL: 2, APPROVED: 3, QUEUED: 3, SENT: 4};
 const FINISHED = ["SENT", "CANCELLED"];
 
+type SendNowResult = {outcome: "SENT"} | {outcome: "PENDING_APPROVAL"} | {outcome: "NEEDS_CHANGES"; problems: {message: string; blocksApproval: boolean}[]} | {outcome: "FAILED" | "NOT_SENT"; reason: string};
 type Act = (key: string, path: string, body: unknown, success: string, method?: "POST" | "PUT" | "DELETE") => Promise<boolean>;
 
 /** Replies (draft, check, approve, send, delete) and the Claude assistant for one conversation, shared by the replies tray, the composer and the details panel. */
@@ -67,6 +68,24 @@ export function useReplies({conversationId, organizationId, onSent}: {conversati
     catch (problem) { toast.error(errorMessage(problem, "The draft could not be saved.")); return false; }
     finally { setBusy(null); void load(); }
   }
+  /**
+   * The message box's Send: the server drafts, checks and, without required approval, approves and sends it in one step
+   * (with approval required it goes for approval). Whatever is not sent waits in the replies list with the reason.
+   * True when the reply was created (the box can be cleared).
+   */
+  async function sendNow(body: {content: string; fromInsightId?: string} | {template: ChosenTemplate}) {
+    setBusy("send-now");
+    try {
+      const result = await communicationsSend<SendNowResult>(`${path}/replies/send-now`, organizationId, "POST", body);
+      if (result.outcome === "SENT") toast.success(view?.sendMode === "WHATSAPP" ? "Sent on WhatsApp." : view?.sendMode === "EMAIL" ? "Email sent." : "Sent to the simulated conversation.");
+      else if (result.outcome === "PENDING_APPROVAL") toast.success("Sent for approval. It goes out when an owner, administrator or manager approves it.");
+      else if (result.outcome === "NEEDS_CHANGES") toast.warning(`Not sent: ${result.problems.find(problem => problem.blocksApproval)?.message ?? "the reply needs changes."} It is kept in Replies.`);
+      else toast.error(`Not sent: ${result.reason} It is kept in Replies.`);
+      onSent();
+      return true;
+    } catch (problem) { toast.error(errorMessage(problem, "The reply could not be sent.")); return false; }
+    finally { setBusy(null); void load(); }
+  }
   /** Claude's analysis. For the composer, the suggested reply comes back to be edited in the message box. */
   async function analyse(target: "panel" | "composer" = "panel"): Promise<{insightId: string; draft: string | null} | null> {
     setBusy(target === "composer" ? "compose" : "assistant");
@@ -89,7 +108,7 @@ export function useReplies({conversationId, organizationId, onSent}: {conversati
     } catch (problem) { toast.error(errorMessage(problem, "The lead could not be updated.")); return false; }
     finally { setBusy(null); }
   }
-  return {view, error, busy, load, act, receipt, save, analyse, apply};
+  return {view, error, busy, load, act, receipt, save, sendNow, analyse, apply};
 }
 export type RepliesState = ReturnType<typeof useReplies>;
 
@@ -222,61 +241,96 @@ export function ReplyTray({replies}: {replies: RepliesState}) {
   </section>;
 }
 
-/** The reply box, docked under the thread like a mail or chat composer. Templates open in a pop-up. Everything written is saved as a draft and checked before it is sent. */
+/**
+ * The message box, docked under the thread like a chat or mail composer. Send goes straight to the customer when the
+ * company does not require approval (otherwise it goes for approval); every server check still runs. Outside WhatsApp's
+ * 24-hour window an approved template is chosen in a pop-up and waits in the box, ready to send.
+ */
 export function Composer({replies, conversationId, channel, recipient, notice, templates}: {replies: RepliesState; conversationId: string; channel: InboxChannel; recipient: string;
   /** Why this channel cannot send at all, when it cannot. */ notice: string | null;
   /** Phase 7B.2: approved WhatsApp templates (a real WhatsApp conversation), with quick fills for their blanks. */ templates: {source: string; quickFills: QuickFill[]} | null}) {
-  const {view, busy, save, analyse} = replies;
+  const {view, busy, save, sendNow, analyse} = replies;
   const [draft, setDraft] = useState("");
   /** The analysis the text in the box came from (Draft with Claude), so it is saved as Claude's draft. */
   const [fromInsight, setFromInsight] = useState<string | null>(null);
+  /** An approved template waiting in the box, with the exact text the customer will receive. */
+  const [template, setTemplate] = useState<{choice: ChosenTemplate; text: string} | null>(null);
   const [templateOpen, setTemplateOpen] = useState(false);
   if (!view) return <div role="status" className="border-t px-4 py-4 text-sm text-muted-foreground">Loading replies…</div>;
-  const ready = view.sendMode !== null;
-  async function submit() {
-    if (draft.trim() && await save({content: draft, ...(fromInsight ? {fromInsightId: fromInsight} : {})})) { setDraft(""); setFromInsight(null); }
+  /** Send goes to the customer now; with approval required it goes for approval; with no way to send, only drafts. */
+  const mode = view.approvalRequired ? "APPROVAL" : view.sendMode ? "DIRECT" : "DRAFT";
+  const chat = channel !== "EMAIL";
+  const working = busy !== null;
+  const hasContent = template !== null || draft.trim().length > 0;
+  const body = () => template ? {template: template.choice} : {content: draft, ...(fromInsight ? {fromInsightId: fromInsight} : {})};
+  const clear = () => { setDraft(""); setFromInsight(null); setTemplate(null); };
+  async function primary() {
+    if (!hasContent || working) return;
+    if (await (mode === "DRAFT" ? save(body()) : sendNow(body()))) clear();
+  }
+  async function saveDraft() {
+    if (hasContent && !working && await save(body())) clear();
   }
   async function draftWithClaude() {
     if (draft.trim() && !window.confirm("Replace the text in the message box with Claude's draft?")) return;
     const result = await analyse("composer");
     if (!result) return;
-    if (result.draft) { setDraft(result.draft); setFromInsight(result.insightId); toast.success("Claude's draft is in the message box. Read and edit it, then save it."); }
+    if (result.draft) { setTemplate(null); setDraft(result.draft); setFromInsight(result.insightId); toast.success("Claude's draft is in the message box. Read and edit it before sending."); }
     else toast.info("Claude had no reply to suggest for this conversation. Its analysis is in the details panel.");
   }
   const sendingNote = `${view.sendingNote} ${view.approvalRequired ? "Replies need an owner, administrator or manager to approve them." : ""}`;
+  const primaryLabel = mode === "DIRECT" ? (view.sendMode === "WHATSAPP" ? "Send" : view.sendMode === "EMAIL" ? "Send email" : "Send") : mode === "APPROVAL" ? "Send for approval" : "Save draft";
+  const keyHint = chat ? "Enter to send · Shift + Enter for a new line" : "Ctrl + Enter to send";
   return <div className="shrink-0 border-t bg-card/95 px-2.5 py-2 sm:px-3">
-    <div title={`${notice ? `${notice} ` : ""}${sendingNote}`} className={cn("mb-1.5 flex items-start gap-1.5 text-[11px] leading-4", ready ? "text-muted-foreground" : "text-amber-700 dark:text-amber-300")}>
-      {ready ? <Send aria-hidden className="mt-px size-3 shrink-0" /> : <Info aria-hidden className="mt-px size-3 shrink-0" />}
+    <div title={`${notice ? `${notice} ` : ""}${sendingNote}`} className={cn("mb-1.5 flex items-start gap-1.5 text-[11px] leading-4", view.sendMode ? "text-muted-foreground" : "text-amber-700 dark:text-amber-300")}>
+      {view.sendMode ? <Send aria-hidden className="mt-px size-3 shrink-0" /> : <Info aria-hidden className="mt-px size-3 shrink-0" />}
       <p className="line-clamp-1">{notice && <span className="text-muted-foreground" data-testid="sending-disabled">{notice} </span>}
         <span data-testid="reply-sending-note">{sendingNote}</span></p></div>
-    {view.templateOnly ? <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-background px-3 py-2.5" data-testid="template-composer">
-      <p className="min-w-0 flex-1 text-xs text-muted-foreground">The customer has not written in the last 24 hours, so WhatsApp allows only an approved template. Meta may charge for template messages.</p>
-      {templates ? <Button size="sm" onClick={() => setTemplateOpen(true)}><FileText aria-hidden />Choose a template</Button>
-        : <span className="text-xs text-muted-foreground">Templates are only for real WhatsApp conversations.</span>}
-    </div>
-    : <form className="rounded-xl border bg-background shadow-xs transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
-        onSubmit={event => { event.preventDefault(); void submit(); }}>
-      <label htmlFor={`draft-${conversationId}`} className="sr-only">Write a reply</label>
-      <textarea id={`draft-${conversationId}`} value={draft} onChange={event => { setDraft(event.target.value); if (!event.target.value.trim()) setFromInsight(null); }}
-        rows={draft ? Math.min(8, Math.max(3, draft.split("\n").length + 1)) : 2} maxLength={4000} dir="auto" disabled={busy === "compose"}
-        onKeyDown={event => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void submit(); } }}
-        className="block max-h-56 min-h-12 w-full resize-y rounded-t-xl bg-transparent px-3 pt-2 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60"
-        placeholder={busy === "compose" ? "Claude is drafting a reply…" : `${channel === "EMAIL" ? `Reply to ${recipient}` : channel === "WHATSAPP" ? "Type a WhatsApp reply" : "Write a reply"}. It is saved as a draft and checked before it is sent.`} />
-      <div className="flex flex-wrap items-center gap-2 px-1.5 pb-1.5">
-        {view.aiEnabled && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={busy !== null} onClick={() => void draftWithClaude()}>
-          {busy === "compose" ? <Loader2 aria-hidden className="animate-spin" /> : <Sparkles aria-hidden />}Draft with Claude</Button>}
-        {templates && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={busy !== null} onClick={() => setTemplateOpen(true)}><FileText aria-hidden />Template</Button>}
-        {fromInsight && <span className="text-[11px] text-muted-foreground">Claude&apos;s draft: check it before saving</span>}
-        <span className="ml-auto hidden text-[11px] text-muted-foreground sm:inline">Ctrl + Enter to save</span>
-        <Button type="submit" size="sm" disabled={busy !== null || !draft.trim()}>{busy === "new" ? <Loader2 aria-hidden className="animate-spin" /> : <PenLine aria-hidden />}Save draft</Button>
+    <form className="rounded-xl border bg-background shadow-xs transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30"
+      onSubmit={event => { event.preventDefault(); void primary(); }}>
+      {template ? <div className="px-3 pt-2.5" data-testid="composer-template">
+        <div className="mb-1.5 flex items-center gap-2 text-xs">
+          <FileText aria-hidden className="size-3.5 text-muted-foreground" />
+          <span className="min-w-0 truncate font-medium">Template · {template.choice.name} <span className="font-normal text-muted-foreground">({template.choice.language})</span></span>
+          <Button type="button" size="xs" variant="ghost" className="ml-auto" disabled={working} onClick={() => setTemplateOpen(true)}>Change</Button>
+          <Button type="button" size="icon-xs" variant="ghost" aria-label="Remove the template" title="Remove the template" disabled={working} onClick={() => setTemplate(null)}><XCircle aria-hidden /></Button>
+        </div>
+        <p dir="auto" className="max-h-36 overflow-y-auto whitespace-pre-wrap wrap-break-word rounded-lg bg-muted/50 px-3 py-2 text-sm leading-6">{template.text}</p>
       </div>
-    </form>}
+      : view.templateOnly ? <div className="flex flex-wrap items-center gap-3 px-3 py-3" data-testid="template-composer">
+        <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">The customer has not written in the last 24 hours, so WhatsApp allows only an approved template. Meta may charge for template messages.</p>
+        {templates ? <Button type="button" size="sm" variant="outline" disabled={working} onClick={() => setTemplateOpen(true)}><FileText aria-hidden />Choose a template</Button>
+          : <span className="text-xs text-muted-foreground">Templates are only for real WhatsApp conversations.</span>}
+      </div>
+      : <>
+        <label htmlFor={`draft-${conversationId}`} className="sr-only">Write a reply</label>
+        <textarea id={`draft-${conversationId}`} value={draft} onChange={event => { setDraft(event.target.value); if (!event.target.value.trim()) setFromInsight(null); }}
+          rows={draft ? Math.min(8, Math.max(2, draft.split("\n").length + 1)) : 2} maxLength={4000} dir="auto" disabled={busy === "compose" || busy === "send-now"}
+          onKeyDown={event => {
+            if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+            if (chat ? !event.shiftKey : event.ctrlKey || event.metaKey) { event.preventDefault(); void primary(); }
+          }}
+          className="block max-h-56 min-h-12 w-full resize-y rounded-t-xl bg-transparent px-3 pt-2 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60"
+          placeholder={busy === "compose" ? "Claude is drafting a reply…" : channel === "EMAIL" ? `Reply to ${recipient}` : channel === "WHATSAPP" ? "Type a message" : "Write a reply"} />
+      </>}
+      <div className="flex items-center gap-1 px-1.5 pb-1.5 pt-1">
+        {view.aiEnabled && !view.templateOnly && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={working} onClick={() => void draftWithClaude()}>
+          {busy === "compose" ? <Loader2 aria-hidden className="animate-spin" /> : <Sparkles aria-hidden />}Draft with Claude</Button>}
+        {templates && !view.templateOnly && <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" disabled={working} onClick={() => setTemplateOpen(true)}><FileText aria-hidden />Template</Button>}
+        {fromInsight && !template && <span className="hidden truncate text-[11px] text-muted-foreground xl:inline">Claude&apos;s draft: check it before sending</span>}
+        <span className="ml-auto hidden truncate text-[11px] text-muted-foreground 2xl:inline">{template || view.templateOnly ? "" : keyHint}</span>
+        {mode !== "DRAFT" && <Button type="button" size="sm" variant="ghost" className="ml-auto text-muted-foreground 2xl:ml-0" disabled={working || !hasContent} title="Save it in Replies without sending" onClick={() => void saveDraft()}>
+          {busy === "new" ? <Loader2 aria-hidden className="animate-spin" /> : <PenLine aria-hidden />}<span className="sr-only xl:not-sr-only">Save draft</span></Button>}
+        <Button type="submit" size="sm" className={cn("shrink-0", mode === "DRAFT" && "ml-auto 2xl:ml-0")} disabled={working || !hasContent} data-testid="composer-send">
+          {busy === "send-now" || (mode === "DRAFT" && busy === "new") ? <Loader2 aria-hidden className="animate-spin" /> : mode === "DRAFT" ? <PenLine aria-hidden /> : <Send aria-hidden />}{primaryLabel}</Button>
+      </div>
+    </form>
     {templates && <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
       <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader><DialogTitle>Choose a WhatsApp template</DialogTitle>
-          <DialogDescription>Approved templates from your WhatsApp account. Fill in the blanks and check the preview; it is saved as a reply, then checked and sent from there. Meta may charge for template messages.</DialogDescription></DialogHeader>
-        <TemplatePicker source={templates.source} quickFills={templates.quickFills} submitLabel="Save template reply" busy={busy === "new"}
-          onCancel={() => setTemplateOpen(false)} onSubmit={async template => { if (await save({template})) setTemplateOpen(false); }} />
+          <DialogDescription>Approved templates from your WhatsApp account. Fill in the blanks and check the preview; it goes into the message box, ready to send. Meta may charge for template messages.</DialogDescription></DialogHeader>
+        <TemplatePicker source={templates.source} quickFills={templates.quickFills} submitLabel="Use this template" busy={false}
+          onCancel={() => setTemplateOpen(false)} onSubmit={(choice, text) => { setTemplate({choice, text}); setDraft(""); setFromInsight(null); setTemplateOpen(false); }} />
       </DialogContent>
     </Dialog>}
   </div>;

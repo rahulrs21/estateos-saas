@@ -19,7 +19,7 @@ import { CHANNEL_ICONS, CHANNEL_TONES, ContactAvatar, inPlace, listTime, openCon
 export { CHANNEL_ICONS } from "./inbox-ui";
 
 /** How often the open inbox checks for new messages (there is no real-time channel; docs/UNIFIED_INBOX.md#refresh). */
-const REFRESH_MS = 30_000;
+const REFRESH_MS = 10_000;
 
 const VIEW_ICONS: Record<InboxView, LucideIcon> = {
   ALL: Inbox, UNREAD: MailOpen, MINE: UserRound, UNASSIGNED: UserX, NEEDS_MATCHING: Link2Off, OPEN: CircleDot, PENDING: Clock3, RESOLVED: CircleCheck,
@@ -200,7 +200,7 @@ export function InboxApp({organizationId, conversationId: initialConversation, m
         : <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
             <span className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary/10"><Inbox aria-hidden className="size-6 text-primary" /></span>
             <p className="text-sm font-medium">Choose a conversation to read it.</p>
-            <p className="mt-1 max-w-72 text-xs text-muted-foreground">WhatsApp chats, emails and website enquiries you are allowed to see appear in the list. Replies are sent only after approval.</p></div>}
+            <p className="mt-1 max-w-72 text-xs text-muted-foreground">WhatsApp chats, emails and website enquiries you are allowed to see appear in the list. Replies follow your company&apos;s approval setting.</p></div>}
     </section>
   </div>;
 }

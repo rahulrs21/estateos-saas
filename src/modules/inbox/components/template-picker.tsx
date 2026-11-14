@@ -44,7 +44,8 @@ export function TemplatePreview({template, values}: {template: WhatsAppTemplate;
 export function TemplatePicker({source, quickFills, submitLabel, busy, onSubmit, onCancel}: {
   /** The server route listing this channel's templates. */
   source: string; quickFills: QuickFill[]; submitLabel: string; busy: boolean;
-  onSubmit: (template: ChosenTemplate) => Promise<boolean> | Promise<void> | void; onCancel?: () => void;
+  /** The chosen template, and the exact text the customer will receive. */
+  onSubmit: (template: ChosenTemplate, text: string) => Promise<boolean> | Promise<void> | void; onCancel?: () => void;
 }) {
   const prefix = useId();
   const [view, setView] = useState<TemplatesView | null>(null);
@@ -105,7 +106,7 @@ export function TemplatePicker({source, quickFills, submitLabel, busy, onSubmit,
   </div>;
 
   return <form className="space-y-3 rounded-xl border bg-background p-3" data-testid="template-picker"
-    onSubmit={async event => { event.preventDefault(); setTouched(true); if (ready) await onSubmit({name: chosen.name, language: chosen.language, values}); }}>
+    onSubmit={async event => { event.preventDefault(); setTouched(true); if (ready) await onSubmit({name: chosen.name, language: chosen.language, values}, renderTemplate(chosen, values).text); }}>
     <div className="flex items-center gap-2">
       <Button type="button" size="icon-sm" variant="ghost" aria-label="Choose another template" onClick={() => setChosen(null)}><ArrowLeft aria-hidden /></Button>
       <p className="min-w-0 flex-1 truncate text-sm font-medium">{chosen.name} <span className="text-xs font-normal text-muted-foreground">· {chosen.language}{chosen.category ? ` · ${CATEGORY_LABELS[chosen.category] ?? chosen.category.toLowerCase()}` : ""}</span></p>

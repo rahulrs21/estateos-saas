@@ -380,6 +380,35 @@ export async function sendReply(context: Context, rawConversationId: string, raw
   return {id: facts.replyId, stage: "SENT" as const, messageId};
 }
 
+export type SendNowOutcome =
+  | {id: string; outcome: "SENT"; messageId: string}
+  | {id: string; outcome: "PENDING_APPROVAL"}
+  | {id: string; outcome: "NEEDS_CHANGES"; problems: {code: string; message: string; blocksApproval: boolean}[]}
+  | {id: string; outcome: "FAILED" | "NOT_SENT"; reason: string};
+
+/**
+ * The message box's Send, like a chat app: the reply is drafted, checked and, when the company does not require approval,
+ * approved and sent in one step. When approval is required it goes for approval instead. Every step is the same server
+ * step (and rule) as the reply's own buttons; nothing is skipped. A reply that is not sent stays in the replies list with
+ * the reason, to fix, send again or delete.
+ */
+export async function sendNow(context: Context, rawConversationId: string, body: unknown): Promise<SendNowOutcome> {
+  const {id} = await createReply(context, rawConversationId, body);
+  const revision = async () => (await replyFacts(context, rawConversationId, id)).job.revision;
+  const checked = await checkReply(context, rawConversationId, id, {expectedRevision: await revision()});
+  if (!checked.valid) return {id, outcome: "NEEDS_CHANGES", problems: checked.problems.map(problem => ({code: problem.code, message: problem.message, blocksApproval: problem.blocksApproval}))};
+  const submitted = await submitReply(context, rawConversationId, id, {expectedRevision: await revision()});
+  if (submitted.stage !== "APPROVED") return {id, outcome: "PENDING_APPROVAL"};
+  try {
+    const sent = await sendReply(context, rawConversationId, id, {expectedRevision: await revision()});
+    return sent.stage === "SENT" ? {id, outcome: "SENT", messageId: sent.messageId} : {id, outcome: "FAILED", reason: sent.reason ?? "The provider refused it."};
+  } catch (error) {
+    // Approved but not sent (sending off, a template changed in Meta, a limit reached): it waits in the replies list.
+    if (error instanceof WorkspaceError) return {id, outcome: "NOT_SENT", reason: error.message};
+    throw error;
+  }
+}
+
 const startSchema = z.strictObject({connectionId: idSchema, phone: z.string().trim().min(6).max(32), template: templateSchema});
 
 /**

@@ -1075,6 +1075,38 @@ try {
   assert.equal((await api(`/api/inbox/conversations/${simConversation}/replies`)).body.data.replies.find(item => item.id === again.body.data.id).source, "AGENT", "an analysis gives one Claude draft; later text is the member's");
   pass("A reply never sent is deleted from the replies panel (a sent one cannot be); Claude's reply taken into the message box is saved as Claude's draft, once");
 
+  // The message box sends directly when the company does not require approval (every check still runs on the server),
+  // the thread follows the new message, and with approval required the same button sends it for approval.
+  const setApproval = async approvalRequired => {
+    await signIn("owner-a");
+    const current = (await api("/api/inbox/settings")).body.data;
+    const changed = await post("/api/inbox/settings", {expectedRevision: current.revision, approvalRequired, retentionDays: current.retentionDays, unansweredMinutes: current.unansweredMinutes, aiEnabled: current.aiEnabled}, f.orgA, "PUT");
+    assert.equal(changed.status, 200, JSON.stringify(changed.body));
+  };
+  const typeInBox = text => evaluate(`(()=>{const t=document.querySelector('textarea[id^=draft-]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t,${JSON.stringify(text)});t.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await setApproval(false);
+  await signIn("agent-a");
+  await load(`/inbox/${simConversation}`, "document.querySelector('[data-testid=composer-send]')?.textContent.trim() === 'Send'");
+  await typeInBox("Sent straight from the message box.");
+  await evaluate("document.querySelector('textarea[id^=draft-]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))");
+  await waitFor("[...document.querySelectorAll('ol[aria-label=Messages] [data-direction=OUTBOUND]')].some(e=>e.innerText.includes('Sent straight from the message box.'))", "the message in the thread");
+  await waitFor("(()=>{const s=document.querySelector('ol[aria-label=Messages]').closest('.overflow-y-auto');return s.scrollHeight-s.scrollTop-s.clientHeight<40;})()", "the thread scrolled to the new message");
+  assert.equal(await evaluate("document.querySelector('textarea[id^=draft-]').value"), "", "the box is cleared");
+  let direct = (await repliesOf(simConversation)).replies.find(item => item.content === "Sent straight from the message box.");
+  assert.equal(direct.stage, "SENT", "drafted, checked, approved and sent in one step");
+  assert.equal(direct.selfApproved, false);
+  await screenshot("inbox-direct-send");
+  await setApproval(true);
+  await signIn("agent-a");
+  await load(`/inbox/${simConversation}`, "document.querySelector('[data-testid=composer-send]')?.textContent.trim() === 'Send for approval'");
+  await typeInBox("This one needs approval first.");
+  await clickText("Send for approval", "[data-testid=composer-send]");
+  await waitFor("[...document.querySelectorAll('[data-testid=inbox-reply]')].some(e=>e.dataset.stage==='PENDING_APPROVAL' && e.innerText.includes('needs approval first'))", "the reply waiting for approval");
+  direct = (await repliesOf(simConversation)).replies.find(item => item.content === "This one needs approval first.");
+  assert.equal((await post(`/api/inbox/conversations/${simConversation}/replies/${direct.id}`, {expectedRevision: direct.revision}, f.orgA, "DELETE")).status, 200);
+  await signIn("owner-a");
+  pass("The message box sends directly when approval is off (every server check still runs) and the thread scrolls to the new message; with approval on, the same box sends it for approval");
+
   // ------------------------------------------------------------ 7A.5: template J (unanswered conversation) and an approved conversation reassignment
   const workerTick = async () => {
     const response = await fetch(origin + "/api/internal/automations/tick", {method: "POST", headers: {Authorization: `Bearer ${workerSecret}`}, signal: AbortSignal.timeout(120000)});
@@ -1281,7 +1313,10 @@ try {
   const preview = await evaluate("document.querySelector('[data-testid=template-preview]').innerText");
   assert.equal(preview.replace(/\n+/g, "\n"), `Hello ${company}\nThank you for your interest in the Marina apartment. Would Tuesday at 10 suit you for a viewing?\nFictional Realty\nYes please`);
   await screenshot("whatsapp-template-picker");
-  await clickText("Save template reply", "[data-testid=template-picker] button");
+  await clickText("Use this template", "[data-testid=template-picker] button");
+  await waitFor("document.querySelector('[data-testid=composer-template]')?.innerText.includes('Marina apartment')", "the template in the message box");
+  await screenshot("whatsapp-template-in-box");
+  await clickText("Save draft", "button");
   await waitFor("[...document.querySelectorAll('[data-testid=inbox-reply]')].some(e=>e.innerText.includes('Marina apartment') && e.dataset.stage==='DRAFT')", "the template draft");
   liveView = (await api(`/api/inbox/conversations/${liveConversation}/replies`)).body.data;
   const filled = liveView.replies.find(item => item.template?.name === "viewing_followup");
