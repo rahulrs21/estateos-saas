@@ -118,9 +118,9 @@ Enable the same sign-in providers as development (Email/Password, Google). Creat
 These commands must never be run against another project.
 
 ```powershell
-firebase dataconnect:sql:diff estateos --project staging     # read-only
+firebase dataconnect:sql:diff --project staging     # read-only
 firebase deploy --only dataconnect --project staging          # creates/links Cloud SQL "estateos-fdc" (choose the no-cost trial), applies the schema, deploys connector "example"
-firebase dataconnect:sql:diff estateos --project staging     # expect: no required changes
+firebase dataconnect:sql:diff --project staging     # expect: no required changes
 firebase deploy --only storage --project staging              # storage.rules: deny all browser access
 ```
 
