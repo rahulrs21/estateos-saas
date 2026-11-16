@@ -79,9 +79,9 @@ export function TemplatePicker({source, quickFills, submitLabel, busy, onSubmit,
   if (!view) return <div role="status" aria-label="Loading templates" className="space-y-2 rounded-xl border p-3" data-testid="template-picker">
     <Skeleton className="h-8 w-full" /><Skeleton className="h-14 w-full" /><Skeleton className="h-14 w-full" /></div>;
 
-  if (!chosen) return <div className="space-y-2 rounded-xl border bg-background p-3" data-testid="template-picker">
+  if (!chosen) return <div className="min-w-0 space-y-2 rounded-xl border bg-background p-3" data-testid="template-picker">
     <div className="flex items-center gap-2">
-      <div className="relative flex-1"><Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <div className="relative min-w-0 flex-1"><Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <label htmlFor={`${prefix}-search`} className="sr-only">Search templates</label>
         <Input id={`${prefix}-search`} value={search} onChange={event => setSearch(event.target.value)} placeholder="Search approved templates" className="h-8 pl-8" maxLength={80} /></div>
       <Button type="button" size="icon-sm" variant="ghost" aria-label="Reload templates" onClick={load}><RefreshCw aria-hidden /></Button>
@@ -91,7 +91,7 @@ export function TemplatePicker({source, quickFills, submitLabel, busy, onSubmit,
       <p className="font-medium text-foreground">No approved templates yet</p>
       <p className="mt-1 text-xs">Create one in WhatsApp Manager → Message templates. Once Meta approves it, it appears here.{view.others.length ? ` ${view.others.length} other template${view.others.length === 1 ? " is" : "s are"} pending, paused, rejected or not supported yet.` : ""}</p>
     </div>
-      : <ul className="max-h-64 space-y-1.5 overflow-y-auto" aria-label="Approved templates">{listed.map(template => <li key={`${template.name}:${template.language}`}>
+      : <ul className="max-h-64 space-y-1.5 overflow-y-auto" aria-label="Approved templates">{listed.map(template => <li key={`${template.name}:${template.language}`} className="min-w-0">
         <button type="button" onClick={() => choose(template)} data-testid="template-option"
           className="w-full rounded-lg border bg-card px-3 py-2 text-left transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <span className="flex flex-wrap items-center gap-1.5"><FileText aria-hidden className="size-3.5 text-primary" /><span className="text-sm font-medium">{template.name}</span>
@@ -105,7 +105,7 @@ export function TemplatePicker({source, quickFills, submitLabel, busy, onSubmit,
     {view.others.length > 0 && view.templates.length > 0 && <p className="text-[11px] text-muted-foreground">{view.others.length} other template{view.others.length === 1 ? " is" : "s are"} not approved or not supported yet, so {view.others.length === 1 ? "it is" : "they are"} not listed.</p>}
   </div>;
 
-  return <form className="space-y-3 rounded-xl border bg-background p-3" data-testid="template-picker"
+  return <form className="min-w-0 space-y-3 rounded-xl border bg-background p-3" data-testid="template-picker"
     onSubmit={async event => { event.preventDefault(); setTouched(true); if (ready) await onSubmit({name: chosen.name, language: chosen.language, values}, renderTemplate(chosen, values).text); }}>
     <div className="flex items-center gap-2">
       <Button type="button" size="icon-sm" variant="ghost" aria-label="Choose another template" onClick={() => setChosen(null)}><ArrowLeft aria-hidden /></Button>

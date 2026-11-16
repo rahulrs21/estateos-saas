@@ -232,7 +232,7 @@ export function ReplyTray({replies}: {replies: RepliesState}) {
       <ul className="mt-1.5 max-h-28 space-y-1 overflow-y-auto">{finished.map(row)}</ul>
     </details>}
     <Dialog open={opened !== null} onOpenChange={value => { if (!value) setOpenId(null); }}>
-      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[90svh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader><DialogTitle>Reply</DialogTitle>
           <DialogDescription>{view.approvalRequired ? "Check it, have it approved, then send it." : "Check it, then send it."} Nothing is sent until someone clicks Send.</DialogDescription></DialogHeader>
         {opened && <ReplyCard key={`${opened.id}:${opened.revision}`} reply={opened} view={view} busy={busy} act={act} receipt={receipt} onDeleted={() => setOpenId(null)} />}
@@ -326,7 +326,7 @@ export function Composer({replies, conversationId, channel, recipient, notice, t
       </div>
     </form>
     {templates && <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
-      <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-4xl">
+      <DialogContent className="max-h-[92svh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-4xl">
         <DialogHeader><DialogTitle>Choose a WhatsApp template</DialogTitle>
           <DialogDescription>Approved templates from your WhatsApp account. Fill in the blanks and check the preview; it goes into the message box, ready to send. Meta may charge for template messages.</DialogDescription></DialogHeader>
         <TemplatePicker source={templates.source} quickFills={templates.quickFills} submitLabel="Use this template" busy={false}

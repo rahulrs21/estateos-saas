@@ -52,7 +52,7 @@ export function StartWhatsAppConversation({organizationId, me}: {organizationId:
 
   return <Dialog open={open} onOpenChange={value => { if (!busy) setOpen(value); }}>
     <DialogTrigger render={<Button variant="outline" size="sm" />}><MessageSquarePlus aria-hidden="true" />Start WhatsApp conversation</DialogTrigger>
-    <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Start a WhatsApp conversation</DialogTitle>
+    <DialogContent className="max-h-[90svh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Start a WhatsApp conversation</DialogTitle>
       <DialogDescription>WhatsApp lets a business start a conversation only with a template approved in WhatsApp Manager. It is saved as a reply in the new conversation, checked, and sent from there. Meta may charge for template messages.
         {" "}{channel.realCustomers?.sending ? "This channel sends to real customers." : "This channel is in test mode: only the server's test numbers."}</DialogDescription></DialogHeader>
       <div className="space-y-3">

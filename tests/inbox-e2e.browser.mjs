@@ -1242,6 +1242,13 @@ try {
   assert.equal((await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: "+44 7700 900799", template})).status, 409, "only the server's test recipients");
   await load("/inbox?view=ALL", "[...document.querySelectorAll('button')].some(b=>b.textContent.includes('Start WhatsApp conversation'))");
   await screenshot("whatsapp-start-button");
+  // The dialog fits its content: long template texts are cut with an ellipsis, nothing hides past the right edge.
+  await clickText("Start WhatsApp conversation", "button");
+  await waitFor("document.querySelectorAll('[role=dialog] [data-testid=template-option]').length > 0", "the templates in the start dialog");
+  assert.equal(await evaluate("(()=>{const d=document.querySelector('[role=dialog]');return d.scrollWidth<=d.clientWidth+1;})()"), true, "no content hidden sideways in the start dialog");
+  await screenshot("whatsapp-start-dialog");
+  await command("Input.dispatchKeyEvent", {type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27});
+  await waitFor("!document.querySelector('[role=dialog]')", "the closed start dialog");
   const started = await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: "+44 7700 900703", template});
   assert.equal(started.status, 201, JSON.stringify(started.body));
   const liveConversation = started.body.data.conversationId;
