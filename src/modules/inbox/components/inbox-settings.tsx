@@ -73,7 +73,7 @@ function ConnectionFields({view, connection}: {view: ConnectionsView; connection
       hint="The NAME of the server secret holding the WhatsApp access token from Meta, for example INBOX_WHATSAPP_ACCESS_TOKEN. Needed for Check connection and sending. Never paste the token here.">
       <Input id={`${prefix}-token`} name="accessTokenReference" maxLength={64} defaultValue={connection?.accessTokenReference ?? ""} autoComplete="off" pattern="INBOX_[A-Z0-9_]{3,56}" /></LeadField>}
     {provider === "WHATSAPP_CLOUD" && <LeadField id={`${prefix}-waba`} label="WhatsApp Business Account ID (for templates)"
-      hint="In WhatsApp Manager, the number shown under the account name (digits only). Not secret. EstateOS lists this account's approved templates.">
+      hint="In WhatsApp Manager, (https://business.facebook.com/ > Business Settings > Business Assets > Messaging Accounts ) the ID number shown under the account name (digits only). Not secret. EstateOS lists this account's approved templates.">
       <Input id={`${prefix}-waba`} name="businessAccountReference" maxLength={40} defaultValue={connection?.businessAccountReference ?? ""} autoComplete="off" inputMode="numeric" pattern="[0-9]{5,30}" /></LeadField>}
   </>;
 }
