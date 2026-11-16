@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /*
- * Builds dataconnect/connector/inbox.gql and inbox-outbound.gql from their templates in scripts/sql-templates.
+ * Builds dataconnect/connector-messaging/inbox.gql and inbox-outbound.gql from their templates in scripts/sql-templates.
  * {{V}} is the inbox visibility rule, repeated in every operation so the
  * database enforces it (docs/INBOX_SECURITY.md#visibility). Edit the template,
  * then run `node scripts/build-inbox-connector.mjs` and `npm run sql:generate`.
@@ -17,6 +17,6 @@ export const VISIBILITY = `{_or: [
     ]}`;
 for (const name of ["inbox", "inbox-outbound"]) {
   const template = readFileSync(join(root, "scripts", "sql-templates", `${name}.gql.template`), "utf8");
-  writeFileSync(join(root, "dataconnect", "connector", `${name}.gql`), template.replaceAll("{{V}}", VISIBILITY));
-  console.log(`dataconnect/connector/${name}.gql written.`);
+  writeFileSync(join(root, "dataconnect", "connector-messaging", `${name}.gql`), template.replaceAll("{{V}}", VISIBILITY));
+  console.log(`dataconnect/connector-messaging/${name}.gql written.`);
 }

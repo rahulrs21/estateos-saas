@@ -1,5 +1,7 @@
 import "server-only";
 
+// Inbox operation (messaging connector). The shared handle routes it to its connector (src/lib/firebase/connector-routing.mjs).
+import { automationConversationState } from "@dataconnect/admin-generated-messaging";
 import { z } from "zod";
 import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
@@ -63,7 +65,7 @@ export async function decideApproval(context: Context, rawId: string, body: Reco
   const current = approval.actionType === "lead.reassign"
     ? leadStateHash(approval.lead ? {assignedMembershipId: approval.lead.assignedMembershipId, status: approval.lead.status, archived: !!approval.lead.archivedAt} : null)
     : approval.actionType === "inbox.reassign"
-      ? conversationStateHash(approval.targetId ? (await raw(() => sdk.automationConversationState(adminDataConnect(), {organizationId: context.organizationId, id: canonicalUuid(approval.targetId!)}))).conversation ?? null : null)
+      ? conversationStateHash(approval.targetId ? (await raw(() => automationConversationState(adminDataConnect(), {organizationId: context.organizationId, id: canonicalUuid(approval.targetId!)}))).conversation ?? null : null)
       : NO_TARGET_HASH;
   if (approval.status === "PENDING" && current !== approval.targetStateHash) {
     // The lead changed since the request: this approval no longer describes the change. Close it; the worker

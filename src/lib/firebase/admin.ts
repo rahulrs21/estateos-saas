@@ -6,13 +6,28 @@ import { getStorage } from "firebase-admin/storage";
 import { readFirebaseAdminConfiguration } from "@/modules/auth/server/configuration-policy";
 
 const ADMIN_APP_NAME = "estateos-admin";
+/**
+ * The same credentials under a second app name, for the "messaging" SQL Connect connector. firebase-admin keeps one
+ * SQL Connect handle per app and service (whatever the connector), so each connector needs its own app
+ * (src/lib/firebase/sql-connect-handle.ts).
+ */
+const MESSAGING_APP_NAME = "estateos-admin-messaging";
 
 /** Never import this module into a Client Component. Credentials stay on the server. */
 export function getFirebaseAdminApp() {
+  return adminApp(ADMIN_APP_NAME);
+}
+
+/** The admin app for the "messaging" SQL Connect connector only. */
+export function getFirebaseAdminMessagingApp() {
+  return adminApp(MESSAGING_APP_NAME);
+}
+
+function adminApp(name: string) {
   if (process.env.NODE_ENV === "production" && process.env.FIREBASE_AUTH_EMULATOR_HOST) {
     throw new Error("The authentication emulator cannot be used in production.");
   }
-  const existingApp = getApps().find((app) => app.name === ADMIN_APP_NAME);
+  const existingApp = getApps().find((app) => app.name === name);
   if (existingApp) return existingApp;
 
   const { projectId, credentials } = readFirebaseAdminConfiguration({
@@ -26,7 +41,7 @@ export function getFirebaseAdminApp() {
   });
   const credential = credentials ? cert(credentials) : applicationDefault();
 
-  return initializeApp({ projectId, credential, storageBucket: process.env.FIREBASE_STORAGE_BUCKET }, ADMIN_APP_NAME);
+  return initializeApp({ projectId, credential, storageBucket: process.env.FIREBASE_STORAGE_BUCKET }, name);
 }
 
 export function getFirebaseAdminAuth() {

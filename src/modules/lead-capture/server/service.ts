@@ -1,11 +1,10 @@
 import "server-only";
 
+import { sqlConnectHandle } from "@/lib/firebase/sql-connect-handle";
 import { preview } from "@/modules/inbox/policy";
 import { randomBytes, createHash } from "node:crypto";
-import { connectorConfig, type LeadCaptureFormStatus as SqlFormStatus } from "@dataconnect/admin-generated";
-import { getDataConnect } from "firebase-admin/data-connect";
+import { type LeadCaptureFormStatus as SqlFormStatus } from "@dataconnect/admin-generated";
 import * as sdk from "@dataconnect/admin-generated";
-import { getFirebaseAdminApp } from "@/lib/firebase/admin";
 import { executeWorkspaceOperation } from "@/lib/firebase/dataconnect";
 import { assertSafeDataConnectEnvironment } from "@/modules/organizations/server/dataconnect-policy";
 import { WorkspaceError, mapWorkspaceDataError } from "@/modules/organizations/server/errors";
@@ -20,7 +19,7 @@ import { captureFormSchema, type CaptureFormInput } from "../validation";
 
 function adminDataConnect() {
   assertSafeDataConnectEnvironment({ nodeEnv: process.env.NODE_ENV, emulatorHost: process.env.DATA_CONNECT_EMULATOR_HOST });
-  return getDataConnect(connectorConfig, getFirebaseAdminApp());
+  return sqlConnectHandle();
 }
 
 /** Never pass user impersonation to the fixed NO_ACCESS public-capture operations. */

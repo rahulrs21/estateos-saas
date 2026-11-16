@@ -40,6 +40,28 @@ Meta (test WhatsApp account) ─┐   Google / Microsoft sign-in ─┐   websit
 
 All state is in PostgreSQL, with leases, idempotent steps and dead letters. No Cloud Tasks or separate worker service is needed, and no loop runs inside Next.js.
 
+## Connectors
+
+A hosted SQL Connect connector may hold at most **800 KB** of operation source. EstateOS's operations reached 877 KB, so they are split into two connectors in the same service:
+
+| Connector | Folder | Holds | Generated SDK |
+| --- | --- | --- | --- |
+| `example` | `dataconnect/connector/` | CRM, inventory, AI, websites, automations, portals, rate limits | `@dataconnect/admin-generated` |
+| `messaging` | `dataconnect/connector-messaging/` | inbox, WhatsApp, email, calls and meetings | `@dataconnect/admin-generated-messaging` |
+
+**How the app uses them:**
+- **One handle.** The server uses a single handle (`sqlConnectHandle()` in `src/lib/firebase/sql-connect-handle.ts`). It runs each operation on the connector that holds it, by operation name (`src/lib/firebase/connector-routing.mjs`).
+- **Rules unchanged.** Every operation keeps its own `@auth` rules and impersonation.
+- **Which SDK.** Inbox and communications code uses the messaging SDK (`src/modules/communications/server/data.ts`). The few calls that cross over import from the other package.
+- **Two internal apps.** firebase-admin keeps one handle per app and service, so the messaging connector uses a second internal admin app with the same credentials.
+
+`tests/connector-routing.test.mjs` checks three things:
+- each connector stays under 720 KB, so split again before reaching the limit;
+- the generated SDKs match the folders;
+- no operation is in both connectors.
+
+When a new module adds many operations, add a third connector in the same way.
+
 ## Start-up guard
 
 When `ESTATEOS_ENVIRONMENT` is `staging` or `production`, the server refuses to start (`src/lib/environment/hosted-guard.ts`, called from `src/instrumentation.ts`) if:

@@ -135,7 +135,7 @@ A reply is an `OutboundMessageJob`. Its stages are:
 
 `DRAFT → VALIDATED → PENDING_APPROVAL → APPROVED → QUEUED → SENT | FAILED`, plus `CANCELLED`.
 
-- **Every move is compare-and-set** on the job's revision (`dataconnect/connector/inbox-outbound.gql`). Two people acting at once cannot both win.
+- **Every move is compare-and-set** on the job's revision (`dataconnect/connector-messaging/inbox-outbound.gql`). Two people acting at once cannot both win.
 - **Who can work on replies.** Any member who can see the conversation can draft, edit, check and submit (the conversation visibility rule is repeated in every operation).
 - **Editing** is allowed in `DRAFT`, `VALIDATED` and `PENDING_APPROVAL`. It returns the reply to `DRAFT`, withdraws an approval request, keeps up to 10 earlier versions and records the editor (`lastEditedBy`, `edited`). Approved text is frozen.
 - **Approval.**
@@ -144,7 +144,7 @@ A reply is an `OutboundMessageJob`. Its stages are:
   - Rejecting needs a reason. It returns the reply to `DRAFT` with the approver's note.
   - When the setting is off, submitting approves the reply directly. The database compares the server's value with the stored setting.
 - **Cancelling.** The author, the last editor, or an OWNER, ADMIN or MANAGER can cancel a reply until it is queued.
-- **Sending** is a server-only operation (`dataconnect/connector/inbox-delivery.gql`):
+- **Sending** is a server-only operation (`dataconnect/connector-messaging/inbox-delivery.gql`):
   - `QueueInboxReply` inserts the outbound message as `QUEUED`. It does so only when the reply is `APPROVED`, the content is exactly the approved text, and the conversation is **simulated**, not opted out, and on the company's **DEVELOPMENT_SIMULATOR** connection with sending enabled. No real provider connection meets this condition, so nothing can reach a real number or address in Phase 7A.
   - The adapter is then asked to deliver. Its acknowledgement (`AcknowledgeInboxReply`) is the only way to `SENT`, and it stores the provider message ID (`simwamid.…` for the simulator) that receipts match on.
   - A refusal (`FailInboxReply`) makes the reply and message `FAILED` and writes the `inbox.message.failed` workflow event in the same transaction.

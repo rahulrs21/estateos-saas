@@ -15,7 +15,7 @@ import { STATUS_ACTIONS, canAssign, nextCursor, serviceWindow } from "../policy"
 /*
  * Inbox conversations (docs/UNIFIED_INBOX.md). Every read and change runs as
  * the signed-in member, so the database applies the visibility rule
- * (dataconnect/connector/inbox.gql) on each call; guessed IDs give not-found.
+ * (dataconnect/connector-messaging/inbox.gql) on each call; guessed IDs give not-found.
  */
 
 const PAGE_SIZE = 25;

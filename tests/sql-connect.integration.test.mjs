@@ -4,8 +4,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, describe, it } from "node:test";
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getDataConnect } from "firebase-admin/data-connect";
-import * as sdk from "@dataconnect/admin-generated";
-import { localDataConnect, seedLocalDatabase } from "../scripts/sql-connect-local.mjs";
+import { localDataConnect, sdk, seedLocalDatabase } from "../scripts/sql-connect-local.mjs";
 import { fixture as f } from "./fixtures/sql-connect-fixtures.mjs";
 import {registerCrmCases} from "./sql-connect-crm.cases.mjs";
 import {registerCaptureCases} from "./sql-connect-capture.cases.mjs";
@@ -26,7 +25,7 @@ import {registerInboxCases} from "./sql-connect-inbox.cases.mjs";
 
 // This harness refuses production, non-loopback hosts and non-demo project IDs.
 // Only fixture setup and deliberate FK-constraint probes use privileged access.
-const { app, dc } = localDataConnect();
+const { apps, dc } = localDataConnect();
 const uuid = (value) => value.replaceAll("-", "").toLowerCase();
 
 function options(uid, overrides = {}) {
@@ -90,7 +89,7 @@ describe("SQL Connect tenant and authorization integration", { concurrency: fals
   registerCommunicationCases({sdk,run,forbidden,dc});
   registerInboxCases({sdk,run,forbidden,dc});
   before(async () => { await seedLocalDatabase(dc); });
-  after(async () => { await deleteApp(app); });
+  after(async () => { for (const app of apps) await deleteApp(app); });
 
   it("new verified identities have no profile or memberships rather than a backend 404", async () => {
     const uid = "not-onboarded-" + randomUUID();

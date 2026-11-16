@@ -31,7 +31,7 @@ const pass = message => { checks++; console.log(`✔ ${message}`); };
 const MONTHLY_USER_LIMIT = 20;
 
 // ---------------------------------------------------------------- fixtures
-const {app: sqlApp, dc} = localDataConnect();
+const {apps: sqlApps, dc} = localDataConnect();
 const seed = readFileSync(join(root, "dataconnect", "seed_data.gql"), "utf8");
 if (process.env.DATA_CONNECT_EMULATOR_HOST !== "127.0.0.1:19999") throw new Error("Refusing to reset an unexpected SQL Connect emulator.");
 await dc.executeGraphql(seed, {operationName: "ResetEstateOSWebsites"});
@@ -431,7 +431,7 @@ try {
 } finally {
   try { socket?.close(); } catch { /* closed */ }
   stop(browser); stop(server);
-  await deleteApp(authApp).catch(() => {}); await deleteApp(sqlApp).catch(() => {});
+  await deleteApp(authApp).catch(() => {}); for (const sqlApp of sqlApps) await deleteApp(sqlApp).catch(() => {});
 }
 if (failure) { console.error(failure); process.exit(1); }
 process.exit(0);

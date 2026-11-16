@@ -1,8 +1,6 @@
 import "server-only";
 
-import { getDataConnect } from "firebase-admin/data-connect";
-import { connectorConfig } from "@dataconnect/admin-generated";
-import { getFirebaseAdminApp } from "@/lib/firebase/admin";
+import { sqlConnectHandle } from "@/lib/firebase/sql-connect-handle";
 import { assertSafeDataConnectEnvironment } from "@/modules/organizations/server/dataconnect-policy";
 import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { clientIpFromHeaders, trustedProxyHopsFromEnv } from "./client-ip";
@@ -51,7 +49,7 @@ export function apiRateLimiter(): RateLimiter {
   }
   const store = backend === "memory" ? memory : new SqlConnectRateLimitStore(() => {
     assertSafeDataConnectEnvironment({nodeEnv: process.env.NODE_ENV, emulatorHost: process.env.DATA_CONNECT_EMULATOR_HOST});
-    return getDataConnect(connectorConfig, getFirebaseAdminApp());
+    return sqlConnectHandle();
   }, Date.now, error => console.warn(JSON.stringify({event: "rate_limit.purge_error", error: error instanceof Error ? error.name : "Error"})));
   configured = createRateLimiter({store, fallbackStore: backend === "memory" ? undefined : memory, keySecret, onEvent: report});
   return configured;

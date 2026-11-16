@@ -1,5 +1,7 @@
 import "server-only";
 
+// A lead operation (example connector). The shared handle routes it to its connector (src/lib/firebase/connector-routing.mjs).
+import { scheduleLeadFollowUp } from "@dataconnect/admin-generated";
 import { randomUUID } from "node:crypto";
 import * as sql from "@dataconnect/admin-generated";
 import { z } from "zod";
@@ -214,7 +216,7 @@ export async function decideSuggestion(context: Context, rawId: string, body: un
     if (due <= Date.now() || due > Date.now() + 365 * 86_400_000) throw new WorkspaceError("VALIDATION_ERROR", 400, "Choose a follow-up time in the future, within the next year.");
     // Claim the suggestion first so a repeated click cannot schedule twice, then schedule as the member.
     await decide("ACCEPTED", "FOLLOW_UP", null);
-    const scheduled = await asMember(context, "ScheduleLeadFollowUp", (dc, options) => sdk.scheduleLeadFollowUp(dc, {
+    const scheduled = await asMember(context, "ScheduleLeadFollowUp", (dc, options) => scheduleLeadFollowUp(dc, {
       organizationId: context.organizationId, leadId, followUpAt: new Date(due).toISOString(), followUpNote: null, title: (input.title ?? suggestion.title).slice(0, 500), replaceExisting: false,
     }, options));
     return {id, status: "ACCEPTED" as const, next: {type: "FOLLOW_UP" as const, followUpId: scheduled.followUp.id, leadId}};

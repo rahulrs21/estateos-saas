@@ -31,6 +31,7 @@ for (const generated of ["dataconnect", "next", "screens", "browser-profile", "t
 mkdirSync(join(workspace, "dataconnect", "connector"), {recursive: true});
 cpSync(join(root, "dataconnect", "schema"), join(workspace, "dataconnect", "schema"), {recursive: true});
 cpSync(join(root, "dataconnect", "connector"), join(workspace, "dataconnect", "connector"), {recursive: true});
+cpSync(join(root, "dataconnect", "connector-messaging"), join(workspace, "dataconnect", "connector-messaging"), {recursive: true});
 copyFileSync(join(root, "dataconnect", "dataconnect.yaml"), join(workspace, "dataconnect", "dataconnect.yaml"));
 copyFileSync(join(root, "storage.rules"), join(workspace, "storage.rules"));
 writeFileSync(join(workspace, "tsconfig.json"), JSON.stringify({
@@ -39,6 +40,7 @@ writeFileSync(join(workspace, "tsconfig.json"), JSON.stringify({
   exclude: ["../../node_modules"],
 }, null, 2));
 writeFileSync(join(workspace, "dataconnect", "connector", "connector.yaml"), "connectorId: example\n");
+writeFileSync(join(workspace, "dataconnect", "connector-messaging", "connector.yaml"), "connectorId: messaging\n");
 writeFileSync(join(workspace, "firebase.json"), JSON.stringify({
   dataconnect: {source: "dataconnect"},
   storage: {rules: "storage.rules"},

@@ -1,9 +1,7 @@
 import "server-only";
 
-import * as sdk from "@dataconnect/admin-generated";
-import { connectorConfig } from "@dataconnect/admin-generated";
-import { getDataConnect } from "firebase-admin/data-connect";
-import { getFirebaseAdminApp } from "@/lib/firebase/admin";
+import { sqlConnectHandle } from "@/lib/firebase/sql-connect-handle";
+import * as sdk from "@dataconnect/admin-generated-messaging";
 import { executeWorkspaceOperation } from "@/lib/firebase/dataconnect";
 import type { requireActiveOrganizationRequest } from "@/modules/organizations/server/context";
 import { assertSafeDataConnectEnvironment } from "@/modules/organizations/server/dataconnect-policy";
@@ -21,7 +19,7 @@ export type Context = Awaited<ReturnType<typeof requireActiveOrganizationRequest
 
 export function serverDataConnect() {
   assertSafeDataConnectEnvironment({nodeEnv: process.env.NODE_ENV, emulatorHost: process.env.DATA_CONNECT_EMULATOR_HOST});
-  return getDataConnect(connectorConfig, getFirebaseAdminApp());
+  return sqlConnectHandle();
 }
 
 /** A member operation with safe, mapped errors. */

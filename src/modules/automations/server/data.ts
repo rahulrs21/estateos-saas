@@ -1,9 +1,8 @@
 import "server-only";
 
+import { sqlConnectHandle } from "@/lib/firebase/sql-connect-handle";
 import * as sdk from "@dataconnect/admin-generated";
-import { connectorConfig } from "@dataconnect/admin-generated";
-import { getDataConnect, type OperationOptions } from "firebase-admin/data-connect";
-import { getFirebaseAdminApp } from "@/lib/firebase/admin";
+import { type OperationOptions } from "firebase-admin/data-connect";
 import type { requireActiveOrganizationRequest } from "@/modules/organizations/server/context";
 import { assertSafeDataConnectEnvironment } from "@/modules/organizations/server/dataconnect-policy";
 import { mapWorkspaceDataError } from "@/modules/organizations/server/errors";
@@ -21,7 +20,7 @@ export type Context = Awaited<ReturnType<typeof requireActiveOrganizationRequest
 
 export function adminDataConnect() {
   assertSafeDataConnectEnvironment({nodeEnv: process.env.NODE_ENV, emulatorHost: process.env.DATA_CONNECT_EMULATOR_HOST});
-  return getDataConnect(connectorConfig, getFirebaseAdminApp());
+  return sqlConnectHandle();
 }
 
 /** A database failure with the check token (for example AUTOMATION_LEASE_LOST) the engine reacts to. */

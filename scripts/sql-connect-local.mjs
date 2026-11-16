@@ -1,8 +1,21 @@
 import { readFile } from "node:fs/promises";
 import { initializeApp } from "firebase-admin/app";
 import { getDataConnect } from "firebase-admin/data-connect";
-import { connectorConfig } from "@dataconnect/admin-generated";
+import * as exampleSdk from "@dataconnect/admin-generated";
+import * as messagingSdk from "@dataconnect/admin-generated-messaging";
+import { operationNames, routedDataConnect } from "../src/lib/firebase/connector-routing.mjs";
 import { assertResetAllowed } from "./local-db-lib.mjs";
+
+const { connectorConfig } = exampleSdk;
+/** Both connectors' generated functions and enums in one object, for the untyped tests and tooling. */
+export const sdk = { ...messagingSdk, ...exampleSdk };
+
+/** One handle that runs each operation on its own connector ("example" or "messaging"), as the app does. */
+export function routedLocalHandle(app, messagingApp) {
+  return routedDataConnect(getDataConnect(connectorConfig, app), [
+    { names: operationNames(messagingSdk), dc: getDataConnect(messagingSdk.connectorConfig, messagingApp) },
+  ]);
+}
 
 export const LOCAL_PROJECT_ID = "demo-estateos";
 export const SQL_TEST_PROJECT_ID = "demo-estateos-test";
@@ -27,7 +40,9 @@ export function localDataConnect() {
   }
   const projectId = localProjectIdFromEnvironment();
   const app = initializeApp({ projectId }, `estateos-local-${process.pid}`);
-  return { app, dc: getDataConnect(connectorConfig, app) };
+  // firebase-admin keeps one SQL Connect handle per app and service, so the second connector needs its own app.
+  const messagingApp = initializeApp({ projectId }, `estateos-local-${process.pid}-messaging`);
+  return { app, apps: [app, messagingApp], dc: routedLocalHandle(app, messagingApp) };
 }
 
 export async function seedLocalDatabase(dc) {

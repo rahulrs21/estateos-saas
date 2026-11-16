@@ -11,4 +11,4 @@ schemas:
           instanceId: "estateos-fdc"
           # schemaValidation: "STRICT"     # STRICT mode makes Postgres schema match Data Connect exactly.
           # schemaValidation: "COMPATIBLE" # COMPATIBLE mode makes Postgres schema compatible with Data Connect.
-connectorDirs: ["./connector"]
+connectorDirs: ["./connector", "./connector-messaging"]

@@ -5,9 +5,8 @@ import { copyFileSync, cpSync, createWriteStream, existsSync, mkdirSync, readFil
 import { createRequire } from "node:module";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { deleteApp, initializeApp } from "firebase-admin/app";
-import { getDataConnect } from "firebase-admin/data-connect";
-import * as sdk from "@dataconnect/admin-generated";
+import { deleteApp, initializeApp, getApp } from "firebase-admin/app";
+import { routedLocalHandle, sdk } from "./sql-connect-local.mjs";
 import { getStorage } from "firebase-admin/storage";
 import { demoOrganizationSlug } from "./demo-seed-lib.mjs";
 import { exportedObjectCount, listStorageObjects } from "./local-db-lib.mjs";
@@ -48,8 +47,10 @@ function resetSandbox() {
   // the sandbox emulator must not rewrite src/ while a developer session runs.
   cpSync(join(root, "dataconnect", "schema"), join(sandbox, "dataconnect-src", "schema"), { recursive: true });
   cpSync(join(root, "dataconnect", "connector"), join(sandbox, "dataconnect-src", "connector"), { recursive: true });
+  cpSync(join(root, "dataconnect", "connector-messaging"), join(sandbox, "dataconnect-src", "connector-messaging"), { recursive: true });
   copyFileSync(join(root, "dataconnect", "dataconnect.yaml"), join(sandbox, "dataconnect-src", "dataconnect.yaml"));
   writeFileSync(join(sandbox, "dataconnect-src", "connector", "connector.yaml"), "connectorId: example\n");
+  writeFileSync(join(sandbox, "dataconnect-src", "connector-messaging", "connector.yaml"), "connectorId: messaging\n");
   copyFileSync(join(root, "storage.rules"), join(sandbox, "storage.rules"));
   writeFileSync(configPath, JSON.stringify({
     dataconnect: { source: "dataconnect-src" }, storage: { rules: "storage.rules" },
@@ -109,7 +110,14 @@ function dataConnect() {
   process.env.DATA_CONNECT_EMULATOR_HOST = `127.0.0.1:${ports.dataconnect}`;
   process.env.FIREBASE_STORAGE_EMULATOR_HOST = storageHost;
   const app = initializeApp({ projectId }, `persistence-${Date.now()}`);
-  return { app, dc: getDataConnect(sdk.connectorConfig, app) };
+  // The "messaging" connector needs its own app (firebase-admin keeps one handle per app and service).
+  const messagingApp = initializeApp({ projectId }, `${app.name}-messaging`);
+  return { app, dc: routedLocalHandle(app, messagingApp) };
+}
+/** Closes both apps of a dataConnect() handle. */
+async function release(app) {
+  await deleteApp(app);
+  try { await deleteApp(getApp(`${app.name}-messaging`)); } catch { /* already closed */ }
 }
 const as = uid => ({ impersonate: { authClaims: { sub: uid, email: `${uid}@example.test`, email_verified: true, firebase: { sign_in_provider: "password" } } } });
 const owner = "persistence-owner";
@@ -125,13 +133,13 @@ async function writeCompanyData() {
     await sdk.createPropertyListing(dc, { organizationId: org, propertyId: property, listingReference: "PT-L-1", listingPurpose: sdk.ListingPurpose.SALE, marketType: sdk.MarketType.SECONDARY, title: "Persistence listing", askingPriceMinor: "100000000", currency: "AED", listingStatus: sdk.ListingStatus.ACTIVE, publicationStatus: sdk.ListingPublicationStatus.NOT_PUBLISHED }, as(owner));
     await sdk.createLead(dc, { organizationId: org, fullName: "Persistence Lead One" }, as(owner));
     return org;
-  } finally { await deleteApp(app); }
+  } finally { await release(app); }
 }
 
 async function addLead(org, fullName) {
   const { app, dc } = dataConnect();
   try { await sdk.createLead(dc, { organizationId: org, fullName }, as(owner)); }
-  finally { await deleteApp(app); }
+  finally { await release(app); }
 }
 
 /** Data as the application sees it: authorized SDK reads by the company owner. */
@@ -145,7 +153,7 @@ async function companyView(org) {
     const properties = (await sdk.listPropertiesAdvanced(dc, { organizationId: org, limit: 50, offset: 0 }, as(owner))).data.properties.map(row => row.propertyReference);
     const listings = (await sdk.listPropertyListings(dc, { organizationId: org, limit: 50, offset: 0 }, as(owner))).data.propertyListings.map(row => row.listingReference);
     return { companies, developers, projects, properties, listings, leads };
-  } finally { await deleteApp(app); }
+  } finally { await release(app); }
 }
 
 async function rowCounts() {
@@ -181,18 +189,18 @@ const seedOperations = readFileSync(join(root, "dev-data", "seed-operations.gql"
 async function adminGraphql(source, operationName, variables) {
   const { app, dc } = dataConnect();
   try { return (await dc.executeGraphql(source, { operationName, variables })).data; }
-  finally { await deleteApp(app); }
+  finally { await release(app); }
 }
 const admin = (operationName, variables) => adminGraphql(seedOperations, operationName, variables);
 async function asMember(uid, run) {
   const { app, dc } = dataConnect();
   try { return await run(dc, as(uid)); }
-  finally { await deleteApp(app); }
+  finally { await release(app); }
 }
 async function storedObject(name) {
   const { app } = dataConnect();
   try { return (await getStorage(app).bucket(bucketName).file(name).download())[0]; }
-  finally { await deleteApp(app); }
+  finally { await release(app); }
 }
 
 const snapshots = prefix => existsSync(backups) ? readdirSync(backups).filter(name => name.startsWith(prefix)) : [];
@@ -231,7 +239,7 @@ try {
   {
     const { app } = dataConnect();
     try { await getStorage(app).bucket(bucketName).file(manualPhoto).save(photoBytes, { resumable: false, metadata: { contentType: "image/png" } }); }
-    finally { await deleteApp(app); }
+    finally { await release(app); }
   }
   await waitFor(() => exportedObjectCount(exportDir) >= 1, "Autosave did not save the uploaded file within 30 seconds.");
   await hardKill(current);
@@ -284,7 +292,7 @@ try {
   { const { app, dc } = dataConnect();
     try { await sdk.recordLeadQualificationAssessment(dc, { organizationId: demoOrg, id: randomUUID(), leadId: manualLead, evaluatedByUid: owner, ruleVersion: "lq-1", configHash: "00000000",
       score: 42, priority: sdk.AiLeadPriority.LOW, sufficientData: true, result: "{}" }); }
-    finally { await deleteApp(app); } }
+    finally { await release(app); } }
   // Phase 6E: an active workflow and the queued (pending) outbox event of the new lead must survive too.
   const automationId = randomUUID();
   const automationJson = JSON.stringify({schemaVersion: 1, name: "Persistence workflow", description: "", trigger: "lead.created", conditions: null,
@@ -306,7 +314,7 @@ try {
     privacyPolicyUrl: "https://persistence.example/privacy", successMessage: "Thanks", fields: [{key: "FULL_NAME", label: "Name", enabled: true, required: true}, {key: "EMAIL", label: "Email", enabled: true, required: false}] }, options))).data.form.id;
   { const { app, dc } = dataConnect();
     try { await sdk.createDefaultWebsite(dc, { organizationId: demoOrg, id: websiteId, actorUid: owner, name: "Persistence site", slug: "main", designSettings: "{}" }); }
-    finally { await deleteApp(app); } }
+    finally { await release(app); } }
   await asMember(owner, (dc, options) => sdk.createWebsitePage(dc, { organizationId: demoOrg, id: pageId, websiteId, title: "Persistence page", slug: "persistence-page", designStyle: "CONTEMPORARY",
     kind: sdk.PageVersionKind.CREATED, structuredPageData: pageData }, options));
   await asMember(owner, (dc, options) => sdk.submitWebsitePageForReview(dc, { organizationId: demoOrg, id: pageId, expectedRevision: 1, nextRevision: 2 }, options));
@@ -317,7 +325,7 @@ try {
       await sdk.publishWebsitePage(dc, { organizationId: demoOrg, pageId, actorUid: owner, publicationId, versionId: firstVersion, versionNumber: 1, pageSlug: "persistence-page", expectedRevision: 3,
         nextRevision: 4, currentVersionNumber: 1, status: sdk.WebsitePageStatus.PUBLISHED, snapshot: JSON.stringify({schemaVersion: 1, title: "Persistence snapshot"}), sourceFingerprint: "0".repeat(64), checklist: "{}" });
       await sdk.recordWebsitePageEnquiry(dc, { organizationId: demoOrg, pageId, publicationId, formId: persistenceForm, leadId: manualLead, utmSource: "persistence" });
-    } finally { await deleteApp(app); } }
+    } finally { await release(app); } }
   // Phase 6F: a logged call (with its workflow event) and a scheduled meeting must survive too.
   const persistenceCallId = randomUUID(), persistenceMeetingId = randomUUID();
   await asMember(owner, (dc, options) => sdk.logLeadCall(dc, { organizationId: demoOrg, id: persistenceCallId, leadId: manualLead, direction: sdk.CallDirection.INBOUND, callType: sdk.CallType.INBOUND_ENQUIRY,
@@ -335,7 +343,7 @@ try {
         counterpartyNumber: null, startedAt: new Date(Date.now() - 120_000).toISOString() });
       await sdk.applySimulatedCallStatus(dc, { organizationId: demoOrg, id: simulatedCallId, actorUid: owner, expectedStatus: sdk.CallStatus.INITIATED, callStatus: sdk.CallStatus.NO_ANSWER,
         answeredAt: null, endedAt: new Date().toISOString(), durationSeconds: 0, outcome: null, emitFinal: true, finalTrigger: "call.missed" });
-    } finally { await deleteApp(app); } }
+    } finally { await release(app); } }
   // Phase 7A inbox: a conversation with its message, a reply draft and a Claude analysis (fictional sender).
   const inboxConversationId = randomUUID(), inboxMessageId = randomUUID(), inboxDraftId = randomUUID(), inboxInsightId = randomUUID();
   { const { app, dc } = dataConnect();
@@ -346,7 +354,7 @@ try {
         providerTimestamp: null, preview: "Persistence inbox message", simulated: false, optedOut: false });
       await sdk.saveInboxAiInsight(dc, { organizationId: demoOrg, id: inboxInsightId, conversationId: inboxConversationId, actorUid: owner, insightJson: JSON.stringify({summary: "Persistence summary"}),
         unverifiedCount: 0, coveredUntil: null, model: "persistence", promptVersion: "inbox-assistant-1", source: "CLAUDE", hasDraft: false, draftJobId: null, draftContent: "" });
-    } finally { await deleteApp(app); } }
+    } finally { await release(app); } }
   await asMember(owner, (dc, options) => sdk.createInboxReplyDraft(dc, { organizationId: demoOrg, id: inboxDraftId, conversationId: inboxConversationId, content: "Persistence reply draft" }, options));
   // 31 files plus the photos the conflict seed added to the other company's demo properties.
   const filesBeforeKill = (await listStorageObjects(storageHost, bucketName)).length;
@@ -371,7 +379,7 @@ try {
     try {
       const live = (await sdk.resolvePublishedPage(dc, { companySlug: pageAfterRestart.organization.slug, pageSlug: "persistence-page" })).data.publications;
       assert.match(live[0]?.snapshot ?? "", /Persistence snapshot/, "the live publication survives an abrupt stop");
-    } finally { await deleteApp(app); } }
+    } finally { await release(app); } }
 
   const workflowAfterRestart = await automationRevision();
   assert.equal(workflowAfterRestart.status, "ACTIVE", "active workflows survive an abrupt stop");
@@ -382,7 +390,7 @@ try {
       assert.ok(queued.some(event => event.triggerType === "lead.created" && event.status === "PENDING"), "queued outbox events survive an abrupt stop, still waiting for the worker");
       const callEvents = (await sdk.listAutomationEventsForTarget(dc, { organizationId: demoOrg, targetId: persistenceCallId })).data.events;
       assert.ok(callEvents.some(event => event.triggerType === "call.completed"), "the call's workflow event survives an abrupt stop");
-    } finally { await deleteApp(app); } }
+    } finally { await release(app); } }
   const callAfterRestart = await asMember(owner, async (dc, options) => (await sdk.getCallRecord(dc, { organizationId: demoOrg, id: persistenceCallId }, options)).data.call);
   assert.equal(callAfterRestart?.notes, "Persistence call notes", "logged calls survive an abrupt stop");
   assert.equal(callAfterRestart?.durationSeconds, 95);
@@ -396,7 +404,7 @@ try {
     try {
       const simulatedEvents = (await sdk.listAutomationEventsForTarget(dc, { organizationId: demoOrg, targetId: simulatedCallId })).data.events.map(event => event.triggerType).sort();
       assert.deepEqual(simulatedEvents, ["call.missed", "call.started"], "the simulated call's workflow events survive an abrupt stop");
-    } finally { await deleteApp(app); } }
+    } finally { await release(app); } }
 
   const inboxAfterRestart = await asMember(owner, async (dc, options) => ({
     conversation: (await sdk.getInboxConversation(dc, { organizationId: demoOrg, id: inboxConversationId }, options)).data.conversation,
@@ -411,7 +419,7 @@ try {
     try {
       const inboxEvents = (await sdk.listAutomationEventsForTarget(dc, { organizationId: demoOrg, targetId: inboxConversationId })).data.events.map(event => event.triggerType).sort();
       assert.deepEqual(inboxEvents, ["inbox.conversation.created", "inbox.message.received"], "the inbox workflow events survive an abrupt stop");
-    } finally { await deleteApp(app); } }
+    } finally { await release(app); } }
 
   log("seed:demo refuses production.");
   const production = seed([], { NODE_ENV: "production" });

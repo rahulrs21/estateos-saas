@@ -17,6 +17,7 @@ const eslintConfig = defineConfig([
     ".dataconnect/**",
     "dataconnect/.dataconnect/**",
     "src/dataconnect-admin-generated/**",
+    "src/dataconnect-admin-generated-messaging/**",
     "src/dataconnect-generated/**",
     "next-env.d.ts",
   ]),

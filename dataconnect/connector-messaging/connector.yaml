@@ -1,0 +1,8 @@
+connectorId: messaging
+# Inbox, WhatsApp, email and calls (split from "example": a hosted connector may hold at most 800 KB of source).
+# The app routes each operation to its connector by name (src/lib/firebase/connector-routing.mjs).
+generate:
+  adminNodeSdk:
+    - outputDir: ../../src/dataconnect-admin-generated-messaging
+      package: "@dataconnect/admin-generated-messaging"
+      packageJsonDir: ../..

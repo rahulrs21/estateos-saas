@@ -1,9 +1,7 @@
 import "server-only";
 
-import { connectorConfig } from "@dataconnect/admin-generated";
+import { sqlConnectHandle } from "@/lib/firebase/sql-connect-handle";
 import * as sdk from "@dataconnect/admin-generated";
-import { getDataConnect } from "firebase-admin/data-connect";
-import { getFirebaseAdminApp } from "@/lib/firebase/admin";
 import { getAppOrigin } from "@/modules/auth/server/config";
 import { captureWebsiteSubmission } from "@/modules/lead-capture/server/service";
 import { assertSafeDataConnectEnvironment } from "@/modules/organizations/server/dataconnect-policy";
@@ -24,7 +22,7 @@ import { presentFormView, type PageFormView } from "../types";
 
 function adminDataConnect() {
   assertSafeDataConnectEnvironment({nodeEnv: process.env.NODE_ENV, emulatorHost: process.env.DATA_CONNECT_EMULATOR_HOST});
-  return getDataConnect(connectorConfig, getFirebaseAdminApp());
+  return sqlConnectHandle();
 }
 
 async function run<T>(operation: () => Promise<{data: T}>): Promise<T> {

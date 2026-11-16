@@ -1,5 +1,7 @@
 import "server-only";
 
+// A lead operation (example connector). The shared handle routes it to its connector (src/lib/firebase/connector-routing.mjs).
+import { scheduleLeadFollowUp } from "@dataconnect/admin-generated";
 import { stableUuid } from "@/modules/automations/ids";
 import { mapWorkspaceDataError, WorkspaceError } from "@/modules/organizations/server/errors";
 import { finalCallTrigger, isAnswered, isConversation } from "../call-state";
@@ -195,7 +197,7 @@ export async function logCall(context: Context, body: unknown) {
   if (!duplicate && input.followUpAt && input.leadId) {
     const leadId = input.leadId, followUpAt = input.followUpAt;
     try {
-      const scheduled = await asMember(context, "ScheduleLeadFollowUp", (dc, options) => sdk.scheduleLeadFollowUp(dc, {
+      const scheduled = await asMember(context, "ScheduleLeadFollowUp", (dc, options) => scheduleLeadFollowUp(dc, {
         organizationId, leadId, followUpAt: new Date(followUpAt).toISOString(), followUpNote: null, title: input.followUpTitle ?? "Follow up after call", replaceExisting: false,
       }, options));
       await asMember(context, "LinkCallFollowUp", (dc, options) => sdk.linkCallFollowUp(dc, {organizationId, id, followUpId: scheduled.followUp.id}, options));

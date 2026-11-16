@@ -1,11 +1,10 @@
 import "server-only";
 
-import { connectorConfig } from "@dataconnect/admin-generated";
-import { getDataConnect, type OperationOptions } from "firebase-admin/data-connect";
+import { sqlConnectHandle } from "@/lib/firebase/sql-connect-handle";
+import { type OperationOptions } from "firebase-admin/data-connect";
 import { getSession } from "@/lib/auth/session";
 import { assertSafeDataConnectEnvironment } from "@/modules/organizations/server/dataconnect-policy";
 import { getSafeDataConnectDiagnostics, mapWorkspaceDataError, mapWorkspaceOperationError, WorkspaceError } from "@/modules/organizations/server/errors";
-import { getFirebaseAdminApp } from "./admin";
 
 /**
  * Resolve identity from the verified HttpOnly session, never function arguments.
@@ -32,7 +31,7 @@ export async function requireSqlConnectRequest() {
     },
   };
   try {
-    const dc = getDataConnect(connectorConfig, getFirebaseAdminApp());
+    const dc = sqlConnectHandle();
     return { dc, options, user: { ...user, email } };
   } catch (error) {
     throw mapWorkspaceDataError(error);

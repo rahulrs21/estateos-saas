@@ -1,5 +1,7 @@
 import "server-only";
 
+// Inbox operations (messaging connector). The shared handle routes it to its connector (src/lib/firebase/connector-routing.mjs).
+import { inboxUnansweredMinutes, unansweredInboxCandidates } from "@dataconnect/admin-generated-messaging";
 import { randomUUID } from "node:crypto";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { evaluateCondition } from "../conditions";
@@ -169,9 +171,9 @@ async function scanDueTasks(dc: Dc, organizationId: string, claimToken: string, 
   // Conversations whose customer has waited longer than the company's unanswered time (7A.5): one event per customer message.
   const unansweredLimits: number[] = [];
   if (wants.has("inbox.conversation.unanswered")) {
-    const minutes = (await raw(() => sdk.inboxUnansweredMinutes(dc, {organizationId}))).settings?.unansweredMinutes ?? 120;
+    const minutes = (await raw(() => inboxUnansweredMinutes(dc, {organizationId}))).settings?.unansweredMinutes ?? 120;
     const threshold = minutes * 60_000;
-    const {conversations} = await raw(() => sdk.unansweredInboxCandidates(dc, {organizationId, from: new Date(since - threshold).toISOString(), to: new Date(now.getTime() - threshold).toISOString(), limit: SCAN_LIMIT}));
+    const {conversations} = await raw(() => unansweredInboxCandidates(dc, {organizationId, from: new Date(since - threshold).toISOString(), to: new Date(now.getTime() - threshold).toISOString(), limit: SCAN_LIMIT}));
     for (const row of conversations) {
       if (!row.lastInboundAt || (row.lastOutboundAt && Date.parse(row.lastOutboundAt) >= Date.parse(row.lastInboundAt))) continue;
       await emit("inbox.conversation.unanswered", row.id, row.lastInboundAt, {leadId: row.leadId ? canonicalUuid(row.leadId) : null}, "CONVERSATION");

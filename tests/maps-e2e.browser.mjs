@@ -30,7 +30,7 @@ let checks = 0;
 const pass = message => { checks++; console.log(`✔ ${message}`); };
 
 // ---------------------------------------------------------------- fixtures
-const {app: sqlApp, dc} = localDataConnect();
+const {apps: sqlApps, dc} = localDataConnect();
 const seed = readFileSync(join(root, "dataconnect", "seed_data.gql"), "utf8");
 // Reset only this suite's own emulator (fixed port and demo project), never
 // dev:local or the integration-test database, then load the synthetic seed.
@@ -496,7 +496,7 @@ try {
 } finally {
   try { socket?.close(); } catch { /* closed */ }
   stop(browser); stop(server);
-  await deleteApp(authApp).catch(() => {}); await deleteApp(storageApp).catch(() => {}); await deleteApp(sqlApp).catch(() => {});
+  await deleteApp(authApp).catch(() => {}); await deleteApp(storageApp).catch(() => {}); for (const sqlApp of sqlApps) await deleteApp(sqlApp).catch(() => {});
 }
 if (failure) { console.error(failure); process.exit(1); }
 process.exit(0);

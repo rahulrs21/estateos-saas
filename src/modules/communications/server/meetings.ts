@@ -1,5 +1,7 @@
 import "server-only";
 
+// A lead operation (example connector). The shared handle routes it to its connector (src/lib/firebase/connector-routing.mjs).
+import { scheduleLeadFollowUp } from "@dataconnect/admin-generated";
 import { z } from "zod";
 import { stableUuid } from "@/modules/automations/ids";
 import { requireAiConfig } from "@/modules/ai/server/anthropic";
@@ -177,7 +179,7 @@ export async function decideMeetingSuggestion(context: Context, rawId: string, r
     const next = input.action === "DISMISS" ? null : suggestion.kind === "PROPOSAL_DRAFT" ? {type: "CONTENT_STUDIO" as const, leadId} : {type: "VIEWING_FORM" as const, leadId};
     return {status: input.action === "ACCEPT" ? "ACCEPTED" as const : "DISMISSED" as const, next};
   }
-  const scheduled = await asMember(context, "ScheduleLeadFollowUp", (dc, options) => sdk.scheduleLeadFollowUp(dc, {
+  const scheduled = await asMember(context, "ScheduleLeadFollowUp", (dc, options) => scheduleLeadFollowUp(dc, {
     organizationId: context.organizationId, leadId: leadId!, followUpAt: new Date(due!).toISOString(), followUpNote: null, title: (input.title ?? suggestion.title).slice(0, 500), replaceExisting: false,
   }, options));
   return {status: "ACCEPTED" as const, next: {type: "FOLLOW_UP" as const, followUpId: scheduled.followUp.id, leadId}};
