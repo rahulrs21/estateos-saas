@@ -5,7 +5,7 @@
 # Secrets are Secret Manager references: create each one with `firebase apphosting:secrets:set NAME --project staging`
 # before the first rollout (a missing secret fails the build). See docs/STAGING_DEPLOYMENT.md#secrets.
 #
-# Fill the REPLACE_ME values once the staging Firebase project and backend exist (docs/STAGING_DEPLOYMENT.md#step-5).
+# Values filled for project estateos-staging (web app estateos-staging-web, backend estateos-staging in us-east4).
 # The Firebase web config values are public by design; they are not secrets.
 
 runConfig:
@@ -17,28 +17,28 @@ env:
     availability:
       - RUNTIME
   - variable: APP_ORIGIN
-    value: REPLACE_ME_STAGING_ORIGIN   # e.g. https://estateos-staging--<project>.us-east4.hosted.app
+    value: https://estateos-staging--estateos-staging.us-east4.hosted.app   # backend "estateos-staging" in us-east4
     availability:
       - BUILD
       - RUNTIME
 
   # Firebase (the staging project only; never the development or a production project)
   - variable: FIREBASE_PROJECT_ID
-    value: REPLACE_ME_STAGING_PROJECT_ID
+    value: estateos-staging
   - variable: FIREBASE_ADMIN_PROJECT_ID
-    value: REPLACE_ME_STAGING_PROJECT_ID
+    value: estateos-staging
   - variable: FIREBASE_STORAGE_BUCKET
-    value: REPLACE_ME_STAGING_PROJECT_ID.firebasestorage.app
+    value: estateos-staging.firebasestorage.app
     availability:
       - RUNTIME
   - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
-    value: REPLACE_ME_STAGING_PROJECT_ID
+    value: estateos-staging
   - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-    value: REPLACE_ME_STAGING_PROJECT_ID.firebaseapp.com
+    value: estateos-staging.firebaseapp.com
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-    value: REPLACE_ME_STAGING_WEB_API_KEY
+    value: AIzaSyD-pzEM3licmQGCgs8H2JJufJm_mqbI_ig
   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
-    value: REPLACE_ME_STAGING_WEB_APP_ID
+    value: 1:456904631491:web:1308e224a06058522e2e76
 
   # Claude
   - variable: ESTATEOS_AI_ENABLED
@@ -89,7 +89,7 @@ env:
 
   # Email: Gmail and Outlook sign-in (consent screens in testing mode), replies only to the test addresses
   - variable: INBOX_GOOGLE_CLIENT_ID
-    value: REPLACE_ME_GOOGLE_CLIENT_ID
+    value: 557166637154-qp7mhtc9vve0sn5mamirr3r15p1sv4ao.apps.googleusercontent.com
     availability:
       - RUNTIME
   - variable: INBOX_GOOGLE_CLIENT_SECRET
@@ -97,7 +97,7 @@ env:
     availability:
       - RUNTIME
   - variable: INBOX_MICROSOFT_CLIENT_ID
-    value: REPLACE_ME_MICROSOFT_CLIENT_ID
+    value: 64859ed9-982e-4b5a-a150-f3ac18ca2d18
     availability:
       - RUNTIME
   - variable: INBOX_MICROSOFT_CLIENT_SECRET
