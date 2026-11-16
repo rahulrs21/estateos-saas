@@ -71,6 +71,13 @@ Not in 7B.1 (all three are Phase 7B.2, below):
 
 ## Phase 7B.2: templates, media and real customers (built)
 
+**Verified live on 14–16 Nov 2026** with the owner's real UAE number:
+- The WhatsApp Business Account had a payment method, and the server used a permanent System User token from `.env.local`.
+- Approved Utility templates were sent from the message box to a real phone, outside the 24-hour window.
+- Free-text replies went out inside the window.
+- The customer's answers arrived in the same conversation.
+- Before the payment method was added, Meta reported error 131042 on delivery. EstateOS now shows that reason under the message.
+
 ### Templates from Meta
 
 - **The account.** The channel names its **WhatsApp Business Account ID** (Inbox settings; digits, not a secret). **Check connection** confirms the phone number belongs to that account.
