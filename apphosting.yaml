@@ -1,0 +1,38 @@
+# Firebase App Hosting: settings shared by every hosted environment (docs/STAGING_DEPLOYMENT.md).
+# This file is committed: it holds only non-secret values and Secret Manager REFERENCES, never a secret value or
+# personal data. Each environment overrides it in apphosting.<environment>.yaml (staging: apphosting.staging.yaml),
+# chosen by the backend's "Environment name" setting. Values set in the Firebase console win over both files.
+#
+# Node.js runtime: choose "nodejs24" in the backend's settings (package.json requires Node 24.12 or later).
+
+runConfig:
+  minInstances: 0     # scale to zero when idle
+  maxInstances: 2     # a cost ceiling; raise for production
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 1024
+
+env:
+  # A backend without an environment file is treated as production and checked at start-up
+  # (src/lib/environment/hosted-guard.ts): it refuses to start until its project and origin are set.
+  - variable: ESTATEOS_ENVIRONMENT
+    value: production
+    availability:
+      - RUNTIME
+
+  # Shared rate limits live in the database, so every instance counts the same requests.
+  - variable: RATE_LIMIT_BACKEND
+    value: sql-connect
+    availability:
+      - RUNTIME
+  # App Hosting puts one trusted proxy (its load balancer) in front of the app.
+  - variable: RATE_LIMIT_TRUSTED_PROXY_HOPS
+    value: "1"
+    availability:
+      - RUNTIME
+
+  # A cost guard on WhatsApp template messages per channel per day.
+  - variable: INBOX_WHATSAPP_DAILY_TEMPLATE_LIMIT
+    value: "100"
+    availability:
+      - RUNTIME

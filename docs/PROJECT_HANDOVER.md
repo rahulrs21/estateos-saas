@@ -332,7 +332,7 @@ Verified on 2026-11-06 on branch `feature/unified-inbox` (commits 7A.1 a78745e t
 
 ## Next recommended work
 
-1. Inbox and WhatsApp go-live is verified locally. The next decision is hosting, because webhooks and mail import only run while `npm run dev:local` is up. It needs approval because it creates paid cloud resources:
+1. **Staging:** the repository is prepared (`apphosting.yaml`, `apphosting.staging.yaml`, the start-up guard). Follow [STAGING_DEPLOYMENT.md](STAGING_DEPLOYMENT.md) step by step; each cloud step needs approval. Inbox and WhatsApp go-live is verified locally. The next decision is hosting, because webhooks and mail import only run while `npm run dev:local` is up. It needs approval because it creates paid cloud resources:
    - Firebase App Hosting;
    - the hosted SQL Connect database ([plan](HOSTED_DATABASE_PLAN.md));
    - Secret Manager for the WhatsApp System User token, the Meta app secret and the email OAuth secrets;

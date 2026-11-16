@@ -1,0 +1,116 @@
+# Firebase App Hosting: the STAGING environment (backend environment name "staging"), merged over apphosting.yaml.
+# Synthetic data only. WhatsApp sends only to the server's test numbers (INBOX_WHATSAPP_LIVE_SENDING is never set here,
+# and the start-up guard refuses to start staging if it is). Email replies go only to the test addresses.
+#
+# Secrets are Secret Manager references: create each one with `firebase apphosting:secrets:set NAME --project staging`
+# before the first rollout (a missing secret fails the build). See docs/STAGING_DEPLOYMENT.md#secrets.
+#
+# Fill the REPLACE_ME values once the staging Firebase project and backend exist (docs/STAGING_DEPLOYMENT.md#step-5).
+# The Firebase web config values are public by design; they are not secrets.
+
+runConfig:
+  maxInstances: 1
+
+env:
+  - variable: ESTATEOS_ENVIRONMENT
+    value: staging
+    availability:
+      - RUNTIME
+  - variable: APP_ORIGIN
+    value: REPLACE_ME_STAGING_ORIGIN   # e.g. https://estateos-staging--<project>.us-east4.hosted.app
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # Firebase (the staging project only; never the development or a production project)
+  - variable: FIREBASE_PROJECT_ID
+    value: REPLACE_ME_STAGING_PROJECT_ID
+  - variable: FIREBASE_ADMIN_PROJECT_ID
+    value: REPLACE_ME_STAGING_PROJECT_ID
+  - variable: FIREBASE_STORAGE_BUCKET
+    value: REPLACE_ME_STAGING_PROJECT_ID.firebasestorage.app
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: REPLACE_ME_STAGING_PROJECT_ID
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: REPLACE_ME_STAGING_PROJECT_ID.firebaseapp.com
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: REPLACE_ME_STAGING_WEB_API_KEY
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: REPLACE_ME_STAGING_WEB_APP_ID
+
+  # Claude
+  - variable: ESTATEOS_AI_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: ANTHROPIC_API_KEY
+    secret: ANTHROPIC_API_KEY
+    availability:
+      - RUNTIME
+
+  # Inbox: token vault, worker and rate-limit keys (new for staging; never copied from .env.local)
+  - variable: INBOX_TOKEN_ENCRYPTION_KEY
+    secret: INBOX_TOKEN_ENCRYPTION_KEY
+    availability:
+      - RUNTIME
+  - variable: AUTOMATION_WORKER_SECRET
+    secret: AUTOMATION_WORKER_SECRET
+    availability:
+      - RUNTIME
+  - variable: RATE_LIMIT_KEY_SECRET
+    secret: RATE_LIMIT_KEY_SECRET
+    availability:
+      - RUNTIME
+
+  # WhatsApp: the staging TEST WhatsApp Business Account (never the live number). The channel in EstateOS stores these
+  # names: access token INBOX_WHATSAPP_ACCESS_TOKEN, app secret INBOX_WHATSAPP_APP_SECRET (+ _VERIFY_TOKEN).
+  - variable: INBOX_WHATSAPP_ACCESS_TOKEN
+    secret: INBOX_WHATSAPP_ACCESS_TOKEN
+    availability:
+      - RUNTIME
+  - variable: INBOX_WHATSAPP_APP_SECRET
+    secret: INBOX_WHATSAPP_APP_SECRET
+    availability:
+      - RUNTIME
+  - variable: INBOX_WHATSAPP_APP_SECRET_VERIFY_TOKEN
+    secret: INBOX_WHATSAPP_APP_SECRET_VERIFY_TOKEN
+    availability:
+      - RUNTIME
+  - variable: INBOX_WHATSAPP_TEST_RECIPIENTS   # personal numbers: a secret so they stay out of this file
+    secret: INBOX_WHATSAPP_TEST_RECIPIENTS
+    availability:
+      - RUNTIME
+  - variable: INBOX_WHATSAPP_DAILY_TEMPLATE_LIMIT
+    value: "10"
+    availability:
+      - RUNTIME
+
+  # Email: Gmail and Outlook sign-in (consent screens in testing mode), replies only to the test addresses
+  - variable: INBOX_GOOGLE_CLIENT_ID
+    value: REPLACE_ME_GOOGLE_CLIENT_ID
+    availability:
+      - RUNTIME
+  - variable: INBOX_GOOGLE_CLIENT_SECRET
+    secret: INBOX_GOOGLE_CLIENT_SECRET
+    availability:
+      - RUNTIME
+  - variable: INBOX_MICROSOFT_CLIENT_ID
+    value: REPLACE_ME_MICROSOFT_CLIENT_ID
+    availability:
+      - RUNTIME
+  - variable: INBOX_MICROSOFT_CLIENT_SECRET
+    secret: INBOX_MICROSOFT_CLIENT_SECRET
+    availability:
+      - RUNTIME
+  - variable: INBOX_EMAIL_TEST_RECIPIENTS   # personal addresses: a secret so they stay out of this file
+    secret: INBOX_EMAIL_TEST_RECIPIENTS
+    availability:
+      - RUNTIME
+
+  # Optional, add when needed (create the secret first):
+  # - variable: RESEND_API_KEY
+  #   secret: RESEND_API_KEY
+  # - variable: GOOGLE_MAPS_SERVER_KEY
+  #   secret: GOOGLE_MAPS_SERVER_KEY

@@ -88,7 +88,7 @@ Order matters: **database schema → connectors → application**. All Phase 3�
 | `DATA_CONNECT_EMULATOR_HOST`, `FIREBASE_STORAGE_EMULATOR_HOST` | Set by `dev:local` | **Never set** | **Never set** |
 | `ESTATEOS_ENVIRONMENT` (proposed) | `local` | `development` | `production` |
 
-Proposed safeguards (small code change, after approval): the server refuses to start in production when an emulator variable is present or `FIREBASE_PROJECT_ID` does not match `ESTATEOS_ENVIRONMENT`; hosted secrets come only from Secret Manager (App Hosting `apphosting.yaml` secret references), never from committed files. Running `npm run dev` (without `:local`) against hosted development stays possible for debugging hosted issues.
+Safeguards (**built**, see [STAGING_DEPLOYMENT.md](STAGING_DEPLOYMENT.md#start-up-guard)): with `ESTATEOS_ENVIRONMENT=staging` or `production`, the server refuses to start when an emulator or local-only variable is present, the server and browser Firebase projects differ, `APP_ORIGIN` is not the hosted https origin, or a placeholder is unfilled; hosted secrets come only from Secret Manager (App Hosting `apphosting.yaml` secret references), never from committed files. Running `npm run dev` (without `:local`) against hosted development stays possible for debugging hosted issues.
 
 ## 8. Backup and restore strategy
 
