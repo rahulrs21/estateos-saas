@@ -13,7 +13,7 @@ query InboxReplyFacts($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS
   job: outboundMessageJob(key: {organizationId: $organizationId, id: $id}) {
     id stage revision content source edited templateName templateParamsJson createdByUid lastEditedByUid conversationId versionsJson messageId
     conversation {id channel simulated optedOut lastInboundAt customerIdentity externalThreadId subject channelConnectionId
-      channelConnection {id provider connectionStatus sendingEnabled liveSending externalAccountReference businessAccountReference accessTokenReference ownerMembershipId ownerMembership {userProfileUid}}}
+      channelConnection {id provider connectionStatus sendingEnabled liveSending externalAccountReference businessAccountReference accessTokenReference accessTokenStoredAt ownerMembershipId ownerMembership {userProfileUid}}}
   }
   insight: inboxAiInsights(where: {organizationId: {eq: $organizationId}, draftJobId: {eq: $id}}, limit: 1) {id insightJson}
   settings: inboxSettings(key: {organizationId: $organizationId}) {approvalRequired aiEnabled}

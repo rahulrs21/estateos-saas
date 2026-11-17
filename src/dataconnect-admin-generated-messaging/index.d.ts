@@ -752,6 +752,18 @@ export interface CancelInboxReplyVariables {
   expectedRevision: number;
 }
 
+export interface ChannelAccessTokenData {
+  credential?: {
+    tokenCiphertext: string;
+    tokenKeyId: string;
+  };
+}
+
+export interface ChannelAccessTokenVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
 export interface ChannelAccountInUseData {
   connections: ({
     organizationId: UUIDString;
@@ -776,6 +788,7 @@ export interface ChannelConnectionForCheckData {
     businessAccountReference?: string | null;
     credentialReference?: string | null;
     accessTokenReference?: string | null;
+    accessTokenStoredAt?: TimestampString | null;
     sendingEnabled: boolean;
     liveSending: boolean;
     verifiedAt?: TimestampString | null;
@@ -793,6 +806,12 @@ export interface ChannelConnection_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'ChannelConnection_Key';
+}
+
+export interface ChannelCredential_Key {
+  organizationId: UUIDString;
+  channelConnectionId: UUIDString;
+  __typename?: 'ChannelCredential_Key';
 }
 
 export interface ClaimInboxMediaFetchData {
@@ -2577,6 +2596,7 @@ export interface InboxReplyFactsData {
         externalAccountReference?: string | null;
         businessAccountReference?: string | null;
         accessTokenReference?: string | null;
+        accessTokenStoredAt?: TimestampString | null;
         ownerMembershipId?: UUIDString | null;
         ownerMembership?: {
           userProfileUid?: string | null;
@@ -2985,6 +3005,7 @@ export interface ListChannelConnectionsData {
     connectionStatus: ChannelConnectionStatus;
     credentialReference?: string | null;
     accessTokenReference?: string | null;
+    accessTokenStoredAt?: TimestampString | null;
     verifiedAt?: TimestampString | null;
     verifiedName?: string | null;
     verifiedDisplayNumber?: string | null;
@@ -3878,6 +3899,7 @@ export interface PendingInboxMediaData {
           id: UUIDString;
           connectionStatus: ChannelConnectionStatus;
           accessTokenReference?: string | null;
+          accessTokenStoredAt?: TimestampString | null;
         };
       };
     };
@@ -4242,6 +4264,20 @@ export interface RevokeLiveCallingAttestationData {
 
 export interface RevokeLiveCallingAttestationVariables {
   organizationId: UUIDString;
+}
+
+export interface SaveChannelAccessTokenData {
+  credential: ChannelCredential_Key;
+  connection?: ChannelConnection_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SaveChannelAccessTokenVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  tokenCiphertext: string;
+  tokenKeyId: string;
 }
 
 export interface SaveInboxAiInsightData {
@@ -4787,6 +4823,7 @@ export interface WhatsAppTemplateConnectionData {
     externalAccountReference?: string | null;
     businessAccountReference?: string | null;
     accessTokenReference?: string | null;
+    accessTokenStoredAt?: TimestampString | null;
     sendingEnabled: boolean;
     liveSending: boolean;
   };
@@ -5472,6 +5509,16 @@ export function createChannelConnection(vars: CreateChannelConnectionVariables, 
 export function updateChannelConnection(dc: DataConnect, vars: UpdateChannelConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateChannelConnectionData>>;
 /** Generated Node Admin SDK operation action function for the 'UpdateChannelConnection' Mutation. Allow users to pass in custom DataConnect instances. */
 export function updateChannelConnection(vars: UpdateChannelConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateChannelConnectionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SaveChannelAccessToken' Mutation. Allow users to execute without passing in DataConnect. */
+export function saveChannelAccessToken(dc: DataConnect, vars: SaveChannelAccessTokenVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveChannelAccessTokenData>>;
+/** Generated Node Admin SDK operation action function for the 'SaveChannelAccessToken' Mutation. Allow users to pass in custom DataConnect instances. */
+export function saveChannelAccessToken(vars: SaveChannelAccessTokenVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveChannelAccessTokenData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ChannelAccessToken' Query. Allow users to execute without passing in DataConnect. */
+export function channelAccessToken(dc: DataConnect, vars: ChannelAccessTokenVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ChannelAccessTokenData>>;
+/** Generated Node Admin SDK operation action function for the 'ChannelAccessToken' Query. Allow users to pass in custom DataConnect instances. */
+export function channelAccessToken(vars: ChannelAccessTokenVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ChannelAccessTokenData>>;
 
 /** Generated Node Admin SDK operation action function for the 'SetChannelConnectionEnabled' Mutation. Allow users to execute without passing in DataConnect. */
 export function setChannelConnectionEnabled(dc: DataConnect, vars: SetChannelConnectionEnabledVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SetChannelConnectionEnabledData>>;

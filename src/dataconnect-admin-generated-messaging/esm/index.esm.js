@@ -1115,6 +1115,18 @@ export function updateChannelConnection(dcOrVarsOrOptions, varsOrOptions, option
   return dcInstance.executeMutation('UpdateChannelConnection', inputVars, inputOpts);
 }
 
+export function saveChannelAccessToken(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SaveChannelAccessToken', inputVars, inputOpts);
+}
+
+export function channelAccessToken(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ChannelAccessToken', inputVars, inputOpts);
+}
+
 export function setChannelConnectionEnabled(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

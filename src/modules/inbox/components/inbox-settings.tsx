@@ -59,22 +59,33 @@ function ConnectionFields({view, connection}: {view: ConnectionsView; connection
   const prefix = useId();
   const [provider, setProvider] = useState(connection?.provider ?? view.providers[0]?.provider ?? "WHATSAPP_CLOUD");
   const info = view.providers.find(item => item.provider === provider);
+  const whatsapp = provider === "WHATSAPP_CLOUD";
   return <>
     {!connection && <LeadField id={`${prefix}-provider`} label="Provider"><select id={`${prefix}-provider`} name="provider" className={selectClassName} value={provider} onChange={event => setProvider(event.target.value as typeof provider)}>
       {view.providers.map(item => <option key={item.provider} value={item.provider}>{item.label}</option>)}</select></LeadField>}
     <LeadField id={`${prefix}-name`} label="Name"><Input id={`${prefix}-name`} name="displayName" required minLength={2} maxLength={80} defaultValue={connection?.displayName ?? ""} placeholder="Sales WhatsApp" /></LeadField>
-    <LeadField id={`${prefix}-account`} label="Account" hint={`The ${info?.accountLabel ?? "account identifier"}. Not secret; each account can belong to one company only.`}>
-      <Input id={`${prefix}-account`} name="externalAccountReference" maxLength={200} defaultValue={connection?.externalAccountReference ?? ""} autoComplete="off" /></LeadField>
-    <LeadField id={`${prefix}-secret`} label="Server secret name" hint={provider === "WHATSAPP_CLOUD"
-      ? "The NAME of the server secret holding the Meta app secret, for example INBOX_WHATSAPP_APP_SECRET. The webhook verify token goes in a second secret with _VERIFY_TOKEN added to that name. Never paste a secret or a password here."
-      : "The NAME of the server secret this connection will use. Email accounts are connected with OAuth in a later phase: never enter a mailbox password into EstateOS."}>
-      <Input id={`${prefix}-secret`} name="credentialReference" maxLength={64} defaultValue={connection?.credentialReference ?? ""} autoComplete="off" pattern="INBOX_[A-Z0-9_]{3,56}" /></LeadField>
-    {provider === "WHATSAPP_CLOUD" && <LeadField id={`${prefix}-token`} label="Access token secret name (for sending)"
-      hint="The NAME of the server secret holding the WhatsApp access token from Meta, for example INBOX_WHATSAPP_ACCESS_TOKEN. Needed for Check connection and sending. Never paste the token here.">
-      <Input id={`${prefix}-token`} name="accessTokenReference" maxLength={64} defaultValue={connection?.accessTokenReference ?? ""} autoComplete="off" pattern="INBOX_[A-Z0-9_]{3,56}" /></LeadField>}
-    {provider === "WHATSAPP_CLOUD" && <LeadField id={`${prefix}-waba`} label="WhatsApp Business Account ID (for templates)"
-      hint="In WhatsApp Manager, (https://business.facebook.com/ > Business Settings > Business Assets > Messaging Accounts ) the ID number shown under the account name (digits only). Not secret. EstateOS lists this account's approved templates.">
+    <LeadField id={`${prefix}-account`} label={whatsapp ? "Phone number ID" : "Account"} hint={whatsapp
+      ? "In Meta for Developers, open your app → WhatsApp → API Setup: the \"Phone number ID\" of your business number (digits). Not secret; a number can belong to one company only."
+      : `The ${info?.accountLabel ?? "account identifier"}. Not secret; each account can belong to one company only.`}>
+      <Input id={`${prefix}-account`} name="externalAccountReference" maxLength={200} defaultValue={connection?.externalAccountReference ?? ""} autoComplete="off" inputMode={whatsapp ? "numeric" : undefined} /></LeadField>
+    {whatsapp && <LeadField id={`${prefix}-access-token`} label="Access token"
+      hint="In Meta Business Settings → System users → your system user → Generate token (your app; expiry Never; whatsapp_business_messaging and whatsapp_business_management). EstateOS encrypts it and never shows it again.">
+      <Input id={`${prefix}-access-token`} name="accessToken" type="password" maxLength={4096} autoComplete="off" spellCheck={false} data-testid="channel-access-token"
+        placeholder={connection?.accessTokenStored ? "Saved (encrypted). Leave empty to keep it, or paste a new one." : "Paste the permanent access token from Meta"} /></LeadField>}
+    {whatsapp && <LeadField id={`${prefix}-waba`} label="WhatsApp Business Account ID (optional, for templates)"
+      hint="In Meta Business Settings → WhatsApp accounts, select your number: the digits after selected_asset_id= in the address bar. Not secret. Needed only to list your approved templates.">
       <Input id={`${prefix}-waba`} name="businessAccountReference" maxLength={40} defaultValue={connection?.businessAccountReference ?? ""} autoComplete="off" inputMode="numeric" pattern="[0-9]{5,30}" /></LeadField>}
+    <details className="rounded-md border px-3 py-2 text-sm" open={!whatsapp || undefined}>
+      <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Advanced (EstateOS staff): server secret names</summary>
+      <div className="mt-3 space-y-3">
+        <LeadField id={`${prefix}-secret`} label={whatsapp ? "Meta app secret name" : "Server secret name"} hint={whatsapp
+          ? "Leave empty to use EstateOS's own Meta app (INBOX_WHATSAPP_APP_SECRET, with its _VERIFY_TOKEN). Only for a channel on a different Meta app."
+          : "The NAME of the server secret this connection will use. Email accounts are connected by signing in: never enter a mailbox password into EstateOS."}>
+          <Input id={`${prefix}-secret`} name="credentialReference" maxLength={64} defaultValue={connection && !connection.platformAppSecret ? connection.credentialReference ?? "" : ""} autoComplete="off" pattern="INBOX_[A-Z0-9_]{3,56}" placeholder={whatsapp ? "INBOX_WHATSAPP_APP_SECRET" : undefined} /></LeadField>
+        {whatsapp && <LeadField id={`${prefix}-token`} label="Access token server secret name" hint="Instead of pasting the token above: the NAME of a server secret that holds it, for example INBOX_WHATSAPP_ACCESS_TOKEN. A pasted token takes precedence.">
+          <Input id={`${prefix}-token`} name="accessTokenReference" maxLength={64} defaultValue={connection?.accessTokenReference ?? ""} autoComplete="off" pattern="INBOX_[A-Z0-9_]{3,56}" /></LeadField>}
+      </div>
+    </details>
   </>;
 }
 
@@ -88,7 +99,7 @@ function ConnectionsSection({view, send}: {view: ConnectionsView; send: Send}) {
   const copy = (value: string) => { void navigator.clipboard?.writeText(value).then(() => toast.success("Webhook address copied.")); };
   return <Section title="Channels" description="Company accounts with WhatsApp and email providers. Adding one here does not connect it: EstateOS verifies a connection and sends messages only after the live integration is built and approved (Phase 7B for WhatsApp, 7C for email)."
     action={<FormDialog trigger={<><Plus aria-hidden="true" />Add channel</>} title="Add a channel" description="Saving does not contact the provider and does not enable sending." submitLabel="Add channel"
-      onSubmit={form => send("/api/inbox/connections", "POST", {provider: text(form, "provider"), displayName: text(form, "displayName"), externalAccountReference: text(form, "externalAccountReference") || null, credentialReference: text(form, "credentialReference") || null, accessTokenReference: text(form, "accessTokenReference") || null, businessAccountReference: text(form, "businessAccountReference") || null}, "Channel added.")}>
+      onSubmit={form => send("/api/inbox/connections", "POST", {provider: text(form, "provider"), displayName: text(form, "displayName"), externalAccountReference: text(form, "externalAccountReference") || null, credentialReference: text(form, "credentialReference") || null, accessTokenReference: text(form, "accessTokenReference") || null, businessAccountReference: text(form, "businessAccountReference") || null, accessToken: text(form, "accessToken") || null}, "Channel added.")}>
       <ConnectionFields view={view} /></FormDialog>}>
     {!view.connections.length ? <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No channel is set up. Website enquiries still arrive in the inbox.</p>
       : <ul className="space-y-3">{view.connections.map(connection => <li key={connection.id} className="space-y-2 rounded-lg border p-4" data-testid="inbox-connection">
@@ -96,6 +107,7 @@ function ConnectionsSection({view, send}: {view: ConnectionsView; send: Send}) {
           <div><p className="text-sm font-medium">{connection.displayName}</p><p className="text-xs text-muted-foreground">{connection.label}</p></div>
           <div className="flex flex-wrap items-center gap-1.5">
             {connection.simulator ? <Badge variant="destructive">Developer tools only</Badge> : <Badge variant="outline">{STATUS_LABELS[connection.connectionStatus] ?? connection.connectionStatus}</Badge>}
+            {!connection.simulator && connection.provider === "WHATSAPP_CLOUD" && <Badge variant="outline" data-testid="access-token-badge">{connection.accessTokenStored ? "Access token saved" : connection.accessTokenAvailable ? "Access token on server" : "No access token"}</Badge>}
             {!connection.simulator && <Badge variant="outline">{connection.secretAvailable ? "Secret set on server" : "Secret not set on server"}</Badge>}
             <Badge variant={connection.canSend && !connection.simulator ? "secondary" : "outline"}>{!connection.canSend ? "Sending off" : connection.simulator ? "Sends to simulated conversations only"
               : connection.realCustomers?.sending ? "Sending on" : "Sending on (test recipients only)"}</Badge>
@@ -103,11 +115,14 @@ function ConnectionsSection({view, send}: {view: ConnectionsView; send: Send}) {
               {connection.realCustomers.sending ? "Live: real customers" : "Real customers (not active)"}</Badge>}
           </div>
         </div>
-        {!connection.simulator && <p className="text-xs text-muted-foreground">Account: {connection.externalAccountReference ?? "not set"} · Secret name: {connection.credentialReference ?? "not set"}
-          {connection.verifyTokenName ? ` · Verify token secret: ${connection.verifyTokenName} (${connection.verifyTokenAvailable ? "set" : "not set"})` : ""}
-          {connection.lastEventAt ? ` · Last verified event ${formatLeadDate(connection.lastEventAt, true)}` : ""}
-          {connection.provider === "WHATSAPP_CLOUD" ? ` · Access token secret: ${connection.accessTokenReference ?? "not set"}${connection.accessTokenReference ? ` (${connection.accessTokenAvailable ? "set" : "not set"})` : ""}` : ""}
-          {connection.provider === "WHATSAPP_CLOUD" ? ` · WhatsApp Business Account: ${connection.businessAccountReference ?? "not set (templates unavailable)"}` : ""}</p>}
+        {!connection.simulator && <p className="text-xs text-muted-foreground">{connection.provider === "WHATSAPP_CLOUD" ? "Phone number ID" : "Account"}: {connection.externalAccountReference ?? "not set"}
+          {connection.provider === "WHATSAPP_CLOUD"
+            ? ` · Access token: ${connection.accessTokenStored ? "saved in EstateOS (encrypted)" : connection.accessTokenReference ? `server secret ${connection.accessTokenReference} (${connection.accessTokenAvailable ? "set" : "not set"})` : "not set"}`
+            + ` · WhatsApp Business Account: ${connection.businessAccountReference ?? "not set (templates unavailable)"}`
+            + (connection.platformAppSecret ? "" : ` · Meta app secret: ${connection.credentialReference ?? "not set"}`)
+            : ` · Secret name: ${connection.credentialReference ?? "not set"}`}
+          {connection.verifyTokenName && !connection.platformAppSecret ? ` · Verify token secret: ${connection.verifyTokenName} (${connection.verifyTokenAvailable ? "set" : "not set"})` : ""}
+          {connection.lastEventAt ? ` · Last verified event ${formatLeadDate(connection.lastEventAt, true)}` : ""}</p>}
         {connection.verifiedAt && <p className="text-xs" data-testid="connection-verified">Meta confirmed {connection.verifiedName ?? "this number"}{connection.verifiedDisplayNumber ? ` (${connection.verifiedDisplayNumber})` : ""} · {formatLeadDate(connection.verifiedAt, true)}</p>}
         {connection.realCustomers && <p className="text-xs text-muted-foreground" data-testid="whatsapp-mode">{connection.realCustomers.on
           ? `Real customers: approved replies and templates go to any customer (opt-outs and the do-not-contact list still apply)${connection.realCustomers.changedBy ? `. Switched on by ${connection.realCustomers.changedBy}` : ""}${connection.realCustomers.changedAt ? ` · ${formatLeadDate(connection.realCustomers.changedAt, true)}` : ""}.${connection.realCustomers.serverAllows ? "" : " This server does not allow real customers (INBOX_WHATSAPP_LIVE_SENDING), so nothing is sent."}`
@@ -120,7 +135,7 @@ function ConnectionsSection({view, send}: {view: ConnectionsView; send: Send}) {
         <Capabilities capabilities={connection.capabilities} />
         {!connection.simulator && <div className="flex flex-wrap gap-2">
           <FormDialog trigger="Edit" title="Edit channel" description="Saving does not contact the provider." submitLabel="Save"
-            onSubmit={form => send(`/api/inbox/connections/${connection.id}`, "PUT", {expectedRevision: connection.revision, displayName: text(form, "displayName"), externalAccountReference: text(form, "externalAccountReference") || null, credentialReference: text(form, "credentialReference") || null, accessTokenReference: text(form, "accessTokenReference") || null, businessAccountReference: text(form, "businessAccountReference") || null}, "Channel saved. Check the connection again before sending.")}>
+            onSubmit={form => send(`/api/inbox/connections/${connection.id}`, "PUT", {expectedRevision: connection.revision, displayName: text(form, "displayName"), externalAccountReference: text(form, "externalAccountReference") || null, credentialReference: text(form, "credentialReference") || null, accessTokenReference: text(form, "accessTokenReference") || null, businessAccountReference: text(form, "businessAccountReference") || null, accessToken: text(form, "accessToken") || null}, "Channel saved. Check the connection again before sending.")}>
             <ConnectionFields view={view} connection={connection} /></FormDialog>
           <Button variant="outline" size="sm" onClick={() => void send(`/api/inbox/connections/${connection.id}/enabled`, "POST", {expectedRevision: connection.revision, enabled: connection.connectionStatus === "DISABLED"}, connection.connectionStatus === "DISABLED" ? "Channel enabled." : "Channel disabled; its webhooks are refused.").catch(() => undefined)}>
             {connection.connectionStatus === "DISABLED" ? "Enable" : "Disable"}</Button>

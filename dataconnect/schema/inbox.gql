@@ -52,6 +52,9 @@ type ChannelConnection @table(key: ["organization", "id"])
   liveSendingBy: UserProfile
   # The last verified webhook event (shown to administrators; never proof of a working connection).
   lastEventAt: Timestamp
+  # When an owner or administrator saved the WhatsApp access token in EstateOS (stored encrypted in
+  # ChannelCredential); null when the token is a server secret named by accessTokenReference.
+  accessTokenStoredAt: Timestamp
   # Phase 7C: a personal mailbox belongs to this member; null for company mailboxes and other channels.
   ownerMembershipId: UUID
   ownerMembership: Membership @ref(fields: ["organizationId", "ownerMembershipId"], references: ["organizationId", "id"], constraintName: "channel_connection_owner_fkey")
@@ -59,6 +62,21 @@ type ChannelConnection @table(key: ["organization", "id"])
   createdBy: UserProfile!
   createdAt: Timestamp! @default(expr: "request.time")
   updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# A provider access token an owner or administrator pasted for a company channel (WhatsApp), so they never
+# handle server secret names. Server-only: every read is NO_ACCESS, so no member query can see it, and the
+# token is stored only encrypted (AES-256-GCM, bound to the company and the connection; the key lives in
+# the server environment), never in plaintext.
+type ChannelCredential @table(key: ["organization", "channelConnectionId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  channelConnectionId: UUID!
+  channelConnection: ChannelConnection! @ref(fields: ["organizationId", "channelConnectionId"], references: ["organizationId", "id"], constraintName: "channel_credential_connection_fkey")
+  tokenCiphertext: String! @col(dataType: "varchar(4000)")
+  tokenKeyId: String! @col(dataType: "varchar(16)")
+  savedBy: UserProfile!
+  savedAt: Timestamp! @default(expr: "request.time")
 }
 
 # Phase 7C (docs/EMAIL_INTEGRATION_PLAN.md): a mailbox connected through OAuth.

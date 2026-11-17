@@ -1222,8 +1222,24 @@ try {
   liveChannel = await channelRow();
   assert.equal(liveChannel.connectionStatus, "ERROR", "a failed check marks the channel");
   assert.equal((await post(`/api/inbox/connections/${liveChannel.id}/sending`, {expectedRevision: liveChannel.revision, enabled: true})).status, 400, "an unverified channel cannot send");
-  await editChannel("INBOX_E2E_WA_TOKEN");
-  assert.equal(liveChannel.accessTokenAvailable, true);
+  // An owner pastes the access token from Meta once (no server secret names): EstateOS stores it encrypted, shows only
+  // that it is saved, and checks, sends, lists templates and downloads media with it from then on.
+  await load("/inbox/settings", "[...document.querySelectorAll('[data-testid=inbox-connection] button')].some(b=>b.textContent.trim()==='Edit')");
+  await clickText("Edit", "[data-testid=inbox-connection] button");
+  await waitFor("!!document.querySelector('[role=dialog] [name=accessToken]')", "the edit dialog");
+  assert.equal(await evaluate("document.querySelector('[role=dialog] [name=accessToken]').type"), "password", "the token field hides what is typed");
+  await setField("accessToken", graphToken);
+  await setField("accessTokenReference", "");
+  await evaluate("document.querySelector('[role=dialog] button[type=submit]').click()");
+  await waitFor("document.querySelector('[data-testid=access-token-badge]')?.innerText.includes('Access token saved')", "the saved token");
+  liveChannel = await channelRow();
+  assert.deepEqual({stored: liveChannel.accessTokenStored, available: liveChannel.accessTokenAvailable, reference: liveChannel.accessTokenReference, status: liveChannel.connectionStatus},
+    {stored: true, available: true, reference: null, status: "CONFIGURED"}, "saved encrypted; the channel must be checked again");
+  assert.doesNotMatch(JSON.stringify((await api("/api/inbox/connections")).body), new RegExp(graphToken), "the pasted token is never returned");
+  const tooShort = await post(`/api/inbox/connections/${liveChannel.id}`, {expectedRevision: liveChannel.revision, displayName: liveChannel.displayName, externalAccountReference: WA_ACCOUNT,
+    credentialReference: "INBOX_E2E_WA_SECRET", accessTokenReference: null, businessAccountReference: WA_WABA, accessToken: "not a token"}, f.orgA, "PUT");
+  assert.equal(tooShort.status, 400, "a pasted value that is not a token is refused");
+  liveChannel = await channelRow();
   await load("/inbox/settings", "[...document.querySelectorAll('[data-testid=inbox-connection] button')].some(b=>b.textContent.trim()==='Check connection')");
   await clickText("Check connection", "[data-testid=inbox-connection] button");
   await waitFor("document.querySelector('[data-testid=connection-verified]')?.innerText.includes('E2E Fictional Realty')", "the verified channel");

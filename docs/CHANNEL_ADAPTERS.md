@@ -66,6 +66,31 @@ Rules:
 - The settings page shows whether the named secret is set on the server, never its value. For WhatsApp it also shows the verify-token secret name (`<credentialReference>_VERIFY_TOKEN`) and the webhook address to give Meta.
 - Account format is checked against the stored provider (WhatsApp: digits; email providers: a mailbox address), never a provider named in the request.
 
+### Connecting WhatsApp without server secret names (Nov 2026)
+
+Company owners don't handle server secrets. For a WhatsApp channel, the form asks only for these, each with where-to-find-it help:
+
+| Field | Notes |
+| --- | --- |
+| **Name** | |
+| **Phone number ID** | |
+| **Access token** | A password field |
+| **WhatsApp Business Account ID** | Optional; needed only for templates |
+
+**Meta app secret.** It belongs to EstateOS: one Meta app for every company.
+- Left empty, the channel uses the platform's `INBOX_WHATSAPP_APP_SECRET` and its `_VERIFY_TOKEN` (`PLATFORM_APP_SECRET` in `src/modules/inbox/server/channel-credentials.ts`).
+- The database rules are unchanged, because the server fills in that name.
+- Staff can name another secret under **Advanced**.
+
+**Access token.** It belongs to the company.
+- **Save.** The owner or administrator pastes it once. The server checks its format, and that it has an encryption key, before anything is saved.
+- **Encryption.** It's sealed with the token vault (`src/modules/inbox/vault.ts`; AES-256-GCM, bound to the company and the connection) and stored in `ChannelCredential` by `SaveChannelAccessToken`. That mutation is OWNER or ADMIN only and checked by the database. Saving resets the channel to CONFIGURED, so it must be checked with Meta again.
+- **Reading it back.** No member query returns it: `ChannelAccessToken` is NO_ACCESS. The settings page shows only "Access token saved".
+- **Lookup order.** `channelAccessToken()` uses the saved token first, otherwise the server secret named by `accessTokenReference` (Advanced, for staff-managed channels). Check connection, sending, templates and media download all use it.
+- **If unreadable.** When the key changes and the token can no longer be decrypted, the channel asks for the token again. Nothing about the token is logged.
+
+**Next.** **Embedded Signup**, a one-click "Connect WhatsApp", after Meta approves EstateOS as a Tech Provider. Meta's popup then returns the phone number ID, the account ID and the token, so the form disappears.
+
 ## Webhooks
 
 Route: `GET|POST /api/inbox/webhooks/{provider}/{connectionId}`, where `{provider}` is `whatsapp`, `gmail` or `microsoft-365`. No session: the provider's signature authenticates the request. Implementation: `src/modules/inbox/server/webhooks.ts`.

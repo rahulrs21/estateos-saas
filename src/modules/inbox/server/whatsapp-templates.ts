@@ -7,7 +7,8 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { normalizeTemplate, selectable, type WhatsAppTemplate } from "../whatsapp-templates";
 import { getConversation } from "./conversations";
-import { accessToken, listMessageTemplates } from "./whatsapp-cloud";
+import { channelAccessToken } from "./channel-credentials";
+import { listMessageTemplates } from "./whatsapp-cloud";
 
 /*
  * Approved WhatsApp templates from Meta (Phase 7B.2), read on the server with the
@@ -21,12 +22,12 @@ const CACHE_MS = 5 * 60_000;
 const LIST_LIMIT = {scope: "inbox.whatsapp.templates", limit: 30, windowSeconds: 60};
 const cache = new Map<string, {at: number; templates: WhatsAppTemplate[]}>();
 
-type Connection = NonNullable<Awaited<ReturnType<typeof sdk.whatsAppTemplateConnection>>["data"]["connection"]>;
+type Connection = NonNullable<Awaited<ReturnType<typeof sdk.whatsAppTemplateConnection>>["data"]["connection"]> & {organizationId: string};
 
 async function connectionOf(organizationId: string, connectionId: string) {
   const data = await asServer("WhatsAppTemplateConnection", dc => sdk.whatsAppTemplateConnection(dc, {organizationId, id: connectionId}));
   if (!data.connection) throw new WorkspaceError("NOT_FOUND", 404, "This WhatsApp channel was not found.");
-  return data.connection;
+  return {...data.connection, organizationId};
 }
 
 /** Every template of the channel's account, normalized (fresh when asked, otherwise from the short cache). */
@@ -35,7 +36,7 @@ export async function channelTemplates(connection: Connection, fresh = false): P
   const cached = cache.get(key);
   if (!fresh && cached && Date.now() - cached.at < CACHE_MS) return cached.templates;
   if (!connection.businessAccountReference) throw new WorkspaceError("INBOX_TEMPLATES_UNAVAILABLE", 409, "Add the WhatsApp Business Account ID to this channel in Inbox settings to use templates.");
-  const token = accessToken(connection.accessTokenReference);
+  const token = await channelAccessToken(connection.organizationId, connection);
   if (!token) throw new WorkspaceError("INBOX_TEMPLATES_UNAVAILABLE", 409, "The server has no access token for this WhatsApp channel. An administrator must set it and check the connection again.");
   const result = await listMessageTemplates(token, connection.businessAccountReference);
   if (!result.ok) throw new WorkspaceError("INBOX_TEMPLATES_UNAVAILABLE", 503, `Meta did not return the templates (${result.code}): ${result.message}`);

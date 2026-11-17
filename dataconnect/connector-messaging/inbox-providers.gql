@@ -13,7 +13,7 @@ query ListChannelConnections($organizationId: UUID!)
   admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED") {id}
   # Company channels only: personal mailboxes (Phase 7C) are listed by MailboxesOverview.
   connections: channelConnections(where: {organizationId: {eq: $organizationId}, ownerMembershipId: {isNull: true}}, orderBy: [{createdAt: ASC}, {id: ASC}], limit: 20) {
-    id provider displayName externalAccountReference businessAccountReference connectionStatus credentialReference accessTokenReference verifiedAt verifiedName verifiedDisplayNumber sendingEnabled
+    id provider displayName externalAccountReference businessAccountReference connectionStatus credentialReference accessTokenReference accessTokenStoredAt verifiedAt verifiedName verifiedDisplayNumber sendingEnabled
     liveSending liveSendingAt liveSendingBy {displayName} lastEventAt revision createdAt updatedAt createdBy {displayName}
   }
 }
@@ -48,6 +48,28 @@ mutation UpdateChannelConnection($organizationId: UUID!, $id: UUID!, $expectedRe
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CHANNEL_CONNECTION_CHANGED, targetType: CHANNEL_CONNECTION, targetId: $id, metadata_expr: "{'event': 'UPDATED'}"})
 }
 
+# An owner or administrator saves the channel's access token, encrypted by the server first (the ciphertext is bound
+# to the company and the connection, so it is useless anywhere else; nobody can read it back through a query). Like
+# any change of details, it returns the connection to configured: it must be checked with Meta again before sending.
+mutation SaveChannelAccessToken($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $tokenCiphertext: String!, $tokenKeyId: String!)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.tokenCiphertext.size() >= 40 && vars.tokenCiphertext.size() <= 4000 && vars.tokenKeyId.matches('^k[0-9]{1,3}$')") @transaction {
+  admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED")
+  before: query @redact {
+    connection: channelConnection(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null && this.revision == vars.expectedRevision && this.provider == 'WHATSAPP_CLOUD' && this.ownerMembershipId == null", message: "CHANNEL_CONNECTION_CHANGED") {revision connectionStatus provider ownerMembershipId credentialReference externalAccountReference}
+  }
+  credential: channelCredential_upsert(data: {organizationId: $organizationId, channelConnectionId: $id, tokenCiphertext: $tokenCiphertext, tokenKeyId: $tokenKeyId, savedByUid_expr: "auth.uid", savedAt_expr: "request.time"})
+  connection: channelConnection_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {accessTokenStoredAt_expr: "request.time", accessTokenReference: null,
+    sendingEnabled: false, liveSending: false, liveSendingAt: null, verifiedAt: null,
+    connectionStatus_expr: "response.before.connection.connectionStatus == 'DISABLED' ? 'DISABLED' : (response.before.connection.credentialReference != null && response.before.connection.externalAccountReference != null ? 'CONFIGURED' : 'NOT_CONFIGURED')",
+    revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "CHANNEL_CONNECTION_CHANGED")
+  auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CHANNEL_CONNECTION_CHANGED, targetType: CHANNEL_CONNECTION, targetId: $id, metadata_expr: "{'event': 'ACCESS_TOKEN_SAVED'}"})
+}
+
+# The encrypted token of a channel, for the server only (it decrypts it with the key in its own environment).
+query ChannelAccessToken($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  credential: channelCredential(key: {organizationId: $organizationId, channelConnectionId: $id}) {tokenCiphertext tokenKeyId}
+}
+
 mutation SetChannelConnectionEnabled($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $enabled: Boolean!)
   @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
   admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED")
@@ -66,7 +88,7 @@ mutation SetChannelConnectionEnabled($organizationId: UUID!, $id: UUID!, $expect
 query ChannelConnectionForCheck($organizationId: UUID!, $id: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
   admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @check(expr: "this != null", message: "INBOX_ADMIN_REQUIRED") {id}
   connection: channelConnection(key: {organizationId: $organizationId, id: $id}) {
-    id provider connectionStatus externalAccountReference businessAccountReference credentialReference accessTokenReference sendingEnabled liveSending verifiedAt revision
+    id provider connectionStatus externalAccountReference businessAccountReference credentialReference accessTokenReference accessTokenStoredAt sendingEnabled liveSending verifiedAt revision
   }
 }
 
@@ -207,7 +229,7 @@ query ChannelAccountInUse($provider: ChannelProvider!, $externalAccountReference
 # server first reads the conversation as the signed-in member (so it is one they may see); the token is read on the server only.
 query WhatsAppTemplateConnection($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
   connection: channelConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, provider: {eq: WHATSAPP_CLOUD}}}) {
-    id connectionStatus externalAccountReference businessAccountReference accessTokenReference sendingEnabled liveSending
+    id connectionStatus externalAccountReference businessAccountReference accessTokenReference accessTokenStoredAt sendingEnabled liveSending
   }
 }
 
@@ -222,7 +244,7 @@ query PendingInboxMedia($now: Timestamp!, $since: Timestamp!, $limit: Int!) @aut
     {message: {simulated: {eq: false}, direction: {eq: INBOUND}, conversation: {channelConnection: {provider: {eq: WHATSAPP_CLOUD}}}}}
   ]}, orderBy: [{createdAt: ASC}], limit: $limit) {
     organizationId id messageId conversationId fileName mimeType providerMediaId mediaFetchAttempts createdAt
-    message {conversation {channelConnection {id connectionStatus accessTokenReference}}}
+    message {conversation {channelConnection {id connectionStatus accessTokenReference accessTokenStoredAt}}}
   }
 }
 

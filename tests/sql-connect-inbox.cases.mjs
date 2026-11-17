@@ -179,6 +179,32 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       await forbidden(sdk.inboxWebhookConnection, "owner-a", {id: connectionId});
     });
 
+    it("a channel's access token is saved encrypted by owners and administrators only, resets the check, and no member can read it", async () => {
+      const ciphertext = `v1:${"a".repeat(16)}:${"b".repeat(22)}:${"c".repeat(60)}`;
+      let row = await connection();
+      const save = (uid, extra = {}) => run(sdk.saveChannelAccessToken, uid, {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, tokenCiphertext: ciphertext, tokenKeyId: "k1", ...extra});
+      await assert.rejects(save("agent-a"), "agents cannot save a token");
+      await assert.rejects(save("manager-a"), "managers cannot save a token");
+      await assert.rejects(run(sdk.saveChannelAccessToken, "owner-b", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, tokenCiphertext: ciphertext, tokenKeyId: "k1"}), "another company cannot");
+      await forbidden(sdk.saveChannelAccessToken, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, tokenCiphertext: "too-short", tokenKeyId: "k1"});
+      await forbidden(sdk.saveChannelAccessToken, "owner-a", {organizationId: f.orgA, id: connectionId, expectedRevision: row.revision, tokenCiphertext: ciphertext, tokenKeyId: "not a key id"});
+      await rejectsWith(save("admin-a", {expectedRevision: row.revision + 5}), "CHANNEL_CONNECTION_CHANGED");
+      await save("admin-a");
+      const after = await connection();
+      assert.ok(after.accessTokenStoredAt, "the channel shows a saved token");
+      assert.equal(after.accessTokenReference, null, "a saved token replaces a named server secret");
+      assert.equal(after.revision, row.revision + 1);
+      assert.equal(after.connectionStatus, "CONFIGURED", "a new token means a new check with Meta");
+      assert.equal(after.sendingEnabled, false);
+      assert.equal(JSON.stringify(after).includes(ciphertext), false, "the member view never carries the ciphertext");
+      await forbidden(sdk.channelAccessToken, "owner-a", {organizationId: f.orgA, id: connectionId});
+      const stored = (await server(sdk.channelAccessToken, {organizationId: f.orgA, id: connectionId})).credential;
+      assert.deepEqual({ciphertext: stored.tokenCiphertext, keyId: stored.tokenKeyId}, {ciphertext, keyId: "k1"}, "only the server reads it back");
+      row = after;
+      await save("owner-a");
+      assert.equal((await server(sdk.channelAccessToken, {organizationId: f.orgA, id: connectionId})).credential.tokenKeyId, "k1", "saving again replaces it (one per channel)");
+    });
+
     it("records each event once, retries failures by compare-and-set, and applies receipts forward only", async () => {
       const event = {organizationId: f.orgA, hasConnection: true, channelConnectionId: connectionId, kind: "STATUS", payloadDigest: "0".repeat(64), normalizedJson: "{\"test\":true}", simulated: false};
       const eventId = randomUUID(), dedupKey = `status:${randomUUID()}`;

@@ -6,7 +6,8 @@ import { sdk, serverDataConnect } from "@/modules/communications/server/data";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { attachmentFileName, attachmentPath, MAX_ATTACHMENT_BYTES, sniffAttachment } from "../attachments";
 import { MEDIA_MAX_AGE_MS, mediaBackoffMs } from "../whatsapp-media";
-import { accessToken, downloadWhatsAppMedia, whatsappMediaLookup } from "./whatsapp-cloud";
+import { channelAccessToken } from "./channel-credentials";
+import { downloadWhatsAppMedia, whatsappMediaLookup } from "./whatsapp-cloud";
 
 /*
  * Downloading the photos and documents customers send on WhatsApp (Phase 7B.2,
@@ -36,7 +37,7 @@ async function fetchOne(row: Row): Promise<Outcome> {
     await sdk.claimInboxMediaFetch(dc, {organizationId, id, expectedAttempts: row.mediaFetchAttempts, nextAttemptAt: new Date(Date.now() + mediaBackoffMs(row.mediaFetchAttempts)).toISOString()});
   } catch { return "BUSY"; }
   const connection = row.message.conversation.channelConnection;
-  const token = connection ? accessToken(connection.accessTokenReference) : null;
+  const token = connection ? await channelAccessToken(organizationId, connection) : null;
   if (!token || !row.providerMediaId) return fail(organizationId, id, "NO_TOKEN", false);
   const lookup = await whatsappMediaLookup(token, row.providerMediaId);
   if (!lookup.ok) {

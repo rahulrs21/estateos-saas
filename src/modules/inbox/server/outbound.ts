@@ -16,7 +16,8 @@ import {
 } from "../outbound";
 import { channelIdentity } from "../identity";
 import { stableUuid } from "@/modules/automations/ids";
-import { accessToken, dailyTemplateLimit, liveSendingConfigured, realCustomersAllowed, recipientAllowed, sendWhatsAppMessage } from "./whatsapp-cloud";
+import { channelAccessToken } from "./channel-credentials";
+import { dailyTemplateLimit, liveSendingConfigured, realCustomersAllowed, recipientAllowed, sendWhatsAppMessage } from "./whatsapp-cloud";
 import { enforceRateLimit } from "@/lib/rate-limit/server";
 import { preview } from "../policy";
 import { getConversation } from "./conversations";
@@ -300,7 +301,7 @@ export async function sendReply(context: Context, rawConversationId: string, raw
   const result = await validationOf(context, facts);
   if (!result.sendable) throw new WorkspaceError("INBOX_REPLY_INVALID", 409, result.problems[0]?.message ?? "The reply cannot be sent.");
   const template = parseTemplate(job.templateName);
-  const token = delivery.mode === "WHATSAPP" ? accessToken(connection.accessTokenReference) : null;
+  const token = delivery.mode === "WHATSAPP" ? await channelAccessToken(context.organizationId, connection) : null;
   if (delivery.mode === "WHATSAPP" && (!token || !connection.externalAccountReference)) {
     throw new WorkspaceError("INBOX_SENDING_DISABLED", 409, "The server has no access token for this WhatsApp channel. An administrator must set it and check the connection again.");
   }

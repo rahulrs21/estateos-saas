@@ -1592,6 +1592,12 @@ export interface ChannelConnection_Key {
   __typename?: 'ChannelConnection_Key';
 }
 
+export interface ChannelCredential_Key {
+  organizationId: UUIDString;
+  channelConnectionId: UUIDString;
+  __typename?: 'ChannelCredential_Key';
+}
+
 export interface CheckPublishedSourcesEligibilityData {
   listings: ({
     id: UUIDString;
