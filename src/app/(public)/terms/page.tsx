@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ContactLine, LegalPage } from "@/modules/legal/legal-page";
 
-export const metadata: Metadata = {title: "Terms of service | EstateOS", description: "The terms for using EstateOS."};
+export const metadata: Metadata = {title: "Terms of service", description: "The terms for using EstateOS."};
 
 export default function TermsPage() {
   return <LegalPage title="Terms of service" intro={<p>These terms apply to companies and people who use EstateOS, operated by <ContactLine />. By using EstateOS you agree to them.</p>}>

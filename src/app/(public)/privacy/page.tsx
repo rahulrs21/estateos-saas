@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ContactLine, LegalPage } from "@/modules/legal/legal-page";
 
-export const metadata: Metadata = {title: "Privacy policy | EstateOS", description: "How EstateOS handles personal data."};
+export const metadata: Metadata = {title: "Privacy policy", description: "How EstateOS handles personal data."};
 
 export default function PrivacyPage() {
   return <LegalPage title="Privacy policy" intro={<p>EstateOS is customer-relationship software for real estate agencies. This policy explains what personal data EstateOS handles, why, and the choices people have. It is operated by <ContactLine />.</p>}>

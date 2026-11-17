@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ContactLine, LegalPage, legalOperator } from "@/modules/legal/legal-page";
 
-export const metadata: Metadata = {title: "Data deletion | EstateOS", description: "How to have your data deleted from EstateOS."};
+export const metadata: Metadata = {title: "Data deletion", description: "How to have your data deleted from EstateOS."};
 
 export default function DataDeletionPage() {
   const {email} = legalOperator();
