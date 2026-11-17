@@ -1,14 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { deleteApp, initializeApp } from "firebase-admin/app";
+import { applicationDefault, deleteApp, initializeApp } from "firebase-admin/app";
 import { getDataConnect } from "firebase-admin/data-connect";
 import * as sdk from "@dataconnect/admin-generated";
 import {
   DEV_PROJECT_ID, exportedObjectCount, listStorageObjects, localConfig, localStorageBucket, root, storageExportDir,
 } from "./local-db-lib.mjs";
 import {
-  assertDemoSeedTarget, assertEmulatorsRunning, canonicalId, demoOrganizationSlug, dubaiTime, fixtureKeys, fixtureUuid, loadFixtures,
-  minorUnits, normalizedPhone, validateFixtures,
+  assertDemoSeedTarget, assertEmulatorsRunning, assertStagingSeedTarget, canonicalId, demoOrganizationSlug, dubaiTime, fixtureKeys, fixtureUuid,
+  loadFixtures, minorUnits, normalizedPhone, validateFixtures,
 } from "./demo-seed-lib.mjs";
 
 /*
@@ -20,40 +20,60 @@ import {
  * (company, fixture key), before it is created, so repeated runs never create
  * duplicates; existing records are never updated or deleted. No Auth accounts
  * are created: the member must have signed in to the local app once.
+ *
+ * STAGING (docs/STAGING_DEPLOYMENT.md#sample-data): the same fixtures into the hosted staging project, with luxury
+ * stock photos (scripts/demo-stock-photos.mjs), as your own Google sign-in (gcloud application-default credentials):
+ *   npm run seed:demo -- --target staging --project estateos-staging --confirm estateos-staging --email you@example.com
  */
 const args = process.argv.slice(2);
 const option = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : undefined; };
 const dryRun = args.includes("--dry-run");
 const email = option("--email")?.trim().toLowerCase();
 const requestedOrganization = option("--organization") ? canonicalId(option("--organization").trim()) : undefined;
+const target = option("--target") ?? "local";
+const staging = target === "staging";
+const photoMode = option("--photos") ?? (staging ? "stock" : "generated");
 const log = message => console.log(`[seed:demo] ${message}`);
 
-if (!email) {
-  console.error("Usage: npm run seed:demo -- --email <the email you sign in to EstateOS with> [--organization <company id>] [--dry-run]");
+if (!email || !["local", "staging"].includes(target) || !["generated", "stock"].includes(photoMode)) {
+  console.error("Usage: npm run seed:demo -- --email <the email you sign in to EstateOS with> [--organization <company id>] [--dry-run] [--photos generated|stock]");
+  console.error("       Staging: add --target staging --project <the staging project> --confirm <the staging project again>");
   process.exit(1);
 }
-
-const config = localConfig();
-assertDemoSeedTarget({
-  nodeEnv: process.env.NODE_ENV, projectId: DEV_PROJECT_ID, dataConnectHost: config.dataConnect, storageHost: config.storage,
-  presetStorageHost: process.env.STORAGE_EMULATOR_HOST || process.env.FIREBASE_STORAGE_EMULATOR_HOST,
-});
-const running = await fetch(`http://${config.hub}/emulators`, { signal: AbortSignal.timeout(3000) })
-  .then(response => response.json())
-  .catch(() => { throw new Error("The local emulators are not running. Start npm run dev:local first, then run seed:demo in a second terminal."); });
-assertEmulatorsRunning(running, { dataConnectHost: config.dataConnect, storageHost: config.storage });
 
 const fixtures = loadFixtures();
 const problems = validateFixtures(fixtures);
 if (problems.length) throw new Error(`Fixtures are invalid:\n  ${problems.join("\n  ")}`);
 const { manifest } = fixtures;
-log(`WARNING: writes fictional demo records into the LOCAL emulator only (project ${DEV_PROJECT_ID}, ${config.dataConnect}). Existing records are never changed.`);
 
-// Point every SDK at the emulators before any client is created.
-process.env.DATA_CONNECT_EMULATOR_HOST = config.dataConnect;
-process.env.FIREBASE_STORAGE_EMULATOR_HOST = config.storage;
-process.env.STORAGE_EMULATOR_HOST = `http://${config.storage}`;
-const app = initializeApp({ projectId: DEV_PROJECT_ID }, `estateos-demo-seed-${process.pid}`);
+let config = null;
+let projectId;
+if (staging) {
+  const stagingAlias = JSON.parse(readFileSync(join(root, ".firebaserc"), "utf8")).projects?.staging;
+  projectId = option("--project");
+  assertStagingSeedTarget({ nodeEnv: process.env.NODE_ENV, project: projectId, confirm: option("--confirm"), stagingAlias, env: process.env });
+  log(`WARNING: writes fictional demo records into the hosted STAGING project ${projectId}, as your own Google sign-in. Existing records are never changed.`);
+} else {
+  config = localConfig();
+  projectId = DEV_PROJECT_ID;
+  assertDemoSeedTarget({
+    nodeEnv: process.env.NODE_ENV, projectId: DEV_PROJECT_ID, dataConnectHost: config.dataConnect, storageHost: config.storage,
+    presetStorageHost: process.env.STORAGE_EMULATOR_HOST || process.env.FIREBASE_STORAGE_EMULATOR_HOST,
+  });
+  const running = await fetch(`http://${config.hub}/emulators`, { signal: AbortSignal.timeout(3000) })
+    .then(response => response.json())
+    .catch(() => { throw new Error("The local emulators are not running. Start npm run dev:local first, then run seed:demo in a second terminal."); });
+  assertEmulatorsRunning(running, { dataConnectHost: config.dataConnect, storageHost: config.storage });
+  log(`WARNING: writes fictional demo records into the LOCAL emulator only (project ${DEV_PROJECT_ID}, ${config.dataConnect}). Existing records are never changed.`);
+  // Point every SDK at the emulators before any client is created.
+  process.env.DATA_CONNECT_EMULATOR_HOST = config.dataConnect;
+  process.env.FIREBASE_STORAGE_EMULATOR_HOST = config.storage;
+  process.env.STORAGE_EMULATOR_HOST = `http://${config.storage}`;
+}
+const stock = photoMode === "stock" ? await import("./demo-stock-photos.mjs") : null;
+const app = staging
+  ? initializeApp({ projectId, credential: applicationDefault() }, `estateos-demo-seed-${process.pid}`)
+  : initializeApp({ projectId: DEV_PROJECT_ID }, `estateos-demo-seed-${process.pid}`);
 const dc = getDataConnect(sdk.connectorConfig, app);
 const operations = readFileSync(join(root, "dev-data", "seed-operations.gql"), "utf8");
 const admin = async (operationName, variables) => (await dc.executeGraphql(operations, { operationName, variables })).data;
@@ -62,7 +82,10 @@ const stats = { created: 0, existing: 0, recovered: 0, planned: 0, conflicts: []
 let exitCode = 0;
 try {
   const profiles = (await admin("DemoSeedProfile", { email })).userProfiles;
-  if (profiles.length !== 1) throw new Error(`No local EstateOS profile for ${email}. Sign in to http://localhost:3000 with that account once (dev:local running), then re-run.`);
+  if (profiles.length !== 1) {
+    throw new Error(staging ? `No EstateOS profile for ${email} on ${projectId}. Sign up on the staging site with that account once, then re-run.`
+      : `No local EstateOS profile for ${email}. Sign in to http://localhost:3000 with that account once (dev:local running), then re-run.`);
+  }
   const profile = profiles[0];
   const as = { impersonate: { authClaims: { sub: profile.uid, email: profile.email, email_verified: true, firebase: { sign_in_provider: "password" } } } };
   const memberships = (await admin("DemoSeedMemberships", { uid: profile.uid })).memberships;
@@ -182,10 +205,11 @@ try {
     }
 
     const { getStorage } = await import("firebase-admin/storage");
-    const bucketName = localStorageBucket();
+    const bucketName = staging ? `${projectId}.firebasestorage.app` : localStorageBucket();
     const bucket = getStorage(app).bucket(bucketName);
+    const stockCache = join(root, ".tmp", "demo-stock");
     let uploaded = 0;
-    for (const property of fixtures.properties) {
+    for (const [propertyIndex, property] of fixtures.properties.entries()) {
       const projectId = ids.projects[property.projectKey];
       const buildingId = ids.buildings[`${property.projectKey}:${property.buildingKey}`] ?? null;
       const key = fixtureKeys.property(property);
@@ -202,20 +226,26 @@ try {
       }, as)).data.property.id, async () => (await natural()).properties.find(row => row.propertyReference === property.propertyReference)?.id);
       if (!propertyId) continue;
 
-      // Photos are added only to demo properties, at a path no upload can use; other media is never touched.
-      for (const [index, photo] of property.photos.entries()) {
+      // Photos are added only to demo properties, at a path no upload can use; other media is never touched. Local
+      // demo photos are the generated illustrations; staging uses three luxury stock photos per property.
+      const photos = stock
+        ? stock.stockPhotosFor(property.propertyType, propertyIndex).map((item, slot) => ({
+          key: `stock-${slot + 1}`, item, fileName: `${property.propertyReference.toLowerCase()}-${item.id}.jpg`, contentType: "image/jpeg", extension: "jpg",
+        }))
+        : property.photos.map(photo => ({ ...photo, contentType: "image/png", extension: "png" }));
+      for (const [index, photo] of photos.entries()) {
         const photoKey = fixtureKeys.photo(property, photo);
-        const storagePath = planned(propertyId) ? null : `organizations/${organizationId}/properties/${propertyId}/demo-${fixtureUuid(organizationId, photoKey)}.png`;
-        const bytes = readFileSync(join(root, "public", photo.asset));
+        const storagePath = planned(propertyId) ? null : `organizations/${organizationId}/properties/${propertyId}/demo-${fixtureUuid(organizationId, photoKey)}.${photo.extension}`;
+        const bytes = photo.item ? await stock.stockPhotoBytes(photo.item, stockCache) : readFileSync(join(root, "public", photo.asset));
         const upload = async mediaId => {
-          await bucket.file(storagePath).save(bytes, { resumable: false, metadata: { contentType: "image/png", cacheControl: "private, no-store", metadata: { estateosMediaId: mediaId } } });
+          await bucket.file(storagePath).save(bytes, { resumable: false, metadata: { contentType: photo.contentType, cacheControl: "private, no-store", metadata: { estateosMediaId: mediaId } } });
           await sdk.setInventoryMediaStatus(dc, { ...scope, id: mediaId, expectedStatus: sdk.InventoryMediaStatus.PENDING, status: sdk.InventoryMediaStatus.ACTIVE }, as);
           uploaded += 1;
           return mediaId;
         };
         await ensure(photoKey, "InventoryMedia", async () => {
           const mediaId = (await sdk.createInventoryMedia(dc, {
-            ...scope, propertyId, storagePath, fileName: photo.fileName, contentType: "image/png", byteSize: String(bytes.byteLength),
+            ...scope, propertyId, storagePath, fileName: photo.fileName, contentType: photo.contentType, byteSize: String(bytes.byteLength),
             mediaKind: sdk.InventoryMediaKind.PROPERTY_PHOTO, sortOrder: index,
           }, as)).data.inventoryMedia.id;
           return upload(mediaId);
@@ -295,8 +325,9 @@ try {
       }
     }
 
-    // dev:local saves uploaded files within seconds; confirm before reporting success.
-    if (uploaded) {
+    // dev:local saves uploaded files within seconds; confirm before reporting success (hosted Storage stores them at once).
+    if (uploaded && staging) log(`Uploaded ${uploaded} demo photos to ${bucketName}.`);
+    if (uploaded && !staging) {
       const expected = (await listStorageObjects(config.storage, bucketName)).length;
       const deadline = Date.now() + 30_000;
       while (exportedObjectCount() < expected && Date.now() < deadline) await new Promise(resolveWait => setTimeout(resolveWait, 500));

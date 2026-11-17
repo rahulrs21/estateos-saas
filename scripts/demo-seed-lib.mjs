@@ -27,6 +27,26 @@ export function assertDemoSeedTarget({ nodeEnv, projectId, dataConnectHost, stor
   return true;
 }
 
+/** Emulator variables that would silently send a hosted seed to a local emulator (or split it between the two). */
+const EMULATOR_VARIABLES = ["DATA_CONNECT_EMULATOR_HOST", "FIREBASE_STORAGE_EMULATOR_HOST", "STORAGE_EMULATOR_HOST", "FIREBASE_AUTH_EMULATOR_HOST"];
+
+/**
+ * The staging seed (docs/STAGING_DEPLOYMENT.md#sample-data) writes the same fictional fixtures into the hosted
+ * STAGING project only: the project must be the one .firebaserc names "staging", typed again as --confirm, never a
+ * production-looking project, and no emulator variable may be set. It runs as the developer's own Google sign-in
+ * (gcloud application-default credentials); no key file is used.
+ */
+export function assertStagingSeedTarget({ nodeEnv, project, confirm, stagingAlias, env = {} }) {
+  if (nodeEnv === "production") throw new Error("Refusing to seed demo data: NODE_ENV is production.");
+  if (!stagingAlias) throw new Error('Refusing to seed demo data: .firebaserc has no "staging" project.');
+  if (project !== stagingAlias) throw new Error(`Refusing to seed demo data into "${project ?? "nothing"}": --project must be the staging project (${stagingAlias}).`);
+  if (confirm !== project) throw new Error(`Refusing to seed demo data: type the project again as --confirm ${project}.`);
+  if (/prod/i.test(project) || project.startsWith("demo-")) throw new Error(`Refusing to seed demo data into "${project}": not a staging project.`);
+  const set = EMULATOR_VARIABLES.filter(name => env[name]);
+  if (set.length) throw new Error(`Refusing to seed staging while emulator variables are set (${set.join(", ")}): open a new terminal without them.`);
+  return true;
+}
+
 /** The hub must report the expected emulators running, so nothing is written unless dev:local is up. */
 export function assertEmulatorsRunning(running, { dataConnectHost, storageHost }) {
   const address = info => (info ? `${info.host}:${info.port}` : null);

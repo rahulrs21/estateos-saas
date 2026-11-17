@@ -62,6 +62,43 @@ A hosted SQL Connect connector may hold at most **800 KB** of operation source. 
 
 When a new module adds many operations, add a third connector in the same way.
 
+## Sample data
+
+**What it creates.** The local demo company also exists on staging: **"Demo Realty (Sample Data)"**, with fictional records.
+
+| Records | Count |
+| --- | --- |
+| Developers | 5 |
+| Projects | 10 |
+| Properties | 30 |
+| Listings | 30 |
+| Contacts | 50 |
+| Leads | 50 |
+
+Each lead comes with notes, a shortlist, viewings and follow-ups.
+
+**Photos.** Instead of the generated illustrations, each property gets **three luxury stock photos**:
+- They come from the website builder's curated library: free Unsplash License photos of UAE residences, interiors and skylines.
+- They're illustrative only, because the properties are fictional.
+- They're downloaded from `images.unsplash.com` only, checked to be JPEGs, and cached in `.tmp/demo-stock`.
+
+**One-time setup.** The seed runs as **your own Google sign-in**, not a key file:
+1. Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install).
+2. Run `gcloud auth application-default login`.
+3. Run `gcloud auth application-default set-quota-project estateos-staging`.
+
+**Run it** from a terminal where no emulator variables are set:
+
+```powershell
+npm run seed:demo -- --target staging --project estateos-staging --confirm estateos-staging --email <your staging sign-in email>
+```
+
+**Safety:**
+- It refuses any project except the `.firebaserc` "staging" alias, typed twice.
+- Running it again changes nothing: each record is created once per company.
+- Records are never updated or deleted.
+- To remove the sample data, delete the "Demo Realty (Sample Data)" company in staging.
+
 ## Start-up guard
 
 When `ESTATEOS_ENVIRONMENT` is `staging` or `production`, the server refuses to start (`src/lib/environment/hosted-guard.ts`, called from `src/instrumentation.ts`) if:

@@ -144,3 +144,39 @@ test("demo data files are committed, local data stays ignored", () => {
     assert.equal(spawnSync("git", ["check-ignore", "-q", path], { cwd: root }).status, 0, `${path} must be git-ignored`);
   }
 });
+
+test("the staging seed runs only on the .firebaserc staging project, typed twice, with no emulator variable set", async () => {
+  const { assertStagingSeedTarget } = await import("../scripts/demo-seed-lib.mjs");
+  const ok = { nodeEnv: "development", project: "estateos-staging", confirm: "estateos-staging", stagingAlias: "estateos-staging", env: {} };
+  assert.equal(assertStagingSeedTarget(ok), true);
+  assert.throws(() => assertStagingSeedTarget({ ...ok, nodeEnv: "production" }), /production/);
+  assert.throws(() => assertStagingSeedTarget({ ...ok, stagingAlias: undefined }), /no "staging" project/);
+  assert.throws(() => assertStagingSeedTarget({ ...ok, project: "estateos-development-f8c93", confirm: "estateos-development-f8c93" }), /must be the staging project/);
+  assert.throws(() => assertStagingSeedTarget({ ...ok, confirm: undefined }), /--confirm estateos-staging/);
+  assert.throws(() => assertStagingSeedTarget({ ...ok, project: "estateos-prod", confirm: "estateos-prod", stagingAlias: "estateos-prod" }), /not a staging project/);
+  assert.throws(() => assertStagingSeedTarget({ ...ok, env: { DATA_CONNECT_EMULATOR_HOST: "127.0.0.1:9399" } }), /emulator variables are set \(DATA_CONNECT_EMULATOR_HOST\)/);
+});
+
+test("staging demo photos are three curated stock photos per property, fixed-host landscape JPEGs, checked by content", async () => {
+  const { stockPhotosFor, stockPhotoUrl, isJpeg, stockPhotoBytes } = await import("../scripts/demo-stock-photos.mjs");
+  for (const type of ["VILLA", "TOWNHOUSE", "APARTMENT"]) {
+    const picks = stockPhotosFor(type, 4);
+    assert.equal(picks.length, 3, type);
+    assert.equal(new Set(picks.map(item => item.id)).size, 3, `${type}: three different photos`);
+    assert.deepEqual(stockPhotosFor(type, 4).map(item => item.id), picks.map(item => item.id), "deterministic");
+    for (const item of picks) assert.match(stockPhotoUrl(item), /^https:\/\/images\.unsplash\.com\/photo-[0-9]+-[0-9a-f]+\?.*&w=1600&h=1067&.*fm=jpg$/);
+  }
+  assert.throws(() => stockPhotoUrl({ id: "x", photo: "../evil" }), /Unexpected stock photo id/);
+  assert.equal(isJpeg(Buffer.from([0xff, 0xd8, 0xff, 0xe0])), true);
+  assert.equal(isJpeg(Buffer.from("<html>")), false);
+  const cache = mkdtempSync(join(tmpdir(), "demo-stock-"));
+  try {
+    const item = stockPhotosFor("VILLA", 0)[0];
+    const fake = (type, body) => async () => new Response(body, { status: 200, headers: { "content-type": type } });
+    await assert.rejects(() => stockPhotoBytes(item, cache, fake("text/html", "<html>")), /expected a JPEG/);
+    await assert.rejects(() => stockPhotoBytes(item, cache, fake("image/jpeg", "not really a jpeg")), /not a JPEG/);
+    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64)]);
+    assert.equal((await stockPhotoBytes(item, cache, fake("image/jpeg", jpeg))).length, jpeg.length);
+    assert.equal((await stockPhotoBytes(item, cache, () => { throw new Error("no second download"); })).length, jpeg.length, "served from the cache");
+  } finally { rmSync(cache, { recursive: true, force: true }); }
+});
