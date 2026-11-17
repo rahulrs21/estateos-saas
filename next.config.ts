@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
   // the dev lock with `npm run dev` and never rewrite the project tsconfig.
   ...(process.env.ESTATEOS_NEXT_DIST_DIR ? {distDir: process.env.ESTATEOS_NEXT_DIST_DIR} : {}),
   ...(process.env.ESTATEOS_TSCONFIG_PATH ? {typescript: {tsconfigPath: process.env.ESTATEOS_TSCONFIG_PATH}} : {}),
+  experimental: {
+    // Upgrade reminders and the default `next upgrade --agent` policy: security advisories only.
+    agentUpgrade: "security",
+  },
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
