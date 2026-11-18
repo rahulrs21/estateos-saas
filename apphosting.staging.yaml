@@ -87,6 +87,16 @@ env:
     availability:
       - RUNTIME
 
+  # One-click Connect WhatsApp (Meta Embedded Signup): the Meta app and its signup configuration (public values).
+  - variable: INBOX_META_APP_ID
+    value: "1837332403959295"
+    availability:
+      - RUNTIME
+  - variable: INBOX_META_EMBEDDED_SIGNUP_CONFIG_ID
+    value: "1295447206104728"
+    availability:
+      - RUNTIME
+
   # Email: Gmail and Outlook sign-in (consent screens in testing mode), replies only to the test addresses
   - variable: INBOX_GOOGLE_CLIENT_ID
     value: 557166637154-qp7mhtc9vve0sn5mamirr3r15p1sv4ao.apps.googleusercontent.com
