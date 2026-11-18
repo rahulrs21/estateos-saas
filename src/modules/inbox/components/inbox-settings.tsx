@@ -13,6 +13,7 @@ import type { ConnectionsView } from "../server/connections";
 import type { inboxSettings } from "../server/conversations";
 import { FormDialog, Section, text } from "./settings-ui";
 import { MailboxesSection } from "./mailboxes-section";
+import { ConnectWhatsApp } from "./connect-whatsapp";
 
 type SettingsView = Awaited<ReturnType<typeof inboxSettings>>;
 type Connection = ConnectionsView["connections"][number];
@@ -95,12 +96,12 @@ function Capabilities({capabilities}: {capabilities: Record<Capability, Capabili
       <span>{CAPABILITY_LABELS[capability]}</span><Badge variant={capabilities[capability] === "SUPPORTED" ? "secondary" : "outline"}>{STATE_LABELS[capabilities[capability]]}</Badge></li>)}</ul></details>;
 }
 
-function ConnectionsSection({view, send}: {view: ConnectionsView; send: Send}) {
+function ConnectionsSection({view, send, organizationId, reload}: {view: ConnectionsView; send: Send; organizationId: string; reload: () => void}) {
   const copy = (value: string) => { void navigator.clipboard?.writeText(value).then(() => toast.success("Webhook address copied.")); };
   return <Section title="Channels" description="Company accounts with WhatsApp and email providers. Adding one here does not connect it: EstateOS verifies a connection and sends messages only after the live integration is built and approved (Phase 7B for WhatsApp, 7C for email)."
-    action={<FormDialog trigger={<><Plus aria-hidden="true" />Add channel</>} title="Add a channel" description="Saving does not contact the provider and does not enable sending." submitLabel="Add channel"
+    action={<div className="flex flex-wrap items-center gap-2"><ConnectWhatsApp organizationId={organizationId} onConnected={reload} /><FormDialog trigger={<><Plus aria-hidden="true" />Add channel manually</>} title="Add a channel" description="Saving does not contact the provider and does not enable sending." submitLabel="Add channel"
       onSubmit={form => send("/api/inbox/connections", "POST", {provider: text(form, "provider"), displayName: text(form, "displayName"), externalAccountReference: text(form, "externalAccountReference") || null, credentialReference: text(form, "credentialReference") || null, accessTokenReference: text(form, "accessTokenReference") || null, businessAccountReference: text(form, "businessAccountReference") || null, accessToken: text(form, "accessToken") || null}, "Channel added.")}>
-      <ConnectionFields view={view} /></FormDialog>}>
+      <ConnectionFields view={view} /></FormDialog></div>}>
     {!view.connections.length ? <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No channel is set up. Website enquiries still arrive in the inbox.</p>
       : <ul className="space-y-3">{view.connections.map(connection => <li key={connection.id} className="space-y-2 rounded-lg border p-4" data-testid="inbox-connection">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -187,6 +188,6 @@ export function InboxSettingsView({organizationId}: {organizationId: string}) {
     {!settings.canEdit && <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">These are your company&apos;s inbox rules. Only owners and administrators can change them or manage company channels; you can connect your own mailbox below.</p>}
     <RulesSection key={`rules-${settings.revision}`} settings={settings} send={send} />
     <MailboxesSection organizationId={organizationId} />
-    {connections && <ConnectionsSection view={connections} send={send} />}
+    {connections && <ConnectionsSection view={connections} send={send} organizationId={organizationId} reload={() => void load()} />}
   </div>;
 }

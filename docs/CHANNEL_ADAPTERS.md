@@ -89,7 +89,48 @@ Company owners don't handle server secrets. For a WhatsApp channel, the form ask
 - **Lookup order.** `channelAccessToken()` uses the saved token first, otherwise the server secret named by `accessTokenReference` (Advanced, for staff-managed channels). Check connection, sending, templates and media download all use it.
 - **If unreadable.** When the key changes and the token can no longer be decrypted, the channel asks for the token again. Nothing about the token is logged.
 
-**Next.** **Embedded Signup**, a one-click "Connect WhatsApp", after Meta approves EstateOS as a Tech Provider. Meta's popup then returns the phone number ID, the account ID and the token, so the form disappears.
+### Embedded Signup: one-click "Connect WhatsApp"
+
+**Inbox settings → Connect WhatsApp** (OWNER or ADMIN). The owner names the channel, chooses a 6-digit PIN, and clicks **Continue with Facebook**.
+
+**In the browser** (`src/modules/inbox/components/connect-whatsapp.tsx`):
+- Meta's SDK loads when the dialog opens, so the click opens Meta's popup directly.
+- The popup reports the chosen number with window messages. They are accepted **only from https `facebook.com` or its subdomains** (`src/modules/inbox/embedded-signup.ts`; Meta's own sample would also accept `evilfacebook.com`).
+- A **WhatsApp Business app** number (coexistence) is refused, because it switches off features on the phone.
+
+**On the server** (`src/modules/inbox/server/embedded-signup.ts`):
+1. **Swap the code.** The one-time code is valid for about 30 seconds. The server swaps it for the company's business token with EstateOS's app secret. The token never reaches the browser.
+2. **Confirm the number** belongs to the account.
+3. **Create the channel** with the token **encrypted**, through the same path as a pasted token.
+4. **Route the webhooks.** `POST /{waba}/subscribed_apps` is called with `override_callback_uri` set to **this channel's own webhook address**, so each company's messages reach its own channel.
+5. **Register the number** with the owner's PIN.
+6. **Check the connection.**
+
+Every step is logged by name and result code only. Sending stays off until an administrator turns it on.
+
+**Server settings:**
+
+| Setting | Kind |
+| --- | --- |
+| `INBOX_META_APP_ID` | Public |
+| `INBOX_META_EMBEDDED_SIGNUP_CONFIG_ID` | Public |
+| `INBOX_WHATSAPP_APP_SECRET` and `INBOX_WHATSAPP_APP_SECRET_VERIFY_TOKEN` | Secrets |
+| `INBOX_TOKEN_ENCRYPTION_KEY` | Secret |
+
+Without them, the button is disabled. Staff see which names are missing, never values.
+
+**Meta setup (owner):**
+1. **Configuration.** Facebook Login for Business → Configurations → create one from the **WhatsApp Embedded Signup** template. Its ID is `INBOX_META_EMBEDDED_SIGNUP_CONFIG_ID`.
+2. **Domains and OAuth settings.** Add the site to **Allowed domains** and **Valid OAuth redirect URIs**, and turn on:
+   - client OAuth;
+   - web OAuth;
+   - enforce HTTPS;
+   - embedded browser OAuth;
+   - strict mode;
+   - login with the JavaScript SDK.
+3. **Webhooks.** Subscribe the app to the `account_update` webhook.
+
+**Who can use it.** Until App Review approves `whatsapp_business_management` and `whatsapp_business_messaging`, only the app's own admins and developers can complete the flow. **Version 4** is used (`extras: {setup: {}}`), because v5 turns on Business-app onboarding by default.
 
 ## Webhooks
 

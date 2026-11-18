@@ -6,6 +6,7 @@ import type { Context } from "@/modules/communications/server/data";
 import { errorResponse, read, readContext, write as baseWrite } from "@/modules/communications/server/http";
 import { attachmentFile } from "./attachments";
 import { checkConnection, createConnection, listConnections, setConnectionEnabled, setConnectionLiveSending, setConnectionSending, updateConnection } from "./connections";
+import { completeSignup, signupSetup } from "./embedded-signup";
 import { inboxWebhookHandshake, inboxWebhookResponse } from "./webhooks";
 import {
   addNote, assignConversation, assignees, customerContext, getConversation, inboxCounts, inboxSettings, linkConversation, listConversations, listMessages, markRead, saveInboxSettings, setConversationState,
@@ -75,6 +76,9 @@ export const updateConnectionResponse = (request: Request, id: string) => write(
 export const connectionCheckResponse = (request: Request, id: string) => write(request, "inbox.connections.check", context => checkConnection(context, id));
 export const connectionSendingResponse = (request: Request, id: string) => write(request, "inbox.connections.sending", (context, body) => setConnectionSending(context, id, body));
 export const startWhatsAppResponse = (request: Request) => write(request, "inbox.whatsapp.start", startWhatsAppConversation, 201);
+// One-click Connect WhatsApp (Embedded Signup): the popup setup, and completing a signup (OWNER or ADMIN).
+export const signupSetupResponse = (request: Request) => read(request, "inbox.whatsapp.connect", context => Promise.resolve(signupSetup(context)));
+export const completeSignupResponse = (request: Request) => write(request, "inbox.whatsapp.connect", completeSignup, 201);
 export const connectionEnabledResponse = (request: Request, id: string) => write(request, "inbox.connections.enabled", (context, body) => setConnectionEnabled(context, id, body));
 // Phase 7B.2: real customers (an OWNER turns it on; an OWNER or ADMIN turns it off).
 export const connectionLiveResponse = (request: Request, id: string) => write(request, "inbox.connections.live", (context, body) => setConnectionLiveSending(context, id, body));

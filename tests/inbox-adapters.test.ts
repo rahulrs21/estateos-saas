@@ -134,3 +134,23 @@ test("attachments are accepted by their content, never by their name", () => {
   assert.equal(attachmentFileName("photo.exe", {mimeType: "image/jpeg", extension: "jpg", label: "JPEG"}), "photo.jpg", "the proven extension replaces the claimed one");
   assert.equal(attachmentPath("org-1", "att-1", "pdf"), "organizations/org-1/inbox/attachments/att-1.pdf");
 });
+
+test("the Connect WhatsApp popup is trusted only from Meta, and only a dedicated API number is accepted", async () => {
+  const { fromMeta, parseSignupMessage } = await import("../src/modules/inbox/embedded-signup");
+  for (const origin of ["https://www.facebook.com", "https://facebook.com", "https://business.facebook.com"]) assert.ok(fromMeta(origin), origin);
+  for (const origin of ["https://evilfacebook.com", "http://www.facebook.com", "https://facebook.com.evil.test", "null", ""]) assert.equal(fromMeta(origin), false, origin);
+  const message = (event: string, data: Record<string, unknown> = {}) => JSON.stringify({type: "WA_EMBEDDED_SIGNUP", event, data});
+  const meta = "https://www.facebook.com";
+  assert.deepEqual(parseSignupMessage(meta, message("FINISH", {phone_number_id: "106540352242922", waba_id: "524126980791429"})),
+    {kind: "finish", phoneNumberId: "106540352242922", businessAccountId: "524126980791429"});
+  assert.deepEqual(parseSignupMessage(meta, message("FINISH", {phone_number_id: "106540352242922", messaging_account_ids: ["524126980791429"]})),
+    {kind: "finish", phoneNumberId: "106540352242922", businessAccountId: "524126980791429"}, "v5 names the account differently");
+  assert.deepEqual(parseSignupMessage(meta, message("FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING", {phone_number_id: "1"})), {kind: "business_app"}, "a Business app number is refused");
+  assert.deepEqual(parseSignupMessage(meta, message("FINISH", {phone_number_id: "../x"})), {kind: "no_number"});
+  assert.deepEqual(parseSignupMessage(meta, message("FINISH_ONLY_WABA")), {kind: "no_number"});
+  assert.deepEqual(parseSignupMessage(meta, message("CANCEL", {current_step: "PHONE_NUMBER_SETUP"})), {kind: "cancel", step: "PHONE_NUMBER_SETUP"});
+  assert.deepEqual(parseSignupMessage(meta, message("ERROR", {error_message: "Something failed", error_code: "100"})), {kind: "error", message: "Something failed", code: "100"});
+  assert.equal(parseSignupMessage("https://evilfacebook.com", message("FINISH", {phone_number_id: "106540352242922", waba_id: "524126980791429"})), null, "another site cannot pretend to be Meta");
+  assert.equal(parseSignupMessage(meta, "not json"), null);
+  assert.equal(parseSignupMessage(meta, JSON.stringify({type: "OTHER", event: "FINISH"})), null);
+});

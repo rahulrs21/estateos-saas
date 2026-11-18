@@ -91,6 +91,10 @@ let serverLog = "";
 // The test server talks to this local stand-in, never to Meta. It records every request so the tests can
 // check exactly what EstateOS would send, and refuses one fictional number like Meta would.
 const graphToken = "e2e-graph-token-" + randomBytes(12).toString("hex");
+// One-click Connect WhatsApp (Embedded Signup): the fake Meta app, the popup's one-time code and the business token it buys.
+const META_APP_ID = "1837000000000099", SIGNUP_CONFIG_ID = "9100000000000099", platformSecret = "e2e-platform-secret-" + randomBytes(8).toString("hex"), platformVerify = "e2e-platform-verify-" + randomBytes(8).toString("hex");
+const SIGNUP_PHONE = "3" + String(Date.now()).slice(-14), SIGNUP_WABA = "4" + String(Date.now()).slice(-14);
+const signupCode = "e2e-signup-code-" + randomBytes(8).toString("hex"), signupToken = "e2e-business-token-" + randomBytes(12).toString("hex");
 const graphRequests = [];
 let graphMessages = 0;
 const graph = createHttpServer((request, response) => {
@@ -100,6 +104,18 @@ const graph = createHttpServer((request, response) => {
     const body = raw ? JSON.parse(raw) : null;
     graphRequests.push({method: request.method, url: request.url, authorization: request.headers.authorization ?? null, body});
     const reply = (status, value) => { response.writeHead(status, {"Content-Type": "application/json"}); response.end(JSON.stringify(value)); };
+    if (request.method === "GET" && request.url.startsWith("/v27.0/oauth/access_token?")) {
+      const query = new URL(request.url, "http://graph").searchParams;
+      return query.get("client_id") === META_APP_ID && query.get("client_secret") === platformSecret && query.get("code") === signupCode
+        ? reply(200, {access_token: signupToken, token_type: "bearer"}) : reply(400, {error: {code: 100, message: "Invalid verification code format."}});
+    }
+    if (request.headers.authorization === `Bearer ${signupToken}`) {
+      if (request.method === "GET" && request.url.startsWith(`/v27.0/${SIGNUP_PHONE}?`)) return reply(200, {id: SIGNUP_PHONE, display_phone_number: "+44 7700 900077", verified_name: "E2E One Click Realty", quality_rating: "GREEN"});
+      if (request.method === "GET" && request.url.startsWith(`/v27.0/${SIGNUP_WABA}/phone_numbers?`)) return reply(200, {data: [{id: SIGNUP_PHONE}]});
+      if (request.method === "POST" && request.url === `/v27.0/${SIGNUP_WABA}/subscribed_apps`) return reply(200, {success: true});
+      if (request.method === "POST" && request.url === `/v27.0/${SIGNUP_PHONE}/register`) return reply(200, {success: true});
+      return reply(404, {error: {code: 803, message: "Unknown path"}});
+    }
     if (request.headers.authorization !== `Bearer ${graphToken}`) return reply(401, {error: {code: 190, message: "Invalid OAuth access token - Cannot parse access token"}});
     const mediaFile = /^\/media\/([A-Z0-9-]+)$/.exec(request.url);
     if (request.method === "GET" && mediaFile && graphMedia.has(mediaFile[1])) {
@@ -394,6 +410,8 @@ function startNext() {
       ANTHROPIC_API_KEY: live ? process.env.AI_E2E_ANTHROPIC_API_KEY : `sk-ant-api03-e2e-invalid-${"x".repeat(40)}`, ANTHROPIC_MODEL: live ? process.env.AI_E2E_ANTHROPIC_MODEL || "claude-sonnet-5-5" : "claude-sonnet-5-5", AI_E2E_ANTHROPIC_API_KEY: "",
       COMMS_E2E_TWILIO_TOKEN: providerToken, AUTOMATION_WORKER_SECRET: workerSecret, FIREBASE_STORAGE_BUCKET: BUCKET,
       INBOX_E2E_WA_SECRET: waSecret, INBOX_E2E_WA_SECRET_VERIFY_TOKEN: waVerifyToken,
+      // One-click Connect WhatsApp: the fake Meta app and EstateOS's platform app secret (and its webhook verify token).
+      INBOX_META_APP_ID: META_APP_ID, INBOX_META_EMBEDDED_SIGNUP_CONFIG_ID: SIGNUP_CONFIG_ID, INBOX_WHATSAPP_APP_SECRET: platformSecret, INBOX_WHATSAPP_APP_SECRET_VERIFY_TOKEN: platformVerify,
       // Phase 7B.1: the fake Graph API, a test access token (and a wrong one), and two fictional test recipients.
       INBOX_WHATSAPP_GRAPH_BASE: `http://127.0.0.1:${graphPort}`, INBOX_E2E_WA_TOKEN: graphToken, INBOX_E2E_WA_BADTOKEN: "e2e-wrong-token-0000000000",
       INBOX_WHATSAPP_TEST_RECIPIENTS: "+447700900703, +447700900704",
@@ -1479,6 +1497,60 @@ try {
   liveChannel = await channelRow();
   assert.equal(liveChannel.realCustomers.on, false, "turning sending off also ends real customers");
   pass("Phase 7B.2c: only the OWNER switches a WhatsApp channel to real customers, after confirming; then a non-test number receives a template; a daily cost guard limits template messages; turning sending off ends it");
+
+  // ------------------------------------------------------------ One-click Connect WhatsApp (Meta's Embedded Signup)
+  await signIn("agent-a");
+  assert.equal((await api("/api/inbox/whatsapp/connect")).status, 403, "agents cannot connect WhatsApp");
+  await signIn("owner-a");
+  const signupSetup = (await api("/api/inbox/whatsapp/connect")).body.data;
+  assert.deepEqual({enabled: signupSetup.enabled, appId: signupSetup.appId, configId: signupSetup.configId}, {enabled: true, appId: META_APP_ID, configId: SIGNUP_CONFIG_ID});
+  assert.doesNotMatch(JSON.stringify(signupSetup), new RegExp(platformSecret), "the app secret never reaches the browser");
+  // Meta's SDK and popup, played by the page: the popup reports from Meta's origin (the strict check still runs), then returns the code.
+  const fakeMeta = (event, data, code) => `window.FB = {init(options) { window.__fbInit = options; }, login(callback, options) { window.__fbLogin = options;
+    window.dispatchEvent(new MessageEvent("message", {origin: "https://evilfacebook.com", data: JSON.stringify({type: "WA_EMBEDDED_SIGNUP", event: "FINISH", data: {phone_number_id: "1111111111", waba_id: "2222222222"}})}));
+    window.dispatchEvent(new MessageEvent("message", {origin: "https://www.facebook.com", data: JSON.stringify({type: "WA_EMBEDDED_SIGNUP", event: ${JSON.stringify(event)}, data: ${JSON.stringify(data)}})}));
+    setTimeout(() => callback({authResponse: ${code ? `{code: ${JSON.stringify(code)}}` : "null"}}), 50); }};`;
+  const openConnect = async fake => {
+    await load("/inbox/settings", "!!document.querySelector('[data-testid=connect-whatsapp]') && !document.querySelector('[data-testid=connect-whatsapp]').disabled");
+    await evaluate(fake);
+    await evaluate("document.querySelector('[data-testid=connect-whatsapp]').click()");
+    await waitFor("!!document.querySelector('[role=dialog] [data-testid=connect-whatsapp-start]')", "the connect dialog");
+    const typePin = (label, value) => evaluate(`(()=>{const d=document.querySelector('[role=dialog]');const e=[...d.querySelectorAll('label')].find(l=>l.textContent.trim().startsWith(${JSON.stringify(label)}));const i=document.getElementById(e.htmlFor);
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,${JSON.stringify(value)});i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await typePin("6-digit PIN", "246810");
+    await typePin("PIN again", "246810");
+    await waitFor("!document.querySelector('[role=dialog] [data-testid=connect-whatsapp-start]').disabled", "the ready button");
+  };
+  const channelsNow = async () => (await api("/api/inbox/connections")).body.data.connections.filter(row => row.provider === "WHATSAPP_CLOUD");
+  const before = (await channelsNow()).length;
+  // A WhatsApp Business app number (coexistence) is refused: it would switch off features on the phone.
+  await openConnect(fakeMeta("FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING", {phone_number_id: SIGNUP_PHONE, waba_id: SIGNUP_WABA}, signupCode));
+  await evaluate("document.querySelector('[role=dialog] [data-testid=connect-whatsapp-start]').click()");
+  await waitFor("document.querySelector('[role=dialog] [role=alert]')?.innerText.includes('WhatsApp Business app')", "the refused Business app number");
+  assert.equal((await channelsNow()).length, before, "nothing was connected");
+  // The real flow: Meta's window returns the number and the one-time code; the server finishes everything.
+  await openConnect(fakeMeta("FINISH", {phone_number_id: SIGNUP_PHONE, waba_id: SIGNUP_WABA, business_id: "5000000000000099"}, signupCode));
+  await evaluate("document.querySelector('[role=dialog] [data-testid=connect-whatsapp-start]').click()");
+  await waitFor("!document.querySelector('[role=dialog]')", "the finished connection");
+  const loginOptions = await evaluate("window.__fbLogin");
+  assert.deepEqual({config: loginOptions.config_id, type: loginOptions.response_type, override: loginOptions.override_default_response_type}, {config: SIGNUP_CONFIG_ID, type: "code", override: true});
+  assert.equal((await evaluate("window.__fbInit")).appId, META_APP_ID);
+  const connected = (await channelsNow()).find(row => row.externalAccountReference === SIGNUP_PHONE);
+  assert.ok(connected, "the new channel exists");
+  assert.deepEqual({status: connected.connectionStatus, stored: connected.accessTokenStored, account: connected.businessAccountReference, platform: connected.platformAppSecret, sending: connected.sendingEnabled},
+    {status: "VERIFIED", stored: true, account: SIGNUP_WABA, platform: true, sending: false}, "verified with the token saved encrypted; sending stays off");
+  assert.doesNotMatch(JSON.stringify((await api("/api/inbox/connections")).body), new RegExp(signupToken), "the business token is never returned");
+  const subscribe = graphRequests.find(item => item.method === "POST" && item.url === `/v27.0/${SIGNUP_WABA}/subscribed_apps`);
+  assert.ok(subscribe.body.override_callback_uri.endsWith(`/api/inbox/webhooks/whatsapp/${connected.id.replaceAll("-", "")}`) || subscribe.body.override_callback_uri.endsWith(`/api/inbox/webhooks/whatsapp/${connected.id}`),
+    "the account's webhooks go to this channel's own address: " + subscribe.body.override_callback_uri);
+  assert.equal(subscribe.body.verify_token, platformVerify);
+  assert.deepEqual(graphRequests.find(item => item.method === "POST" && item.url === `/v27.0/${SIGNUP_PHONE}/register`).body, {messaging_product: "whatsapp", pin: "246810"});
+  // The same number cannot be connected twice (it belongs to one company only); an expired or reused code is refused.
+  const reused = await post("/api/inbox/whatsapp/connect", {code: "e2e-expired-code-0000", phoneNumberId: SIGNUP_PHONE, businessAccountId: SIGNUP_WABA, pin: "246810", displayName: "Again"});
+  assert.equal(reused.status, 409);
+  assert.match(reused.body.error.message, /did not accept the sign-in/);
+  await screenshot("whatsapp-connect-one-click");
+  pass("One-click Connect WhatsApp: only owners and administrators; Meta's popup is trusted only from Meta's origin; a Business app number is refused; the code is swapped on the server for a token saved encrypted; the account's webhooks go to the channel's own address; the number is registered with the owner's PIN and verified; sending stays off");
 
   // ------------------------------------------------------------ 7C.1: connecting Gmail mailboxes with Google sign-in (the fake Google)
   // A function (hoisted in this block) so INBOX_E2E_ONLY=mailboxes can run it straight after sign-in while developing.

@@ -169,3 +169,39 @@ export async function sendWhatsAppMessage(token: string, phoneNumberId: string, 
   if (typeof id !== "string" || !id.trim()) return {ok: false, status: 200, code: "NO_MESSAGE_ID", message: "Meta accepted the request but returned no message ID."} satisfies GraphFailure;
   return {ok: true as const, providerMessageId: id.slice(0, 200)};
 }
+
+// --- Embedded Signup (one-click "Connect WhatsApp", docs/CHANNEL_ADAPTERS.md#embedded-signup) ----------------------
+
+/**
+ * Swaps the one-time code from Meta's signup popup (valid for about 30 seconds) for the customer's business token, on
+ * the server with EstateOS's app secret. The token is returned to the caller only, never logged.
+ */
+export async function exchangeSignupCode(appId: string, appSecret: string, code: string): Promise<{ok: true; token: string} | GraphFailure> {
+  const query = new URLSearchParams({client_id: appId, client_secret: appSecret, code});
+  let response: Response;
+  try {
+    response = await fetch(`${graphBase()}/${graphVersion()}/oauth/access_token?${query}`, {redirect: "error", signal: AbortSignal.timeout(TIMEOUT_MS)});
+  } catch (error) {
+    const timeout = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    return {ok: false, status: 0, code: timeout ? "TIMEOUT" : "NETWORK", message: timeout ? "Meta did not answer in time." : "Meta could not be reached."};
+  }
+  const body = await response.json().catch(() => null) as {access_token?: unknown} | null;
+  if (!response.ok) return failure(response.status, body);
+  const token = typeof body?.access_token === "string" ? body.access_token : "";
+  return /^[A-Za-z0-9._|-]{40,2048}$/.test(token) ? {ok: true, token} : {ok: false, status: response.status, code: "TOKEN", message: "Meta did not return a usable token."};
+}
+
+/**
+ * Subscribes EstateOS to the customer's WhatsApp Business Account, with the account's webhooks sent to this channel's
+ * own address (an account-level override), so every company's messages reach its own channel.
+ */
+export async function subscribeAccountWebhooks(token: string, businessAccountId: string, callbackUrl: string, verifyToken: string) {
+  if (!/^\d{5,30}$/.test(businessAccountId)) return {ok: false, status: 0, code: "BUSINESS_ACCOUNT", message: "The WhatsApp Business Account ID must be digits."} satisfies GraphFailure;
+  return graph<{success?: boolean}>(`${businessAccountId}/subscribed_apps`, token, {method: "POST", body: {override_callback_uri: callbackUrl, verify_token: verifyToken}});
+}
+
+/** Registers the customer's number on the Cloud API; the PIN becomes its two-step verification PIN. */
+export async function registerPhoneNumber(token: string, phoneNumberId: string, pin: string) {
+  if (!/^\d{5,30}$/.test(phoneNumberId) || !/^\d{6}$/.test(pin)) return {ok: false, status: 0, code: "INPUT", message: "A phone number ID and a 6-digit PIN are needed."} satisfies GraphFailure;
+  return graph<{success?: boolean}>(`${phoneNumberId}/register`, token, {method: "POST", body: {messaging_product: "whatsapp", pin}});
+}
