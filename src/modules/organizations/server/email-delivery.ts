@@ -5,8 +5,12 @@ import { WorkspaceError } from "./errors";
 export type InvitationEmailConfiguration = { mode: "preview" } | { mode: "resend"; apiKey: string; from: string };
 export type InvitationDelivery = { mode: "preview" | "accepted" | "failed"; message: string; previewUrl?: string };
 
-export function invitationEmailConfiguration(environment: { nodeEnv?: string; provider?: string; apiKey?: string; from?: string }): InvitationEmailConfiguration {
-  if (!environment.provider && environment.nodeEnv === "development") return { mode: "preview" };
+/**
+ * Development and STAGING (ESTATEOS_ENVIRONMENT=staging) without a provider show the invitation link to the inviting
+ * administrator instead of emailing it. Production always needs a configured provider.
+ */
+export function invitationEmailConfiguration(environment: { nodeEnv?: string; provider?: string; apiKey?: string; from?: string; estateosEnvironment?: string }): InvitationEmailConfiguration {
+  if (!environment.provider && (environment.nodeEnv === "development" || environment.estateosEnvironment === "staging")) return { mode: "preview" };
   if (environment.provider === "resend" && environment.apiKey && environment.apiKey.length >= 8 &&
       environment.apiKey.length <= 1024 && !/[\r\n]/.test(environment.apiKey) && z.email().safeParse(environment.from).success) {
     return { mode: "resend", apiKey: environment.apiKey, from: environment.from! };
@@ -18,7 +22,7 @@ const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&am
 /** Production caller is server-only; fetch injection isolates provider tests. */
 export async function deliverInvitation(configuration: InvitationEmailConfiguration, email: { to: string; companyName: string; url: string; expiresAt: string }, send: typeof fetch = fetch): Promise<InvitationDelivery> {
   if (configuration.mode === "preview") return {
-    mode: "preview", message: "Development preview only. No email was sent.", previewUrl: email.url,
+    mode: "preview", message: "Preview only (development or staging): no email was sent. Copy the link below and send it to the person yourself.", previewUrl: email.url,
   };
   try {
     const response = await send("https://api.resend.com/emails", {

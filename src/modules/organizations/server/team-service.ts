@@ -26,7 +26,7 @@ async function administrator(expected?: string | null) {
   return context;
 }
 function mailConfiguration() {
-  return invitationEmailConfiguration({ nodeEnv: process.env.NODE_ENV, provider: process.env.INVITATION_EMAIL_PROVIDER, apiKey: process.env.RESEND_API_KEY, from: process.env.INVITATION_EMAIL_FROM });
+  return invitationEmailConfiguration({ nodeEnv: process.env.NODE_ENV, provider: process.env.INVITATION_EMAIL_PROVIDER, apiKey: process.env.RESEND_API_KEY, from: process.env.INVITATION_EMAIL_FROM, estateosEnvironment: process.env.ESTATEOS_ENVIRONMENT });
 }
 
 export async function getTeamPage(input: unknown, invitations = false) {

@@ -98,9 +98,11 @@ test("unconfigured email uses an explicit development preview and fails closed e
   const result = await deliverInvitation(configuration, email, async () => { sent = true; throw new Error("must not run"); });
   assert.equal(sent, false);
   assert.equal(result.mode, "preview");
-  assert.match(result.message, /No email was sent/);
+  assert.match(result.message, /no email was sent/i);
   assert.equal(result.previewUrl, email.url);
   for (const nodeEnv of ["production", "test", undefined]) assert.throws(() => invitationEmailConfiguration({ nodeEnv }), { status: 503 });
+  assert.deepEqual(invitationEmailConfiguration({ nodeEnv: "production", estateosEnvironment: "staging" }), { mode: "preview" }, "staging without a provider shows the link");
+  assert.throws(() => invitationEmailConfiguration({ nodeEnv: "production", estateosEnvironment: "production" }), { status: 503 }, "production never previews");
   assert.throws(() => invitationEmailConfiguration({ nodeEnv: "production", provider: "resend", apiKey: "sensitive-key", from: "bad\r\nheader" }));
 });
 test("provider acceptance is recorded only after a successful receipt and does not expose the link", async () => {
