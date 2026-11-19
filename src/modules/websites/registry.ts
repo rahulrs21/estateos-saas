@@ -36,22 +36,49 @@ export const plainText = (max: number, min = 0) => z.string().trim().min(min).ma
 /** A colour is only ever a validated #rrggbb value, applied through React style objects. */
 export const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Use a colour like #1a2b3c.").transform(value => value.toLowerCase());
 
-export const DESIGN_STYLES = ["LUXURY_MINIMALIST", "PREMIUM_DARK", "MODERN_CORPORATE", "ELEGANT_LIGHT", "CONTEMPORARY", "HIGH_CONVERSION"] as const;
+/**
+ * Page design styles. The first six are the signature styles (unchanged since
+ * the first release); the rest add a look of their own (theme.ts STYLE_LOOKS)
+ * and a recommended page structure (structures.ts). Append only: pages store
+ * the style name.
+ */
+export const CLASSIC_DESIGN_STYLES = ["LUXURY_MINIMALIST", "PREMIUM_DARK", "MODERN_CORPORATE", "ELEGANT_LIGHT", "CONTEMPORARY", "HIGH_CONVERSION"] as const;
+export const DESIGN_STYLES = [...CLASSIC_DESIGN_STYLES, "DEPTH_3D", "SWISS_MINIMAL", "EDITORIAL", "BENTO_GRID", "GLASS_AURORA", "BOLD_STATEMENT", "WARM_ORGANIC"] as const;
 export type DesignStyle = (typeof DESIGN_STYLES)[number];
+export const NEW_DESIGN_STYLES = DESIGN_STYLES.slice(CLASSIC_DESIGN_STYLES.length) as DesignStyle[];
+export const isClassicStyle = (style: DesignStyle) => (CLASSIC_DESIGN_STYLES as readonly string[]).includes(style);
 export const DESIGN_STYLE_LABELS: Record<DesignStyle, string> = {
   LUXURY_MINIMALIST: "Luxury Minimalist", PREMIUM_DARK: "Premium Dark", MODERN_CORPORATE: "Modern Corporate",
   ELEGANT_LIGHT: "Elegant Light", CONTEMPORARY: "Contemporary Real Estate", HIGH_CONVERSION: "High-Conversion Campaign",
+  DEPTH_3D: "3D Depth", SWISS_MINIMAL: "Swiss Minimal", EDITORIAL: "Editorial Magazine", BENTO_GRID: "Bento Grid",
+  GLASS_AURORA: "Glass Aurora", BOLD_STATEMENT: "Bold Statement", WARM_ORGANIC: "Warm Organic",
+};
+/** What each style looks like (the style picker) and how its copy should read (Claude's tone). */
+export const DESIGN_STYLE_DETAILS: Record<DesignStyle, {description: string; tone: string}> = {
+  LUXURY_MINIMALIST: {description: "Quiet luxury: ivory, spaced uppercase type, a centred logo and the headline set low over a full-screen photo.", tone: "calm, refined and understated"},
+  PREMIUM_DARK: {description: "Noir: near-black with fine column lines, a large statement headline and gallery-led storytelling.", tone: "cinematic, confident and exclusive"},
+  MODERN_CORPORATE: {description: "Architectural grid: white, bold tight type, column rules and numbers first.", tone: "clear, factual and professional"},
+  ELEGANT_LIGHT: {description: "Boutique: warm cream, big serif headlines over the photo and soft pill buttons.", tone: "warm, graceful and inviting"},
+  CONTEMPORARY: {description: "Property card: a frosted panel with the key details over the photo and a fact bar below.", tone: "fresh, modern and friendly"},
+  HIGH_CONVERSION: {description: "Campaign: the enquiry form in the first screen, a bold serif headline and arrow buttons.", tone: "direct, energetic and action-focused"},
+  DEPTH_3D: {description: "Cinematic tower: monochrome bands, a giant wordmark over the photo, layered parallax depth and hairline detail.", tone: "calm, precise and quietly confident; short declarative sentences"},
+  SWISS_MINIMAL: {description: "Black on white, hairline rules, big type and generous white space. Nothing extra.", tone: "short, precise and understated; few words, no flourish"},
+  EDITORIAL: {description: "A luxury magazine: paper tones, large serif headlines, numbered chapters and captions.", tone: "narrative and literary, like a magazine feature"},
+  BENTO_GRID: {description: "Everything in rounded tiles on a soft grey canvas, like a modern app dashboard.", tone: "crisp, scannable and benefit-led"},
+  GLASS_AURORA: {description: "Frosted-glass panels floating over a deep aurora gradient.", tone: "modern, sleek and aspirational"},
+  BOLD_STATEMENT: {description: "Huge uppercase type, thick outlines, hard shadows and a moving ticker. Impossible to miss.", tone: "short, punchy and loud; strong verbs"},
+  WARM_ORGANIC: {description: "Sand and terracotta, arched photo frames and soft rounded shapes.", tone: "warm, natural and wellbeing-focused"},
 };
 
-export const ACCENTS = ["GOLD", "NAVY", "EMERALD", "TEAL", "TERRACOTTA", "SLATE", "ROSE", "INDIGO"] as const;
+export const ACCENTS = ["GOLD", "NAVY", "EMERALD", "TEAL", "TERRACOTTA", "SLATE", "ROSE", "INDIGO", "ONYX", "CARAMEL"] as const;
 export type Accent = (typeof ACCENTS)[number];
 export const FONTS = ["SANS", "SERIF", "DISPLAY"] as const;
 /** Self-hosted web fonts (next/font, downloaded at build time; no third-party requests from visitors). */
-export const FONT_FAMILIES = ["PLAYFAIR", "CORMORANT", "DM_SERIF", "INTER", "MANROPE", "MONTSERRAT", "POPPINS", "SYSTEM"] as const;
+export const FONT_FAMILIES = ["PLAYFAIR", "CORMORANT", "DM_SERIF", "INTER", "MANROPE", "MONTSERRAT", "POPPINS", "SYSTEM", "JOST", "INTER_TIGHT"] as const;
 export type FontFamily = (typeof FONT_FAMILIES)[number];
 export const FONT_FAMILY_LABELS: Record<FontFamily, string> = {
   PLAYFAIR: "Playfair Display", CORMORANT: "Cormorant Garamond", DM_SERIF: "DM Serif Display", INTER: "Inter", MANROPE: "Manrope",
-  MONTSERRAT: "Montserrat", POPPINS: "Poppins", SYSTEM: "System default",
+  MONTSERRAT: "Montserrat", POPPINS: "Poppins", SYSTEM: "System default", JOST: "Jost", INTER_TIGHT: "Inter Tight",
 };
 export const SCALES = ["COMPACT", "COMFORTABLE", "LARGE"] as const;
 export const RADII = ["NONE", "SOFT", "ROUND"] as const;
@@ -68,6 +95,12 @@ export const themeSchema = z.strictObject({
   bodyFont: z.enum(FONT_FAMILIES).nullable().default(null),
   /** Global button shape (Site style). */
   buttonShape: z.enum(BUTTON_SHAPES).default("ROUNDED"),
+  /**
+   * The edition of the style's look. Pages saved before the signature styles
+   * got their own looks are edition 1 and render exactly as before; new pages
+   * and newly chosen styles are edition 2 (theme.ts pageLook).
+   */
+  edition: z.number().int().min(1).max(2).default(1),
 });
 export type PageTheme = z.infer<typeof themeSchema>;
 
@@ -100,8 +133,13 @@ export const customLocationSchema = z.strictObject({
 }).refine(location => isWithinUae(location.latitude, location.longitude), "Place the pin inside the UAE.");
 export type CustomLocation = z.infer<typeof customLocationSchema>;
 
-export const videoRefSchema = z.strictObject({stockId: z.string().max(60).refine(isStockVideoId, "Choose a video from the stock library.")});
+export const videoRefSchema = z.union([
+  z.strictObject({stockId: z.string().max(60).refine(isStockVideoId, "Choose a video from the stock library.")}),
+  z.strictObject({uploadId: z.uuid()}),
+]);
 export type VideoRef = z.infer<typeof videoRefSchema>;
+export const isStockVideoRef = (ref: VideoRef): ref is {stockId: string} => "stockId" in ref;
+export const isUploadVideoRef = (ref: VideoRef): ref is {uploadId: string} => "uploadId" in ref;
 
 export const HIGHLIGHT_ICONS = ["STAR", "BUILDING", "KEY", "WALLET", "CALENDAR", "MAP_PIN", "SHIELD", "SPARKLES", "WAVES", "TREES", "DUMBBELL", "CAR"] as const;
 export const LANDMARK_CATEGORIES = ["TRANSPORT", "SCHOOL", "HEALTHCARE", "SHOPPING", "LEISURE", "BUSINESS", "BEACH", "OTHER"] as const;
@@ -116,6 +154,11 @@ export const STAT_SOURCE_LABELS: Record<StatSource, string> = {
 };
 
 const columns = z.union([z.literal(2), z.literal(3), z.literal(4)]);
+/** The hero's automatic key facts (shown when the hero has none of its own). */
+export const HERO_DEFAULT_FACTS: Array<{source: StatSource; value: string; label: string}> = [
+  {source: "STARTING_PRICE", value: "", label: "Starting price"}, {source: "BEDROOMS", value: "", label: "Bedrooms"},
+  {source: "PAYMENT_PLAN", value: "", label: "Payment plan"}, {source: "HANDOVER", value: "", label: "Handover"},
+];
 const optionalImage = imageRefSchema.nullable().default(null);
 
 export const SECTION_TYPES = [
@@ -141,6 +184,10 @@ const PROPS = {
     primaryCta: ctaSchema, secondaryCta: ctaSchema.nullable(), image: imageRefSchema.nullable(),
     showPrice: z.boolean(), showLocation: z.boolean(),
     badge: plainText(40).default(""), showFacts: z.boolean().default(false),
+    /** The large name in the wordmark layout; empty uses the linked record's name. */
+    wordmark: plainText(40).default(""),
+    /** The key facts under the headline: CRM facts or your own; null shows the automatic four (HERO_DEFAULT_FACTS). */
+    facts: z.array(z.strictObject({source: z.enum(STAT_SOURCES), value: plainText(40), label: plainText(60, 1)})).max(6).nullable().default(null),
   }),
   STATS: z.strictObject({
     heading: plainText(120).default(""),
@@ -214,15 +261,15 @@ interface SectionDefinition {
 }
 
 export const SECTION_DEFINITIONS: Record<SectionType, SectionDefinition> = {
-  NAVBAR: {label: "Navigation bar", description: "Brand, section links and a call to action.", group: "Layout", variants: ["transparent", "solid"], aiAllowed: true, single: true, linked: "Company name"},
-  HERO: {label: "Hero", description: "Headline, call to action, photo or video.", group: "Introduction", variants: ["fullBleed", "split", "splitForm", "centered"], aiAllowed: true, single: true, linked: "Price, location and key facts (optional)"},
-  STATS: {label: "Key facts", description: "Big numbers: price, handover, payment plan or your own.", group: "Introduction", variants: ["strip", "cards"], aiAllowed: true, single: false, linked: "CRM values for linked items"},
-  PROJECT_OVERVIEW: {label: "Project overview", description: "Introduction with key project facts.", group: "Property & project", variants: ["withFacts", "imageRight", "text"], aiAllowed: true, single: true, linked: "Developer, status, handover date, units"},
+  NAVBAR: {label: "Navigation bar", description: "Brand, section links and a call to action.", group: "Layout", variants: ["transparent", "solid", "floating", "centered"], aiAllowed: true, single: true, linked: "Company name"},
+  HERO: {label: "Hero", description: "Headline, call to action, photo or video.", group: "Introduction", variants: ["fullBleed", "split", "splitForm", "centered", "editorial", "showcase", "wordmark", "panel", "showcaseImage"], aiAllowed: true, single: true, linked: "Price, location and key facts (optional)"},
+  STATS: {label: "Key facts", description: "Big numbers: price, handover, payment plan or your own.", group: "Introduction", variants: ["strip", "cards", "marquee"], aiAllowed: true, single: false, linked: "CRM values for linked items"},
+  PROJECT_OVERVIEW: {label: "Project overview", description: "Introduction with key project facts.", group: "Property & project", variants: ["withFacts", "imageRight", "text", "statement"], aiAllowed: true, single: true, linked: "Developer, status, handover date, units"},
   FEATURE_SPLIT: {label: "Feature with image", description: "Image beside a heading, text and bullet points.", group: "Media", variants: ["split", "overlap"], aiAllowed: true, single: false, linked: null},
   DEVELOPER: {label: "Developer", description: "The developer's name and profile.", group: "Property & project", variants: ["card", "banner"], aiAllowed: true, single: true, linked: "Developer name and profile"},
-  HIGHLIGHTS: {label: "Highlights", description: "Short selling points with icons.", group: "Property & project", variants: ["grid", "list"], aiAllowed: true, single: false, linked: null},
-  GALLERY: {label: "Gallery", description: "Project photos or stock photos.", group: "Media", variants: ["bento", "grid", "carousel"], aiAllowed: true, single: false, linked: "Approved photos"},
-  VIDEO_SHOWCASE: {label: "Video", description: "A stock video with a heading.", group: "Media", variants: ["wide", "contained"], aiAllowed: true, single: false, linked: null},
+  HIGHLIGHTS: {label: "Highlights", description: "Short selling points with icons.", group: "Property & project", variants: ["grid", "list", "stack", "rows"], aiAllowed: true, single: false, linked: null},
+  GALLERY: {label: "Gallery", description: "Project photos or stock photos.", group: "Media", variants: ["bento", "grid", "carousel", "coverflow"], aiAllowed: true, single: false, linked: "Approved photos"},
+  VIDEO_SHOWCASE: {label: "Video", description: "A stock or uploaded video with a heading.", group: "Media", variants: ["wide", "contained"], aiAllowed: true, single: false, linked: null},
   UNIT_TYPES: {label: "Available unit types", description: "Available units grouped by type and bedrooms.", group: "Property & project", variants: ["cards", "table"], aiAllowed: true, single: true, linked: "Available units and reference prices"},
   PRICING: {label: "Pricing", description: "Recorded starting or asking prices.", group: "Property & project", variants: ["cards", "banner"], aiAllowed: true, single: true, linked: "Recorded prices"},
   PAYMENT_PLANS: {label: "Payment plans", description: "Active payment plans recorded on the project.", group: "Property & project", variants: ["milestones", "timeline", "table"], aiAllowed: true, single: true, linked: "Active payment plans"},
@@ -287,6 +334,9 @@ export const ELEMENT_FONTS = ["HEADING", "BODY"] as const;
 export const ELEMENT_WEIGHTS = ["LIGHT", "REGULAR", "MEDIUM", "SEMIBOLD", "BOLD"] as const;
 export const ELEMENT_CASES = ["NONE", "UPPERCASE", "LOWERCASE", "CAPITALIZE"] as const;
 export const MAX_ELEMENT_STYLES = 40;
+/** Layout names shown in the editor where the plain name is not clear enough. */
+export const VARIANT_LABELS: Record<string, string> = {showcaseImage: "Showcase with image"};
+export const ELEMENT_ORDER_GROUP = /^[a-z][A-Za-z]{0,30}$/;
 const nullableInt = (min: number, max: number) => z.number().int().min(min).max(max).nullable().default(null);
 export const elementStyleSchema = z.strictObject({
   color: hexColor.nullable().default(null),
@@ -347,6 +397,9 @@ export const sectionStyleSchema = z.strictObject({
   /** Styles single elements, keyed like `elementOffsets`. */
   elementStyles: z.record(z.string().regex(ELEMENT_KEY, "Invalid element."), elementStyleSchema)
     .refine(styles => Object.keys(styles).length <= MAX_ELEMENT_STYLES, `Up to ${MAX_ELEMENT_STYLES} styled elements per section.`).default({}),
+  /** The order chosen in the Navigator for a group of elements (for example the hero text: "heroText" → ["eyebrow", "headline", …]). */
+  elementOrder: z.record(z.string().regex(ELEMENT_ORDER_GROUP, "Invalid element group."), z.array(z.string().regex(ELEMENT_KEY, "Invalid element.")).max(16))
+    .refine(groups => Object.keys(groups).length <= 8, "Up to 8 ordered groups per section.").default({}),
 });
 export type SectionStyle = z.infer<typeof sectionStyleSchema>;
 export const DEFAULT_STYLE: SectionStyle = sectionStyleSchema.parse({});
@@ -389,7 +442,7 @@ export const widgetStyleSchema = z.strictObject({
 export type WidgetStyle = z.infer<typeof widgetStyleSchema>;
 
 const WIDGET_PROPS = {
-  HEADING: z.strictObject({text: plainText(200, 1), level: z.enum(["H2", "H3", "H4"]), size: z.enum(["SM", "MD", "LG", "XL"]), eyebrow: plainText(60).default("")}),
+  HEADING: z.strictObject({text: plainText(200, 1), level: z.enum(["H2", "H3", "H4", "H1"]), size: z.enum(["SM", "MD", "LG", "XL"]), eyebrow: plainText(60).default("")}),
   TEXT: z.strictObject({text: plainText(3000), size: z.enum(["SM", "MD", "LG"]), muted: z.boolean()}),
   IMAGE: z.strictObject({image: imageRefSchema.nullable(), ratio: z.enum(["AUTO", "SQUARE", "PORTRAIT", "LANDSCAPE", "WIDE"]), rounded: z.boolean(), caption: plainText(160)}),
   BUTTON: z.strictObject({cta: ctaSchema, variant: z.enum(["SOLID", "OUTLINE"]), full: z.boolean()}),
@@ -498,7 +551,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, {label: string; description:
   ICON_LIST: {label: "Icon list", description: "Short points with icons."},
   ICON_BOX: {label: "Icon box", description: "An icon with a title and text."},
   COUNTER: {label: "Counter", description: "A big number: a CRM fact or your own."},
-  VIDEO: {label: "Video", description: "A stock video."},
+  VIDEO: {label: "Video", description: "A stock or uploaded video."},
   SPACER: {label: "Spacer", description: "Empty vertical space."},
   DIVIDER: {label: "Divider", description: "A horizontal line."},
   MAP: {label: "Map", description: "The record's location or a pin you set."},
@@ -669,7 +722,7 @@ export function defaultProps<T extends SectionType>(type: T): SectionProps<T> {
   const defaults: {[K in SectionType]: SectionProps<K>} = {
     NAVBAR: {brandText: "", showLinks: true, cta: {label: "Enquire now", action: "ENQUIRE"}, sticky: true, logo: null, logoHeight: 40, links: [], linksAlign: "CENTER", showPhone: false, mobileMenu: true},
     CUSTOM: {rows: defaultCustomRows("custom")},
-    HERO: {eyebrow: "", headline: "Your new home starts here", subheadline: "", primaryCta: {label: "Enquire now", action: "ENQUIRE"}, secondaryCta: null, image: null, showPrice: true, showLocation: true, badge: "", showFacts: false},
+    HERO: {eyebrow: "", headline: "Your new home starts here", subheadline: "", primaryCta: {label: "Enquire now", action: "ENQUIRE"}, secondaryCta: null, image: null, showPrice: true, showLocation: true, badge: "", showFacts: false, wordmark: "", facts: null},
     STATS: {heading: "", items: [{source: "STARTING_PRICE", value: "", label: "Starting price"}, {source: "HANDOVER", value: "", label: "Handover"}, {source: "PAYMENT_PLAN", value: "", label: "Payment plan"}]},
     PROJECT_OVERVIEW: {heading: "Overview", body: "", showFacts: true, eyebrow: "", image: null},
     FEATURE_SPLIT: {eyebrow: "", heading: "Designed around the way you live", body: "", bullets: [], image: null, imageSide: "RIGHT", cta: null},
@@ -740,21 +793,32 @@ export function newSectionId(type: SectionType, taken: Iterable<string>, random:
 
 export function defaultTheme(style: DesignStyle = "CONTEMPORARY"): PageTheme {
   const accent: Record<DesignStyle, Accent> = {
-    LUXURY_MINIMALIST: "GOLD", PREMIUM_DARK: "GOLD", MODERN_CORPORATE: "NAVY", ELEGANT_LIGHT: "ROSE", CONTEMPORARY: "TEAL", HIGH_CONVERSION: "TERRACOTTA",
+    LUXURY_MINIMALIST: "GOLD", PREMIUM_DARK: "ONYX", MODERN_CORPORATE: "NAVY", ELEGANT_LIGHT: "CARAMEL", CONTEMPORARY: "TEAL", HIGH_CONVERSION: "ONYX",
+    DEPTH_3D: "ONYX", SWISS_MINIMAL: "SLATE", EDITORIAL: "NAVY", BENTO_GRID: "EMERALD", GLASS_AURORA: "TEAL", BOLD_STATEMENT: "ROSE", WARM_ORGANIC: "TERRACOTTA",
   };
   const font: Record<DesignStyle, PageTheme["font"]> = {
     LUXURY_MINIMALIST: "SERIF", PREMIUM_DARK: "DISPLAY", MODERN_CORPORATE: "SANS", ELEGANT_LIGHT: "SERIF", CONTEMPORARY: "SANS", HIGH_CONVERSION: "SANS",
+    DEPTH_3D: "DISPLAY", SWISS_MINIMAL: "SANS", EDITORIAL: "SERIF", BENTO_GRID: "SANS", GLASS_AURORA: "SANS", BOLD_STATEMENT: "DISPLAY", WARM_ORGANIC: "SERIF",
   };
   const headingFont: Record<DesignStyle, FontFamily> = {
-    LUXURY_MINIMALIST: "CORMORANT", PREMIUM_DARK: "PLAYFAIR", MODERN_CORPORATE: "MANROPE", ELEGANT_LIGHT: "DM_SERIF", CONTEMPORARY: "MONTSERRAT", HIGH_CONVERSION: "POPPINS",
+    LUXURY_MINIMALIST: "JOST", PREMIUM_DARK: "INTER_TIGHT", MODERN_CORPORATE: "INTER_TIGHT", ELEGANT_LIGHT: "PLAYFAIR", CONTEMPORARY: "CORMORANT", HIGH_CONVERSION: "PLAYFAIR",
+    DEPTH_3D: "INTER_TIGHT", SWISS_MINIMAL: "INTER", EDITORIAL: "CORMORANT", BENTO_GRID: "MANROPE", GLASS_AURORA: "POPPINS", BOLD_STATEMENT: "MONTSERRAT", WARM_ORGANIC: "DM_SERIF",
   };
   const bodyFont: Record<DesignStyle, FontFamily> = {
-    LUXURY_MINIMALIST: "MANROPE", PREMIUM_DARK: "INTER", MODERN_CORPORATE: "INTER", ELEGANT_LIGHT: "MANROPE", CONTEMPORARY: "INTER", HIGH_CONVERSION: "INTER",
+    LUXURY_MINIMALIST: "JOST", PREMIUM_DARK: "INTER", MODERN_CORPORATE: "INTER", ELEGANT_LIGHT: "MANROPE", CONTEMPORARY: "MANROPE", HIGH_CONVERSION: "INTER",
+    DEPTH_3D: "INTER_TIGHT", SWISS_MINIMAL: "INTER", EDITORIAL: "MANROPE", BENTO_GRID: "INTER", GLASS_AURORA: "INTER", BOLD_STATEMENT: "INTER", WARM_ORGANIC: "MANROPE",
+  };
+  const radius: Partial<Record<DesignStyle, PageTheme["radius"]>> = {
+    MODERN_CORPORATE: "NONE", LUXURY_MINIMALIST: "NONE", PREMIUM_DARK: "NONE", DEPTH_3D: "NONE", SWISS_MINIMAL: "NONE", EDITORIAL: "NONE", BOLD_STATEMENT: "NONE", HIGH_CONVERSION: "SOFT",
+  };
+  const buttonShape: Partial<Record<DesignStyle, PageTheme["buttonShape"]>> = {
+    LUXURY_MINIMALIST: "SQUARE", PREMIUM_DARK: "PILL", MODERN_CORPORATE: "PILL", ELEGANT_LIGHT: "PILL", CONTEMPORARY: "PILL", HIGH_CONVERSION: "PILL",
+    DEPTH_3D: "SQUARE", SWISS_MINIMAL: "SQUARE", EDITORIAL: "SQUARE", BENTO_GRID: "PILL", GLASS_AURORA: "PILL", BOLD_STATEMENT: "SQUARE", WARM_ORGANIC: "PILL",
   };
   return {
-    style, accent: accent[style], font: font[style], scale: style === "HIGH_CONVERSION" ? "COMPACT" : "LARGE",
-    radius: style === "MODERN_CORPORATE" ? "SOFT" : style === "LUXURY_MINIMALIST" ? "NONE" : "ROUND",
-    customAccent: null, headingFont: headingFont[style], bodyFont: bodyFont[style], buttonShape: "ROUNDED",
+    style, accent: accent[style], font: font[style], scale: style === "HIGH_CONVERSION" ? "COMPACT" : style === "BENTO_GRID" ? "COMFORTABLE" : "LARGE",
+    radius: radius[style] ?? "ROUND",
+    customAccent: null, headingFont: headingFont[style], bodyFont: bodyFont[style], buttonShape: buttonShape[style] ?? "ROUNDED", edition: 2,
   };
 }
 

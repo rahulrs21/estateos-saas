@@ -15,7 +15,7 @@ import type { PageFormView } from "../types";
  * the company and the lead form on the server.
  */
 
-const inputClass = "h-11 w-full rounded-[calc(var(--pg-radius)*0.6)] border border-[var(--pg-border)] bg-[var(--pg-bg)] px-3 text-sm text-[var(--pg-fg)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--pg-accent)]";
+const inputClass = "pg-input h-11 w-full rounded-[calc(var(--pg-radius)*0.6)] border border-[var(--pg-border)] bg-[var(--pg-bg)] px-3 text-sm text-[var(--pg-fg)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--pg-accent)]";
 
 export function PageEnquiryForm({form, endpoint, submitLabel, pageTitle}: {form: PageFormView; endpoint: string | null; submitLabel: string; pageTitle: string}) {
   const prefix = useId();
@@ -78,12 +78,12 @@ export function PageEnquiryForm({form, endpoint, submitLabel, pageTitle}: {form:
   };
 
   if (completed) return <div role="status" className="rounded-[var(--pg-radius)] border border-[var(--pg-border)] bg-[var(--pg-card)] p-6 text-sm leading-6">{message}</div>;
-  return <form onSubmit={submit} aria-busy={pending} aria-label={`Enquiry about ${pageTitle}`} className="@container space-y-4 rounded-[var(--pg-radius)] border border-[var(--pg-border)] bg-[var(--pg-card)] p-5 text-[var(--pg-fg)] @md:p-7">
+  return <form onSubmit={submit} aria-busy={pending} aria-label={`Enquiry about ${pageTitle}`} className="pg-form @container space-y-4 rounded-[var(--pg-radius)] border border-[var(--pg-border)] bg-[var(--pg-card)] p-5 text-[var(--pg-fg)] @md:p-7">
     <div className="grid gap-4 @xl:grid-cols-2">{form.fields.map(field)}</div>
     <div className="absolute -left-[10000px] h-px w-px overflow-hidden" aria-hidden="true"><label htmlFor={`${prefix}-website`}>Company website</label><input id={`${prefix}-website`} name="companyWebsite" type="text" tabIndex={-1} autoComplete="off" /></div>
     <label className="flex items-start gap-3 text-sm leading-5"><input className="mt-0.5 size-4 shrink-0 accent-[var(--pg-accent)]" type="checkbox" name="consent" required /><span>{form.consentText} <a href={form.privacyPolicyUrl} target="_blank" rel="noreferrer" className="font-medium underline underline-offset-2">Privacy policy</a></span></label>
     {message && <p role="alert" className="rounded-md border border-[var(--pg-border)] p-3 text-sm">{message}</p>}
-    <button type="submit" disabled={pending} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[var(--pg-button-radius)] bg-[var(--pg-accent)] px-5 text-sm font-semibold text-[var(--pg-accent-fg)] transition-opacity hover:opacity-90 disabled:opacity-60">
+    <button type="submit" disabled={pending} className="pg-submit inline-flex h-11 w-full items-center justify-center gap-2 rounded-[var(--pg-button-radius)] bg-[var(--pg-accent)] px-5 text-sm font-semibold text-[var(--pg-accent-fg)] transition-opacity hover:opacity-90 disabled:opacity-60">
       {pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}{submitLabel}
     </button>
     {!endpoint && <p className="text-center text-xs opacity-70">Preview only: this form does not send enquiries.</p>}

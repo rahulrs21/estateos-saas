@@ -9,15 +9,15 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { validateInput } from "@/modules/organizations/server/validation";
 import { websiteMediaPath } from "../linked";
-import { UPLOAD_TYPES, imageDimensions, matchesImageSignature, type UploadType } from "../uploads";
+import { imageDimensions, isVideoUploadType, matchesImageSignature, matchesVideoSignature, uploadExtension, type MediaUploadType } from "../uploads";
 import { mediaAltSchema, recordIdSchema } from "../policy";
 import { serverDataConnect, serverOperation } from "./public";
 
 type Context = Awaited<ReturnType<typeof requireActiveOrganizationRequest>>;
 
 /*
- * The website media library (docs/AI_PAGE_BUILDER.md#uploads). Images are
- * checked by content signature, stored privately under the company's
+ * The website media library (docs/AI_PAGE_BUILDER.md#uploads). Images and
+ * videos are checked by content signature, stored privately under the company's
  * Storage prefix and served to editors through an authenticated route.
  * Public pages serve only the uploads a live publication lists.
  */
@@ -29,17 +29,22 @@ async function uploadAccess(context: Context) {
   const role = data.member?.role;
   if (!data.website) throw new WorkspaceError("CONFLICT", 409, "Open Websites once to set up the company website, then upload images.");
   const allowed = role === "OWNER" || role === "ADMIN" || role === "MANAGER" || (role === "AGENT" && data.website.allowAgentDrafts);
-  if (!allowed) throw new WorkspaceError("PERMISSION_DENIED", 403, "Your role cannot upload website images.");
+  if (!allowed) throw new WorkspaceError("PERMISSION_DENIED", 403, "Your role cannot upload website images or videos.");
   return {websiteId: canonicalUuid(data.website.id)};
 }
 
-export async function storeUpload(context: Context, input: {bytes: Buffer; contentType: UploadType; fileName: string}) {
+export async function storeUpload(context: Context, input: {bytes: Buffer; contentType: MediaUploadType; fileName: string}) {
   const {websiteId} = await uploadAccess(context);
-  if (!matchesImageSignature(input.bytes, input.contentType)) throw new WorkspaceError("VALIDATION_ERROR", 415, "The file contents do not match its type. Upload a JPEG, PNG or WebP image.");
-  const size = imageDimensions(input.bytes, input.contentType);
+  let size: {width: number; height: number} | null = null;
+  if (isVideoUploadType(input.contentType)) {
+    if (!matchesVideoSignature(input.bytes, input.contentType)) throw new WorkspaceError("VALIDATION_ERROR", 415, "The file contents do not match its type. Upload an MP4 or WebM video.");
+  } else {
+    if (!matchesImageSignature(input.bytes, input.contentType)) throw new WorkspaceError("VALIDATION_ERROR", 415, "The file contents do not match its type. Upload a JPEG, PNG or WebP image.");
+    size = imageDimensions(input.bytes, input.contentType);
+  }
   const id = randomUUID();
   // Built here, never taken from the request.
-  const storagePath = `organizations/${context.organizationId}/websites/media/${id}.${UPLOAD_TYPES[input.contentType]}`;
+  const storagePath = `organizations/${context.organizationId}/websites/media/${id}.${uploadExtension(input.contentType)}`;
   const actorUid = context.request.user.uid;
   const dc = serverDataConnect();
   await serverOperation(() => sql.createWebsiteMedia(dc, {
@@ -81,7 +86,7 @@ export async function mediaByIds(context: Context, ids: string[]) {
 export async function mediaContent(context: Context, rawId: string) {
   const id = canonicalUuid(validateInput(recordIdSchema, rawId));
   const [row] = await mediaByIds(context, [id]);
-  if (!row) throw new WorkspaceError("NOT_FOUND", 404, "This image was not found.");
+  if (!row) throw new WorkspaceError("NOT_FOUND", 404, "This file was not found.");
   return row;
 }
 

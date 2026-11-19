@@ -1,4 +1,4 @@
-import { Cormorant_Garamond, DM_Serif_Display, Inter, Manrope, Montserrat, Playfair_Display, Poppins } from "next/font/google";
+import { Cormorant_Garamond, DM_Serif_Display, Inter, Inter_Tight, Jost, Manrope, Montserrat, Playfair_Display, Poppins } from "next/font/google";
 
 /*
  * Landing page fonts. next/font downloads them at build time and serves them
@@ -12,7 +12,9 @@ const dmSerif = DM_Serif_Display({subsets: ["latin"], weight: "400", variable: "
 const inter = Inter({subsets: ["latin"], variable: "--font-pg-inter", display: "swap"});
 const manrope = Manrope({subsets: ["latin"], variable: "--font-pg-manrope", display: "swap"});
 const montserrat = Montserrat({subsets: ["latin"], variable: "--font-pg-montserrat", display: "swap"});
+const jost = Jost({subsets: ["latin"], variable: "--font-pg-jost", display: "swap"});
+const interTight = Inter_Tight({subsets: ["latin"], variable: "--font-pg-inter-tight", display: "swap"});
 const poppins = Poppins({subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-pg-poppins", display: "swap"});
 
 /** Put this class on any element that renders a landing page. */
-export const pageFontVariables = [playfair, cormorant, dmSerif, inter, manrope, montserrat, poppins].map(font => font.variable).join(" ");
+export const pageFontVariables = [playfair, cormorant, dmSerif, inter, manrope, montserrat, poppins, jost, interTight].map(font => font.variable).join(" ");

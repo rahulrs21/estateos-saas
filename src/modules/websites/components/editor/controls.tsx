@@ -40,9 +40,11 @@ export function TextControl({label, value, max, multiline, onChange, hint, place
 
 export function Segmented<T extends string>({label, value, options, onChange, labels}: {label?: string; value: T; options: readonly T[]; onChange: (value: T) => void; labels?: Partial<Record<T, ReactNode>>}) {
   const id = useId();
-  const control = <div role="radiogroup" aria-labelledby={label ? id : undefined} className="flex flex-wrap gap-1 rounded-md bg-white/5 p-1">
+  // Up to four choices share one row; more (section layouts, for example) sit in a grid of three so no label is squeezed.
+  const many = options.length > 4;
+  const control = <div role="radiogroup" aria-labelledby={label ? id : undefined} className={`${many ? "grid grid-cols-3" : "flex"} gap-1 rounded-md bg-white/5 p-1`}>
     {options.map(option => <button key={option} type="button" role="radio" aria-checked={value === option} onClick={() => onChange(option)}
-      className={`min-w-0 flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${value === option ? "bg-sky-500 text-white" : "text-zinc-300 hover:bg-white/10"}`}>{labels?.[option] ?? humanize(option)}</button>)}
+      className={`min-w-0 rounded px-2 py-1.5 text-xs font-medium leading-tight transition-colors [overflow-wrap:break-word] ${many ? "" : "flex-1"} ${value === option ? "bg-sky-500 text-white" : "text-zinc-300 hover:bg-white/10"}`}>{labels?.[option] ?? humanize(option)}</button>)}
   </div>;
   return label ? <div className="space-y-1.5"><p id={id} className="text-[13px] font-medium text-zinc-200">{label}</p>{control}</div> : control;
 }

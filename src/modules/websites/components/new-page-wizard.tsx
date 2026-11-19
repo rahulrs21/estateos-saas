@@ -10,9 +10,11 @@ import type { SourceOption } from "@/modules/ai/content/client";
 import { SourcePicker } from "@/modules/ai/content/components/source-picker";
 import { errorMessage, websitesGet, websitesSend } from "../client";
 import { MAX_BRIEF_CHARS } from "../policy";
-import { DESIGN_STYLES, DESIGN_STYLE_LABELS, slugify, type DesignStyle } from "../registry";
+import { DESIGN_STYLE_LABELS, slugify, type DesignStyle } from "../registry";
+import { STYLE_STRUCTURES, type PageStructure } from "../structures";
 import { PAGE_TEMPLATES, TEMPLATE_KEYS, type TemplateKey } from "../templates";
 import type { websitesOverview } from "../server/service";
+import { StylePicker, StylePreviewDialog, StructurePicker, type PreviewTarget } from "./style-gallery";
 
 type Overview = Awaited<ReturnType<typeof websitesOverview>>;
 type Mode = "AI" | "TEMPLATE" | "BLANK" | "DUPLICATE";
@@ -36,6 +38,8 @@ export function NewPageWizard({organizationId, initial}: {organizationId: string
   const [slug, setSlug] = useState("");
   const [brief, setBrief] = useState("");
   const [style, setStyle] = useState<DesignStyle | "">("");
+  const [structure, setStructure] = useState<PageStructure | "">("");
+  const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const [template, setTemplate] = useState<TemplateKey>("PROJECT_SHOWCASE");
   const [sourceKind, setSourceKind] = useState<SourceKind>(initial.listingId ? "listing" : initial.propertyId ? "property" : initial.projectId ? "project" : "project");
   const [source, setSource] = useState<SourceOption[]>(() => {
@@ -67,7 +71,7 @@ export function NewPageWizard({organizationId, initial}: {organizationId: string
     setBusy(true); setError(null);
     try {
       const result = mode === "AI"
-        ? await websitesSend<{pageId: string}>("/api/websites/pages/generate", organizationId, "POST", {title: title.trim(), slug: slugValue, brief: brief.trim(), style: style || null, ...sources}, "Claude could not design the page.")
+        ? await websitesSend<{pageId: string}>("/api/websites/pages/generate", organizationId, "POST", {title: title.trim(), slug: slugValue, brief: brief.trim(), style: style || null, structure: structure || null, ...sources}, "Claude could not design the page.")
         : await websitesSend<{id: string}>("/api/websites/pages", organizationId, "POST", {
           mode, title: title.trim(), slug: slugValue, ...(mode === "TEMPLATE" ? {templateKey: template} : {}), ...(mode === "DUPLICATE" ? {sourcePageId: duplicateOf} : {}),
           ...(mode === "BLANK" && style ? {style} : {}), ...(mode === "DUPLICATE" ? {} : sources),
@@ -80,8 +84,9 @@ export function NewPageWizard({organizationId, initial}: {organizationId: string
     }
   };
 
-  return <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-    <div className="space-y-6">
+  return <div className="space-y-6">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div className="min-w-0 space-y-6">
       <fieldset className="space-y-2"><legend className="mb-2 text-sm font-medium">How do you want to start?</legend>
         <div className="grid gap-3 sm:grid-cols-2">{MODES.map(item => <label key={item.mode} className={`flex cursor-pointer gap-3 rounded-xl border p-4 text-sm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring ${mode === item.mode ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}>
           <input type="radio" name="mode" value={item.mode} checked={mode === item.mode} onChange={() => setMode(item.mode)} className="sr-only" />
@@ -106,19 +111,38 @@ export function NewPageWizard({organizationId, initial}: {organizationId: string
             {sourceKind !== "none" && <SourcePicker kind={sourceKind} selected={source} onChange={setSource} hint={sourceKind === "property" ? "Properties are advertised through listings. Choose the listing if you plan to publish this page." : "Prices, units, payment plans, photos and the map come from this record."} />}
           </> : <p className="text-sm text-muted-foreground">Your role has no inventory access, so pages you create are not linked to projects or listings. An owner or administrator can link them later.</p>}
         </fieldset>}
+    </div>
+    <aside data-testid="wizard-next-steps" className="space-y-3 self-start rounded-xl border bg-muted/30 p-4 text-sm">
+      <h2 className="font-semibold">What happens next</h2>
+      <ol className="list-decimal space-y-2 ps-4 text-muted-foreground">
+        <li>The page opens in the editor as a private draft.</li>
+        <li>Edit sections, images, colours and buttons; preview on desktop, tablet and mobile.</li>
+        <li>An owner or administrator connects a lead form, reviews the checklist, approves and publishes.</li>
+      </ol>
+      <p className="text-xs text-muted-foreground">Drafts are never public and are not indexed by search engines.</p>
+    </aside>
+    </div>
 
-      {mode === "TEMPLATE" && <fieldset><legend className="mb-2 text-sm font-medium">Template</legend>
-        <div className="grid gap-3 sm:grid-cols-2">{TEMPLATE_KEYS.map(key => <label key={key} className={`cursor-pointer rounded-xl border p-4 text-sm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring ${template === key ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}>
+    <div className="min-w-0 space-y-6" data-testid="wizard-design">
+      {mode === "TEMPLATE" && <fieldset className="min-w-0"><legend className="mb-2 text-sm font-medium">Template</legend>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{TEMPLATE_KEYS.map(key => <label key={key} className={`cursor-pointer rounded-xl border p-4 text-sm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring ${template === key ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}>
           <input type="radio" name="template" className="sr-only" checked={template === key} onChange={() => setTemplate(key)} />
           <span className="block font-medium">{PAGE_TEMPLATES[key].name}</span><span className="text-muted-foreground">{PAGE_TEMPLATES[key].description}</span>
           <span className="mt-2 block text-xs text-muted-foreground">{DESIGN_STYLE_LABELS[PAGE_TEMPLATES[key].style]} · best for {PAGE_TEMPLATES[key].bestFor === "any" ? "any page" : `a ${PAGE_TEMPLATES[key].bestFor}`}</span>
         </label>)}</div>
       </fieldset>}
 
-      {(mode === "AI" || mode === "BLANK") && <div className="space-y-1.5"><Label htmlFor="page-style">Design style</Label>
-        <select id="page-style" className="h-8 w-full rounded-lg border bg-background px-2 text-sm" value={style} onChange={event => setStyle(event.target.value as DesignStyle | "")}>
-          <option value="">{mode === "AI" ? "Let Claude choose" : "Contemporary Real Estate"}</option>{DESIGN_STYLES.map(item => <option key={item} value={item}>{DESIGN_STYLE_LABELS[item]}</option>)}
-        </select></div>}
+      {(mode === "AI" || mode === "BLANK") && <StylePicker allowAuto={mode === "AI"} value={mode === "AI" ? style || null : style || "CONTEMPORARY"} onChange={next => setStyle(next ?? "")}
+        structure={mode === "AI" ? structure || null : null} onPreview={setPreview} />}
+
+      {mode === "AI" && <StructurePicker value={structure || null} onChange={next => setStructure(next ?? "")} style={style || null} onPreview={setPreview} />}
+
+      {preview && <StylePreviewDialog target={preview} onClose={() => setPreview(null)} onUse={target => {
+        setStyle(target.style);
+        // A structure other than the style's own is kept as an explicit choice.
+        if (mode === "AI") setStructure(target.structure === STYLE_STRUCTURES[target.style] ? "" : target.structure);
+        setPreview(null);
+      }} />}
 
       {mode === "AI" && <div className="space-y-1.5"><Label htmlFor="page-brief">Describe the page</Label>
         <textarea id="page-brief" className="min-h-32 w-full rounded-lg border bg-background px-3 py-2 text-sm" maxLength={MAX_BRIEF_CHARS} value={brief} onChange={event => setBrief(event.target.value)}
@@ -131,14 +155,5 @@ export function NewPageWizard({organizationId, initial}: {organizationId: string
         {busy && mode === "AI" && <p className="text-sm text-muted-foreground" role="status">This usually takes 20–60 seconds. Nothing is saved unless the page passes validation.</p>}
       </div>
     </div>
-    <aside className="space-y-3 rounded-xl border bg-muted/30 p-4 text-sm">
-      <h2 className="font-semibold">What happens next</h2>
-      <ol className="list-decimal space-y-2 ps-4 text-muted-foreground">
-        <li>The page opens in the editor as a private draft.</li>
-        <li>Edit sections, images, colours and buttons; preview on desktop, tablet and mobile.</li>
-        <li>An owner or administrator connects a lead form, reviews the checklist, approves and publishes.</li>
-      </ol>
-      <p className="text-xs text-muted-foreground">Drafts are never public and are not indexed by search engines.</p>
-    </aside>
   </div>;
 }

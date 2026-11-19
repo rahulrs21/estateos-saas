@@ -13,7 +13,8 @@ import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { validateInput } from "@/modules/organizations/server/validation";
 import { pageFactWarnings, parsePageValidation, serializePageValidation, type PageValidationRecord } from "../ai";
 import { buildChecklist, missingAttestations, type Checklist } from "../checklist";
-import { fingerprintSource, linkedDataChanges, publicPageData, sectionImageRefs, unknownImageRefs, uploadIdsOf, usedMediaIds, usedUploadIds, withoutUnknownCrmImages, type LinkedData } from "../linked";
+import { fingerprintSource, linkedDataChanges, publicPageData, sectionImageRefs, unknownImageRefs, uploadIdsOf, uploadUses, usedMediaIds, usedUploadIds, withoutUnknownCrmImages, type LinkedData } from "../linked";
+import { isImageUploadType, isVideoUploadType } from "../uploads";
 import { stockImage, stockImageUrl } from "../stock";
 import {
   approveSchema, createPageSchema, formBindingSchema, publishSchema, rejectSchema, restoreSchema, revisionSchema, savePageSchema, websiteSettingsSchema,
@@ -198,14 +199,24 @@ function imageRefs(data: PageData) {
   return new Set(data.sections.flatMap(section => sectionImageRefs(section)).flatMap(ref => isCrmImageRef(ref) ? [ref.mediaId] : []));
 }
 
-/** New website library images must be active uploads of this company; archived ones may stay where they already were. */
+/**
+ * New website library uploads must be active uploads of this company;
+ * archived ones may stay where they already were. An image slot takes an
+ * image and a video slot a video.
+ */
 async function assertUploadsUsable(context: Context, data: PageData, previous: PageData | null) {
   const ids = uploadIdsOf(data);
   if (!ids.length) return;
-  const status = new Map((await mediaByIds(context, ids)).map(row => [row.id, row.status]));
+  const rows = new Map((await mediaByIds(context, ids)).map(row => [row.id, row]));
   const kept = new Set(previous ? uploadIdsOf(previous) : []);
-  if (ids.some(id => !status.has(id) || (status.get(id) !== "ACTIVE" && !kept.has(id)))) {
-    throw new WorkspaceError("VALIDATION_ERROR", 400, "An uploaded image on this page is no longer in the website library. Choose another image.");
+  if (ids.some(id => !rows.has(id) || (rows.get(id)!.status !== "ACTIVE" && !kept.has(id)))) {
+    throw new WorkspaceError("VALIDATION_ERROR", 400, "An uploaded image or video on this page is no longer in the website library. Choose another one.");
+  }
+  for (const use of uploadUses(data)) {
+    const type = rows.get(use.id)!.contentType;
+    if (use.kind === "video" ? !isVideoUploadType(type) : !isImageUploadType(type)) {
+      throw new WorkspaceError("VALIDATION_ERROR", 400, use.kind === "video" ? "A video slot on this page holds a file that is not a video. Choose a video." : "An image slot on this page holds a file that is not an image. Choose an image.");
+    }
   }
 }
 
@@ -354,18 +365,18 @@ export async function publish(context: Context, rawId: string, raw: unknown) {
       throw new WorkspaceError("CONFLICT", 409, "A photo on this page is no longer available. Choose other photos and try again.");
     }
   }
-  // Website library images: stored objects of the uploads on visible sections (archived ones stay valid for an approved version).
+  // Website library images and videos: stored objects of the uploads on visible sections (archived ones stay valid for an approved version).
   const uploads = new Map((await mediaByIds(context, usedUploadIds(version.data))).map(row => [row.id, row]));
   for (const uploadId of usedUploadIds(version.data)) {
     const row = uploads.get(uploadId);
-    if (!row || !/^image\/(jpeg|png|webp)$/.test(row.contentType)) throw new WorkspaceError("CONFLICT", 409, "An uploaded image on this page is no longer available. Choose another image and try again.");
+    if (!row || !(isImageUploadType(row.contentType) || isVideoUploadType(row.contentType))) throw new WorkspaceError("CONFLICT", 409, "An uploaded image or video on this page is no longer available. Choose another one and try again.");
     assets[uploadId] = {storagePath: row.storagePath, contentType: row.contentType};
   }
   const hero = version.data.sections.find(section => section.type === "HERO" && section.visible);
   // Sharing image: the hero photo (CRM, upload or stock), else the first published photo.
   const heroImage = hero?.type === "HERO" ? hero.props.image ?? (hero.style.backgroundType === "IMAGE" ? hero.style.backgroundImage : null) : null;
   const heroAssetId = heroImage && isCrmImageRef(heroImage) ? canonicalUuid(heroImage.mediaId) : heroImage && isUploadImageRef(heroImage) ? canonicalUuid(heroImage.uploadId) : null;
-  const ogImageMediaId = heroAssetId && assets[heroAssetId] ? heroAssetId : heroImage ? null : Object.keys(assets)[0] ?? null;
+  const ogImageMediaId = heroAssetId && assets[heroAssetId] ? heroAssetId : heroImage ? null : Object.keys(assets).find(assetId => assets[assetId].contentType.startsWith("image/")) ?? null;
   const stockHero = heroImage && isStockImageRef(heroImage) ? stockImage(heroImage.stockId) : null;
   const ogImageUrl = stockHero ? stockImageUrl(stockHero, 1200) : ogImageMediaId ? publicMediaPath(publicationId, ogImageMediaId) : null;
   const snapshot: PublishedSnapshot = {

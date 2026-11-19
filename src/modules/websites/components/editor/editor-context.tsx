@@ -4,6 +4,10 @@ import { createContext, useContext } from "react";
 import type { LinkedAgent, LinkedUpload } from "../../linked";
 import type { PageSection } from "../../registry";
 import type { EditorPayload } from "../../server/service";
+import type { ElementKind } from "../../theme";
+
+/** An element drawn on the canvas: its key (a prop path such as "headline" or "items.2"), kind and the group it sits in. */
+export interface CanvasElement { key: string; kind: ElementKind; parent: string | null; depth: number }
 
 /*
  * Page-level services for editor controls that act outside the page data:
@@ -26,6 +30,10 @@ export interface EditorServices {
   elementIds: () => Set<string>;
   /** The sections of the current draft (menu links). */
   pageSections: () => PageSection[];
+  /** The elements of a section as drawn on the canvas, in page order. */
+  canvasElements: (sectionId: string) => CanvasElement[];
+  /** Selects an element of a section, as a click on the canvas does. */
+  selectElement: (sectionId: string, key: string, kind: ElementKind) => void;
 }
 
 export const EditorServicesContext = createContext<EditorServices | null>(null);

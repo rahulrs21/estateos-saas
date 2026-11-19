@@ -218,7 +218,7 @@ const t = (key: string, label: string, max: number, hint?: string): Spec => ({ke
 const ta = (key: string, label: string, max: number, hint?: string): Spec => ({key, label, kind: "textarea", max, hint});
 const ICON_OPTIONS = Object.fromEntries(HIGHLIGHT_ICONS.map(icon => [icon, humanize(icon)]));
 const WIDGET_FIELD_SPECS: Record<WidgetType, Spec[]> = {
-  HEADING: [t("eyebrow", "Small label above", 60), t("text", "Heading", 200), {key: "level", label: "Level", kind: "select", options: ["H2", "H3", "H4"]},
+  HEADING: [t("eyebrow", "Small label above", 60), t("text", "Heading", 200), {key: "level", label: "Level", kind: "select", options: ["H1", "H2", "H3", "H4"]},
     {key: "size", label: "Size", kind: "select", options: ["SM", "MD", "LG", "XL"], labels: {SM: "S", MD: "M", LG: "L", XL: "XL"}}],
   TEXT: [ta("text", "Text", 3000, "Plain text. Line breaks are kept."), {key: "size", label: "Size", kind: "select", options: ["SM", "MD", "LG"], labels: {SM: "S", MD: "M", LG: "L"}}, {key: "muted", label: "Softer colour", kind: "toggle"}],
   IMAGE: [{key: "image", label: "Image", kind: "image"}, {key: "ratio", label: "Shape", kind: "dropdown", options: ["AUTO", "SQUARE", "PORTRAIT", "LANDSCAPE", "WIDE"], labels: {AUTO: "4:3", SQUARE: "Square", PORTRAIT: "Portrait 4:5", LANDSCAPE: "Landscape 3:2", WIDE: "Wide 16:9"}},

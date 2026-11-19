@@ -29,7 +29,8 @@ const fieldHelp: Record<CaptureFieldKey, string> = {
   TRANSACTION_TYPE: "Buy, rent or invest", BUDGET_MIN: "Minimum budget", BUDGET_MAX: "Maximum budget", BEDROOM_PREFERENCE: "Bedroom preference",
 };
 
-export function LeadFormManager({ data }: { data: ManagerData }) {
+/** `origin` is the app's public origin (APP_ORIGIN), read on the server so the copied URLs are the public ones. */
+export function LeadFormManager({ data, origin }: { data: ManagerData; origin: string }) {
   const router = useRouter();
   const prefix = useId();
   const [form, setForm] = useState<CaptureFormInput>(initial);
@@ -88,7 +89,8 @@ export function LeadFormManager({ data }: { data: ManagerData }) {
     catch { setError("Clipboard access is unavailable. Select and copy the URL manually."); }
   }
 
-  const absoluteUrl = (path: string) => typeof window === "undefined" ? path : new URL(path, window.location.origin).toString();
+  // The same on the server and in the browser (no hydration mismatch).
+  const absoluteUrl = (path: string) => new URL(path, origin).toString();
 
   return <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
     <Card><CardContent className="p-5 sm:p-6">

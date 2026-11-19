@@ -3,6 +3,7 @@ import { canonicalUuid } from "../organizations/server/identifiers";
 import { ATTESTATIONS } from "./checklist";
 import { DESIGN_STYLES, plainText, slugSchema } from "./registry";
 import { SECTION_TEMPLATE_CATEGORIES } from "./library";
+import { PAGE_STRUCTURES } from "./structures";
 import { TEMPLATE_KEYS } from "./templates";
 
 /**
@@ -38,14 +39,40 @@ export const generatePageSchema = z.strictObject({
   slug: slugSchema.optional(),
   brief: plainText(MAX_BRIEF_CHARS),
   style: z.enum(DESIGN_STYLES).nullable().optional(),
+  /** Null uses the style's own structure; with no style either, Claude chooses both. */
+  structure: z.enum(PAGE_STRUCTURES).nullable().optional(),
   templateKey: z.enum(TEMPLATE_KEYS).nullable().optional(),
   projectId: optionalId, propertyId: optionalId, listingId: optionalId,
 }).refine(value => !(value.propertyId && value.listingId), {path: ["propertyId"], message: "Choose a listing or a property, not both."});
+
+/** A readable message for the first problem in a generation request (wizard and editor). */
+export function generationRequestProblem(issues: ReadonlyArray<{code: string; path: ReadonlyArray<PropertyKey>}>): string {
+  const issue = issues[0];
+  if (!issue) return "Check the supplied details and try again.";
+  // A field the server does not know: the browser has a newer or older version of the form than the server.
+  if (issue.code === "unrecognized_keys") return "This form is out of date. Reload the page and try again.";
+  const field = String(issue.path[0] ?? "");
+  if (issue.code === "custom" && field === "propertyId") return "Choose a listing or a property, not both.";
+  const messages: Record<string, string> = {
+    title: "Give the page a title (up to 160 characters, plain text).",
+    slug: "Use lowercase letters, numbers and single hyphens for the page address.",
+    brief: "Describe the page in plain text, up to 2,000 characters. HTML, scripts and links cannot be used.",
+    style: "Choose a design style from the list.",
+    structure: "Choose a page structure from the list.",
+    templateKey: "Choose a template from the list.",
+    projectId: "The linked record could not be read. Choose it again.",
+    propertyId: "The linked record could not be read. Choose it again.",
+    listingId: "The linked record could not be read. Choose it again.",
+    expectedRevision: "This page changed. Reload it and try again.",
+  };
+  return messages[field] ?? "Check the supplied details and try again.";
+}
 
 export const regeneratePageSchema = z.strictObject({
   expectedRevision: revision,
   brief: plainText(MAX_BRIEF_CHARS),
   style: z.enum(DESIGN_STYLES).nullable().optional(),
+  structure: z.enum(PAGE_STRUCTURES).nullable().optional(),
 });
 
 export const savePageSchema = z.strictObject({
