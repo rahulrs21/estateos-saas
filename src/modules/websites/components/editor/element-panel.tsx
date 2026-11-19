@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { toast } from "sonner";
+import type { ElementClip } from "../../element-ops";
 import { ArrowLeft, ClipboardPaste, Copy, Image as ImageIcon, MousePointerClick, PanelsTopLeft, RotateCcw, Square, Type } from "lucide-react";
 import { DEFAULT_ELEMENT_STYLE, ELEMENT_ALIGNS, ELEMENT_CASES, ELEMENT_FONTS, ELEMENT_WEIGHTS, MAX_BOX, MAX_OFFSET, type ElementStyle, type Offset } from "../../registry";
 import { mobileSize, type ElementKind } from "../../theme";
-import { ColorControl, Group, OffsetControl, OptionalSlider, Segmented, Slider, TextControl, Toggle } from "./controls";
+import { ColorControl, Group, OffsetControl, OptionalSlider, Segmented, Slider, Toggle } from "./controls";
 
 /*
  * Styles one element on its own: a heading, eyebrow, paragraph, button,
@@ -19,11 +21,17 @@ type Choice<T extends string> = T | typeof DEFAULT;
 const choice = <T extends string>(value: T | null): Choice<T> => value ?? DEFAULT;
 const unchoice = <T extends string>(value: Choice<T>): T | null => value === DEFAULT ? null : value as T;
 
-/** Copy and paste between elements of the same editor session. */
+/** Copy and paste between elements of the same editor session (the panel buttons and the right-click menu share it). */
 let styleClipboard: ElementStyle | null = null;
+export const copiedElementStyle = () => styleClipboard;
+export function copyElementStyle(style: ElementStyle) { styleClipboard = structuredClone(style); }
+/** The copied element itself (its content and style), for right-click Paste. */
+let elementClipboard: ElementClip | null = null;
+export const copiedElement = () => elementClipboard;
+export function copyElementContent(clip: ElementClip) { elementClipboard = structuredClone(clip); }
 
 /** Widgets have their own alignment and device visibility, so they leave those groups out. */
-export function ElementStyleControls({value, kind, onChange, widget = false}: {value: ElementStyle; kind: ElementKind; onChange: (style: ElementStyle) => void; widget?: boolean}) {
+export function ElementStyleControls({value, kind, onChange, widget = false, visibility = true}: {value: ElementStyle; kind: ElementKind; onChange: (style: ElementStyle) => void; widget?: boolean; visibility?: boolean}) {
   const set = (patch: Partial<ElementStyle>) => onChange({...value, ...patch});
   const typography = kind === "text" || kind === "button";
   return <div>
@@ -55,7 +63,7 @@ export function ElementStyleControls({value, kind, onChange, widget = false}: {v
       {kind !== "button" && <OptionalSlider label="Maximum width" value={value.maxWidth} min={80} max={1600} step={10} unit="px" fallback={kind === "image" ? 560 : 640} onChange={maxWidth => set({maxWidth})} />}
       <Slider label="Opacity" value={value.opacity} min={10} max={100} step={5} unit="%" onChange={opacity => set({opacity})} />
     </Group>
-    {!widget && <Group title="Visibility" defaultOpen={false}>
+    {!widget && visibility && <Group title="Visibility" defaultOpen={false}>
       {(["desktop", "tablet", "mobile"] as const).map(device => <Toggle key={device} label={`Show on ${device}`} checked={value.devices[device]} onChange={checked => set({devices: {...value.devices, [device]: checked}})} />)}
       <p className="text-[11px] text-zinc-500">Hidden elements are faded in the editor and left out on that device for visitors.</p>
     </Group>}
@@ -64,14 +72,23 @@ export function ElementStyleControls({value, kind, onChange, widget = false}: {v
 
 export interface ElementText { value: string; max: number; multiline: boolean; onChange: (value: string) => void }
 
-export function ElementPanel({label, sectionLabel, kind, style, offset, text, onStyle, onOffset, onReset, onBack}: {
-  label: string; sectionLabel: string; kind: ElementKind; style: ElementStyle; offset: Offset; text: ElementText | null;
+type ElementTab = "content" | "style" | "advanced";
+const TAB_LABELS: Record<ElementTab, string> = {content: "Content", style: "Style", advanced: "Advanced"};
+
+/**
+ * One element, in three tabs like a section: Content (its text, button,
+ * image, list item or form, or the parts of a group), Style (typography,
+ * colour, shape) and Advanced (moving, spacing and devices).
+ */
+export function ElementPanel({label, sectionLabel, kind, style, offset, content, onStyle, onOffset, onReset, onBack}: {
+  label: string; sectionLabel: string; kind: ElementKind; style: ElementStyle; offset: Offset; content: ReactNode;
   onStyle: (style: ElementStyle) => void; onOffset: (offset: Offset) => void; onReset: () => void; onBack: () => void;
 }) {
-  const [tab, setTab] = useState<"style" | "position">("style");
+  const [tab, setTab] = useState<ElementTab>("content");
   const [, setPasted] = useState(0);
   const Icon = KIND_ICONS[kind];
   const changed = JSON.stringify(style) !== JSON.stringify(DEFAULT_ELEMENT_STYLE);
+  const set = (patch: Partial<ElementStyle>) => onStyle({...style, ...patch});
   return <div>
     <div className="flex items-center gap-1.5 border-b border-white/10 bg-sky-500/10 px-3 py-2 text-xs">
       <button type="button" onClick={onBack} className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-zinc-300 hover:bg-white/10 hover:text-white" aria-label={`Back to ${sectionLabel}`}><ArrowLeft className="size-3.5" aria-hidden="true" />{sectionLabel}</button>
@@ -79,22 +96,28 @@ export function ElementPanel({label, sectionLabel, kind, style, offset, text, on
       <span className="flex min-w-0 flex-1 items-center gap-1.5 font-semibold text-white"><Icon className="size-3.5 shrink-0 text-sky-300" aria-hidden="true" /><span className="truncate" data-testid="element-panel-title">{label}</span>
         <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-300">{ELEMENT_KIND_LABELS[kind]}</span></span>
     </div>
-    <div role="tablist" aria-label="Element settings" className="sticky top-0 z-10 grid grid-cols-2 border-b border-white/10 bg-zinc-900">
-      {(["style", "position"] as const).map(option => <button key={option} type="button" role="tab" aria-selected={tab === option} onClick={() => setTab(option)}
-        className={`border-b-2 py-3 text-xs font-semibold uppercase tracking-wider ${tab === option ? "border-sky-400 text-white" : "border-transparent text-zinc-400 hover:text-white"}`}>{option}</button>)}
+    <div role="tablist" aria-label="Element settings" className="sticky top-0 z-10 grid grid-cols-3 border-b border-white/10 bg-zinc-900">
+      {(["content", "style", "advanced"] as const).map(option => <button key={option} type="button" role="tab" aria-selected={tab === option} onClick={() => setTab(option)} data-testid={`element-tab-${option}`}
+        className={`border-b-2 py-3 text-xs font-semibold uppercase tracking-wider ${tab === option ? "border-sky-400 text-white" : "border-transparent text-zinc-400 hover:text-white"}`}>{TAB_LABELS[option]}</button>)}
     </div>
-    {tab === "style" && <div role="tabpanel">
-      {text && <div className="border-b border-white/10 p-4"><TextControl label="Text" value={text.value} max={text.max} multiline={text.multiline} onChange={text.onChange} hint="You can also type on the canvas." /></div>}
-      <ElementStyleControls value={style} kind={kind} onChange={onStyle} />
-    </div>}
-    {tab === "position" && <div role="tabpanel" className="space-y-5 p-4">
-      <OffsetControl label={`Move "${label}"`} value={offset} max={MAX_OFFSET} onChange={onOffset} hint="Alt + arrow keys nudge it on the canvas (add Shift for 20 px). Moving does not push other content." />
-      <OptionalSlider label="Space above" value={style.spaceBefore} min={-MAX_BOX} max={MAX_BOX} step={2} unit="px" fallback={0} onChange={spaceBefore => onStyle({...style, spaceBefore})} hint="Unlike moving, spacing pushes the content below." />
-      <OptionalSlider label="Space below" value={style.spaceAfter} min={-MAX_BOX} max={MAX_BOX} step={2} unit="px" fallback={0} onChange={spaceAfter => onStyle({...style, spaceAfter})} />
+    {tab === "content" && <div role="tabpanel" className="space-y-4 p-4">{content}</div>}
+    {tab === "style" && <div role="tabpanel"><ElementStyleControls value={style} kind={kind} onChange={onStyle} visibility={false} /></div>}
+    {tab === "advanced" && <div role="tabpanel">
+      <Group title="Position">
+        <OffsetControl label={`Move "${label}"`} value={offset} max={MAX_OFFSET} onChange={onOffset} hint="Or drag the handle on the canvas; Alt + arrow keys nudge it (add Shift for 20 px). Moving does not push other content." />
+      </Group>
+      <Group title="Spacing">
+        <OptionalSlider label="Space above" value={style.spaceBefore} min={-MAX_BOX} max={MAX_BOX} step={2} unit="px" fallback={0} onChange={spaceBefore => set({spaceBefore})} hint="Unlike moving, spacing pushes the content below." />
+        <OptionalSlider label="Space below" value={style.spaceAfter} min={-MAX_BOX} max={MAX_BOX} step={2} unit="px" fallback={0} onChange={spaceAfter => set({spaceAfter})} />
+      </Group>
+      <Group title="Visibility">
+        {(["desktop", "tablet", "mobile"] as const).map(device => <Toggle key={device} label={`Show on ${device}`} checked={style.devices[device]} onChange={checked => set({devices: {...style.devices, [device]: checked}})} />)}
+        <p className="text-[11px] text-zinc-500">Hidden elements are faded in the editor and left out on that device for visitors.</p>
+      </Group>
     </div>}
     <div className="flex flex-wrap gap-1.5 border-t border-white/10 p-4">
-      <button type="button" onClick={() => { styleClipboard = style; setPasted(count => count + 1); }} className="inline-flex items-center gap-1.5 rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-zinc-200 hover:border-sky-400"><Copy className="size-3.5" aria-hidden="true" />Copy style</button>
-      <button type="button" disabled={!styleClipboard} onClick={() => styleClipboard && onStyle({...styleClipboard})} className="inline-flex items-center gap-1.5 rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-zinc-200 hover:border-sky-400 disabled:opacity-40"><ClipboardPaste className="size-3.5" aria-hidden="true" />Paste style</button>
+      <button type="button" onClick={() => { copyElementStyle(style); setPasted(count => count + 1); toast.success(changed ? `Style of "${label}" copied. Paste it on another element.` : `"${label}" has no style of its own yet: change its colour, font or size first.`); }} className="inline-flex items-center gap-1.5 rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-zinc-200 hover:border-sky-400"><Copy className="size-3.5" aria-hidden="true" />Copy style</button>
+      <button type="button" disabled={!styleClipboard} onClick={() => { if (styleClipboard) { onStyle(structuredClone(styleClipboard)); toast.success(`Style pasted on "${label}".`); } }} className="inline-flex items-center gap-1.5 rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-zinc-200 hover:border-sky-400 disabled:opacity-40"><ClipboardPaste className="size-3.5" aria-hidden="true" />Paste style</button>
       {(changed || offset.x !== 0 || offset.y !== 0) && <button type="button" onClick={onReset} className="ml-auto inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-white/10 hover:text-white"><RotateCcw className="size-3.5" aria-hidden="true" />Reset element</button>}
     </div>
   </div>;

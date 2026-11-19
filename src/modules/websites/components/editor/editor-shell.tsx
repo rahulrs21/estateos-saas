@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from "react";
 import {
-  ArrowDown, ArrowLeft, ArrowUp, BookmarkPlus, ClipboardPaste, Copy, Eye, EyeOff, GripVertical, Layers, LayoutGrid, Loader2, Monitor, Paintbrush, PanelLeftClose, PanelLeftOpen, Plus,
-  Keyboard, Redo2, Rocket, Save, Settings2, Smartphone, Sparkles, Tablet, Trash2, Undo2, X,
+  ArrowDown, ArrowLeft, ArrowUp, BookmarkPlus, Shapes, ClipboardPaste, Copy, CopyPlus, Eye, PaintBucket, EyeOff, GripVertical, Layers, LayoutGrid, Loader2, Monitor, Paintbrush, PanelLeftClose, PanelLeftOpen, Plus,
+  Keyboard, Redo2, Rocket, Save, Settings2, Smartphone, Sparkles, Tablet, Trash2, Undo2, X, RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { STATUS_LABELS, WebsiteRequestError, errorMessage, websitesGet, websitesSend } from "../../client";
@@ -12,8 +12,9 @@ import { sectionAvailability } from "../../linked";
 import { MAX_BRIEF_CHARS } from "../../policy";
 import {
   acceptsExtra, DESIGN_STYLES, DESIGN_STYLE_LABELS, MAX_OFFSET, MAX_SECTIONS, SECTION_DEFINITIONS, WIDGET_DEFINITIONS, WIDGET_TYPES, sectionWidgets, withStyleDefaults, type WidgetType, createSection, newSectionId, pageDataSchema,
-  type PageData, type PageSection, type SectionType,
+  type PageData, type PageSection, type SectionType, DEFAULT_ELEMENT_STYLE, isDefaultElementStyle,
 } from "../../registry";
+import { PAGE_STRUCTURES, STRUCTURE_DEFINITIONS } from "../../structures";
 import type { EditorPayload } from "../../server/service";
 import type { ElementKind } from "../../theme";
 import { PageRenderer, type EditBindings } from "../page-renderer";
@@ -21,8 +22,14 @@ import { PublishPanel } from "../publish-panel";
 import { addToSection, createWidget, duplicateWidget, formWidgetCount, insertWidget, isColumnPath, newRow, pageElementIds, parseWidgetPath, relocateWidget, removeWidget, widgetAt, withFreshIds } from "../../custom-ops";
 import { DRAG_MOVE, DRAG_NEW, DRAG_PLACED, DRAG_WIDGET, ElementsPanel, NavigatorPanel, PageSettingsPanel, SECTION_ICONS, SiteStylePanel, type PageMeta } from "./panels";
 import { BrandContactsDrawer } from "./connections";
-import { EditorServicesContext, type EditorServices } from "./editor-context";
+import { EditorServicesContext, type CanvasElement, type EditorServices } from "./editor-context";
+import { MoveHandle } from "./move-handle";
+import { NavigatorDock } from "./navigator-dock";
+import { copiedElement, copiedElementStyle, copyElementContent, copyElementStyle } from "./element-panel";
+import { withOwnFacts, canDeleteElement, canDuplicateElement, copyElement, deleteElement, duplicateElement, isListElement, moveElement, pasteElement, setElementHidden, setElementOrder, type ElementResult } from "../../element-ops";
 import { MySections, SaveSectionDialog } from "./library";
+import { ConvertSectionDialog } from "./convert-dialog";
+import { convertBlocker, convertToCustom } from "../../convert";
 import { ChecklistFixAction } from "./publish-fixes";
 import { StructurePicker } from "./structure-picker";
 import { ShortcutSheet } from "./shortcuts";
@@ -31,9 +38,12 @@ import { SectionPanel, elementLabel, type Device, type SectionTab } from "./sect
 interface Draft { data: PageData; meta: PageMeta }
 type LeftTab = "elements" | "navigator" | "style" | "page" | "publish";
 const HISTORY_LIMIT = 80;
-type MenuKey = "edit" | "duplicate" | "copy" | "paste" | "save" | "up" | "down" | "toggle" | "delete";
+type MenuKey = "edit" | "duplicate" | "copy" | "paste" | "save" | "convert" | "up" | "down" | "toggle" | "delete";
 const MENU_ITEMS = [["edit", "Edit section", Settings2], ["duplicate", "Duplicate", Copy], ["copy", "Copy style", Paintbrush], ["paste", "Paste style", ClipboardPaste], ["save", "Save to library", BookmarkPlus],
-  ["up", "Move up", ArrowUp], ["down", "Move down", ArrowDown], ["toggle", "Hide", EyeOff], ["delete", "Delete", Trash2]] as const satisfies ReadonlyArray<readonly [MenuKey, string, unknown]>;
+  ["convert", "Convert to custom section", Shapes], ["up", "Move up", ArrowUp], ["down", "Move down", ArrowDown], ["toggle", "Hide", EyeOff], ["delete", "Delete", Trash2]] as const satisfies ReadonlyArray<readonly [MenuKey, string, unknown]>;
+type ElementMenuKey = "edit" | "duplicate" | "copy" | "paste" | "copyStyle" | "pasteStyle" | "hide" | "reset" | "delete" | "section";
+const ELEMENT_MENU_ITEMS = [["edit", "Edit", Settings2], ["duplicate", "Duplicate", CopyPlus], ["copy", "Copy", Copy], ["paste", "Paste", ClipboardPaste], ["copyStyle", "Copy style", Paintbrush], ["pasteStyle", "Paste style", PaintBucket],
+  ["hide", "Hide", EyeOff], ["reset", "Reset style and position", RotateCcw], ["delete", "Delete", Trash2], ["section", "Edit section", Settings2]] as const satisfies ReadonlyArray<readonly [ElementMenuKey, string, unknown]>;
 const DEVICE_WIDTHS: Record<Device, string> = {desktop: "100%", tablet: "820px", mobile: "390px"};
 
 /** Below 1024 px the editor panel becomes a drawer and a bottom bar holds the main actions. */
@@ -71,6 +81,7 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
   const [selected, setSelected] = useState<string | null>(null);
   const [brandOpen, setBrandOpen] = useState(false);
   const [saveSection, setSaveSection] = useState<PageSection | null>(null);
+  const [convertSection, setConvertSection] = useState<PageSection | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [zoom, setZoom] = useState<1 | 0.75>(1);
   /** An element clicked on the canvas (its prop path), only while its section is selected. */
@@ -89,6 +100,11 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
   const [drawerOpen, setDrawerOpen] = useState(false);
   const draftRef = useRef<Draft | null>(null);
   const [leftTab, setLeftTab] = useState<LeftTab>("elements");
+  const [navigatorMinimised, setNavigatorMinimisedState] = useState(() => typeof window !== "undefined" && window.localStorage.getItem("estateos.editor.navigator") === "minimised");
+  const setNavigatorMinimised = useCallback((value: boolean) => {
+    setNavigatorMinimisedState(value);
+    try { window.localStorage.setItem("estateos.editor.navigator", value ? "minimised" : "open"); } catch { /* private browsing: not remembered */ }
+  }, []);
   const [panelOpen, setPanelOpen] = useState(true);
   const [device, setDevice] = useState<Device>("desktop");
   const [preview, setPreview] = useState(false);
@@ -97,9 +113,9 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
   const [previewVersion, setPreviewVersion] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const [dropAt, setDropAt] = useState<{id: string; before: boolean} | null>(null);
-  const [menu, setMenu] = useState<{x: number; y: number; id: string} | null>(null);
+  const [menu, setMenu] = useState<{x: number; y: number; id: string; element?: {key: string; kind: ElementKind}} | null>(null);
   const [styleClipboard, setStyleClipboard] = useState<Pick<PageSection, "style" | "layout"> | null>(null);
-  const [generating, setGenerating] = useState<{brief: string; style: string} | null>(null);
+  const [generating, setGenerating] = useState<{brief: string; style: string; structure: string} | null>(null);
   const [generateBusy, setGenerateBusy] = useState(false);
   const announce = useRef<HTMLParagraphElement>(null);
   /** Set by a canvas "+" button: the next element chosen is inserted after this section. */
@@ -433,13 +449,51 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
       return {...previous, linked: {...data.linked, agents, uploads}, form: data.form, forms: data.forms, checklist: data.checklist, permissions: data.permissions, page: {...previous.page, revision: data.page.revision}};
     });
   }, [pageId]);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLElement>(null);
+  // Bumped when the canvas changes, so the Navigator and element panel re-read its elements.
+  const [, setCanvasVersion] = useState(0);
+  const ready = Boolean(payload && draft);
+  useEffect(() => {
+    const node = canvasRef.current;
+    if (!ready || !node) return;
+    let frame = 0;
+    const changed = new MutationObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => setCanvasVersion(version => version + 1)); });
+    changed.observe(node, {subtree: true, childList: true, attributes: true, attributeFilter: ["data-move-key"]});
+    frame = requestAnimationFrame(() => setCanvasVersion(version => version + 1));
+    return () => { cancelAnimationFrame(frame); changed.disconnect(); };
+  }, [ready]);
+  const canvasElements = useCallback((sectionId: string): CanvasElement[] => {
+    const root = canvasRef.current?.querySelector(`[data-editor-section="${CSS.escape(sectionId)}"]`);
+    if (!root) return [];
+    const seen = new Set<string>();
+    return [...root.querySelectorAll<HTMLElement>("[data-move-key]")].filter(node => !node.closest("[data-widget-path]")).flatMap(node => {
+      const key = node.getAttribute("data-move-key") ?? "";
+      if (!key || seen.has(key)) return [];
+      seen.add(key);
+      const raw = node.getAttribute("data-element-kind");
+      const kind: ElementKind = raw === "button" || raw === "image" || raw === "block" || raw === "card" ? raw : "text";
+      let parent: string | null = null;
+      let depth = 0;
+      for (let up = node.parentElement?.closest<HTMLElement>("[data-move-key]"); up && root.contains(up); up = up.parentElement?.closest<HTMLElement>("[data-move-key]")) {
+        parent ??= up.getAttribute("data-move-key");
+        depth += 1;
+      }
+      return [{key, kind, parent, depth}];
+    });
+  }, []);
+  const selectElement = useCallback((sectionId: string, key: string, kind: ElementKind) => {
+    setSelected(sectionId); setWidgetPick(null); setElementPick({sectionId, key, kind});
+    requestAnimationFrame(() => canvasRef.current?.querySelector(`[data-editor-section="${CSS.escape(sectionId)}"] [data-move-key="${CSS.escape(key)}"]`)?.scrollIntoView({behavior: "smooth", block: "center"}));
+  }, []);
   const services = useMemo<EditorServices | null>(() => payload ? {
     organizationId, pageId, payload, isAdministrator: payload.permissions.isAdministrator, refresh, openBrand: () => setBrandOpen(true),
     elementIds: () => draftRef.current ? pageElementIds(draftRef.current.data) : new Set<string>(),
     pageSections: () => draftRef.current?.data.sections ?? [],
+    canvasElements, selectElement,
     previewAgent: agent => setPayload(previous => previous ? {...previous, linked: {...previous.linked, agents: [...(previous.linked.agents ?? []).filter(item => item.id !== agent.id), agent]}} : previous),
     previewUpload: upload => setPayload(previous => previous ? {...previous, linked: {...previous.linked, uploads: [...(previous.linked.uploads ?? []).filter(item => item.id !== upload.id), upload]}} : previous),
-  } : null, [organizationId, pageId, payload, refresh]);
+  } : null, [organizationId, pageId, payload, refresh, canvasElements, selectElement]);
 
   if (loadError) return <div role="alert" className="fixed inset-0 z-50 grid place-items-center bg-zinc-950 p-6 text-sm text-zinc-100"><div className="max-w-md space-y-3 text-center"><p className="font-medium text-red-300">{loadError}</p><button type="button" className="rounded-md border border-white/20 px-3 py-1.5" onClick={() => load()}>Try again</button></div></div>;
   if (!payload || !draft) return <div className="fixed inset-0 z-50 grid place-items-center bg-zinc-950 text-zinc-300" aria-busy="true"><Loader2 className="size-6 animate-spin" aria-label="Loading editor" /></div>;
@@ -451,8 +505,16 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
 
   const edit: EditBindings | undefined = preview || !editable ? undefined : {
     onText: (sectionId, path, value) => {
-      const section = sections.find(item => item.id === sectionId);
-      if (section) update({...section, props: setPath(section.props as Record<string, unknown>, path, value)} as PageSection);
+      const found = sections.find(item => item.id === sectionId);
+      if (!found) return;
+      const section = /^facts\.\d+\./.test(path) ? withOwnFacts(found) : found;
+      const typedValue = /^facts\.(\d+)\.value$/.exec(path);
+      if (typedValue && section.type === "HERO" && section.props.facts) {
+        const facts = section.props.facts.map((fact, index) => index === Number(typedValue[1]) ? {...fact, source: "CUSTOM" as const, value: value.trim().slice(0, 40)} : fact);
+        update({...section, props: {...section.props, facts}});
+        return;
+      }
+      update({...section, props: setPath(section.props as Record<string, unknown>, path, value)} as PageSection);
     },
     wrapSection: (section: PageSection, element: ReactElement, state) => {
       const isSelected = selected === section.id;
@@ -472,7 +534,20 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
           const kind = picked?.getAttribute("data-element-kind");
           setElementPick(key ? {sectionId: section.id, key, kind: kind === "button" || kind === "image" || kind === "block" || kind === "card" ? kind : "text"} : null);
         }}
-        onContextMenu={(event: ReactMouseEvent) => { event.preventDefault(); setSelected(section.id); setMenu({x: event.clientX, y: event.clientY, id: section.id}); }}
+        onContextMenu={(event: ReactMouseEvent) => {
+          event.preventDefault();
+          setSelected(section.id);
+          // Right-click on an element: its own menu (and it becomes the selection); elsewhere, the section's.
+          const target = event.target as HTMLElement;
+          const picked = target.closest("[data-widget-path]") ? null : target.closest("[data-move-key]");
+          const key = picked?.getAttribute("data-move-key");
+          if (key) {
+            const raw = picked?.getAttribute("data-element-kind");
+            const kind: ElementKind = raw === "button" || raw === "image" || raw === "block" || raw === "card" ? raw : "text";
+            setWidgetPick(null); setElementPick({sectionId: section.id, key, kind});
+            setMenu({x: event.clientX, y: event.clientY, id: section.id, element: {key, kind}});
+          } else setMenu({x: event.clientX, y: event.clientY, id: section.id});
+        }}
         onDragStart={(event: DragEvent) => {
           // A placed widget's handle: move it to another column or section.
           const handle = (event.target as HTMLElement).closest?.("[data-drag-widget]");
@@ -531,12 +606,67 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
     if (!generating) return;
     setGenerateBusy(true);
     try {
-      const result = await websitesSend<{versionNumber: number}>(`/api/websites/pages/${pageId}/generate`, organizationId, "POST", {expectedRevision: payload.page.revision, brief: generating.brief.trim(), style: generating.style || null}, "Claude could not redesign the page.");
+      const result = await websitesSend<{versionNumber: number}>(`/api/websites/pages/${pageId}/generate`, organizationId, "POST", {expectedRevision: payload.page.revision, brief: generating.brief.trim(), style: generating.style || null, structure: generating.structure || null}, "Claude could not redesign the page.");
       toast.success(`Claude created version ${result.versionNumber}. Earlier versions are in the history.`);
       setGenerating(null);
       await load();
     } catch (error) { toast.error(`${errorMessage(error, "Claude could not redesign the page.")} Your page is unchanged.`); } finally { setGenerateBusy(false); }
   };
+
+  function applyResult(result: ElementResult) { if (!result.ok) { toast.error(result.message); return; } update(result.section); toast.success(result.message); }
+
+  /**
+   * Navigator drag: a list item moves within its list; other elements swap
+   * places inside the container they share on the canvas (the hero text, a
+   * section heading, the hero buttons), stored as the section's element order.
+   */
+  function reorderElement(sectionId: string, dragKey: string, targetKey: string, after: boolean) {
+    const section = sections.find(item => item.id === sectionId);
+    if (!section || dragKey === targetKey) return;
+    if (isListElement(section, dragKey) || isListElement(section, targetKey)) { applyResult(moveElement(section, dragKey, targetKey, after)); return; }
+    const root = canvasRef.current?.querySelector(`[data-editor-section="${CSS.escape(sectionId)}"]`);
+    const childOf = (key: string) => {
+      let node = root?.querySelector(`[data-move-key="${CSS.escape(key)}"]`) ?? null;
+      while (node && node !== root && !node.parentElement?.hasAttribute("data-order-group")) node = node.parentElement;
+      return node && node !== root ? node : null;
+    };
+    const a = childOf(dragKey);
+    const b = childOf(targetKey);
+    if (!a || !b || a.parentElement !== b.parentElement) {
+      toast.error("These two sit in different parts of the layout, so they cannot swap places. Select the element and drag its move handle on the canvas to place it anywhere.");
+      return;
+    }
+    const container = a.parentElement!;
+    const idOf = (child: Element) => child.getAttribute("data-move-key") ?? child.querySelector("[data-move-key]")?.getAttribute("data-move-key") ?? null;
+    const ids = [...container.children].map(idOf).filter((id): id is string => Boolean(id));
+    const from = idOf(a)!;
+    const next = ids.filter(id => id !== from);
+    next.splice(next.indexOf(idOf(b)!) + (after ? 1 : 0), 0, from);
+    applyResult(setElementOrder(section, container.getAttribute("data-order-group")!, next));
+  }
+
+  function runElementMenu(key: ElementMenuKey, section: PageSection, element: {key: string; kind: ElementKind}) {
+    const style = withStyleDefaults(section.style);
+    const current = style.elementStyles[element.key] ?? DEFAULT_ELEMENT_STYLE;
+    const name = `"${elementLabel(element.key)}"`;
+    const apply = applyResult;
+    switch (key) {
+      case "edit": setSelected(section.id); setElementPick({sectionId: section.id, ...element}); break;
+      case "copy": {
+        const clip = copyElement(section, element.key);
+        if (clip.value === undefined) { copyElementStyle(current); toast.success(`${name} holds other elements, so its style was copied. Use Paste style on another element.`); break; }
+        copyElementContent(clip); toast.success(`${name} copied. Right-click another element and choose Paste.`); break;
+      }
+      case "paste": { const clip = copiedElement(); if (clip) apply(pasteElement(section, element.key, clip)); break; }
+      case "copyStyle": copyElementStyle(current); toast.success(isDefaultElementStyle(current) ? `${name} has no style of its own yet: change its colour, font or size first.` : `Style of ${name} copied.`); break;
+      case "pasteStyle": { const copied = copiedElementStyle(); if (copied) { update({...section, style: {...style, elementStyles: {...style.elementStyles, [element.key]: structuredClone(copied)}}} as PageSection); toast.success(`Style pasted on ${name}.`); } break; }
+      case "duplicate": apply(duplicateElement(section, element.key)); break;
+      case "hide": { const hidden = !current.devices.desktop && !current.devices.tablet && !current.devices.mobile; update(setElementHidden(section, element.key, !hidden, current)); toast.success(hidden ? `${name} is shown again.` : `${name} is hidden on every device (faded here).`); break; }
+      case "reset": update({...section, style: {...style, elementStyles: Object.fromEntries(Object.entries(style.elementStyles).filter(([name]) => name !== element.key)), elementOffsets: Object.fromEntries(Object.entries(style.elementOffsets).filter(([name]) => name !== element.key))}} as PageSection); toast.success(`${name} is back to its default style and place.`); break;
+      case "delete": apply(deleteElement(section, element.key)); if (elementPick?.key === element.key) setElementPick(null); break;
+      case "section": setElementPick(null); setSelected(section.id); break;
+    }
+  }
 
   function runMenu(key: MenuKey, section: PageSection) {
     switch (key) {
@@ -544,6 +674,7 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
       case "duplicate": duplicate(section.id); break;
       case "copy": setStyleClipboard({style: section.style, layout: section.layout}); toast("Style copied."); break;
       case "save": setSaveSection(section); break;
+      case "convert": setConvertSection(section); break;
       case "paste": if (styleClipboard) update({...section, style: styleClipboard.style, layout: styleClipboard.layout} as PageSection); break;
       case "up": move(section.id, -1); break;
       case "down": move(section.id, 1); break;
@@ -553,12 +684,30 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
   }
 
   const panelShown = narrow ? drawerOpen : panelOpen;
-  const tabs: Array<[LeftTab, string, typeof LayoutGrid]> = [["elements", "Elements", LayoutGrid], ["navigator", "Navigator", Layers], ["style", "Site style", Paintbrush], ["page", "Page", Settings2], ["publish", "Publish", Rocket]];
+  const navigator = <NavigatorPanel sections={sections} selected={selected} onSelect={id => { setSelected(id); setWidgetPick(null); setElementPick(null); }}
+    selectedWidget={widget} onSelectWidget={(id, path) => { setSelected(id); setWidgetPick({sectionId: id, path}); }} onMove={move} onReorder={reorder} onToggle={toggle} onDuplicate={duplicate} onDelete={remove} unavailable={unavailable}
+    elementsOf={canvasElements} selectedElement={element} onSelectElement={selectElement} onReorderElement={reorderElement}
+    onSectionMenu={(id, x, y) => { setSelected(id); setWidgetPick(null); setElementPick(null); setMenu({x, y, id}); }}
+    onElementMenu={(id, key, kind, x, y) => { setSelected(id); setWidgetPick(null); setElementPick({sectionId: id, key, kind}); setMenu({x, y, id, element: {key, kind}}); }}
+    onElementAction={(id, key, kind, action) => { const section = sections.find(item => item.id === id); if (section) runElementMenu(action, section, {key, kind}); }} />;
+  // On wide screens the Navigator is a dock on the right (it stays open while an element is edited); phones and tablets keep it as a panel tab.
+  const allTabs: Array<[LeftTab, string, typeof LayoutGrid]> = [["elements", "Elements", LayoutGrid], ["navigator", "Navigator", Layers], ["style", "Site style", Paintbrush], ["page", "Page", Settings2], ["publish", "Publish", Rocket]];
+  const tabs = narrow ? allTabs : allTabs.filter(([value]) => value !== "navigator");
   const menuSection = menu ? sections.find(section => section.id === menu.id) : null;
 
   return <EditorServicesContext.Provider value={services}><div className={`dark fixed inset-0 z-50 flex flex-col bg-zinc-950 text-zinc-100 ${fontClassName}`}>
     {brandOpen && <BrandContactsDrawer onClose={() => setBrandOpen(false)} />}
     {saveSection && <SaveSectionDialog section={saveSection} onClose={() => setSaveSection(null)} />}
+    {convertSection && <ConvertSectionDialog section={convertSection} onClose={() => setConvertSection(null)} onConfirm={() => {
+      const current = sections.find(item => item.id === convertSection.id);
+      setConvertSection(null);
+      if (!current) return;
+      const result = convertToCustom(current, draft.data);
+      if (!result.ok) { toast.error(result.message); return; }
+      update(result.section);
+      setSelected(result.section.id); setElementPick(null); setWidgetPick(null); setSectionTab("content");
+      toast.success(["Converted to a custom section. Drag any widget to move it, or change the columns in the Content tab.", ...result.notes].join(" "));
+    }} />}
     {shortcutsOpen && <ShortcutSheet onClose={() => setShortcutsOpen(false)} />}
     {structureAt && <StructurePicker onPick={layout => addStructure(layout, structureAt.index)} onClose={() => setStructureAt(null)}
       onReadyMade={() => { const after = structureAt.index !== undefined ? sections[structureAt.index - 1]?.id ?? null : null; setStructureAt(null); setSelected(null); setLeftTab("elements"); setPanelOpen(true); if (narrow) setDrawerOpen(true); setInsertAfter(after); }} />}
@@ -579,7 +728,7 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
         <button type="button" onClick={undo} disabled={!past.length || !editable} aria-label="Undo" title="Undo (Ctrl+Z)" className="rounded-md p-2 text-zinc-300 hover:bg-white/10 disabled:opacity-30"><Undo2 className="size-4" /></button>
         <button type="button" onClick={redo} disabled={!future.length || !editable} aria-label="Redo" title="Redo (Ctrl+Y)" className="rounded-md p-2 text-zinc-300 hover:bg-white/10 disabled:opacity-30"><Redo2 className="size-4" /></button>
         <button type="button" onClick={() => setPreview(!preview)} aria-pressed={preview} title="Preview without editing tools" className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm ${preview ? "bg-white/15 text-white" : "text-zinc-300 hover:bg-white/10"}`}>{preview ? <EyeOff className="size-4" /> : <Eye className="size-4" />}<span className="hidden sm:inline">Preview</span></button>
-        {payload.permissions.canGenerate && <button type="button" disabled={dirty || viewingOldVersion} onClick={() => setGenerating({brief: "", style: ""})} title={dirty ? "Save or undo your changes first" : "Redesign the whole page with Claude"} className="hidden items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-zinc-300 hover:bg-white/10 disabled:opacity-40 md:inline-flex"><Sparkles className="size-4" />Claude</button>}
+        {payload.permissions.canGenerate && <button type="button" disabled={dirty || viewingOldVersion} onClick={() => setGenerating({brief: "", style: "", structure: ""})} title={dirty ? "Save or undo your changes first" : "Redesign the whole page with Claude"} className="hidden items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-zinc-300 hover:bg-white/10 disabled:opacity-40 md:inline-flex"><Sparkles className="size-4" />Claude</button>}
         {payload.live?.path && <a href={payload.live.path} target="_blank" rel="noreferrer" className="hidden rounded-md px-2.5 py-1.5 text-sm text-zinc-300 hover:bg-white/10 md:inline">View live</a>}
         {editable && <button type="button" onClick={save} disabled={!dirty || saving || validationIssues.length > 0} className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-40">{saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}<span className="hidden sm:inline">Save</span></button>}
         <button type="button" onClick={() => { setSelected(null); setLeftTab("publish"); setPanelOpen(true); setDrawerOpen(true); }} aria-label="Publish" className="hidden items-center gap-1.5 rounded-md border border-white/15 px-3 py-1.5 text-sm font-semibold hover:bg-white/10 sm:inline-flex"><Rocket className="size-4" />Publish</button>
@@ -601,18 +750,17 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
               <p className="flex-1 truncate text-sm font-semibold">{element && !widget ? `${label(selectedSection)} › ${elementLabel(element)}` : `Edit ${label(selectedSection)}`}</p>
               <button type="button" onClick={() => setSelected(null)} aria-label="Close settings" className="rounded p-1.5 text-zinc-400 hover:bg-white/10"><X className="size-4" /></button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto"><SectionPanel key={selectedSection.id} section={selectedSection} linked={payload.linked} hasForm={hasForm} today={payload.today} device={device} onChange={update}
+            <div className="min-h-0 flex-1 overflow-y-auto"><SectionPanel key={selectedSection.id} onConvert={selectedSection.type === "CUSTOM" ? undefined : () => setConvertSection(selectedSection)} section={selectedSection} linked={payload.linked} hasForm={hasForm} today={payload.today} device={device} onChange={update}
               element={element} elementKind={elementPick?.kind ?? "text"} onElement={key => setElementPick(key && selected ? {sectionId: selected, key, kind: elementPick?.kind ?? "text"} : null)} tab={sectionTab} onTab={setSectionTab}
               widget={widget} onWidget={path => setWidgetPick(path && selected ? {sectionId: selected, path} : null)} /></div>
           </>
           : <>
-            <div role="tablist" aria-label="Editor panels" className="grid grid-cols-5 border-b border-white/10">{tabs.map(([value, text, Icon]) => <button key={value} type="button" role="tab" aria-selected={leftTab === value} onClick={() => setLeftTab(value)} title={text}
+            <div role="tablist" aria-label="Editor panels" className={`grid ${tabs.length === 5 ? "grid-cols-5" : "grid-cols-4"} border-b border-white/10`}>{tabs.map(([value, text, Icon]) => <button key={value} type="button" role="tab" aria-selected={leftTab === value} onClick={() => setLeftTab(value)} title={text}
               className={`flex flex-col items-center gap-1 border-b-2 py-2.5 text-[10px] font-medium ${leftTab === value ? "border-sky-400 text-white" : "border-transparent text-zinc-400 hover:text-white"}`}><Icon className="size-4" aria-hidden="true" />{text}</button>)}</div>
             <div role="tabpanel" className="min-h-0 flex-1 overflow-y-auto">
-              {leftTab === "elements" && (editable ? <ElementsPanel sections={sections} onAddWidget={type => addWidget(type)} library={<MySections onInsert={insertSaved} />} onAdd={type => { const after = insertAfterRef.current ? indexOf(insertAfterRef.current) + 1 : undefined; setInsertAfter(null); insert(type, after); }} onDragStart={() => setDragging(true)} />
+              {(leftTab === "elements" || (!narrow && leftTab === "navigator")) && (editable ? <ElementsPanel sections={sections} onAddWidget={type => addWidget(type)} library={<MySections onInsert={insertSaved} />} onAdd={type => { const after = insertAfterRef.current ? indexOf(insertAfterRef.current) + 1 : undefined; setInsertAfter(null); insert(type, after); }} onDragStart={() => setDragging(true)} />
                 : <p className="p-4 text-sm text-zinc-400">{viewingOldVersion ? "Older versions are read-only. Restore it from the Publish tab to edit." : "You can view this page but not edit it."}</p>)}
-              {leftTab === "navigator" && <NavigatorPanel sections={sections} selected={selected} onSelect={id => { setSelected(id); setWidgetPick(null); }}
-                selectedWidget={widget} onSelectWidget={(id, path) => { setSelected(id); setWidgetPick({sectionId: id, path}); }} onMove={move} onReorder={reorder} onToggle={toggle} onDuplicate={duplicate} onDelete={remove} unavailable={unavailable} />}
+              {narrow && leftTab === "navigator" && navigator}
               {leftTab === "style" && (editable ? <SiteStylePanel theme={draft.data.theme} onTheme={theme => commit({...draft, data: {...draft.data, theme}})} /> : <p className="p-4 text-sm text-zinc-400">Read-only.</p>)}
               {leftTab === "page" && (editable ? <PageSettingsPanel meta={draft.meta} onMeta={meta => commit({...draft, meta})} companySlug={payload.organization.slug} linked={payload.linked} /> : <p className="p-4 text-sm text-zinc-400">Read-only.</p>)}
               {leftTab === "publish" && <div className="p-4"><PublishPanel payload={payload} organizationId={organizationId} dirty={dirty} onReload={() => { setPreviewVersion(null); void load(); }} onPreviewVersion={version => { setPreviewVersion(version); void load(version); }}
@@ -623,19 +771,21 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
           </>}
       </aside>}
       {/* Canvas */}
-      <main className={`relative min-w-0 flex-1 overflow-auto bg-zinc-800/60 ${narrow && !preview ? "pb-20" : ""}`} aria-label="Page canvas"
+      <main ref={scrollerRef} className={`relative min-w-0 flex-1 overflow-auto bg-zinc-800/60 ${narrow && !preview ? "pb-20" : ""}`} aria-label="Page canvas"
         onDragOver={event => { if (dragging) event.preventDefault(); }} onDragEnd={() => { setDragging(false); setDropAt(null); }} onDrop={onDrop}
         onClickCapture={event => { if (!preview && (event.target as HTMLElement).closest("a")) event.preventDefault(); }}>
         {viewingOldVersion && <p className="sticky top-0 z-[60] flex items-center justify-center gap-3 bg-amber-200 px-3 py-1.5 text-xs text-amber-950">Viewing version {previewVersion} (read-only)<button type="button" className="underline" onClick={() => { setPreviewVersion(null); load(); }}>Back to current</button></p>}
-        <div className={`mx-auto min-h-full bg-white shadow-2xl transition-[max-width] duration-300 ${device === "desktop" ? "" : "my-6 overflow-hidden rounded-xl"}`} style={{maxWidth: DEVICE_WIDTHS[device], zoom}} data-preview-device={device}>
+        <div className={`mx-auto min-h-full bg-white shadow-2xl transition-[max-width] duration-300 ${device === "desktop" ? "" : "my-6 overflow-hidden rounded-xl"}`} style={{maxWidth: DEVICE_WIDTHS[device], zoom}} data-preview-device={device} ref={canvasRef}>
           {editable && !preview && <style>{"[data-widget-path]{cursor:pointer;transition:outline-color .15s}[data-widget-path]:hover{outline:1px dashed rgba(56,189,248,.85);outline-offset:3px}[data-widget-path]:hover>[data-drag-widget]{display:flex}[data-column-path]{min-height:2rem}[data-element-kind=image],[data-element-kind=block]{cursor:pointer}[data-element-kind=image]:hover,[data-element-kind=block]:hover{outline:1px dashed rgba(56,189,248,.85);outline-offset:3px}"}</style>}
           {widget && selected && !preview && <style>{`[data-editor-section="${CSS.escape(selected)}"] [data-widget-path="${CSS.escape(widget)}"]{outline:2px solid #38bdf8 !important;outline-offset:3px}`}</style>}
           {dropColumn && <style>{`[data-editor-section="${CSS.escape(dropColumn.sectionId)}"] [data-column-path="${CSS.escape(dropColumn.path)}"]{outline:2px dashed #0ea5e9;outline-offset:6px;background-color:rgba(14,165,233,.08)}`}</style>}
           {element && selected && !preview && <style>{`[data-editor-section="${CSS.escape(selected)}"] [data-move-key="${CSS.escape(element)}"]{outline:2px dashed #38bdf8;outline-offset:4px;border-radius:2px}`}</style>}
           <PageRenderer mode="editor" today={payload.today} page={{title: draft.meta.title, data: shownData, linked: payload.linked, form: payload.form?.view ?? null}} edit={edit} />
         </div>
+        {editable && !preview && element && selected && <MoveHandle scroller={scrollerRef} zoom={zoom} target={`[data-editor-section="${CSS.escape(selected)}"] [data-move-key="${CSS.escape(element)}"]`} onMove={nudge} />}
         {editable && !preview && <div className="mx-auto max-w-md py-8 text-center"><button type="button" onClick={() => setStructureAt({})} className="inline-flex items-center gap-2 rounded-full border border-dashed border-white/30 px-5 py-2.5 text-sm text-zinc-300 hover:border-sky-400 hover:text-white"><Plus className="size-4" />Add a section</button></div>}
       </main>
+      {!narrow && !preview && <NavigatorDock minimised={navigatorMinimised} onMinimise={setNavigatorMinimised}>{navigator}</NavigatorDock>}
     </div>
     {/* Phones and tablets: the main actions in a bottom bar; the panel opens as a drawer. */}
     {narrow && !preview && <nav aria-label="Editor actions" className="fixed inset-x-0 bottom-0 z-[60] grid grid-cols-5 border-t border-white/10 bg-zinc-900/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
@@ -649,12 +799,26 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
         className={`flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium disabled:opacity-30 ${text === "Edit" && selectedSection ? "text-sky-300" : "text-zinc-300"}`}><Icon className="size-5" aria-hidden="true" />{text === "Edit" && selectedSection ? `Edit ${label(selectedSection)}`.slice(0, 18) : text}</button>)}
     </nav>}
     {/* Context menu */}
-    {menu && menuSection && editable && <div role="menu" aria-label={`${label(menuSection)} actions`} className="fixed z-[70] w-52 overflow-hidden rounded-md border border-white/10 bg-zinc-900 py-1 text-sm shadow-2xl" style={{left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 300)}} onClick={event => event.stopPropagation()}>
+    {menu && menuSection && editable && menu.element && (() => {
+      const element = menu.element;
+      const current = withStyleDefaults(menuSection.style).elementStyles[element.key] ?? DEFAULT_ELEMENT_STYLE;
+      const hidden = !current.devices.desktop && !current.devices.tablet && !current.devices.mobile;
+      return <div role="menu" aria-label={`${elementLabel(element.key)} actions`} data-testid="element-menu" className="fixed z-[70] w-56 overflow-hidden rounded-md border border-white/10 bg-zinc-900 py-1 text-sm shadow-2xl" style={{left: Math.min(menu.x, window.innerWidth - 236), top: Math.min(menu.y, window.innerHeight - 330)}} onClick={event => event.stopPropagation()}>
+        <p className="truncate px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{elementLabel(element.key)}</p>
+        {ELEMENT_MENU_ITEMS.map(([key, text, Icon]) => {
+          const enabled = key === "paste" ? Boolean(copiedElement()) : key === "pasteStyle" ? Boolean(copiedElementStyle()) : key === "duplicate" ? canDuplicateElement(menuSection, element.key) : key === "delete" ? canDeleteElement(menuSection, element.key) : true;
+          const caption = key === "hide" ? (hidden ? "Show" : "Hide") : text;
+          return <button key={key} type="button" role="menuitem" disabled={!enabled} onClick={() => { runElementMenu(key, menuSection, element); setMenu(null); }} data-menu-item={key}
+            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left disabled:opacity-30 ${key === "delete" ? "text-red-300 hover:bg-red-500/20" : "hover:bg-white/10"} ${key === "section" ? "mt-1 border-t border-white/10 pt-2" : ""}`}><Icon className="size-4" aria-hidden="true" />{caption}</button>;
+        })}
+      </div>;
+    })()}
+    {menu && menuSection && editable && !menu.element && <div role="menu" aria-label={`${label(menuSection)} actions`} className="fixed z-[70] w-52 overflow-hidden rounded-md border border-white/10 bg-zinc-900 py-1 text-sm shadow-2xl" style={{left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 300)}} onClick={event => event.stopPropagation()}>
       {MENU_ITEMS.map(([key, text, Icon]) => {
-        const enabled = key === "duplicate" ? !SECTION_DEFINITIONS[menuSection.type].single : key === "paste" ? Boolean(styleClipboard)
+        const enabled = key === "duplicate" ? !SECTION_DEFINITIONS[menuSection.type].single : key === "paste" ? Boolean(styleClipboard) : key === "convert" ? !convertBlocker(menuSection)
           : key === "up" ? indexOf(menuSection.id) > 0 : key === "down" ? indexOf(menuSection.id) < sections.length - 1 : true;
         const caption = key === "toggle" ? (menuSection.visible ? "Hide" : "Show") : text;
-        return <button key={key} type="button" role="menuitem" disabled={!enabled} onClick={() => { runMenu(key, menuSection); setMenu(null); }}
+        return <button key={key} type="button" role="menuitem" disabled={!enabled} onClick={() => { runMenu(key, menuSection); setMenu(null); }} data-menu-item={key} title={key === "convert" ? convertBlocker(menuSection) ?? undefined : undefined}
           className={`flex w-full items-center gap-2 px-3 py-1.5 text-left disabled:opacity-30 ${key === "delete" ? "text-red-300 hover:bg-red-500/20" : "hover:bg-white/10"}`}><Icon className="size-4" aria-hidden="true" />{caption}</button>;
       })}
     </div>}
@@ -665,6 +829,7 @@ export function EditorShell({organizationId, pageId, fontClassName}: {organizati
         <p className="text-sm text-zinc-400">Claude creates a new version from the linked CRM record and your brief, with rich copy, photography and video. The current version stays in the history, and nothing changes if generation fails.</p>
         <label className="block space-y-1.5 text-sm"><span>Brief</span><textarea className="min-h-28 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:border-sky-400" maxLength={MAX_BRIEF_CHARS} value={generating.brief} onChange={event => setGenerating({...generating, brief: event.target.value})} placeholder="A premium modern page with a luxury feel, video hero, gallery, payment plan and enquiry form." /></label>
         <label className="block space-y-1.5 text-sm"><span>Design style</span><select className="h-9 w-full rounded-md border border-white/10 bg-white/5 px-2 text-sm [&>option]:bg-zinc-900" value={generating.style} onChange={event => setGenerating({...generating, style: event.target.value})}><option value="">Let Claude choose</option>{DESIGN_STYLES.map(style => <option key={style} value={style}>{DESIGN_STYLE_LABELS[style]}</option>)}</select></label>
+        <label className="block space-y-1.5 text-sm"><span>Page structure</span><select className="h-9 w-full rounded-md border border-white/10 bg-white/5 px-2 text-sm [&>option]:bg-zinc-900" value={generating.structure} onChange={event => setGenerating({...generating, structure: event.target.value})}><option value="">{generating.style ? "Match the design style" : "Let Claude choose"}</option>{PAGE_STRUCTURES.map(structure => <option key={structure} value={structure}>{STRUCTURE_DEFINITIONS[structure].label}</option>)}</select></label>
         <div className="flex justify-end gap-2"><button type="button" disabled={generateBusy} onClick={() => setGenerating(null)} className="rounded-md px-3 py-1.5 text-sm hover:bg-white/10">Cancel</button>
           <button type="button" onClick={regenerate} disabled={generateBusy} className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50">{generateBusy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}{generateBusy ? "Claude is designing…" : "Create new version"}</button></div>
       </div>

@@ -14,9 +14,9 @@ import { validateInput } from "@/modules/organizations/server/validation";
 import { pageIdSchema } from "../policy";
 import type { RateLimitRule } from "@/lib/rate-limit/limiter";
 import { enforceRateLimit, requestClientIp } from "@/lib/rate-limit/server";
-import { getFirebaseAdminStorageBucket } from "@/lib/firebase/admin";
 import { listWebsiteAgents, saveAgentCard } from "./agents";
-import { MAX_UPLOAD_BYTES, UPLOAD_TYPES, cleanUploadName, type UploadType } from "../uploads";
+import { cleanUploadName, isImageUploadType, isVideoUploadType, uploadByteLimit } from "../uploads";
+import { storedMediaResponse } from "./media-stream";
 import { deleteSectionTemplate, listSectionTemplates, saveSectionTemplate } from "./section-templates";
 import { archiveMedia, listMedia, mediaContent, storeUpload, updateMediaAlt } from "./media";
 import { generateNewPage, regeneratePage } from "./generate";
@@ -161,15 +161,17 @@ const UPLOAD_RULES = {
   member: {scope: "websites.media.member", limit: 30, windowSeconds: 60},
   ip: {scope: "websites.media.ip", limit: 60, windowSeconds: 60},
   company: {scope: "websites.media.company", limit: 120, windowSeconds: 60},
+  // Videos are large: a separate hourly allowance per company.
+  video: {scope: "websites.media.video.company", limit: 30, windowSeconds: 3600},
 } satisfies Record<string, RateLimitRule>;
 
-/** Reads at most MAX_UPLOAD_BYTES, stopping as soon as the limit is passed. */
-async function readUpload(request: Request) {
-  const tooLarge = () => new WorkspaceError("VALIDATION_ERROR", 413, "Images must be 10 MB or smaller.");
+/** Reads at most `limit` bytes, stopping as soon as the limit is passed. */
+async function readUpload(request: Request, limit: number, video: boolean) {
+  const tooLarge = () => new WorkspaceError("VALIDATION_ERROR", 413, video ? "Videos must be 50 MB or smaller." : "Images must be 10 MB or smaller.");
   const length = request.headers.get("content-length");
-  if (length && (!/^\d+$/.test(length) || Number(length) > MAX_UPLOAD_BYTES)) throw tooLarge();
+  if (length && (!/^\d+$/.test(length) || Number(length) > limit)) throw tooLarge();
   const reader = request.body?.getReader();
-  if (!reader) throw new WorkspaceError("VALIDATION_ERROR", 400, "Choose an image to upload.");
+  if (!reader) throw new WorkspaceError("VALIDATION_ERROR", 400, video ? "Choose a video to upload." : "Choose an image to upload.");
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
@@ -177,11 +179,11 @@ async function readUpload(request: Request) {
       const {value, done} = await reader.read();
       if (done) break;
       total += value.byteLength;
-      if (total > MAX_UPLOAD_BYTES) { await reader.cancel(); throw tooLarge(); }
+      if (total > limit) { await reader.cancel(); throw tooLarge(); }
       chunks.push(value);
     }
   } finally { reader.releaseLock(); }
-  if (!total) throw new WorkspaceError("VALIDATION_ERROR", 400, "The image is empty.");
+  if (!total) throw new WorkspaceError("VALIDATION_ERROR", 400, video ? "The video is empty." : "The image is empty.");
   return Buffer.concat(chunks.map(chunk => Buffer.from(chunk)), total);
 }
 
@@ -192,15 +194,16 @@ export async function uploadMediaResponse(request: Request) {
     const context = await requireActiveOrganizationRequest();
     assertExpectedOrganization(request.headers.get("x-estateos-organization"), context.organizationId);
     const contentType = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
-    if (!Object.hasOwn(UPLOAD_TYPES, contentType)) throw new WorkspaceError("VALIDATION_ERROR", 415, "Upload a JPEG, PNG or WebP image.");
+    if (!isImageUploadType(contentType) && !isVideoUploadType(contentType)) throw new WorkspaceError("VALIDATION_ERROR", 415, "Upload a JPEG, PNG or WebP image, or an MP4 or WebM video.");
+    const video = isVideoUploadType(contentType);
     await enforceRateLimit([
       {rule: UPLOAD_RULES.member, subject: context.membership.id},
       {rule: UPLOAD_RULES.ip, subject: requestClientIp(request) ?? ""},
       {rule: UPLOAD_RULES.company, subject: context.organizationId},
-    ], "You are uploading images too quickly. Wait a moment and try again.");
-    const bytes = await readUpload(request);
-    const type = contentType as UploadType;
-    return authJson({data: await storeUpload(context, {bytes, contentType: type, fileName: cleanUploadName(request.headers.get("x-file-name"), type)})}, 201);
+      ...(video ? [{rule: UPLOAD_RULES.video, subject: context.organizationId}] : []),
+    ], video ? "Your company has uploaded many videos in the last hour. Try again later." : "You are uploading images too quickly. Wait a moment and try again.");
+    const bytes = await readUpload(request, uploadByteLimit(contentType), video);
+    return authJson({data: await storeUpload(context, {bytes, contentType, fileName: cleanUploadName(request.headers.get("x-file-name"), contentType)})}, 201);
   } catch (error) { return errorResponse("media-upload", error); }
 }
 
@@ -234,13 +237,9 @@ export async function mediaContentResponse(request: Request, mediaId: string) {
   await connection();
   try {
     const row = await mediaContent(await readContext(request), mediaId);
-    const [bytes] = await getFirebaseAdminStorageBucket().file(row.storagePath).download();
-    const body = new Uint8Array(bytes.byteLength);
-    body.set(bytes);
-    return new Response(body, {headers: {
-      "Content-Type": row.contentType, "Content-Length": String(bytes.byteLength), "Cache-Control": "private, max-age=300",
-      "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox",
-    }});
+    return await storedMediaResponse(row.storagePath, row.contentType, request.headers.get("range"), {
+      "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox",
+    });
   } catch (error) { return errorResponse("media-content", error); }
 }
 

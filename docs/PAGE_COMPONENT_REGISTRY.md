@@ -101,16 +101,16 @@ The renderer turns these into fixed inline properties (`elementCss` in `theme.ts
 
 | Type | Variants | Editable props | Linked data / shown when | Claude |
 | --- | --- | --- | --- | --- |
-| `NAVBAR` | transparent, solid | logo image and height (20–96 px), brand text (empty uses the company name), menu links (up to 8: text and a section ID of this page; empty lists the main sections automatically), menu position (left, centre, right), button, company phone, a menu button on phones and tablets, sticky | Company name and approved phone; links only to sections shown on the page | Added automatically |
-| `HERO` | fullBleed, split, splitForm, centered | eyebrow, badge, headline, subheadline, two buttons, photo, show price, location and key facts | Price, location and key facts (optional) | Yes |
-| `STATS` | strip, cards | heading, up to 6 items, each a CRM source (price, handover, payment plan, bedrooms, units, size, developer, location, type, construction) or custom text | CRM values only for CRM sources; a typed value is ignored. Items without a value are hidden. | Yes |
+| `NAVBAR` | transparent, solid, floating (sticky over the hero, solid once the page scrolls), centered (the logo between the menu links) | logo image and height (20–96 px), brand text (empty uses the company name), menu links (up to 8: text and a section ID of this page; empty lists the main sections automatically), menu position (left, centre, right), button, company phone, a menu button on phones and tablets, sticky | Company name and approved phone; links only to sections shown on the page | Added automatically |
+| `HERO` | fullBleed, split, splitForm, centered, editorial (a large headline above a wide photo), showcase (the photo floating in 3D perspective with key-fact chips), wordmark (the record name, very large, along the bottom of the photo; optional own `wordmark` text), panel (a frosted card with the details and a fact bar over the photo) | eyebrow, badge, headline, subheadline, two buttons, photo, show price, location and key facts | Price, location and key facts (optional) | Yes |
+| `STATS` | strip, cards, marquee (a moving ticker; a still row for visitors who prefer reduced motion) | heading, up to 6 items, each a CRM source (price, handover, payment plan, bedrooms, units, size, developer, location, type, construction) or custom text | CRM values only for CRM sources; a typed value is ignored. Items without a value are hidden. | Yes |
 | `FEATURE_SPLIT` | split, overlap | eyebrow, heading, body, up to 6 bullets, image, image side, button | None | Yes |
 | `VIDEO_SHOWCASE` | wide, contained | eyebrow, heading, body, stock video, poster | None | Yes |
 | `BANNER` | centered, left | eyebrow, heading, body, two buttons; usually with a background photo or video | None | Yes |
-| `PROJECT_OVERVIEW` | withFacts, imageRight, text | heading, body (empty uses the project description), show facts | Developer, construction, handover, units, type, bedrooms, size, view; needs a project, property or listing | Yes |
+| `PROJECT_OVERVIEW` | withFacts, imageRight, text, statement (a small label, a large statement, the photo beside the text and big CRM figures) | heading, body (empty uses the project description), show facts | Developer, construction, handover, units, type, bedrooms, size, view; needs a project, property or listing | Yes |
 | `DEVELOPER` | card, banner | heading, body | Developer name and profile | Yes |
-| `HIGHLIGHTS` | grid, list | heading, intro, columns, up to 8 items (title, text, icon) | Needs at least one item | Yes |
-| `GALLERY` | bento, grid, carousel | eyebrow, heading, intro, columns, chosen photos, CRM or stock (none means all CRM photos), full-screen viewer (on by default; bento shows “+N” on its last tile) | Approved photos or chosen stock | Yes |
+| `HIGHLIGHTS` | grid, list, stack (numbered cards that stack up as the visitor scrolls), rows (numbered rows on hairlines) | heading, intro, columns, up to 8 items (title, text, icon) | Needs at least one item | Yes |
+| `GALLERY` | bento, grid, carousel (a strip with previous and next buttons, dragging and swiping; no scrollbar), coverflow (a 3D carousel: photos on a curve in perspective, rotated by dragging, the buttons or the arrow keys, with a counter; a side photo comes to the front when clicked, the front one opens the viewer; a drag never opens it) | eyebrow, heading, intro, columns, chosen photos, CRM or stock (none means all CRM photos), full-screen viewer (on by default; bento shows “+N” on its last tile) | Approved photos or chosen stock | Yes |
 | `UNIT_TYPES` | table, cards | heading, intro | Available units grouped by type and bedrooms, with indicative reference prices | Yes |
 | `PRICING` | cards, banner | heading, intro, note | Listing asking price, project starting price, comparison prices | Yes |
 | `PAYMENT_PLANS` | milestones, timeline, table | heading, intro | Active payment plans (booking, instalments, handover) | Yes |
@@ -146,7 +146,7 @@ Widths become grid tracks in custom properties with fixed utility classes; no pa
 
 | Widget | Props | Shown publicly when |
 | --- | --- | --- |
-| `HEADING` | text, level (H2–H4), size, small label | Always |
+| `HEADING` | text, level (H1–H4; H1 is appended to the enum for a converted hero headline), size, small label | Always |
 | `TEXT` | plain text (line breaks kept), size, softer colour | Always |
 | `IMAGE` | image reference, shape, rounded, caption | The image resolves |
 | `BUTTON` | CTA (action allowlist), solid or outline, full width | The action has an approved target |
@@ -180,10 +180,19 @@ Every widget also has a style: alignment, text colour, padding and margin (px), 
 | `ELEGANT_LIGHT` | Soft warm light, serif headings |
 | `CONTEMPORARY` | Clean white, sans headings |
 | `HIGH_CONVERSION` | White with warm accents, compact scale |
+| `DEPTH_3D` | Cinematic tower: paper and near-black bands, light Inter Tight type, a giant wordmark over the photo that rises as the photo sinks on scroll, hairlines and numbers instead of cards, photos that open from a mask, square buttons with a dot, a dark enquiry panel with underlined fields |
+| `SWISS_MINIMAL` | Black on white, hairline rules instead of cards, large tight type, square buttons |
+| `EDITORIAL` | Paper tones, large serif headlines, numbered chapters, a drop cap and framed photos |
+| `BENTO_GRID` | Every section a rounded white tile on a grey canvas; cards as soft grey tiles |
+| `GLASS_AURORA` | Frosted-glass cards over a fixed aurora gradient, gradient headlines |
+| `BOLD_STATEMENT` | Huge uppercase type, 2 px outlines and hard offset shadows, an inverted ticker |
+| `WARM_ORGANIC` | Sand and terracotta, arched photo frames, soft rounded cards |
+
+The first six are the **signature styles**. From edition 2 each has its own look and structure: `quiet` (Luxury Minimalist: spaced uppercase Jost, centred logo, headline low with the buttons beside it, numbered photo grid), `noir` (Premium Dark: fine column lines, tight Inter Tight statement, monochrome pill buttons with an arrow), `grid` (Modern Corporate: column rules, bold tight type, outlined cells), `boutique` (Elegant Light: big Playfair headlines, caramel labels, rounded tiles), `panel` (Contemporary: floating frosted menu, property-card hero, rounded cards) and `campaign` (High-Conversion: the form in the first screen, pill buttons with a round arrow). **Editions:** `theme.edition` defaults to 1, so pages saved before the signature looks render exactly as before; `defaultTheme` sets 2, so new pages and newly chosen styles get the look (`theme.ts` `pageLook`). The newer seven styles always have their look. Every look works the same way: the page root carries `data-pg-look` (`theme.ts` `STYLE_LOOKS`), and `page-looks.css` restyles the renderer's hook classes (`pg-card`, `pg-panel`, `pg-media`, `pg-portrait`, `pg-h1`, `pg-h2`, `pg-eyebrow`, `pg-btn`, `pg-section`, `pg-inner`). The stylesheet is ours: page data still holds only enums, bounded numbers and validated colours, and element styles set in the editor are inline, so they still win. Each new style also has a recommended page structure (see [page structures](AI_PAGE_BUILDER.md#page-structures)). Style names are stored on the page, so the list is append-only.
 
 **Theme options:**
-- **Accents:** gold, navy, emerald, teal, terracotta, slate, rose or indigo, each with a light-background and a dark-background value, or a custom `#rrggbb` accent.
-- **Fonts:** separate heading and body fonts: Playfair Display, Cormorant Garamond, DM Serif Display, Inter, Manrope, Montserrat, Poppins or the system stack. `next/font` self-hosts them (`fonts.ts`), so visitors' browsers contact no font service.
+- **Accents:** gold, navy, emerald, teal, terracotta, slate, rose, indigo, onyx (black and white) or caramel, each with a light-background and a dark-background value, or a custom `#rrggbb` accent.
+- **Fonts:** separate heading and body fonts: Playfair Display, Cormorant Garamond, DM Serif Display, Inter, Manrope, Montserrat, Poppins, Jost, Inter Tight or the system stack. `next/font` self-hosts them (`fonts.ts`), so visitors' browsers contact no font service.
 - **Scales:** compact, comfortable or large.
 - **Buttons:** rounded, pill or square (`theme.buttonShape`).
 - **Corners:** square, soft or rounded.

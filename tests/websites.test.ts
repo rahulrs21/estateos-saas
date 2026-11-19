@@ -7,7 +7,7 @@ import { mapGeneratedPage, pageFactWarnings, pageGenerationZod, clip, PAGE_GENER
 import { buildChecklist, missingAttestations } from "../src/modules/websites/checklist";
 import { PageRenderer } from "../src/modules/websites/components/page-renderer";
 import {
-  advertisedListings, agentsShown, buildLinkedData, publicPageData, resolveImage, resolvedStats, stockMediaUsed, uploadIdsOf, usedUploadIds, fingerprintSource, linkedDataChanges, sectionAvailability, unknownImageRefs, usedMediaIds,
+  advertisedListings, agentsShown, buildLinkedData, widgetAvailability, publicPageData, resolveImage, resolveVideo, resolvedStats, stockMediaUsed, uploadIdsOf, uploadUses, usedUploadIds, fingerprintSource, linkedDataChanges, sectionAvailability, unknownImageRefs, usedMediaIds,
   type LinkedSources, type ListingSource, type ProjectSource,
 } from "../src/modules/websites/linked";
 import { libraryTemplate, parseLibrarySection } from "../src/modules/websites/library";
@@ -19,7 +19,7 @@ import {
 } from "../src/modules/websites/registry";
 import { isPublicSlug, parseSnapshot, sourcesStillEligible } from "../src/modules/websites/snapshot";
 import { addToSection, createWidget, duplicateWidget, insertWidget, moveWidget, newRow, pageElementIds, relocateWidget, removeWidget, setColumnWidth, setRowLayout, widgetAt, withFreshIds } from "../src/modules/websites/custom-ops";
-import { cleanUploadName, imageDimensions, matchesImageSignature } from "../src/modules/websites/uploads";
+import { cleanUploadName, imageDimensions, matchesImageSignature, matchesVideoSignature, parseByteRange, uploadByteLimit } from "../src/modules/websites/uploads";
 import { PAGE_TEMPLATES, TEMPLATE_KEYS, blankPage, pageFromTemplate } from "../src/modules/websites/templates";
 import { deviceClasses, elementCss, mobileSize } from "../src/modules/websites/theme";
 
@@ -701,6 +701,76 @@ test("uploads are accepted only when the bytes match the declared image type; di
   assert.equal(cleanUploadName("%E0%A4%A", "image/jpeg"), "image.jpg", "malformed names fall back");
 });
 
+test("video uploads are accepted only when the bytes are an MP4 or WebM video; videos have their own size limit", () => {
+  const mp4 = Buffer.alloc(32);
+  mp4.writeUInt32BE(32, 0); mp4.write("ftypisom", 4, "ascii");
+  assert.equal(matchesVideoSignature(mp4, "video/mp4"), true);
+  assert.equal(matchesVideoSignature(mp4, "video/webm"), false);
+  const heic = Buffer.from(mp4); heic.write("heic", 8, "ascii");
+  assert.equal(matchesVideoSignature(heic, "video/mp4"), false, "an HEIC photo is not a video");
+  const webm = Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01, 0x42, 0x82, 0x84]), Buffer.from("webm"), Buffer.alloc(16)]);
+  assert.equal(matchesVideoSignature(webm, "video/webm"), true);
+  const mkv = Buffer.concat([webm.subarray(0, 12), Buffer.from("matroska"), Buffer.alloc(16)]);
+  assert.equal(matchesVideoSignature(mkv, "video/webm"), false, "another Matroska file is not WebM");
+  const html = Buffer.from("<html><script>alert(1)</script></html>");
+  for (const type of ["video/mp4", "video/webm"] as const) assert.equal(matchesVideoSignature(html, type), false, type);
+  assert.equal(uploadByteLimit("video/mp4"), 50 * 1024 * 1024);
+  assert.equal(uploadByteLimit("image/png"), 10 * 1024 * 1024);
+  assert.equal(cleanUploadName(null, "video/webm"), "video.webm");
+});
+
+test("byte ranges: one range is served (206); several, malformed or other units send the whole file; past the end is unsatisfiable", () => {
+  assert.deepEqual(parseByteRange("bytes=0-99", 1000), {start: 0, end: 99});
+  assert.deepEqual(parseByteRange("bytes=900-", 1000), {start: 900, end: 999});
+  assert.deepEqual(parseByteRange("bytes=900-5000", 1000), {start: 900, end: 999}, "the end is clamped to the file");
+  assert.deepEqual(parseByteRange("bytes=-100", 1000), {start: 900, end: 999}, "the last 100 bytes");
+  assert.deepEqual(parseByteRange("bytes=-5000", 1000), {start: 0, end: 999});
+  assert.equal(parseByteRange("bytes=1000-", 1000), "unsatisfiable");
+  assert.equal(parseByteRange("bytes=-0", 1000), "unsatisfiable");
+  for (const header of [null, "", "bytes=0-1,5-9", "items=0-9", "bytes=9-1", "bytes=-", "bytes=a-b"]) assert.equal(parseByteRange(header, 1000), null, String(header));
+});
+
+test("a video is a stock clip or an uploaded library video: referenced by ID, resolved through the page's uploads, never a stock credit", () => {
+  const hero = createSection("HERO", "hero-main");
+  const VIDEO_ID = "77777777-7777-4777-8777-777777777777";
+  const valid = (backgroundVideo: unknown) => pageDataSchema.safeParse({schemaVersion: 1, theme: defaultTheme(), sections: [{...hero, style: {...hero.style, backgroundType: "VIDEO", backgroundVideo}}]}).success;
+  assert.equal(valid({uploadId: VIDEO_ID}), true);
+  assert.equal(valid({stockId: "video-dubai-shore"}), true);
+  assert.equal(valid({uploadId: "../../etc/passwd"}), false);
+  assert.equal(valid({uploadId: VIDEO_ID, url: "https://evil.example/x.mp4"}), false, "no URLs");
+  const linked = {...linkedFor({project: project(), uploads: [
+    {id: VIDEO_ID, alt: "Lobby walkthrough", contentType: "video/mp4"},
+    {id: UPLOAD_ID, alt: "Lobby at dusk", width: 1600, height: 900, contentType: "image/png"},
+  ]}), readAt: READ_AT};
+  assert.deepEqual(resolveVideo({uploadId: VIDEO_ID}, linked), {id: VIDEO_ID, url: `/api/websites/media/${VIDEO_ID}/content`, poster: null, title: "Lobby walkthrough", credit: null});
+  assert.equal(resolveVideo({uploadId: UPLOAD_ID}, linked), null, "an image upload does not play as a video");
+  assert.equal(resolveVideo({uploadId: "99999999-9999-4999-8999-999999999999"}, linked), null, "an upload of another company is not in the linked data");
+  assert.equal(resolveVideo({stockId: "video-dubai-shore"}, linked)?.id, "video-dubai-shore");
+  const page = blankPage();
+  const index = page.sections.findIndex(section => section.type === "HERO");
+  page.sections[index] = {...page.sections[index], style: {...page.sections[index].style, backgroundType: "VIDEO", backgroundVideo: {uploadId: VIDEO_ID}}} as PageSection;
+  assert.deepEqual(uploadUses(page), [{id: VIDEO_ID, kind: "video"}]);
+  assert.deepEqual(uploadIdsOf(page), [VIDEO_ID]);
+  assert.deepEqual(usedUploadIds(page), [VIDEO_ID], "a published page serves its uploaded video");
+  assert.equal(stockMediaUsed(page).any, false, "an uploaded video is not illustrative stock media");
+  assert.match(render(page, linked), new RegExp(`<video[^>]*src="/api/websites/media/${VIDEO_ID}/content"`));
+  page.sections[index] = {...page.sections[index], visible: false} as PageSection;
+  assert.deepEqual(usedUploadIds(page), [], "hidden sections publish no uploads");
+  const base = defaultWidget("VIDEO", "w-video");
+  const widget = (video: {uploadId: string}) => widgetAvailability({...base, props: {...base.props, video}}, linked, {hasForm: false, today: TODAY, mode: "public"}).ok;
+  assert.equal(widget({uploadId: VIDEO_ID}), true);
+  assert.equal(widget({uploadId: UPLOAD_ID}), false, "a video widget without a playable video is not shown");
+});
+
+test("the 'changed since publication' fingerprint ignores where library uploads are served from", () => {
+  const sources = {project: project(), uploads: [{id: UPLOAD_ID, alt: "Lobby", width: 1600, height: 900, contentType: "image/png"}]};
+  const editor = fingerprintSource({...linkedFor(sources), readAt: READ_AT});
+  const publicUrl = (id: string) => `/api/public/site-media/publication/${id}`;
+  const published = fingerprintSource({...buildLinkedData(sources, branding, {readAt: READ_AT, mediaUrl: publicUrl, uploadUrl: publicUrl}), readAt: READ_AT});
+  assert.equal(editor, published);
+  assert.equal(fingerprintSource({...linkedFor({project: project()}), readAt: READ_AT}), fingerprintSource({...linkedFor({project: project(), uploads: []}), readAt: READ_AT}), "pages without uploads keep their fingerprint");
+});
+
 // --- Editor upgrade M3: a location map on any page ----------------------------------------------
 
 test("a location set on the page validates inside the UAE and replaces the record's location", () => {
@@ -929,7 +999,7 @@ test("styled headings, eyebrows, images and buttons render on public pages witho
   const linked = linkedFor({...fullSources, media: [photo(MEDIA_A)]});
   const html = render(page, linked);
   assert.match(html, /style="color:#b03a0b;--pg-el-fs:60px;--pg-el-fs-m:43px;font-weight:300"[^>]*>Waterfront living/);
-  assert.match(html, /justify-end[^"]*" style="color:#0f6b64"/, "the eyebrow line and label align together");
+  assert.match(html, /<p style="color:#0f6b64;[^"]*display:flex" class="pg-eyebrow[^"]*justify-end[^"]*"><span aria-hidden="true" class="h-px w-8 bg-current"><\/span>/, "the eyebrow marker and label are one element: they align (and move) together");
   assert.match(html, /<a href="#enquire" style="background-color:#111111;--pg-el-fs:18px;--pg-el-fs-m:18px;border-radius:0(px)?"/);
   assert.match(html, /style="opacity:0.9;border-radius:40px"/);
   assert.doesNotMatch(html, /data-move-key|data-element-kind/);

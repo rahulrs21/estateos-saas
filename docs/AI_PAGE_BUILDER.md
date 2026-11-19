@@ -62,7 +62,7 @@ All workspace endpoints need a verified session. Mutations also need same-origin
 | `GET /api/websites/pages/{id}/enquiries` | Owner, admin | Leads from this page and its pending enquiries |
 | `POST /api/websites/pending/{id}/{retry\|dismiss}` | Owner, admin | Pending enquiry recovery |
 | `POST /api/public/sites/{companySlug}/{pageSlug}/enquiries` | Public | Enquiry submission |
-| `GET /api/public/site-media/{publicationId}/{mediaId}` | Public | Images of live pages only |
+| `GET /api/public/site-media/{publicationId}/{mediaId}` | Public | Images and videos of live pages only (videos streamed with byte ranges) |
 
 ## Database (additive)
 
@@ -139,7 +139,7 @@ Claude generation reuses the Phase 6A/6B infrastructure:
 - `generateStructured`, with structured outputs, adaptive thinking, streaming and cache breakpoints;
 - the monthly allowance (`reserveQuota`, released when Claude was never reached);
 - per-minute limits (`ai.pages.member|ip|company`);
-- `AiUsageRecord` with `feature = PAGES`, `contentType = LANDING_PAGE` and prompt version `6d.2`.
+- `AiUsageRecord` with `feature = PAGES`, `contentType = LANDING_PAGE` and prompt version `6e.1` (page structures and style tones; `6d.2` before).
 - An output budget of at least 16,000 tokens, because a full page now has 12–18 sections of rich copy.
 
 **Flow** (`server/generate.ts`):
@@ -196,7 +196,7 @@ All properties are required and none is nullable, which keeps the schema within 
 - **Elements:** every section type as a tile, grouped (Layout, Introduction, Property & project, Media, Location, Conversion, Trust, Footer) with a search box.
   - Drag a tile onto the canvas; a blue line shows where it will land. Clicking a tile adds it after the selected section.
   - Single-use types already on the page are greyed out.
-- **Navigator:** the section list. Click to select, drag to reorder, and show or hide each section; a note marks sections that are left off the public page and why.
+- **Navigator:** the section list. Click to select, drag to reorder, and show or hide each section; a note marks sections that are left off the public page and why. The arrow beside a section opens its **elements**, as drawn on the canvas and nested in their groups (for example Buttons › Primary button); click one to edit it. **Drag an element row** onto another to reorder: list items (facts, highlights, questions…) move within their list; the hero text (badge, eyebrow, headline, subheadline, price line, buttons), the hero buttons and section headings (eyebrow, heading, intro) store the chosen order in the section style (`elementOrder`, applied only where set, so other pages render as before). Elements in different parts of the layout cannot swap places (the editor says so; use the move handle instead). Each element row has duplicate, hide and delete buttons, and **right-click** on any row opens the same menu as on the canvas.
 - **Site style:** design style, accent swatches or a custom colour, heading and body fonts, type scale and corners.
 - **Page:** title, address, description, search title and description with counts, and the linked record.
 - **Publish:** the existing workflow panel (status, checklist, lead form, Claude's content checks, versions, publications and enquiries). Checklist items are fixed in place:
@@ -213,10 +213,15 @@ When a section is selected, the left panel shows its settings in three tabs:
   - **Spacing:** the vertical padding preset, plus custom **padding** and **margin** (top, right, bottom, left in px, with a link button for all four sides) for the device being previewed. Empty sides inherit from the larger device or the preset, shown as placeholders.
   - **Visibility** per device, and the section ID.
 
-**Single elements** (Elementor-style): click a heading, eyebrow, paragraph, button, image or group (the hero's buttons, key facts or price line) on the canvas. The panel switches to that element, with a breadcrumb back to its section:
-- **Style:** its text (also editable on the canvas); typography (font, size with a separate phone size, weight, letter case, italic, letter spacing, line height); colour and a highlight or button colour; alignment; corner radius, maximum width and opacity; visibility per device.
-- **Position:** move it with arrow buttons, exact px values or Alt + arrow keys, and add space above or below (which, unlike moving, pushes the content below).
-- **Copy style** and **Paste style** between elements, and **Reset element**. Escape returns to the section; Delete never removes the section while an element is selected.
+**Single elements** (Elementor-style): click any element on the canvas, or pick it in the Navigator: a heading, eyebrow, paragraph, button, image, the enquiry form, a list item (a highlight, key fact or FAQ), a CRM card (units, prices, payment steps, floor plans, amenities), a gallery photo, the map, the video, or a group (the hero's buttons, key facts, price line). The panel switches to that element with a breadcrumb back to its section, in three tabs like a section:
+- **Content:** its text (also editable on the canvas); a button's words and what it does; an image; each field of a list item (title, text, icon, the CRM fact it shows); for a group, the elements inside it; for the enquiry form, its button text and the fields of the connected lead form, with a link to edit them (fields belong to the lead form so every page using it stays consistent). Elements that show CRM data say so and are styled and moved here.
+- **Style:** typography (font, size with a separate phone size, weight, letter case, italic, letter spacing, line height); colour and a highlight or button colour (forms: background, text and button colour); alignment; corner radius, maximum width and opacity.
+- **Advanced:** move it with arrow buttons, exact px values, Alt + arrow keys or the **drag handle** on the canvas (one undo step per drag); space above or below (which, unlike moving, pushes the content below); and visibility per device.
+- **Copy style** and **Paste style** between elements, and **Reset element**. A list item (for example one key fact) also has **Duplicate next to it** and **Delete**.
+- **Key facts:** every fact has a value field, in the fact's own panel and in the Key facts list. A CRM value shows as the field's placeholder (or "not recorded"); typing makes it the fact's own text (Custom). A fact's **label** and **value** are elements of their own ("Fact 1 value"), so each can be coloured, sized and moved, and both can be typed on the canvas like a headline. A colour set on the whole fact reaches its label and value. On the showcase layouts, over a background photo or video, fact values use the readable text colour instead of the accent.
+- Text typed on the canvas is saved as typed, even where the style shows it in capitals (labels, eyebrows).
+- **Right-click menu of an element** (canvas or Navigator): Edit, Duplicate, **Copy**, **Paste**, Copy style, Paste style, Hide, Reset, Delete, Edit section. Paste puts a copied list item right after the target (a fact after a fact), adds it at the end when pasted on the list, or replaces an element of the same kind (text on text, a button on a button), with the copied style; other combinations are refused with a message. Every result is validated like any other change.
+- **Hero background:** when the hero has a background photo or video (Style › Background media), the Content tab edits that background, so the photo you change is the one you see. Escape returns to the section; Delete never removes the section while an element is selected.
 
 Also selectable: the hero badge, highlight cards, key-fact items, and form panels (the hero's split form, the enquiry form section and the form widget). A form panel has its own background, text colour, button and focus colour, corner radius and width; its fields, borders and labels follow the background automatically. By default the hero's form panel keeps the theme's colours, so it stays readable over a photo, video or dark background.
 
@@ -236,9 +241,18 @@ Widgets in custom sections have the same typography and colour controls in their
 **Uploads**
 - The image picker has **Uploads**, **Project** and **Stock** tabs. Uploads accept JPEG, PNG and WebP up to 10 MB (button or drag and drop), checked by content signature, with size limits enforced while streaming and per-member, per-IP and per-company rate limits.
 - Library images can be reused on any page of the company. The uploader or an owner or administrator can remove one; published pages that use it keep showing it.
+- The video picker (a background video, a video section or a video widget) has **Uploads** and **Stock** tabs. Uploads accept MP4 and WebM up to 50 MB, checked by content signature (an MP4 `ftyp` box that is not a still-image brand such as HEIC; a WebM EBML header), with a separate hourly allowance of 30 videos per company. Pages store only the library ID; an image slot only takes an image and a video slot only a video (checked on save).
+- Videos are streamed from Storage and honour a single HTTP byte range (206, or 416 past the end), which Safari needs for playback; images are sent whole. Publishing adds uploaded videos on visible sections to the publication allowlist, like images, and the sharing image is always an image.
 
 **Locations**
 - A location section, or a map widget, can use the linked record's location or a location set on the page: a place name, address, "Find on map" (one address lookup per click) and a pin placed on the map, shown as an exact pin or an approximate area.
+
+<a id="convert-to-custom-section"></a>
+**Convert to custom section**
+- A built-in section (Hero, Feature, Highlights, Key facts, Project overview, Banner, Enquiry form, WhatsApp and Call prompts, Video, and a Gallery with its own photos) can be turned into a custom section from its right-click menu (canvas or Navigator) or its Advanced tab, after a confirmation. Undo with Ctrl+Z.
+- Each part becomes a widget in rows and columns: headings (the hero headline stays the page's H1), text, buttons, images, icon lists and boxes, the video, the image grid and the lead form. Prices, locations and key facts become **counters**, which keep reading the CRM. Element styles move to their widgets; moved elements start at their normal place.
+- The section keeps its ID (links and the navigation menu keep working), visibility, devices, background and spacing. A full-screen hero's photo becomes the section background. Rows already added inside the section stay. A page still shows the lead form once: a split-form hero keeps its form only when there is no enquiry form section.
+- Not converted, with the reason shown: sections drawn from CRM records (units, prices, payment and floor plans, amenities, developer, location map, comparison), FAQ (no accordion widget yet), testimonials, nearby places, the countdown, contact details, the navigation bar and the footer. The converter (`convert.ts`) is a pure function, and its result is validated with the whole page.
 
 **Custom sections, columns and containers**
 - **Add a section** (the button under the page, or the "+" between sections) first asks for a structure, as in Elementor: one column, 50 / 50, 33 / 67, 67 / 33, 25 / 75, 75 / 25, three columns, 25 / 50 / 25, or four to six columns. **Or add a ready-made section** opens Elements.
@@ -284,6 +298,47 @@ Widgets in custom sections have the same typography and colour controls in their
 - Undo and redo keep 50 steps.
 - The browser warns before leaving with unsaved changes.
 - **Restore** copies an older version into a new version, and **Preview** of a past version is read-only.
+
+## Page structures
+
+`structures.ts` separates a page's **structure** (which sections, in which order, with which variants) from its **design style** (colours, type and look), so two pages about the same project can look completely different.
+
+| Structure | Sections | Used by default for |
+| --- | --- | --- |
+| `SIGNATURE` | Claude's choice in the original order (full-screen hero, key facts, overview, features, gallery, plans, location, FAQ) | (choose it: the original layout) |
+| `STORY` | Editorial hero over a wide photo, overview, three feature chapters, photo carousel, amenities, payment plan, location, developer, FAQ | Editorial Magazine, Warm Organic |
+| `SHOWCASE_3D` (Cinematic showcase) | Wordmark hero (the record name, large, over the photo), statement overview with big figures, numbered residences, two dark amenity bands, numbered service rows, photo carousel, milestones, location, FAQ; floating menu | 3D Depth |
+| `BENTO` | Split hero, fact tiles, highlight tiles, bento gallery, amenity icons, units, milestones, location, FAQ | Bento Grid |
+| `GALLERY_FIRST` | Full-screen photo, bento gallery, overlap feature, coverflow, video, amenity photos, location, banner | Glass Aurora |
+| `MINIMAL` | Typographic hero with a wide photo, fact strip, overview with facts, photo grid, unit and payment tables, location, FAQ | Swiss Minimal |
+| `QUICK_LAUNCH` | Split hero, fact ticker, highlights, the enquiry form early, photos, payment plan, WhatsApp banner, FAQ | Bold Statement |
+| `INVESTOR` | Split hero, fact cards, prices, payment plan, units table, overview, developer, location, FAQ | Modern Corporate |
+| `PRESTIGE` | Centred-logo menu, full-screen photo with the headline low and the buttons beside it, overview beside a portrait, numbered photo grid, amenity photos, units and plan tables, developer, FAQ | Luxury Minimalist |
+| `NOIR` | Statement over the photo with the key facts, overlapping feature, mosaic, film, amenities list, payment timeline, location | Premium Dark |
+| `BOUTIQUE` | Big serif headline centred over the photo with the key facts, two features, carousel, amenity photos, units, location | Elegant Light |
+| `LISTING` (Property card) | Frosted detail card and fact bar over the photo, mosaic, overview with facts, feature, amenities, floor plans, payment plan, location | Contemporary |
+| `CAMPAIGN` | Enquiry form beside the headline and key facts in the first screen, highlights, carousel, payment plan, units, WhatsApp banner | High-Conversion |
+
+**Choosing.** The request may name a `style` and a `structure` (both strict enums). The structure used is the one chosen, else the chosen style's own (`resolveStructure`); with neither, Claude chooses both from the lists in the task prompt and returns `structure` in its output (an enum in the JSON schema). A style or structure chosen by staff always wins over Claude's.
+
+**Applying.** Claude is told the structure's exact sections and order and the style's copy tone. After it answers, `mapGeneratedPage` applies the structure on the server, so it holds even if Claude strays:
+- sections the structure does not list (or extra repeats) are left out and reported in `removed`;
+- sections are sorted into the structure's order, the n-th repeat taking the n-th place;
+- each section takes the structure's variant (lists are used in turn), style and layout;
+- structures with an `IMAGE` hero move the hero photo from the background into the layout and use a solid, sticky navigation bar;
+- `PLAIN` structures keep every section on the page background;
+- structures whose next section shows the key facts hide the hero's own fact strip (`heroFacts: false`), so facts are never shown twice.
+
+`SIGNATURE` changes nothing: the page is mapped exactly as before. The same CRM rules apply to every structure: sections whose data is missing are omitted, and Claude never writes prices, dates or plans.
+
+## Style gallery
+
+The new-page wizard shows every style and structure visually (`components/style-gallery.tsx`):
+- **Design style:** "Let Claude choose", the seven new styles and the six signature styles. Each card is a live miniature of a sample page in that style and its structure.
+- **Page structure:** "Match the design style" (the default), or one of the eight structures, drawn as a wireframe and marked "Recommended" for the chosen style.
+- **Preview:** opens the full sample page at desktop, tablet or phone width, with **Use this design**.
+
+The previews are built in the browser by `style-samples.ts`: a fictional project ("Azure Bay Residences") with sample copy goes through the same `mapGeneratedPage` and `PageRenderer` as a generated page, so a preview shows the real layout, variants and look; only the words and photos differ. The photos are curated stock photos, the form is a preview that never submits, no company record, lead or contact is read, and nothing is stored. Miniatures render when they scroll into view, use small photos, play no video and run no animation. The editor's **Claude** dialog offers the same style and structure choices as lists.
 
 ## Templates
 

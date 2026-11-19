@@ -1,21 +1,24 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowDown, ArrowUp, Database, Monitor, Plus, Smartphone, Tablet, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { ArrowDown, ArrowUp, CopyPlus, Database, Monitor, Plus, Shapes, Smartphone, Tablet, Trash2 } from "lucide-react";
+import { canDeleteElement, canDuplicateElement, deleteElement, duplicateElement, withOwnFacts } from "../../element-ops";
+import { convertBlocker } from "../../convert";
 import { SourcePicker } from "@/modules/ai/content/components/source-picker";
 import { sectionAvailability, statValue, type LinkedData } from "../../linked";
 import { STOCK_IMAGES } from "../../stock";
 import {
   acceptsExtra, ALIGNMENTS, ANIMATIONS, BACKGROUNDS, CONTENT_VERTICALS, MAX_BOX, MAX_OFFSET, BACKGROUND_TYPES, COUNTDOWN_TARGETS, CTA_ACTIONS, CTA_ACTION_LABELS, DEVICE_SPACINGS, HEIGHTS, HIGHLIGHT_ICONS, LANDMARK_CATEGORIES,
   OVERLAY_TONES, SECTION_DEFINITIONS, SPACINGS, STAT_SOURCES, STAT_SOURCE_LABELS, TEXT_TONES, WIDTHS,
-  DEFAULT_ELEMENT_STYLE, isDefaultElementStyle, withStyleDefaults, type Box, type Cta, type ElementStyle, type CustomLocation, type DeviceBox, type ImageRef, type Offset, type PageSection, type SectionStyle, type SectionType, type StatSource, type VideoRef,
+  DEFAULT_ELEMENT_STYLE, VARIANT_LABELS, isDefaultElementStyle, withStyleDefaults, type Box, type Cta, type ElementStyle, type CustomLocation, type DeviceBox, type ImageRef, type Offset, type PageSection, type SectionStyle, type SectionType, type StatSource, type VideoRef, HERO_DEFAULT_FACTS,
 } from "../../registry";
 import { boxValue, presetPaddingPx, type ElementKind } from "../../theme";
 import { BoxControl, ColorControl, Field, OffsetControl, Group, SelectControl, Segmented, Slider, TextControl, Toggle, humanize, inputClass, textareaClass } from "./controls";
 import { AgentControl, ContactDetailsControl, LeadFormControl } from "./connections";
 import { StructureControl, WidgetPanel } from "./custom-panel";
 import { useEditorServices } from "./editor-context";
-import { ElementPanel, type ElementText } from "./element-panel";
+import { ElementPanel, ELEMENT_KIND_LABELS, type ElementText } from "./element-panel";
 import { LocationControl } from "./location-control";
 import { ImagePicker, VideoPicker } from "./media-picker";
 
@@ -32,7 +35,7 @@ export type Spec =
   | {key: string; label: string; kind: "number"; min: number; max: number; unit?: string}
   | {key: string; label: string; kind: "toggle"; hint?: string}
   | {key: string; label: string; kind: "select"; options: readonly string[]; labels?: Record<string, string>}
-  | {key: string; label: string; kind: "cta" | "ctaOptional" | "image" | "images" | "video" | "highlights" | "faq" | "landmarks" | "testimonials" | "listings" | "columns" | "stats" | "strings" | "leadForm" | "contactDetails" | "agent" | "location" | "iconItems" | "videoRequired" | "navLinks"; hint?: string; max?: number};
+  | {key: string; label: string; kind: "cta" | "ctaOptional" | "image" | "images" | "video" | "highlights" | "faq" | "landmarks" | "testimonials" | "listings" | "columns" | "stats" | "heroFacts" | "strings" | "leadForm" | "contactDetails" | "agent" | "location" | "iconItems" | "videoRequired" | "navLinks"; hint?: string; max?: number};
 
 export const t = (key: string, label: string, max: number, hint?: string): Spec => ({key, label, kind: "text", max, hint});
 export const ta = (key: string, label: string, max: number, hint?: string): Spec => ({key, label, kind: "textarea", max, hint});
@@ -50,7 +53,7 @@ export const FIELD_SPECS: Record<SectionType, Spec[]> = {
     {key: "sticky", label: "Stick to the top (solid style)", kind: "toggle"}],
   HERO: [t("badge", "Badge", 40), eyebrow, t("headline", "Headline", 120), ta("subheadline", "Subheadline", 300), {key: "primaryCta", label: "Main button", kind: "cta"},
     {key: "secondaryCta", label: "Second button", kind: "ctaOptional"}, {key: "image", label: "Image (split and centred layouts)", kind: "image", hint: "Full-screen heroes use the background in the Style tab."},
-    {key: "showFacts", label: "Show key facts from the CRM", kind: "toggle", hint: "Price, bedrooms, payment plan and handover, when recorded."}, {key: "showPrice", label: "Show the recorded price", kind: "toggle"}, {key: "showLocation", label: "Show the location", kind: "toggle"}],
+    {key: "showFacts", label: "Show key facts", kind: "toggle", hint: "Price, bedrooms, payment plan and handover when recorded, or your own facts below."}, {key: "facts", label: "Key facts", kind: "heroFacts"}, {key: "showPrice", label: "Show the recorded price", kind: "toggle"}, {key: "showLocation", label: "Show the location", kind: "toggle"}],
   STATS: [t("heading", "Heading", 120), {key: "items", label: "Facts", kind: "stats", hint: "CRM facts are filled in from the records; custom items show your own text."}],
   PROJECT_OVERVIEW: [eyebrow, heading, ta("body", "Text", 2000, "Leave empty to use the description recorded on the project."), {key: "image", label: "Image", kind: "image"}, {key: "showFacts", label: "Show key facts from the CRM", kind: "toggle"}],
   FEATURE_SPLIT: [eyebrow, heading, ta("body", "Text", 1200), {key: "bullets", label: "Bullet points", kind: "strings", max: 6}, {key: "image", label: "Image", kind: "image"},
@@ -131,14 +134,28 @@ export function ContentField({spec, section, linked, onProps}: {spec: Spec; sect
     }
     case "strings": return <ListControl label={spec.label} noun="item" items={(value as string[]) ?? []} max={spec.max ?? 6} onChange={set} create={() => "New point"}
       render={(item, update) => <input value={item} maxLength={120} aria-label="Text" onChange={event => update(event.target.value)} className={mini} />} />;
+    case "heroFacts": {
+      // Null shows the automatic four; customising copies them into a list to add to, remove from, reorder and edit.
+      const list = value as Array<{source: StatSource; value: string; label: string}> | null;
+      if (!list) return <div className="space-y-2" data-testid="hero-facts-auto">
+        <p className="text-[13px] font-medium text-zinc-200">{spec.label}</p>
+        <p className="text-[11px] leading-4 text-zinc-500">Automatic: starting price, bedrooms, payment plan and handover, when recorded.</p>
+        <button type="button" onClick={() => set(HERO_DEFAULT_FACTS.map(fact => ({...fact})))} className="inline-flex items-center gap-1.5 rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-zinc-200 hover:border-sky-400"><Plus className="size-3.5" aria-hidden="true" />Customise the facts (add, remove, reorder)</button>
+      </div>;
+      return <div className="space-y-2">
+        <ContentField spec={{key: spec.key, label: spec.label, kind: "stats", hint: "CRM facts are filled in from the records; custom facts show your own text. Up to six."}} section={section} linked={linked} onProps={onProps} />
+        <button type="button" onClick={() => set(null)} className="text-[11px] text-zinc-400 underline-offset-2 hover:text-white hover:underline">Back to the automatic facts</button>
+      </div>;
+    }
     case "stats": return <ListControl label={spec.label} hint={spec.hint} noun="fact" items={(value as Array<{source: StatSource; value: string; label: string}>) ?? []} max={6} onChange={set}
       create={() => ({source: "STARTING_PRICE" as StatSource, value: "", label: "Starting price"})}
       render={(item, update) => {
         const resolved = item.source === "CUSTOM" ? null : statValue(item, linked);
         return <>
           <select value={item.source} aria-label="Fact" onChange={event => update({...item, source: event.target.value as StatSource})} className={`${mini} [&>option]:bg-zinc-900`}>{STAT_SOURCES.map(source => <option key={source} value={source}>{STAT_SOURCE_LABELS[source]}</option>)}</select>
-          {item.source === "CUSTOM" ? <input value={item.value} maxLength={40} aria-label="Value" placeholder="Value" onChange={event => update({...item, value: event.target.value})} className={mini} />
-            : <p className={`flex items-center gap-1.5 text-[11px] ${resolved ? "text-sky-300" : "text-amber-300"}`}><Database className="size-3" aria-hidden="true" />{resolved ? `From CRM: ${resolved}` : "Not recorded, so hidden"}</p>}
+          {/* Always a value field: a CRM value shows as its placeholder; typing makes it the fact's own text. */}
+          <input value={item.source === "CUSTOM" ? item.value : ""} maxLength={40} aria-label="Value" placeholder={resolved ?? "Type a value"} onChange={event => update({...item, source: "CUSTOM", value: event.target.value})} className={mini} />
+          {item.source !== "CUSTOM" && <p className={`flex items-center gap-1.5 text-[11px] ${resolved ? "text-sky-300" : "text-amber-300"}`}><Database className="size-3" aria-hidden="true" />{resolved ? `From CRM: ${resolved}. Typing replaces it.` : "Not recorded in the CRM, so hidden. Type a value to show your own."}</p>}
           <input value={item.label} maxLength={60} aria-label="Label" placeholder="Label" onChange={event => update({...item, label: event.target.value})} className={mini} />
         </>;
       }} />;
@@ -252,8 +269,107 @@ function elementText(section: PageSection, key: string, onProps: (props: Record<
   return typeof label === "string" ? {value: label, max: 40, multiline: false, onChange: update(`${key}.label`)} : null;
 }
 
-export function SectionPanel({section, linked, hasForm, today, device, onChange, element, elementKind, onElement, tab, onTab, widget, onWidget}: {
+const ITEM_FIELD_LABELS: Record<string, string> = {title: "Title", text: "Text", question: "Question", answer: "Answer", quote: "Quote", author: "Author", context: "Context", name: "Name", note: "Note", value: "Value", label: "Label"};
+
+/**
+ * The Content tab of an element: what it says or shows. Text, a button (its
+ * words and what it does), an image, the fields of a list item, the enquiry
+ * form (its button; its fields come from the connected lead form), or, for a
+ * group, the parts inside it. Elements that show CRM data say where to change it.
+ */
+function ElementContent({section, elementKey, kind, linked, onProps, onSection, onDeselect}: {
+  section: PageSection; elementKey: string; kind: ElementKind; linked: LinkedData; onProps: (props: Record<string, unknown>) => void;
+  /** Whole-section changes (duplicate and delete also move element styles). */
+  onSection: (section: PageSection) => void; onDeselect: () => void;
+}) {
+  const {canvasElements, selectElement, payload} = useEditorServices();
+  // A fact's label or value: the fact's own fields (the Style tab styles just that part).
+  const part = /^(facts\.\d+)\.(label|value)$/.exec(elementKey);
+  if (part && section.type === "HERO") return <ElementContent section={section} elementKey={part[1]} kind="block" linked={linked} onProps={onProps} onSection={onSection} onDeselect={onDeselect} />;
+  // One of the hero's automatic facts is edited as an item of the hero's own list.
+  const own = /^facts\.\d+$/.test(elementKey) ? withOwnFacts(section) : section;
+  const value = valueAt(own.props, elementKey);
+  const update = (path: string) => (next: unknown) => onProps(setAt(own.props, path.split("."), next) as Record<string, unknown>);
+  const run = (result: ReturnType<typeof duplicateElement>, deleted = false) => { if (!result.ok) { toast.error(result.message); return; } onSection(result.section); toast.success(result.message); if (deleted) onDeselect(); };
+  const itemActions = (canDuplicateElement(section, elementKey) || canDeleteElement(section, elementKey)) && <div className="flex gap-2 border-t border-white/10 pt-3">
+    {canDuplicateElement(section, elementKey) && <button type="button" onClick={() => run(duplicateElement(section, elementKey))} data-testid="element-duplicate"
+      className="inline-flex items-center gap-1.5 rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-zinc-200 hover:border-sky-400 hover:text-white"><CopyPlus className="size-3.5" aria-hidden="true" />Duplicate next to it</button>}
+    {canDeleteElement(section, elementKey) && <button type="button" onClick={() => run(deleteElement(section, elementKey), true)} data-testid="element-delete"
+      className="inline-flex items-center gap-1.5 rounded-md border border-white/15 px-2.5 py-1.5 text-xs text-red-200 hover:border-red-400 hover:text-red-100"><Trash2 className="size-3.5" aria-hidden="true" />Delete</button>}
+  </div>;
+  const parts = canvasElements(section.id).filter(item => item.parent === elementKey);
+  const partList = parts.length > 0 && <div className="space-y-1.5">
+    <p className="text-[13px] font-medium text-zinc-200">Inside this group</p>
+    <ul className="space-y-1">{parts.map(part => <li key={part.key}><button type="button" onClick={() => selectElement(section.id, part.key, part.kind)} data-testid={`element-part-${part.key}`}
+      className="flex w-full items-center justify-between gap-2 rounded-md border border-white/10 px-2.5 py-2 text-left text-xs text-zinc-200 hover:border-sky-400 hover:text-white">
+      <span className="truncate">{elementLabel(part.key)}</span><span className="text-[10px] uppercase tracking-wider text-zinc-500">{ELEMENT_KIND_LABELS[part.kind]}</span></button></li>)}</ul>
+  </div>;
+  // The hero's key facts: the list itself.
+  if (section.type === "HERO" && elementKey === "facts") return <ContentField spec={{key: "facts", label: "Key facts", kind: "heroFacts"}} section={section} linked={linked} onProps={onProps} />;
+  // The enquiry form: its button, and where its fields come from.
+  if (elementKey === "form") {
+    const labelPath = section.type === "HERO" ? "primaryCta.label" : section.type === "ENQUIRY_FORM" ? "submitLabel" : null;
+    const label = labelPath ? valueAt(section.props, labelPath) : null;
+    const fields = payload.form?.view?.fields ?? [];
+    return <>
+      {labelPath && typeof label === "string" && <TextControl label="Button text" value={label} max={40} onChange={update(labelPath)} />}
+      <div className="space-y-2 rounded-md border border-white/10 bg-white/[.03] p-3 text-xs text-zinc-300">
+        <p className="font-semibold text-zinc-100">{fields.length ? "Fields from the connected lead form" : "No lead form connected yet"}</p>
+        {fields.length > 0 ? <ul className="list-disc space-y-0.5 ps-4">{fields.map(field => <li key={field.key}>{field.label}{field.required ? " (required)" : ""}</li>)}</ul>
+          : <p>The form shows sample fields until an owner or administrator connects a lead form in the Publish tab.</p>}
+        <p className="text-zinc-400">Fields, consent text and the privacy link belong to the lead form, so every page that uses it stays consistent and enquiries arrive with the right details.</p>
+        <a href="/settings/lead-forms" target="_blank" rel="noreferrer" className="inline-flex font-medium text-sky-300 hover:underline">Edit lead form fields ↗</a>
+      </div>
+      <p className="text-[11px] text-zinc-500">Colours, corners and the button colour are in the Style tab.</p>
+    </>;
+  }
+  // Plain text.
+  const text = elementText(section, elementKey, onProps);
+  if (typeof value === "string" && text) return <><TextControl label="Text" value={text.value} max={text.max} multiline={text.multiline} onChange={text.onChange} hint="You can also type on the canvas." />{partList}{itemActions}</>;
+  // A button: its words and what it does.
+  if (value && typeof value === "object" && "label" in value && "action" in value) {
+    const cta = value as {label: string; action: string};
+    return <>
+      <TextControl label="Button text" value={cta.label} max={40} onChange={update(`${elementKey}.label`)} />
+      <SelectControl label="When clicked" value={cta.action as (typeof CTA_ACTIONS)[number]} options={CTA_ACTIONS} labels={CTA_ACTION_LABELS} onChange={update(`${elementKey}.action`)} />
+      <p className="text-[11px] text-zinc-500">Phone, WhatsApp and email use the approved company contacts.</p>
+    </>;
+  }
+  // An image of the section's own (not a photo from a gallery or the CRM).
+  if (kind === "image" && (value === null || (value && typeof value === "object" && ("stockId" in value || "mediaId" in value || "uploadId" in value)))) {
+    return <ImagePicker label="Image" value={(value as ImageRef | null) ?? null} onChange={update(elementKey)} linked={linked} />;
+  }
+  // A list item: each of its fields.
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const item = value as Record<string, unknown>;
+    return <>{Object.entries(item).map(([field, fieldValue]) => {
+      if (field === "icon" && typeof fieldValue === "string") return <SelectControl key={field} label="Icon" value={fieldValue as (typeof HIGHLIGHT_ICONS)[number]} options={HIGHLIGHT_ICONS} labels={Object.fromEntries(HIGHLIGHT_ICONS.map(icon => [icon, humanize(icon)]))} onChange={update(`${elementKey}.${field}`)} />;
+      if (field === "source" && typeof fieldValue === "string") return <SelectControl key={field} label="Shows" value={fieldValue as StatSource} options={STAT_SOURCES} labels={STAT_SOURCE_LABELS} onChange={update(`${elementKey}.${field}`)} />;
+      if (field === "value" && "source" in item) {
+        const custom = item.source === "CUSTOM";
+        const resolved = custom ? null : statValue({source: item.source as StatSource, value: ""}, linked);
+        return <div key={field} data-testid="element-fact-value">
+          <TextControl label="Value" value={custom ? String(fieldValue ?? "") : ""} max={40} placeholder={resolved ?? "Type a value"} onChange={next => update(elementKey)({...item, source: "CUSTOM", value: next})}
+            hint={custom ? "Your own text, shown as typed. To show a CRM value again, choose it under Shows." : resolved ? `From CRM: ${resolved}. Typing replaces it with your own text.` : "Not recorded in the CRM, so it is hidden on the live page. Type a value to show your own text."} />
+        </div>;
+      }
+      if (typeof fieldValue !== "string") return null;
+      const long = field === "text" || field === "answer" || field === "quote";
+      return <TextControl key={field} label={ITEM_FIELD_LABELS[field] ?? humanize(field)} value={fieldValue} max={field === "label" && "source" in item ? 60 : long ? 1000 : 200} multiline={long} onChange={update(`${elementKey}.${field}`)} />;
+    })}{partList}{itemActions}</>;
+  }
+  // A group of other elements, or content from the CRM.
+  return <>
+    {partList || null}
+    {!parts.length && <div className="flex gap-2 rounded-md border border-sky-400/30 bg-sky-400/10 p-3 text-xs text-sky-100"><Database className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <p>{SECTION_DEFINITIONS[section.type].linked ? `This shows CRM data (${SECTION_DEFINITIONS[section.type].linked}). Change the value in the CRM record; style and position it here.` : "This part is drawn from the section's settings. Style and position it here."}</p></div>}
+  </>;
+}
+
+export function SectionPanel({section, linked, hasForm, today, device, onChange, element, elementKind, onElement, tab, onTab, widget, onWidget, onConvert}: {
   section: PageSection; linked: LinkedData; hasForm: boolean; today: string; device: Device; onChange: (section: PageSection) => void;
+  /** Asks to convert this built-in section to a custom section (rows, columns and widgets). */
+  onConvert?: () => void;
   /** The selected widget of a custom section ("rows.0.columns.1.widgets.2"). */
   widget: string | null; onWidget: (path: string | null) => void;
   /** The element selected on the canvas (a prop path), styled and moved on its own. */
@@ -284,7 +400,7 @@ export function SectionPanel({section, linked, hasForm, today, device, onChange,
   if (element) {
     return <ElementPanel key={element} label={elementLabel(element)} sectionLabel={definition.label} kind={elementKind}
       style={style.elementStyles[element] ?? DEFAULT_ELEMENT_STYLE} offset={style.elementOffsets[element] ?? {x: 0, y: 0}}
-      text={elementText(section, element, props => set({props} as Partial<PageSection>))}
+      content={<ElementContent section={section} elementKey={element} kind={elementKind} linked={linked} onProps={props => set({props} as Partial<PageSection>)} onSection={onChange} onDeselect={() => onElement(null)} />}
       onStyle={next => setElementStyle(element, next)} onOffset={offset => setElementOffset(element, offset)}
       onReset={() => setStyle({elementStyles: without(style.elementStyles, element), elementOffsets: without(style.elementOffsets, element)})}
       onBack={() => onElement(null)} />;
@@ -301,7 +417,19 @@ export function SectionPanel({section, linked, hasForm, today, device, onChange,
     <div role="tabpanel">
       {tab === "content" && <div className="space-y-5 p-4">
         {section.type === "CUSTOM" && <StructureControl section={section} linked={linked} onChange={onChange} onWidget={onWidget} />}
-        {FIELD_SPECS[section.type].map(spec => <ContentField key={spec.key} spec={spec} section={section} linked={linked} onProps={props => set({props} as Partial<PageSection>)} />)}
+        {FIELD_SPECS[section.type].map(spec => section.type === "HERO" && spec.key === "image" && section.variant === "showcaseImage"
+          ? <div key={spec.key} className="space-y-5">
+            <ImagePicker label="Showcase image" value={section.props.image} linked={linked} hint="Framed beside the text, with the key facts floating around it." onChange={image => set({props: {...section.props, image}} as Partial<PageSection>)} />
+            {style.backgroundType === "IMAGE" && <ImagePicker label="Background image" value={style.backgroundImage} linked={linked} hint="The photo behind the whole hero." onChange={backgroundImage => setStyle({backgroundImage})} />}
+            {style.backgroundType === "VIDEO" && <VideoPicker label="Background video" value={style.backgroundVideo} onChange={backgroundVideo => setStyle({backgroundVideo})} allowNone={false} />}
+            {style.backgroundType !== "IMAGE" && style.backgroundType !== "VIDEO" && <p className="text-[11px] leading-4 text-zinc-500">For a photo or video behind the hero, choose it under Style › Background media.</p>}
+          </div>
+          : section.type === "HERO" && spec.key === "image" && style.backgroundType === "IMAGE"
+          ? <ImagePicker key={spec.key} label="Background image" value={style.backgroundImage ?? section.props.image} linked={linked} hint="The photo behind the hero. The overlay colour and strength are in the Style tab."
+            onChange={backgroundImage => set({style: {...style, backgroundImage}, ...(backgroundImage ? {} : {props: {...section.props, image: null}})} as Partial<PageSection>)} />
+          : section.type === "HERO" && spec.key === "image" && style.backgroundType === "VIDEO"
+          ? <VideoPicker key={spec.key} label="Background video" value={style.backgroundVideo} onChange={backgroundVideo => setStyle({backgroundVideo})} allowNone={false} />
+          : <ContentField key={spec.key} spec={section.type === "HERO" && spec.key === "image" ? {...spec, label: "Image", hint: section.variant === "fullBleed" ? "The photo behind the hero." : "Shown beside the text."} as typeof spec : spec} section={section} linked={linked} onProps={props => set({props} as Partial<PageSection>)} />)}
         {acceptsExtra(section.type) && <div className="space-y-3 border-t border-white/10 pt-4">
           <div><p className="text-[13px] font-medium text-zinc-100">Columns and widgets in this section</p>
             <p className="text-[11px] leading-4 text-zinc-500">Add rows of columns with your own widgets inside this section, before or after its content. You can also drag a widget from Elements onto the section.</p></div>
@@ -313,7 +441,7 @@ export function SectionPanel({section, linked, hasForm, today, device, onChange,
       </div>}
       {tab === "style" && <div>
         <Group title="Layout">
-          <Segmented label="Layout" value={section.variant} options={definition.variants} onChange={variant => set({variant} as Partial<PageSection>)} />
+          <Segmented label="Layout" value={section.variant} options={definition.variants} labels={VARIANT_LABELS} onChange={variant => set({variant} as Partial<PageSection>)} />
           {section.type !== "NAVBAR" && <>
             <SelectControl label="Height" value={style.height} options={HEIGHTS} onChange={height => setStyle({height})} />
             <Segmented label="Content width" value={style.width} options={WIDTHS} onChange={width => setStyle({width})} />
@@ -339,6 +467,15 @@ export function SectionPanel({section, linked, hasForm, today, device, onChange,
           <p className="text-[11px] text-zinc-500">Plays as the section scrolls into view; switched off for visitors who prefer reduced motion.</p></Group>}
       </div>}
       {tab === "advanced" && <div>
+        {section.type !== "CUSTOM" && onConvert && (() => {
+          const blocker = convertBlocker(section);
+          return <Group title="Layout freedom">
+            <p className="text-[11px] leading-4 text-zinc-400">Turn this section into rows, columns and widgets, so every part can be dragged anywhere (like Elementor). Undo with Ctrl+Z.</p>
+            <button type="button" onClick={onConvert} disabled={Boolean(blocker)} data-testid="convert-section"
+              className="inline-flex items-center gap-1.5 rounded-md border border-white/15 px-2.5 py-1.5 text-xs font-medium text-zinc-100 hover:border-sky-400 disabled:opacity-40"><Shapes className="size-3.5" aria-hidden="true" />Convert to custom section</button>
+            {blocker && <p className="text-[11px] leading-4 text-amber-200">{blocker}</p>}
+          </Group>;
+        })()}
         <Group title="Position">
           {section.type !== "NAVBAR" && <Segmented label="Content position (vertical)" value={style.contentVertical} options={CONTENT_VERTICALS} onChange={contentVertical => setStyle({contentVertical})}
             labels={{AUTO: "Default", TOP: "Top", CENTER: "Middle", BOTTOM: "Bottom"}} />}

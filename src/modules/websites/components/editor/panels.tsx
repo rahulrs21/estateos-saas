@@ -4,17 +4,23 @@ import { useState, type DragEvent, type ReactNode } from "react";
 import {
   AlignLeft, ArrowDown, ArrowUp, Building2, Contact as ContactIcon, Grid2x2, Hash, Heading, Image as ImageIcon, LayoutGrid, List, Map as MapIcon, Minus, MousePointerClick, MoveVertical, Rows3, SquareStack, Video, CalendarClock, ChartNoAxesColumn, Columns2, Copy, Eye, EyeOff, Film, GalleryHorizontal, GripVertical, HelpCircle, Images, LayoutPanelTop, Landmark,
   Contact, ListChecks, MapPin, Megaphone, MessageCircle, Navigation, PanelBottom, Phone, Quote, Ruler, Search, Sparkles, Table, Trash2, Wallet, Waves, type LucideIcon,
+  ChevronRight, PanelsTopLeft, Square, Type,
 } from "lucide-react";
 import type { LinkedData } from "../../linked";
 import {
   ACCENTS, BUTTON_SHAPES, DESIGN_STYLES, DESIGN_STYLE_LABELS, FONT_FAMILIES, FONT_FAMILY_LABELS, MAX_SECTIONS, RADII, SCALES, SECTION_DEFINITIONS, SECTION_GROUPS, SECTION_TYPES, defaultTheme,
-  WIDGET_DEFINITIONS, WIDGET_TYPES, sectionWidgets, type PageSection, type PageTheme, type SectionType, type WidgetType,
+  WIDGET_DEFINITIONS, WIDGET_TYPES, sectionWidgets, withStyleDefaults, type PageSection, type PageTheme, type SectionType, type WidgetType,
 } from "../../registry";
 import { ACCENT_COLORS, FONT_STACKS, STYLE_TOKENS, accentColor } from "../../theme";
 import { ColorControl, Group, Segmented, SelectControl, TextControl } from "./controls";
+import type { CanvasElement } from "./editor-context";
+import { canDeleteElement, canDuplicateElement } from "../../element-ops";
+import { elementLabel } from "./section-panel";
+import type { ElementKind } from "../../theme";
 
 export const DRAG_NEW = "application/x-estateos-new-section";
 export const DRAG_MOVE = "application/x-estateos-move-section";
+export const DRAG_ELEMENT = "application/x-estateos-move-element";
 export const DRAG_WIDGET = "application/x-estateos-new-widget";
 /** Moving a widget that is already on the page: {sectionId, path} as JSON. */
 export const DRAG_PLACED = "application/x-estateos-move-widget";
@@ -81,21 +87,45 @@ export function ElementsPanel({sections, onAdd, onAddWidget, onDragStart, librar
   </div>;
 }
 
-export function NavigatorPanel({sections, selected, onSelect, onMove, onReorder, onToggle, onDuplicate, onDelete, unavailable, selectedWidget, onSelectWidget}: {
+const ELEMENT_KIND_ICONS = {text: Type, button: MousePointerClick, image: ImageIcon, block: Square, card: PanelsTopLeft} as const;
+
+type ElementAction = "duplicate" | "hide" | "delete";
+
+export function NavigatorPanel({sections, selected, onSelect, onMove, onReorder, onToggle, onDuplicate, onDelete, unavailable, selectedWidget, onSelectWidget, elementsOf, selectedElement, onSelectElement,
+  onReorderElement, onSectionMenu, onElementMenu, onElementAction}: {
   sections: PageSection[]; selected: string | null; onSelect: (id: string) => void; onMove: (id: string, delta: number) => void; onReorder: (id: string, toIndex: number) => void;
   onToggle: (id: string) => void; onDuplicate: (id: string) => void; onDelete: (id: string) => void; unavailable: Map<string, string>;
   selectedWidget: string | null; onSelectWidget: (sectionId: string, path: string) => void;
+  /** The elements of a section as drawn on the canvas; the selected section's list is open. */
+  elementsOf: (sectionId: string) => CanvasElement[]; selectedElement: string | null; onSelectElement: (sectionId: string, key: string, kind: ElementKind) => void;
+  /** Dragging an element row onto another one of the same section. */
+  onReorderElement: (sectionId: string, dragKey: string, targetKey: string, after: boolean) => void;
+  /** Right-click on a row: the same menus as on the canvas. */
+  onSectionMenu: (sectionId: string, x: number, y: number) => void;
+  onElementMenu: (sectionId: string, key: string, kind: ElementKind, x: number, y: number) => void;
+  onElementAction: (sectionId: string, key: string, kind: ElementKind, action: ElementAction) => void;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
+  const [elementDrag, setElementDrag] = useState<{sectionId: string; key: string} | null>(null);
+  const [dropRow, setDropRow] = useState<{key: string; after: boolean} | null>(null);
+  const below = (event: {clientY: number; currentTarget: Element}) => { const box = event.currentTarget.getBoundingClientRect(); return event.clientY > box.top + box.height / 2; };
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggleOpen = (id: string) => setOpen(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   return <div className="p-2">
     <ol aria-label="Page sections" className="space-y-0.5">{sections.map((section, index) => {
       const Icon = SECTION_ICONS[section.type];
       const label = SECTION_DEFINITIONS[section.type].label;
       const note = unavailable.get(section.id);
+      // Open when chosen with the arrow, or while the section is selected (unless closed with the arrow).
+      const expanded = open.has(section.id) !== (selected === section.id);
+      const elements = expanded ? elementsOf(section.id) : [];
       return <li key={section.id} draggable onDragStart={event => { setDragId(section.id); event.dataTransfer.setData(DRAG_MOVE, section.id); }} onDragEnd={() => setDragId(null)}
         onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const id = event.dataTransfer.getData(DRAG_MOVE); if (id) onReorder(id, index); setDragId(null); }}
+        onContextMenu={event => { event.preventDefault(); onSectionMenu(section.id, event.clientX, event.clientY); }}
         className={`group flex flex-wrap items-center gap-1 rounded-md px-1.5 py-1 text-sm ${selected === section.id ? "bg-sky-500/20 text-white" : "text-zinc-300 hover:bg-white/5"} ${dragId === section.id ? "opacity-40" : ""}`}>
         <GripVertical className="size-4 shrink-0 cursor-grab text-zinc-600" aria-hidden="true" />
+        <button type="button" onClick={() => toggleOpen(section.id)} aria-expanded={expanded} aria-label={`${expanded ? "Collapse" : "Expand"} ${label}`} data-testid={`navigator-expand-${section.id}`}
+          className="rounded p-0.5 text-zinc-500 hover:bg-white/10 hover:text-white"><ChevronRight className={`size-3.5 transition-transform ${expanded ? "rotate-90" : ""}`} aria-hidden="true" /></button>
         <button type="button" onClick={() => onSelect(section.id)} aria-current={selected === section.id} className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left">
           <Icon className="size-4 shrink-0 text-zinc-400" aria-hidden="true" />
           <span className="min-w-0"><span className={`block truncate ${section.visible ? "" : "line-through opacity-60"}`}>{label}</span>{note && section.visible && <span className="block truncate text-[10px] text-amber-300">Hidden publicly: {note}</span>}</span>
@@ -107,6 +137,31 @@ export function NavigatorPanel({sections, selected, onSelect, onMove, onReorder,
           {!SECTION_DEFINITIONS[section.type].single && <button type="button" aria-label={`Duplicate ${label}`} onClick={() => onDuplicate(section.id)} className="rounded p-1 hover:bg-white/10"><Copy className="size-3.5" /></button>}
           <button type="button" aria-label={`Delete ${label}`} onClick={() => onDelete(section.id)} className="rounded p-1 hover:bg-red-500/20 hover:text-red-300"><Trash2 className="size-3.5" /></button>
         </span>
+        {expanded && elements.length > 0 && <ul aria-label={`Elements in ${label}`} data-testid={`navigator-elements-${section.id}`} className="ml-7 mt-0.5 w-full basis-full space-y-0.5 border-l border-white/10 pl-2">
+          {elements.map(item => {
+            const active = selected === section.id && selectedElement === item.key; const KindIcon = ELEMENT_KIND_ICONS[item.kind];
+            const own = withStyleDefaults(section.style).elementStyles[item.key];
+            const hidden = Boolean(own && !own.devices.desktop && !own.devices.tablet && !own.devices.mobile);
+            const name = elementLabel(item.key);
+            const marker = dropRow?.key === item.key && elementDrag?.sectionId === section.id && elementDrag.key !== item.key ? (dropRow.after ? "after:absolute after:inset-x-1 after:-bottom-px after:h-0.5 after:bg-sky-400" : "before:absolute before:inset-x-1 before:-top-px before:h-0.5 before:bg-sky-400") : "";
+            return <li key={item.key} draggable data-element-item={item.key}
+              onDragStart={event => { event.stopPropagation(); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(DRAG_ELEMENT, item.key); setElementDrag({sectionId: section.id, key: item.key}); }}
+              onDragEnd={event => { event.stopPropagation(); setElementDrag(null); setDropRow(null); }}
+              onDragOver={event => { if (elementDrag?.sectionId !== section.id) return; event.preventDefault(); event.stopPropagation(); setDropRow({key: item.key, after: below(event)}); }}
+              onDrop={event => { if (elementDrag?.sectionId !== section.id) return; event.preventDefault(); event.stopPropagation(); onReorderElement(section.id, elementDrag.key, item.key, below(event)); setElementDrag(null); setDropRow(null); }}
+              onContextMenu={event => { event.preventDefault(); event.stopPropagation(); onElementMenu(section.id, item.key, item.kind, event.clientX, event.clientY); }}
+              className={`group/el relative flex items-center rounded ${active ? "bg-sky-500/20 text-white" : "text-zinc-400 hover:bg-white/5 hover:text-white"} ${elementDrag?.key === item.key && elementDrag.sectionId === section.id ? "opacity-40" : ""} ${marker}`}>
+              <button type="button" onClick={() => onSelectElement(section.id, item.key, item.kind)} aria-current={active} data-element-row={item.key} title="Drag to reorder · right-click for more"
+                className="flex min-w-0 flex-1 cursor-grab items-center gap-1.5 px-1.5 py-1 text-left text-xs active:cursor-grabbing" style={{paddingLeft: 6 + item.depth * 12}}>
+                <KindIcon className="size-3.5 shrink-0" aria-hidden="true" /><span className={`truncate ${hidden ? "line-through opacity-60" : ""}`}>{name}</span>
+              </button>
+              <span className="flex shrink-0 pr-0.5 opacity-0 group-hover/el:opacity-100 group-focus-within/el:opacity-100">
+                {canDuplicateElement(section, item.key) && <button type="button" aria-label={`Duplicate ${name}`} title="Duplicate" onClick={() => onElementAction(section.id, item.key, item.kind, "duplicate")} className="rounded p-1 hover:bg-white/10"><Copy className="size-3" /></button>}
+                <button type="button" aria-label={`${hidden ? "Show" : "Hide"} ${name}`} title={hidden ? "Show" : "Hide"} onClick={() => onElementAction(section.id, item.key, item.kind, "hide")} className="rounded p-1 hover:bg-white/10">{hidden ? <EyeOff className="size-3" /> : <Eye className="size-3" />}</button>
+                {canDeleteElement(section, item.key) && <button type="button" aria-label={`Delete ${name}`} title="Delete" onClick={() => onElementAction(section.id, item.key, item.kind, "delete")} className="rounded p-1 hover:bg-red-500/20 hover:text-red-300"><Trash2 className="size-3" /></button>}
+              </span>
+            </li>; })}
+        </ul>}
         {sectionWidgets(section).length > 0 && <ul aria-label={`Widgets in ${label}`} className="ml-7 mt-0.5 w-full basis-full space-y-0.5 border-l border-white/10 pl-2">
           {sectionWidgets(section).map(item => { const WidgetIcon = WIDGET_ICONS[item.widget.type]; const active = selected === section.id && selectedWidget === item.path;
             return <li key={item.widget.id}><button type="button" onClick={() => onSelectWidget(section.id, item.path)} aria-current={active}

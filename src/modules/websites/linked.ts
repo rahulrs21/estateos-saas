@@ -3,7 +3,7 @@ import { isPublicListing } from "../maps/public";
 import { areaText, cleanText, emirateName, formatMoney, humanize, minorToMajor } from "../ai/tools/present";
 import { groupUnits, type ApprovedBranding, type UnitRecord } from "../ai/content/facts";
 import { canonicalUuid } from "../organizations/server/identifiers";
-import { isCrmImageRef, isStockImageRef, isUploadImageRef, mapSectionWidgets, sectionWidgets, type CustomLocation, type ImageRef, type Widget, type WidgetOf, type PageData, type PageSection, type SectionOf, type SectionType, type StatSource, type VideoRef } from "./registry";
+import { isCrmImageRef, isStockImageRef, isStockVideoRef, isUploadImageRef, isUploadVideoRef, mapSectionWidgets, sectionWidgets, type CustomLocation, type ImageRef, type Widget, type WidgetOf, type PageData, type PageSection, type SectionOf, type SectionType, type StatSource, type VideoRef } from "./registry";
 import { stockCredit, stockImage, stockImageSrcSet, stockImageUrl, stockVideo, stockVideoUrl } from "./stock";
 
 /**
@@ -57,7 +57,7 @@ export interface LinkedData {
   unavailable: string[];
 }
 
-export interface LinkedUpload { id: string; url: string; alt: string; width: number | null; height: number | null }
+export interface LinkedUpload { id: string; url: string; alt: string; width: number | null; height: number | null; contentType?: string }
 export interface LinkedAgent { id: string; name: string; title: string | null; phone: string | null; whatsapp: string | null; email: string | null }
 
 // --- Source shapes (subsets of the permission-checked CRM service records) ---
@@ -217,8 +217,8 @@ export interface LinkedSources {
   uploads?: UploadSource[];
 }
 
-/** A website library image (active, or archived but already on the page). */
-export interface UploadSource { id: string; alt: string; width?: number | null; height?: number | null }
+/** A website library image or video (active, or archived but already on the page). */
+export interface UploadSource { id: string; alt: string; width?: number | null; height?: number | null; contentType?: string }
 
 /** Editor URL of a website library image; the route re-checks the viewer's company on every request. */
 export const websiteMediaPath = (id: string) => `/api/websites/media/${encodeURIComponent(canonicalUuid(id))}/content`;
@@ -262,6 +262,7 @@ export function widgetAvailability(widget: Widget, linked: LinkedData, context: 
     case "COUNTER": return statValue(widget.props, linked) ? {ok: true} : missing("This fact is not recorded in the CRM.");
     case "IMAGE": return widget.props.image && resolveImage(widget.props.image, linked) ? {ok: true} : missing("Choose an image.");
     case "GALLERY": return resolveImages(widget.props.images, linked).length ? {ok: true} : missing("Choose images.");
+    case "VIDEO": return resolveVideo(widget.props.video, linked) ? {ok: true} : missing("Choose a video.");
     case "INNER_SECTION": return widget.props.columns.some(column => column.widgets.some(item => widgetAvailability(item, linked, context).ok)) ? {ok: true} : missing("Add a widget that can be shown.");
     default: return {ok: true};
   }
@@ -338,6 +339,7 @@ export function buildLinkedData(sources: LinkedSources, branding: ApprovedBrandi
   linked.agents = (sources.agents ?? []).slice(0, 4).map(presentAgent);
   linked.uploads = (sources.uploads ?? []).slice(0, 60).map(row => ({
     id: canonicalUuid(row.id), url: (options.uploadUrl ?? websiteMediaPath)(row.id), alt: cleanText(row.alt, 160) ?? "", width: row.width ?? null, height: row.height ?? null,
+    ...(row.contentType ? {contentType: row.contentType} : {}),
   }));
   return linked;
 }
@@ -371,8 +373,13 @@ export function resolveImages(refs: ImageRef[], linked: LinkedData, width = 1600
   return refs.flatMap(ref => resolveImage(ref, linked, width) ?? []);
 }
 
-export function resolveVideo(ref: VideoRef | null | undefined) {
-  const item = ref ? stockVideo(ref.stockId) : null;
+export function resolveVideo(ref: VideoRef | null | undefined, linked: LinkedData) {
+  if (!ref) return null;
+  if (isUploadVideoRef(ref)) {
+    const upload = (linked.uploads ?? []).find(item => item.id === canonicalUuid(ref.uploadId));
+    return upload?.contentType?.startsWith("video/") ? {id: upload.id, url: upload.url, poster: null, title: upload.alt || "Video", credit: null} : null;
+  }
+  const item = stockVideo(ref.stockId);
   if (!item) return null;
   const poster = stockImage(item.poster);
   return {id: item.id, url: stockVideoUrl(item), poster: poster ? stockImageUrl(poster, 1600) : null, title: item.title, credit: stockCredit(item)};
@@ -442,7 +449,7 @@ export function sectionAvailability(section: PageSection, linked: LinkedData, co
     case "CUSTOM": return sectionWidgets(section).some(item => widgetAvailability(item.widget, linked, context).ok) ? {ok: true} : missing("None of the widgets has content to show yet.");
     case "STATS": return resolvedStats(section, linked).length ? {ok: true} : missing("None of these facts is recorded on the linked records. Add custom items or link a record.");
     case "FEATURE_SPLIT": return section.props.heading ? {ok: true} : missing("Add a heading.");
-    case "VIDEO_SHOWCASE": return resolveVideo(section.props.video) ? {ok: true} : missing("Choose a video.");
+    case "VIDEO_SHOWCASE": return resolveVideo(section.props.video, linked) ? {ok: true} : missing("Choose a video.");
     case "PROJECT_OVERVIEW": return linked.project || linked.property || linked.listing || section.props.body ? {ok: true} : missing("Choose a project, property or listing for this page, or write the overview text.");
     case "DEVELOPER": return linked.developer ? {ok: true} : missing("No developer is linked to this page's project.");
     case "HIGHLIGHTS": return section.props.items.length ? {ok: true} : missing("Add at least one highlight.");
@@ -514,12 +521,29 @@ export function unknownImageRefs(data: PageData, linked: LinkedData) {
   return data.sections.flatMap(section => sectionImageRefs(section)).flatMap(ref => isCrmImageRef(ref) && !known.has(ref.mediaId) ? [ref.mediaId] : []);
 }
 
-/** Website library images referenced anywhere in the page (visible or not). */
-export function uploadIdsOf(data: PageData) {
-  return [...new Set(data.sections.flatMap(section => sectionImageRefs(section)).flatMap(ref => isUploadImageRef(ref) ? [canonicalUuid(ref.uploadId)] : []))];
+/** Every video a section shows: the background video, a video section's video and video widgets. */
+export function sectionVideoRefs(section: PageSection): VideoRef[] {
+  const refs: VideoRef[] = [];
+  if (section.style.backgroundType === "VIDEO" && section.style.backgroundVideo) refs.push(section.style.backgroundVideo);
+  if (section.type === "VIDEO_SHOWCASE" && section.props.video) refs.push(section.props.video);
+  for (const {widget} of sectionWidgets(section)) if (widget.type === "VIDEO") refs.push(widget.props.video);
+  return refs;
 }
 
-/** Website library images on visible sections: the uploads a publication serves. */
+/** Each website library upload on the page with the kind of slot it fills (an image or a video). */
+export function uploadUses(data: PageData): Array<{id: string; kind: "image" | "video"}> {
+  return data.sections.flatMap(section => [
+    ...sectionImageRefs(section).flatMap(ref => isUploadImageRef(ref) ? [{id: canonicalUuid(ref.uploadId), kind: "image" as const}] : []),
+    ...sectionVideoRefs(section).flatMap(ref => isUploadVideoRef(ref) ? [{id: canonicalUuid(ref.uploadId), kind: "video" as const}] : []),
+  ]);
+}
+
+/** Website library images and videos referenced anywhere in the page (visible or not). */
+export function uploadIdsOf(data: PageData) {
+  return [...new Set(uploadUses(data).map(use => use.id))];
+}
+
+/** Website library images and videos on visible sections: the uploads a publication serves. */
 export function usedUploadIds(data: PageData) {
   return uploadIdsOf({...data, sections: data.sections.filter(section => section.visible)});
 }
@@ -531,9 +555,7 @@ export function stockMediaUsed(data: PageData) {
   for (const section of data.sections) {
     if (!section.visible) continue;
     for (const ref of sectionImageRefs(section)) if (isStockImageRef(ref)) images.add(ref.stockId);
-    if (section.style.backgroundType === "VIDEO" && section.style.backgroundVideo) videos.add(section.style.backgroundVideo.stockId);
-    if (section.type === "VIDEO_SHOWCASE" && section.props.video) videos.add(section.props.video.stockId);
-    for (const {widget} of sectionWidgets(section)) if (widget.type === "VIDEO") videos.add(widget.props.video.stockId);
+    for (const ref of sectionVideoRefs(section)) if (isStockVideoRef(ref)) videos.add(ref.stockId);
     if (section.type === "AMENITIES" && section.variant === "imageCards") images.add("amenity-cards");
   }
   return {images: [...images], videos: [...videos], any: images.size + videos.size > 0};
@@ -553,7 +575,9 @@ export function stableStringify(value: unknown): string {
 
 /** The CRM-derived content of linked data, without read times and preview/public media URLs. */
 export function fingerprintSource(linked: LinkedData) {
-  return stableStringify({...linked, readAt: undefined, unavailable: undefined, media: linked.media.map(item => ({id: item.id, kind: item.kind, alt: item.alt, isCover: item.isCover}))});
+  // Library uploads keep only what does not depend on where the page is shown (editor and public URLs differ).
+  const uploads = linked.uploads?.length ? linked.uploads.map(item => ({id: item.id, alt: item.alt, width: item.width, height: item.height})) : linked.uploads;
+  return stableStringify({...linked, readAt: undefined, unavailable: undefined, uploads, media: linked.media.map(item => ({id: item.id, kind: item.kind, alt: item.alt, isCover: item.isCover}))});
 }
 
 const sameJson = (a: unknown, b: unknown) => stableStringify(a) === stableStringify(b);

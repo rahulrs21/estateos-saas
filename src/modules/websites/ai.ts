@@ -3,10 +3,11 @@ import type { ApprovedBranding } from "../ai/content/facts";
 import { buildFactIndex, factCheckText, type ValidationWarning } from "../ai/content/validate";
 import { sectionAvailability, type LinkedData } from "./linked";
 import {
-  ACCENTS, CTA_ACTIONS, DESIGN_STYLES, HIGHLIGHT_ICONS, PAGE_SCHEMA_VERSION, SECTION_DEFINITIONS, SECTION_TYPES, STAT_SOURCES, createSection, defaultProps, defaultTheme,
+  ACCENTS, CTA_ACTIONS, DESIGN_STYLES, DESIGN_STYLE_DETAILS, DESIGN_STYLE_LABELS, HIGHLIGHT_ICONS, PAGE_SCHEMA_VERSION, SECTION_DEFINITIONS, SECTION_TYPES, STAT_SOURCES, createSection, defaultProps, defaultTheme,
   isSafeText, pageDataSchema, type Cta, type DesignStyle, type ImageRef, type PageData, type PageSection, type SectionStyle, type SectionType, type StatSource,
 } from "./registry";
 import { STOCK_TAGS, stockImage, stockImagesFor, stockVideoFor, type StockTag } from "./stock";
+import { PAGE_STRUCTURES, STRUCTURE_DEFINITIONS, structureAllows, structureCatalogue, structureVariant, type PageStructure } from "./structures";
 
 /**
  * Claude page generation, pure part (docs/AI_PAGE_BUILDER.md#claude-generation).
@@ -21,7 +22,7 @@ import { STOCK_TAGS, stockImage, stockImagesFor, stockVideoFor, type StockTag } 
  * every text field against the facts Claude was given.
  */
 
-export const PAGE_PROMPT_VERSION = "6d.2";
+export const PAGE_PROMPT_VERSION = "6e.1";
 export const AI_SECTION_TYPES = SECTION_TYPES.filter(type => SECTION_DEFINITIONS[type].aiAllowed && type !== "COMPARISON" && type !== "NAVBAR");
 const AI_STAT_SOURCES = STAT_SOURCES.filter(source => source !== "CUSTOM");
 const IMAGE_TAGS = ["NONE", ...STOCK_TAGS] as const;
@@ -29,10 +30,10 @@ const IMAGE_TAGS = ["NONE", ...STOCK_TAGS] as const;
 export const PAGE_SYSTEM_PROMPT = `You are a senior creative director and copywriter designing premium landing pages for a real estate agency in the United Arab Emirates, in the style of the best Dubai developer launch sites. You return the page as JSON that matches the provided schema; EstateOS renders it with its own approved, animated components, photography and video.
 
 Design the page:
-- Build a complete, persuasive campaign page of 11 to 15 sections. Typical order: HERO, STATS, PROJECT_OVERVIEW, two or three FEATURE_SPLIT sections on different lifestyle themes, GALLERY, AMENITIES, PAYMENT_PLANS, UNIT_TYPES, FLOOR_PLANS, VIDEO_SHOWCASE, LOCATION, DEVELOPER, BANNER, FAQ, ENQUIRY_FORM, FOOTER. Leave out a section only when <crm_facts> says its data is missing, and list that in missingInformation.
+- When the task names a page structure, use exactly the sections it lists, in its order, and set structure to its name. For the SIGNATURE structure build a complete, persuasive campaign page of 11 to 15 sections. Typical order: HERO, STATS, PROJECT_OVERVIEW, two or three FEATURE_SPLIT sections on different lifestyle themes, GALLERY, AMENITIES, PAYMENT_PLANS, UNIT_TYPES, FLOOR_PLANS, VIDEO_SHOWCASE, LOCATION, DEVELOPER, BANNER, FAQ, ENQUIRY_FORM, FOOTER. Leave out a section only when <crm_facts> says its data is missing, and list that in missingInformation.
 - For each section choose imageTag, the photography theme that suits it (for example SKYLINE or MARINA for the hero, LIVING_ROOM, BEDROOM, KITCHEN, POOL, GYM, SPA or PARK for lifestyle features, ADVISOR for the enquiry form). Use NONE for text-only sections.
 - For STATS choose statSources: the CRM facts to show as large numbers (they are filled in from the records).
-- Write rich, specific, elegant copy: a two-paragraph overview (120 to 180 words), feature sections of 60 to 90 words with three or four bullets in items, four to six highlights, five or six FAQ items with helpful answers, a short memorable hero headline (under 9 words) and a one-sentence subheadline.
+- Write the copy in the tone the task gives for the design style. Write rich, specific copy: a two-paragraph overview (120 to 180 words), feature sections of 60 to 90 words with three or four bullets in items, four to six highlights, five or six FAQ items with helpful answers, a short memorable hero headline (under 9 words) and a one-sentence subheadline.
 
 Rules:
 - Use only the facts inside <crm_facts> and <brand>. Never invent or estimate prices, discounts, offers, payment terms, returns, yields, rental income, completion or handover dates, availability, unit counts, distances, travel times, specific amenities, nearby landmarks, awards, rankings, testimonials or guarantees. You may repeat a figure only exactly as it appears in <crm_facts>.
@@ -47,10 +48,10 @@ const textField = {type: "string"} as const;
 /** JSON schema for structured outputs: every property required, no optional or nullable fields. */
 export const PAGE_GENERATION_JSON: Record<string, unknown> = {
   type: "object", additionalProperties: false,
-  required: ["title", "seoTitle", "seoDescription", "style", "accent", "sections", "missingInformation", "claimsToReview"],
+  required: ["title", "seoTitle", "seoDescription", "style", "structure", "accent", "sections", "missingInformation", "claimsToReview"],
   properties: {
     title: textField, seoTitle: textField, seoDescription: textField,
-    style: {type: "string", enum: [...DESIGN_STYLES]}, accent: {type: "string", enum: [...ACCENTS]},
+    style: {type: "string", enum: [...DESIGN_STYLES]}, structure: {type: "string", enum: [...PAGE_STRUCTURES]}, accent: {type: "string", enum: [...ACCENTS]},
     sections: {
       type: "array",
       items: {
@@ -71,7 +72,7 @@ export const PAGE_GENERATION_JSON: Record<string, unknown> = {
 
 const loose = z.string().max(4000);
 export const pageGenerationZod = z.strictObject({
-  title: loose, seoTitle: loose, seoDescription: loose, style: z.enum(DESIGN_STYLES), accent: z.enum(ACCENTS),
+  title: loose, seoTitle: loose, seoDescription: loose, style: z.enum(DESIGN_STYLES), structure: z.enum(PAGE_STRUCTURES).default("SIGNATURE"), accent: z.enum(ACCENTS),
   sections: z.array(z.strictObject({
     // Any string here, so an unsupported type is reported and removed rather than failing the whole page.
     type: z.string().max(40), variant: z.string().max(40), eyebrow: loose, heading: loose, subheading: loose, body: loose, ctaLabel: loose, ctaAction: z.enum(CTA_ACTIONS),
@@ -124,10 +125,15 @@ export function pageFactsPrompt(linked: LinkedData, branding: ApprovedBranding, 
   return `<crm_facts>\n${JSON.stringify(aiFacts(linked, hasForm), null, 1)}\n</crm_facts>\n<untrusted_record_text>\n${JSON.stringify(untrusted, null, 1)}\n</untrusted_record_text>\n<brand>\n${JSON.stringify(brand, null, 1)}\n</brand>`;
 }
 
-export function pageTaskPrompt(input: {brief: string; style: DesignStyle | null; templateHint: string | null}) {
+const styleLine = (style: DesignStyle) => `${style} (${DESIGN_STYLE_LABELS[style]}): ${DESIGN_STYLE_DETAILS[style].description} Copy tone: ${DESIGN_STYLE_DETAILS[style].tone}.`;
+
+export function pageTaskPrompt(input: {brief: string; style: DesignStyle | null; templateHint: string | null; structure?: PageStructure | null}) {
+  const structure = input.structure ? STRUCTURE_DEFINITIONS[input.structure] : null;
   return [
     "Design a complete, premium single-page real estate campaign from these facts, with rich copy in every section.",
-    input.style ? `Use the design style ${input.style}.` : "Choose the design style that best fits the facts and the brief.",
+    input.style ? `Use the design style ${styleLine(input.style)}` : `Choose the design style that best fits the facts and the brief, and write in its tone:\n${DESIGN_STYLES.map(style => `- ${styleLine(style)}`).join("\n")}`,
+    structure ? `Use the page structure ${input.structure} (${structure.label}): ${structure.description} ${structure.order ? `Use exactly these sections in this order: ${structure.order.join(", ")}.` : "Choose the sections in the typical order."} Set structure to ${input.structure}.`
+      : `Choose the page structure that best fits the design style, the facts and the brief, set structure to it and follow its sections:\n${structureCatalogue()}`,
     input.templateHint ? `Follow this layout as a starting point: ${input.templateHint}.` : null,
     `<staff_brief>\n${input.brief || "No brief given: create a professional enquiry-focused page."}\n</staff_brief>`,
   ].filter(Boolean).join("\n");
@@ -251,16 +257,45 @@ export interface MappedPage {
   removed: string[];
   /** Sections left out because the CRM records do not have their data. */
   omitted: string[];
+  /** The page structure that was applied. */
+  structure: PageStructure;
 }
 
 /** Maps Claude's output into a registry-valid page. Throws if the result does not validate. */
-export function mapGeneratedPage(output: PageGenerationOutput, linked: LinkedData, options: {hasForm: boolean; fallbackTitle: string}): MappedPage {
+type Mapped = ReturnType<typeof sectionFor>;
+
+/**
+ * A structure's variant, hero picture, style and layout for one section, on
+ * top of the signature mapping. SIGNATURE changes nothing.
+ */
+function applyStructure(structure: PageStructure, type: SectionType, mapped: Mapped, occurrence: number, picker: Picker, tag: StockTag | null): Mapped {
+  if (structure === "SIGNATURE") return mapped;
+  const definition = STRUCTURE_DEFINITIONS[structure];
+  let next: Mapped = {...mapped, variant: structureVariant(structure, type, occurrence) ?? mapped.variant};
+  if (type === "HERO" && definition.hero === "IMAGE") {
+    // The hero photo moves from the section background into the layout (beside or below the text).
+    const image = (mapped.style?.backgroundImage as ImageRef | null | undefined) ?? picker.stockOnly(tag ?? "SKYLINE");
+    next = {...next, style: {...mapped.style, backgroundType: "NONE", backgroundImage: null, backgroundVideo: null, ...definition.heroStyle}, props: {...mapped.props, image}};
+  }
+  if (type === "HERO" && definition.heroFacts === false) next = {...next, props: {...next.props, showFacts: false}};
+  const style = definition.styles?.[type];
+  if (style) next = {...next, style: {...next.style, ...style}};
+  const layout = {...next.layout, ...(definition.backgrounds === "PLAIN" && next.layout?.background === "MUTED" ? {background: "DEFAULT" as const} : {}), ...definition.layouts?.[type]};
+  return {...next, layout: Object.keys(layout).length ? layout : undefined};
+}
+
+export function mapGeneratedPage(output: PageGenerationOutput, linked: LinkedData, options: {hasForm: boolean; fallbackTitle: string; style?: DesignStyle | null; structure?: PageStructure | null}): MappedPage {
   const removed: string[] = [];
   const omitted: string[] = [];
   const used = new Set<SectionType>();
   const sections: PageSection[] = [];
   const title = clip(output.title, 160) || options.fallbackTitle;
   const picker = imagePicker(linked);
+  // A style or structure chosen by staff wins over Claude's choice.
+  const style = options.style ?? output.style;
+  const structure = options.structure ?? output.structure;
+  const definition = STRUCTURE_DEFINITIONS[structure];
+  const seen = new Map<SectionType, number>();
   const context = {hasForm: true, today: linked.readAt.slice(0, 10), mode: "editor" as const};
   // The hero is mapped first so it gets the best photo.
   const ordered = [...output.sections.entries()].sort(([, a], [, b]) => Number(b.type === "HERO") - Number(a.type === "HERO"));
@@ -268,7 +303,10 @@ export function mapGeneratedPage(output: PageGenerationOutput, linked: LinkedDat
     const type = raw.type as SectionType;
     if (!(AI_SECTION_TYPES as readonly string[]).includes(raw.type)) { removed.push(`Unsupported section “${clip(raw.type, 40)}” was removed.`); continue; }
     if (used.has(type) && SECTION_DEFINITIONS[type].single) { removed.push(`A duplicate ${SECTION_DEFINITIONS[type].label} section was removed.`); continue; }
-    const mapped = sectionFor(type, raw, linked, title, picker, index);
+    const occurrence = seen.get(type) ?? 0;
+    if (occurrence >= structureAllows(structure, type)) { removed.push(`${SECTION_DEFINITIONS[type].label} is not part of the ${definition.label} structure and was left out.`); continue; }
+    seen.set(type, occurrence + 1);
+    const mapped = applyStructure(structure, type, sectionFor(type, raw, linked, title, picker, index), occurrence, picker, tagOf(raw, type));
     const created = createSection(type, `${type.toLowerCase().replaceAll("_", "-")}-${index + 1}`, mapped.props as never, mapped.variant ?? raw.variant, mapped.style);
     const section = mapped.layout ? {...created, layout: {...created.layout, ...mapped.layout}} : created;
     const parsed = pageDataSchema.shape.sections.element.safeParse(section);
@@ -281,22 +319,35 @@ export function mapGeneratedPage(output: PageGenerationOutput, linked: LinkedDat
   // Restore Claude's order (the hero was mapped first only for photo choice).
   const order = new Map(output.sections.map((raw, index) => [`${raw.type.toLowerCase().replaceAll("_", "-")}-${index + 1}`, index]));
   sections.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  if (definition.order) {
+    // The structure's order: the n-th section of a type takes the n-th place listed for that type.
+    const places = definition.order;
+    const counts = new Map<SectionType, number>();
+    const rank = new Map(sections.map(section => {
+      const n = counts.get(section.type) ?? 0;
+      counts.set(section.type, n + 1);
+      const positions = places.flatMap((type, position) => type === section.type ? [position] : []);
+      return [section.id, positions[Math.min(n, positions.length - 1)] ?? places.length] as const;
+    }));
+    sections.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+  }
   if (!used.has("HERO")) sections.unshift(createSection("HERO", "hero-0", {...defaultProps("HERO"), headline: title, showFacts: true}, "fullBleed", {backgroundType: "VIDEO", backgroundVideo: {stockId: stockVideoFor("SKYLINE").id}}));
   else {
     const heroIndex = sections.findIndex(section => section.type === "HERO");
     if (heroIndex > 0) sections.unshift(...sections.splice(heroIndex, 1));
   }
-  sections.unshift(createSection("NAVBAR", "navbar-0", {...defaultProps("NAVBAR"), sticky: false}, "transparent"));
+  sections.unshift(createSection("NAVBAR", "navbar-0", {...defaultProps("NAVBAR"), sticky: definition.navbar === "solid"}, definition.navbar));
   if (!used.has("ENQUIRY_FORM")) {
     const image = stockImage("advisor-keys");
-    sections.push(createSection("ENQUIRY_FORM", "enquiry-form-0", {...defaultProps("ENQUIRY_FORM"), image: image ? {stockId: image.id, alt: image.alt} : null}, "imageSplit"));
+    sections.push(createSection("ENQUIRY_FORM", "enquiry-form-0", {...defaultProps("ENQUIRY_FORM"), image: image ? {stockId: image.id, alt: image.alt} : null}, structureVariant(structure, "ENQUIRY_FORM", 0) ?? "imageSplit"));
   }
   const footerIndex = sections.findIndex(section => section.type === "FOOTER");
   if (footerIndex === -1) sections.push(createSection("FOOTER", "footer-0"));
   else if (footerIndex !== sections.length - 1) sections.push(...sections.splice(footerIndex, 1));
-  const theme = {...defaultTheme(output.style), accent: output.accent};
+  if (structure !== "SIGNATURE") sections[sections.length - 1] = {...sections[sections.length - 1], variant: definition.footer} as PageSection;
+  const theme = {...defaultTheme(style), accent: output.accent};
   const data = pageDataSchema.parse({schemaVersion: PAGE_SCHEMA_VERSION, theme, sections: sections.slice(0, 40)});
-  return {data, title, seoTitle: clip(output.seoTitle, 120) || title, seoDescription: clip(output.seoDescription, 320), removed, omitted};
+  return {data, title, seoTitle: clip(output.seoTitle, 120) || title, seoDescription: clip(output.seoDescription, 320), removed, omitted, structure};
 }
 
 /** Every plain-text value on the page with a readable field name. */

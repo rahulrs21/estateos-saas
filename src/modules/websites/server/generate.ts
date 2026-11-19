@@ -1,6 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import type { z } from "zod";
 import * as sql from "@dataconnect/admin-generated";
 import { executeWorkspaceOperation } from "@/lib/firebase/dataconnect";
 import type { RateLimitRule } from "@/lib/rate-limit/limiter";
@@ -9,7 +10,6 @@ import { getBrand } from "@/modules/ai/content/server/store";
 import type { requireActiveOrganizationRequest } from "@/modules/organizations/server/context";
 import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
-import { validateInput } from "@/modules/organizations/server/validation";
 import { estimateCostUsd, pricingFor, type AiConfig } from "../../ai/config";
 import { contentStreamFactory, requireAiConfig } from "../../ai/server/anthropic";
 import { logAndMapProviderError } from "../../ai/server/chat";
@@ -20,8 +20,9 @@ import {
   serializePageValidation, type PageGenerationOutput,
 } from "../ai";
 import type { LinkedData } from "../linked";
-import { generatePageSchema, regeneratePageSchema } from "../policy";
+import { generationRequestProblem, generatePageSchema, regeneratePageSchema } from "../policy";
 import { isReservedSlug, slugify } from "../registry";
+import { resolveStructure, type PageStructure } from "../structures";
 import { PAGE_TEMPLATES } from "../templates";
 import { editorMediaUrl, loadLinkedData, pageRefsOf } from "./sources";
 import { addGeneratedVersion, availableSlug, createGeneratedPage, getPage, getVersion, listPages, slugTaken } from "./store";
@@ -62,7 +63,7 @@ const MESSAGES = {
   cancelled: "Generation was stopped.",
 };
 
-async function runClaude(context: Context, config: AiConfig, linked: LinkedData, branding: Awaited<ReturnType<typeof getBrand>>["approved"], task: {brief: string; style: Parameters<typeof pageTaskPrompt>[0]["style"]; templateHint: string | null; hasForm: boolean}) {
+async function runClaude(context: Context, config: AiConfig, linked: LinkedData, branding: Awaited<ReturnType<typeof getBrand>>["approved"], task: {brief: string; style: Parameters<typeof pageTaskPrompt>[0]["style"]; structure: PageStructure | null; templateHint: string | null; hasForm: boolean}) {
   const reservation = await reserveQuota(context, config);
   const startedAt = Date.now();
   const controller = new AbortController();
@@ -119,10 +120,22 @@ async function finish(context: Context, config: AiConfig, run: Awaited<ReturnTyp
   return saved;
 }
 
+/**
+ * Validates a generation request with a message that names the problem (the
+ * title, the brief, a choice that is not in the list, an out-of-date form).
+ * Only field names and issue codes are logged, never the values.
+ */
+function parseGenerationRequest<T>(schema: z.ZodType<T>, raw: unknown, endpoint: string): T {
+  const result = schema.safeParse(raw);
+  if (result.success) return result.data;
+  console.warn(JSON.stringify({event: "websites.generate.invalid_request", endpoint, issues: result.error.issues.slice(0, 5).map(issue => ({path: issue.path.join(".").slice(0, 40), code: issue.code}))}));
+  throw new WorkspaceError("VALIDATION_ERROR", 400, generationRequestProblem(result.error.issues));
+}
+
 /** POST /api/websites/pages/generate: a new draft page from Claude. */
 export async function generateNewPage(request: Request, context: Context, raw: unknown) {
   const config = requireAiConfig();
-  const input = validateInput(generatePageSchema, raw);
+  const input = parseGenerationRequest(generatePageSchema, raw, "generate");
   const overview = await listPages(context, ["DRAFT"], 1);
   if (context.membership.role === "AGENT" && !overview.website.allowAgentDrafts) throw new WorkspaceError("FORBIDDEN", 403, "Agents can create pages only when an owner or administrator allows agent drafts.");
   const requested = input.slug ?? slugify(input.title);
@@ -134,11 +147,13 @@ export async function generateNewPage(request: Request, context: Context, raw: u
   // Every source is re-read with the caller's permissions before any allowance is used or data leaves EstateOS.
   const linked = await loadLinkedData(context, sources, {branding: brand.approved, mediaUrl: editorMediaUrl, required: true});
   const template = input.templateKey ? PAGE_TEMPLATES[input.templateKey] : null;
+  const style = input.style ?? template?.style ?? null;
+  const structure = resolveStructure(style, input.structure);
   const run = await runClaude(context, config, linked, brand.approved, {
-    brief: input.brief, style: input.style ?? template?.style ?? null, templateHint: template ? `${template.name}: ${template.sections.join(", ")}` : null, hasForm: false,
+    brief: input.brief, style, structure, templateHint: template ? `${template.name}: ${template.sections.join(", ")}` : null, hasForm: false,
   });
   return finish(context, config, run, async (output, model) => {
-    const mapped = mapGeneratedPage(output, linked, {hasForm: false, fallbackTitle: input.title});
+    const mapped = mapGeneratedPage(output, linked, {hasForm: false, fallbackTitle: input.title, style, structure});
     const warnings = pageFactWarnings(mapped.data, linked, brand.approved, {title: input.title, seoTitle: mapped.seoTitle, seoDescription: mapped.seoDescription});
     const id = randomUUID();
     const slug = input.slug ?? await availableSlug(context, requested);
@@ -151,7 +166,7 @@ export async function generateNewPage(request: Request, context: Context, raw: u
         generated: {model, promptVersion: PAGE_PROMPT_VERSION, factsReadAt: linked.readAt},
       }),
     });
-    return {pageId: id, slug, versionNumber: 1, warnings: warnings.length, omitted: mapped.omitted, removed: mapped.removed};
+    return {pageId: id, slug, versionNumber: 1, warnings: warnings.length, omitted: mapped.omitted, removed: mapped.removed, structure: mapped.structure};
   });
 }
 
@@ -159,7 +174,7 @@ export async function generateNewPage(request: Request, context: Context, raw: u
 export async function regeneratePage(request: Request, context: Context, rawId: string, raw: unknown) {
   const config = requireAiConfig();
   const id = canonicalUuid(rawId);
-  const input = validateInput(regeneratePageSchema, raw);
+  const input = parseGenerationRequest(regeneratePageSchema, raw, "regenerate");
   const stored = await getPage(context, id);
   const page = stored.page;
   if (page.revision !== input.expectedRevision) throw new WorkspaceError("CONFLICT", 409, "This page was changed in another window or by a colleague. Reload it and try again.");
@@ -172,9 +187,11 @@ export async function regeneratePage(request: Request, context: Context, rawId: 
   const sources = {projectId: page.sourceProjectId, propertyId: page.sourcePropertyId, listingId: page.sourceListingId};
   const linked = await loadLinkedData(context, {...sources, ...pageRefsOf(current.data)}, {branding: brand.approved, mediaUrl: editorMediaUrl, required: true});
   const hasForm = Boolean(stored.binding && stored.binding.form.status === "ACTIVE");
-  const run = await runClaude(context, config, linked, brand.approved, {brief: input.brief, style: input.style ?? null, templateHint: null, hasForm});
+  const style = input.style ?? null;
+  const structure = resolveStructure(style, input.structure);
+  const run = await runClaude(context, config, linked, brand.approved, {brief: input.brief, style, structure, templateHint: null, hasForm});
   return finish(context, config, run, async (output, model) => {
-    const mapped = mapGeneratedPage(output, linked, {hasForm, fallbackTitle: page.title});
+    const mapped = mapGeneratedPage(output, linked, {hasForm, fallbackTitle: page.title, style, structure});
     const warnings = pageFactWarnings(mapped.data, linked, brand.approved, {title: page.title, seoTitle: mapped.seoTitle, seoDescription: mapped.seoDescription});
     const saved = await addGeneratedVersion(context, page, {
       expectedRevision: input.expectedRevision, title: page.title, seoTitle: mapped.seoTitle, seoDescription: mapped.seoDescription || null, designStyle: mapped.data.theme.style,

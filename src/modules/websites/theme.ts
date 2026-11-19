@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { BOX_SIDES, type Accent, type BoxSide, type DesignStyle, type Device, type DeviceBox, type ElementStyle, type FontFamily, type Offset, type PageTheme, type SectionStyle } from "./registry";
+import { BOX_SIDES, isClassicStyle, type Accent, type BoxSide, type DesignStyle, type Device, type DeviceBox, type ElementStyle, type FontFamily, type Offset, type PageTheme, type SectionStyle } from "./registry";
 type ElementWeight = NonNullable<ElementStyle["weight"]>;
 
 /**
@@ -11,7 +11,11 @@ type ElementWeight = NonNullable<ElementStyle["weight"]>;
  * button text colour is chosen by contrast.
  */
 
-interface StyleTokens { bg: string; fg: string; muted: string; mutedFg: string; card: string; border: string; dark: boolean; headingTracking: string; eyebrowCase: "uppercase" | "none" }
+interface StyleTokens {
+  bg: string; fg: string; muted: string; mutedFg: string; card: string; border: string; dark: boolean; headingTracking: string; eyebrowCase: "uppercase" | "none";
+  /** The style's own dark band (DARK sections and the footer); the shared dark band otherwise. */
+  darkBand?: {bg: string; fg: string; muted: string; mutedFg: string; card: string; border: string};
+}
 
 export const STYLE_TOKENS: Record<DesignStyle, StyleTokens> = {
   LUXURY_MINIMALIST: {bg: "#faf8f5", fg: "#1c1917", muted: "#f2eee8", mutedFg: "#5f5850", card: "#ffffff", border: "#e4ddd2", dark: false, headingTracking: "0.005em", eyebrowCase: "uppercase"},
@@ -20,7 +24,36 @@ export const STYLE_TOKENS: Record<DesignStyle, StyleTokens> = {
   ELEGANT_LIGHT: {bg: "#fffdfb", fg: "#292524", muted: "#f8f1ee", mutedFg: "#6b625d", card: "#ffffff", border: "#ece0da", dark: false, headingTracking: "0", eyebrowCase: "uppercase"},
   CONTEMPORARY: {bg: "#ffffff", fg: "#111827", muted: "#f4f5f7", mutedFg: "#5b6472", card: "#ffffff", border: "#e5e7eb", dark: false, headingTracking: "-0.03em", eyebrowCase: "uppercase"},
   HIGH_CONVERSION: {bg: "#ffffff", fg: "#111111", muted: "#fff7ed", mutedFg: "#57534e", card: "#ffffff", border: "#fed7aa", dark: false, headingTracking: "-0.03em", eyebrowCase: "uppercase"},
+  DEPTH_3D: {bg: "#f3f3f1", fg: "#111111", muted: "#eaeae6", mutedFg: "#5f5f5a", card: "#f3f3f1", border: "#d8d8d3", dark: false, headingTracking: "-0.025em", eyebrowCase: "none",
+    darkBand: {bg: "#0b0b0b", fg: "#f3f3f1", muted: "#151515", mutedFg: "#a3a39e", card: "#0b0b0b", border: "#2a2a28"}},
+  SWISS_MINIMAL: {bg: "#ffffff", fg: "#0a0a0a", muted: "#f5f5f5", mutedFg: "#525252", card: "#ffffff", border: "#dcdcdc", dark: false, headingTracking: "-0.045em", eyebrowCase: "uppercase"},
+  EDITORIAL: {bg: "#f6f1e8", fg: "#1d1a16", muted: "#eee6d8", mutedFg: "#5d554a", card: "#fbf8f2", border: "#d6cbb9", dark: false, headingTracking: "-0.015em", eyebrowCase: "uppercase"},
+  BENTO_GRID: {bg: "#eceef2", fg: "#0f172a", muted: "#e3e6eb", mutedFg: "#526070", card: "#ffffff", border: "#dce0e6", dark: false, headingTracking: "-0.035em", eyebrowCase: "none"},
+  // Translucent muted and card colours: panels show the aurora gradient behind them.
+  GLASS_AURORA: {bg: "#060b1a", fg: "#f1f5ff", muted: "#ffffff0d", mutedFg: "#b6bfd8", card: "#ffffff12", border: "#ffffff26", dark: true, headingTracking: "-0.02em", eyebrowCase: "uppercase"},
+  BOLD_STATEMENT: {bg: "#f4f1ea", fg: "#0a0a0a", muted: "#ebe4d6", mutedFg: "#3d3831", card: "#ffffff", border: "#0a0a0a", dark: false, headingTracking: "-0.035em", eyebrowCase: "uppercase"},
+  WARM_ORGANIC: {bg: "#f4ede4", fg: "#2b2420", muted: "#ebe0d2", mutedFg: "#6a5e54", card: "#fbf7f1", border: "#dfd1bf", dark: false, headingTracking: "-0.005em", eyebrowCase: "none"},
 };
+
+/**
+ * The look of the newer styles: the page root carries data-pg-look, and the
+ * landing page stylesheet (globals.css, "Design looks") restyles the
+ * renderer's hook classes (pg-card, pg-media, pg-h2…) for it: 3D perspective,
+ * hairline minimalism, magazine chapters, bento tiles, frosted glass, hard
+ * outlines or arched frames. The signature styles have no look, so their
+ * pages render exactly as before. Element styles set in the editor are inline
+ * and still win.
+ */
+export const STYLE_LOOKS: Record<DesignStyle, string> = {
+  LUXURY_MINIMALIST: "quiet", PREMIUM_DARK: "noir", MODERN_CORPORATE: "grid", ELEGANT_LIGHT: "boutique", CONTEMPORARY: "panel", HIGH_CONVERSION: "campaign",
+  DEPTH_3D: "depth", SWISS_MINIMAL: "minimal", EDITORIAL: "editorial", BENTO_GRID: "bento", GLASS_AURORA: "glass", BOLD_STATEMENT: "bold", WARM_ORGANIC: "organic",
+};
+/**
+ * The page's look. The signature styles had none before edition 2, so pages
+ * saved earlier (edition 1) render exactly as they did; the newer styles
+ * always have theirs.
+ */
+export const pageLook = (theme: PageTheme) => isClassicStyle(theme.style) && (theme.edition ?? 1) < 2 ? undefined : STYLE_LOOKS[theme.style];
 
 /** [on light backgrounds, on dark backgrounds] */
 export const ACCENT_COLORS: Record<Accent, {light: string; dark: string; label: string}> = {
@@ -32,6 +65,8 @@ export const ACCENT_COLORS: Record<Accent, {light: string; dark: string; label: 
   SLATE: {light: "#334155", dark: "#cbd5e1", label: "Slate"},
   ROSE: {light: "#b0123a", dark: "#fda4b6", label: "Rose"},
   INDIGO: {light: "#4338ca", dark: "#b0b8ff", label: "Indigo"},
+  ONYX: {light: "#111111", dark: "#f3f3f1", label: "Onyx"},
+  CARAMEL: {light: "#8a5a2b", dark: "#e3b88c", label: "Caramel"},
 };
 
 /** Font stacks. The --font-pg-* variables come from next/font (fonts.ts) on the page wrapper; the fallbacks keep pages readable without them. */
@@ -44,6 +79,8 @@ export const FONT_STACKS: Record<FontFamily, string> = {
   MONTSERRAT: "var(--font-pg-montserrat), Montserrat, ui-sans-serif, system-ui, sans-serif",
   POPPINS: "var(--font-pg-poppins), Poppins, ui-sans-serif, system-ui, sans-serif",
   SYSTEM: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+  JOST: "var(--font-pg-jost), Jost, ui-sans-serif, system-ui, sans-serif",
+  INTER_TIGHT: "var(--font-pg-inter-tight), 'Inter Tight', Inter, ui-sans-serif, system-ui, sans-serif",
 };
 const LEGACY_FONTS: Record<PageTheme["font"], {heading: FontFamily; body: FontFamily}> = {
   SANS: {heading: "SYSTEM", body: "SYSTEM"}, SERIF: {heading: "PLAYFAIR", body: "SYSTEM"}, DISPLAY: {heading: "MONTSERRAT", body: "SYSTEM"},
@@ -106,8 +143,10 @@ export function sectionBackgroundStyle(background: "DEFAULT" | "MUTED" | "ACCENT
     vars = {backgroundColor: accent, color: foreground, "--pg-fg": foreground, "--pg-muted-fg": foreground, "--pg-accent": foreground, "--pg-accent-fg": accent,
       "--pg-card": foreground === "#ffffff" ? "#ffffff1f" : "#00000014", "--pg-border": foreground === "#ffffff" ? "#ffffff4d" : "#0000002e"};
   } else if (background === "DARK" && !tokens.dark) {
-    vars = {backgroundColor: DARK_SECTION.bg, color: DARK_SECTION.fg, "--pg-fg": DARK_SECTION.fg, "--pg-muted": DARK_SECTION.muted, "--pg-muted-fg": DARK_SECTION.mutedFg,
-      "--pg-card": DARK_SECTION.card, "--pg-border": DARK_SECTION.border, "--pg-accent": theme.customAccent ?? ACCENT_COLORS[theme.accent].dark, "--pg-accent-fg": "#0d0d10"};
+    const band = tokens.darkBand ?? DARK_SECTION;
+    const accent = theme.customAccent ?? ACCENT_COLORS[theme.accent].dark;
+    vars = {backgroundColor: band.bg, color: band.fg, "--pg-fg": band.fg, "--pg-muted": band.muted, "--pg-muted-fg": band.mutedFg,
+      "--pg-card": band.card, "--pg-border": band.border, "--pg-accent": accent, "--pg-accent-fg": tokens.darkBand ? readableOn(accent) : "#0d0d10"};
   } else if (background === "DARK") vars = {backgroundColor: "#050507"};
   if (!style) return vars;
   // Style tab: a custom colour background, media backgrounds and text tone.

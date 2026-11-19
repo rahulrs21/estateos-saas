@@ -247,6 +247,158 @@ try {
   await load("/websites/new", "document.body.innerText.includes('Describe it to Claude') && document.body.innerText.includes('Start from a template')");
   pass("OWNER opens Websites and the new-page wizard (Claude, template, blank, duplicate)");
 
+  // ------------------------------------------------------------ Style gallery: live sample pages per style and structure
+  await waitFor("!!document.querySelector('[data-testid=style-DEPTH_3D]').closest('li').querySelector('.pg-root')", "the style miniatures");
+  assert.equal(await evaluate("document.querySelectorAll('button button, button a, button form, a button').length"), 0, "no interactive element sits inside a button (the miniatures are beside the card buttons)");
+  // Miniatures render as they come into view: the signature styles further down render once scrolled to.
+  assert.equal(await evaluate("!!document.querySelector('[data-testid=style-PREMIUM_DARK]').closest('li').querySelector('.pg-root')"), false, "off-screen miniatures wait until they are needed");
+  await evaluate("document.querySelector('[data-testid=style-PREMIUM_DARK]').scrollIntoView({block: 'center'})");
+  await waitFor("!!document.querySelector('[data-testid=style-PREMIUM_DARK]').closest('li').querySelector('.pg-root')", "the signature style miniatures");
+  // The campaign miniature has a real enquiry form: it still must not sit inside the card button.
+  await evaluate("document.querySelector('[aria-label=\"More signature styles\"]').click()");
+  await waitFor("!!document.querySelector('[data-testid=style-HIGH_CONVERSION]').closest('li').querySelector('.pg-root form')", "the campaign miniature with its form");
+  assert.equal(await evaluate("document.querySelectorAll('button button, button a, button form, a button').length"), 0, "no interactive element inside a button, with every miniature drawn");
+  await evaluate("document.querySelector('[data-testid=style-HIGH_CONVERSION]').click()");
+  assert.equal(await evaluate("document.querySelector('[data-testid=style-HIGH_CONVERSION]').getAttribute('aria-checked')"), "true", "the card button selects the style");
+  await evaluate("document.querySelector('[data-testid=style-auto]').click()");
+  await pause(1500);
+  await screenshot("01b-style-gallery-signature");
+  await evaluate("document.querySelector('[data-testid=style-auto]').scrollIntoView({block: 'start'})");
+  await pause(1500);
+  await screenshot("01b-style-gallery");
+  assert.equal(await evaluate("document.querySelector('[data-testid=style-auto]').getAttribute('aria-checked')"), "true", "Claude chooses by default");
+  const carousel = "document.querySelector('[data-testid=carousel-new-design-styles]')";
+  const inView = `(()=>{const t=${carousel};const r=t.getBoundingClientRect();return [...t.children].filter(c=>{const b=c.getBoundingClientRect();return b.left>=r.left-2&&b.right<=r.right+2;}).length;})()`;
+  assert.equal(await evaluate(inView), 4, "four style cards per view");
+  // The rows stay inside the form column: the page does not scroll sideways and the side panel is not covered.
+  assert.ok(await evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "the page does not scroll sideways");
+  assert.ok(await evaluate(`(()=>{const c=${carousel}.getBoundingClientRect(),a=document.querySelector('[data-testid=wizard-next-steps]').getBoundingClientRect(),d=document.querySelector('[data-testid=wizard-design]').getBoundingClientRect();return c.top>=a.bottom&&d.right>a.left;})()`), "the style rows use the full width below the What happens next panel");
+  assert.ok(await evaluate("document.querySelector('[data-testid=wizard-next-steps]').getBoundingClientRect().height < 400"), "the What happens next panel is only as tall as its text");
+  assert.ok(await evaluate(`${carousel}.scrollWidth > ${carousel}.clientWidth`), "the other styles are further along the row");
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"Previous new design styles\"]').disabled"), true);
+  await evaluate("document.querySelector('[aria-label=\"More new design styles\"]').click()");
+  await waitFor(`${carousel}.scrollLeft > 100 && !document.querySelector('[aria-label="Previous new design styles"]').disabled`, "the next style cards");
+  await waitFor("!!document.querySelector('[data-testid=style-WARM_ORGANIC]').closest('li').querySelector('.pg-root')", "the miniature scrolled into the row");
+  await pause(1200);
+  await screenshot("01b-style-carousel-next");
+  await evaluate("document.querySelector('[aria-label=\"Previous new design styles\"]').click()");
+  await waitFor(`${carousel}.scrollLeft <= 1`, "the first style cards again");
+  await evaluate("document.querySelector('[data-testid=style-BENTO_GRID]').click()");
+  await waitFor("document.querySelector('[data-testid=style-BENTO_GRID]').getAttribute('aria-checked') === 'true' && document.querySelector('[data-testid=structure-BENTO]').innerText.includes('Recommended')", "the chosen style and its recommended structure");
+  await evaluate("document.querySelector('[data-testid=structure-auto]').scrollIntoView({block: 'start'})");
+  await pause(500);
+  await screenshot("01c-structure-picker");
+  // Page structures are a carousel too, and every carousel can be dragged with the mouse (a drag does not pick a card).
+  const structures = "document.querySelector('[data-testid=carousel-page-structures]')";
+  assert.equal(await evaluate(`(()=>{const t=${structures};const r=t.getBoundingClientRect();return [...t.children].filter(c=>{const b=c.getBoundingClientRect();return b.left>=r.left-2&&b.right<=r.right+2;}).length;})()`), 4, "four structures per view");
+  const grip = await evaluate(`(()=>{const r=${structures}.children[2].getBoundingClientRect();return {x: Math.round(r.left + r.width / 2), y: Math.round(r.top + 60)};})()`);
+  const pickedBefore = await evaluate("document.querySelector('[data-testid=structure-SHOWCASE_3D]').getAttribute('aria-checked')");
+  await command("Input.dispatchMouseEvent", {type: "mouseMoved", x: grip.x, y: grip.y});
+  await command("Input.dispatchMouseEvent", {type: "mousePressed", x: grip.x, y: grip.y, button: "left", buttons: 1, clickCount: 1});
+  for (let step = 1; step <= 12; step++) await command("Input.dispatchMouseEvent", {type: "mouseMoved", x: grip.x - step * 40, y: grip.y, button: "left", buttons: 1});
+  await command("Input.dispatchMouseEvent", {type: "mouseReleased", x: grip.x - 480, y: grip.y, button: "left", buttons: 0, clickCount: 1});
+  await waitFor(`${structures}.scrollLeft > 150 && !${structures}.dataset.dragging`, "the dragged structures row");
+  assert.equal(await evaluate("document.querySelector('[data-testid=structure-SHOWCASE_3D]').getAttribute('aria-checked')"), pickedBefore, "a drag does not pick the card it started on");
+  await pause(900);
+  await screenshot("01c-structure-carousel-dragged");
+  // A full-size sample page per new style, with its look applied by the stylesheet.
+  const LOOK_CHECKS = {
+    DEPTH_3D: ["depth", "!!document.querySelector('[data-testid=style-preview] .pg-wordmark') && getComputedStyle(document.querySelector('[data-testid=style-preview] .pg-hero-buttons .pg-btn')).borderTopLeftRadius === '0px'"],
+    SWISS_MINIMAL: ["minimal", "getComputedStyle(document.querySelector('[data-testid=style-preview] .pg-card:not(.pg-panel)')).backgroundColor === 'rgba(0, 0, 0, 0)'"],
+    EDITORIAL: ["editorial", "getComputedStyle(document.querySelector('[data-testid=style-preview] .pg-section .pg-h2'), '::before').content.includes('pg-chapter')"],
+    BENTO_GRID: ["bento", "getComputedStyle(document.querySelector('[data-testid=style-preview] [data-section-type=STATS] > .pg-inner')).borderTopLeftRadius === '32px'"],
+    GLASS_AURORA: ["glass", "getComputedStyle(document.querySelector('[data-testid=style-preview] .pg-card')).backdropFilter.includes('blur')"],
+    BOLD_STATEMENT: ["bold", "getComputedStyle(document.querySelector('[data-testid=style-preview] .pg-card')).boxShadow.includes('6px 6px')"],
+    WARM_ORGANIC: ["organic", "getComputedStyle(document.querySelector('[data-testid=style-preview] .pg-media.pg-portrait')).borderTopLeftRadius.startsWith('999')"],
+    LUXURY_MINIMALIST: ["quiet", "!!document.querySelector('[data-testid=style-preview] [data-section-variant=centered] [aria-label=\"More page sections\"]')"],
+    PREMIUM_DARK: ["noir", "getComputedStyle(document.querySelector('[data-testid=style-preview] .pg-root')).backgroundImage.includes('linear-gradient')"],
+    MODERN_CORPORATE: ["grid", "getComputedStyle(document.querySelector('[data-testid=style-preview] .pg-card')).borderTopLeftRadius === '0px'"],
+    ELEGANT_LIGHT: ["boutique", "getComputedStyle(document.querySelector('[data-testid=style-preview] .pg-btn')).borderTopLeftRadius.startsWith('9999')"],
+    CONTEMPORARY: ["panel", "!!document.querySelector('[data-testid=style-preview] .pg-hero-panel')"],
+    HIGH_CONVERSION: ["campaign", "getComputedStyle(document.querySelector('[data-testid=style-preview] .pg-hero-buttons .pg-btn'), '::after').borderTopLeftRadius.startsWith('999')"],
+  };
+  for (const [style, [look, check]] of Object.entries(LOOK_CHECKS)) {
+    await evaluate(`document.querySelector('[data-testid=style-${style}]').closest('li').querySelector('[aria-label^="Preview"]').click()`);
+    await waitFor(`document.querySelector('[data-testid=style-preview] .pg-root')?.dataset.pgLook === ${JSON.stringify(look)}`, `the ${style} preview`);
+    await pause(2200);
+    await screenshot(`01d-preview-${style.toLowerCase()}-top`);
+    if (style === "DEPTH_3D") {
+      assert.equal(await evaluate("getComputedStyle(document.querySelector('[data-testid=style-preview] .pg-scroll')).scrollBehavior"), "smooth", "the preview panel scrolls smoothly");
+      assert.equal(await evaluate("getComputedStyle(document.documentElement).scrollBehavior"), "auto", "the rest of EstateOS keeps normal scrolling");
+      // Menu links scroll the preview to their section (the miniatures behind it use the same section names).
+      const panel = "document.querySelector('[data-testid=style-preview] .pg-scroll')";
+      await evaluate(`[...document.querySelectorAll('[data-testid=style-preview] [data-section-type=NAVBAR] nav a')].find(a=>a.textContent.trim()==='Units').click()`);
+      await waitFor(`(()=>{const p=${panel};const u=p.querySelector('#units');return p.scrollTop > 400 && Math.abs(u.getBoundingClientRect().top - p.getBoundingClientRect().top) < 160;})()`, "the Units section scrolled into the preview");
+      await pause(600);
+      await screenshot("01d-preview-depth-units-link");
+      // The photo strip: no scrollbar; the buttons move it.
+      const strip = "document.querySelector('[data-testid=style-preview] .pg-carousel-track')";
+      await evaluate(`${strip}.scrollIntoView({block:'center', behavior:'instant'})`);
+      await pause(500);
+      assert.equal(await evaluate(`getComputedStyle(${strip}).scrollbarWidth`), "none", "no scrollbar under the photo strip");
+      assert.ok(await evaluate(`${strip}.offsetHeight - ${strip}.clientHeight === 0`), "the strip reserves no scrollbar space");
+      await evaluate("document.querySelector('[data-testid=style-preview] [aria-label=\"Next photos\"]').click()");
+      await waitFor(`${strip}.scrollLeft > 100`, "the next photos");
+      await screenshot("01d-preview-depth-photo-strip");
+    }
+    if (style === "GLASS_AURORA") {
+      // The 3D carousel rotates with the buttons, the arrow keys and dragging; a drag does not open the photo viewer.
+      const stage = "document.querySelector('[data-testid=style-preview] .pg-coverflow-stage')";
+      const counter = "document.querySelector('[data-testid=style-preview] .pg-coverflow-3d [aria-live=polite]').textContent.trim()";
+      await evaluate(`${stage}.scrollIntoView({block:'center', behavior:'instant'})`);
+      await pause(800);
+      assert.match(await evaluate(counter), /^1 \/ \d+$/);
+      await evaluate("document.querySelector('[data-testid=style-preview] [aria-label=\"Next photo\"]').click()");
+      await waitFor(`${counter}.startsWith('2 /')`, "the next photo in front");
+      await evaluate(`${stage}.focus()`);
+      await command("Input.dispatchKeyEvent", {type: "keyDown", key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39});
+      await waitFor(`${counter}.startsWith('3 /')`, "the arrow key turning the carousel");
+      const grip = await evaluate(`(()=>{const r=${stage}.getBoundingClientRect();return {x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)};})()`);
+      await command("Input.dispatchMouseEvent", {type: "mouseMoved", x: grip.x, y: grip.y});
+      await command("Input.dispatchMouseEvent", {type: "mousePressed", x: grip.x, y: grip.y, button: "left", buttons: 1, clickCount: 1});
+      for (let step = 1; step <= 10; step++) await command("Input.dispatchMouseEvent", {type: "mouseMoved", x: grip.x + step * 40, y: grip.y, button: "left", buttons: 1});
+      await command("Input.dispatchMouseEvent", {type: "mouseReleased", x: grip.x + 400, y: grip.y, button: "left", buttons: 0, clickCount: 1});
+      await waitFor(`${counter}.startsWith('1 /') || ${counter}.startsWith('2 /')`, "the carousel dragged back");
+      await pause(900);
+      assert.equal(await evaluate("!!document.querySelector('[role=dialog][aria-label^=\"Photo\"], [data-lightbox-open]')"), false, "a drag does not open the photo viewer");
+      await screenshot("01d-preview-glass-coverflow");
+    }
+    assert.ok(await evaluate(check), `the ${look} look is applied`);
+    await evaluate("(()=>{const s=document.querySelector('[data-testid=style-preview] .overflow-y-auto');s.scrollTo({top:s.scrollHeight*0.3,behavior:'instant'});})()");
+    await pause(1500);
+    await screenshot(`01d-preview-${style.toLowerCase()}-middle`);
+    await evaluate("(()=>{const s=document.querySelector('[data-testid=style-preview] .overflow-y-auto');s.scrollTo({top:s.scrollHeight*0.6,behavior:'instant'});})()");
+    await pause(1200);
+    await screenshot(`01d-preview-${style.toLowerCase()}-lower`);
+    await command("Input.dispatchKeyEvent", {type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27});
+    await waitFor("!document.querySelector('[data-testid=style-preview]')", "the closed preview");
+  }
+  // The phone width, then "Use this design" picks the style.
+  await evaluate("document.querySelector('[data-testid=style-WARM_ORGANIC]').closest('li').querySelector('[aria-label^=\"Preview\"]').click()");
+  await waitFor("!!document.querySelector('[data-testid=style-preview] .pg-root')", "the organic preview");
+  await evaluate("document.querySelector('[data-testid=style-preview] [title=Phone]').click()");
+  await pause(1800);
+  await screenshot("01e-preview-phone");
+  const header = await evaluate(`(()=>{const p=document.querySelector('[data-testid=style-preview] .pg-root');const m=p.querySelector('[data-section-type=NAVBAR] summary');const b=p.querySelector('[data-section-type=NAVBAR] a[href="#top"]');
+    const r=p.getBoundingClientRect(),mr=m.getBoundingClientRect(),br=b.getBoundingClientRect();return {menuGap: Math.round(r.right-mr.right), brandLeft: Math.round(br.left-r.left), between: Math.round(mr.left-br.right)};})()`);
+  assert.ok(header.menuGap <= 32 && header.brandLeft <= 32 && header.between > 120, `phone header: ${JSON.stringify(header)}`);
+  await evaluate("document.querySelector('[data-testid=style-preview-use]').click()");
+  await waitFor("!document.querySelector('[data-testid=style-preview]') && document.querySelector('[data-testid=style-WARM_ORGANIC]').getAttribute('aria-checked') === 'true'", "the chosen previewed style");
+  assert.equal(await evaluate("document.querySelector('[data-testid=structure-auto]').getAttribute('aria-checked')"), "true", "the style's own structure stays the default");
+  if (!live) {
+    await load(`/websites/new?projectId=${ids.project}`, "!!document.querySelector('[data-testid=style-DEPTH_3D]') && !!document.getElementById('page-title')");
+    await evaluate(`(()=>{const i=document.getElementById('page-title');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'Wizard style page');i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await evaluate("document.querySelector('[data-testid=style-DEPTH_3D]').click()");
+    await evaluate("document.querySelector('[data-testid=structure-INVESTOR]').click()");
+    await waitFor("document.querySelector('[data-testid=structure-INVESTOR]').getAttribute('aria-checked') === 'true'", "the chosen structure");
+    await clickText("Generate with Claude", "button");
+    await waitFor("!!document.querySelector('[role=alert]')", "the generation result");
+    const message = await evaluate("document.querySelector('[role=alert]').innerText");
+    assert.doesNotMatch(message, /Check the supplied details|out of date/, "the wizard's request with a style and structure is accepted");
+    assert.match(message, /AI service|Anthropic|credentials/i, `the request reached Claude: ${message}`);
+  }
+  pass("Style gallery: live sample miniatures for every style; choosing a style recommends its structure; full previews apply each new look (3D, minimal, editorial, bento, glass, bold, organic) on desktop and phone widths; a previewed design can be picked; styles scroll as carousels four to a view; on phones the menu button sits at the right end; the wizard's request with a style and structure reaches Claude");
+
   assert.equal((await post("/api/websites/pages", {mode: "BLANK", title: "Injected", organizationId: f.orgB, role: "OWNER"})).status, 400);
   assert.equal((await post("/api/websites/pages", {mode: "BLANK", title: "Wrong company"}, f.orgB)).status, 409);
   assert.equal((await post("/api/websites/pages", {mode: "TEMPLATE", templateKey: "OFF_PLAN_LAUNCH", title: "Other company project", projectId: ids.projectB})).status, 404, "another company's project is not a usable source");
@@ -267,8 +419,9 @@ try {
   assert.ok(await evaluate("document.querySelectorAll('[data-preview-device] video[src*=\"videos.pexels.com\"]').length >= 1"), "a stock video is used");
   assert.deepEqual(leaked(previewText, [secrets.hiddenAddress, secrets.note, secrets.unitNumber, secrets.foreign]), []);
   await screenshot("02-editor");
-  await clickText("Navigator", "[role=tab]");
-  await clickText("Payment plans", "aside[aria-label='Editor panel'] li button");
+  assert.equal(await evaluate("[...document.querySelectorAll('[role=tablist][aria-label=\"Editor panels\"] [role=tab]')].some(e=>e.textContent.includes('Navigator'))"), false, "the Navigator is not a panel tab on wide screens");
+  await waitFor("!!document.querySelector('[data-testid=navigator-dock]:not([data-minimised])')", "the Navigator docked on the right");
+  await clickText("Payment plans", "[data-testid=navigator-dock] li button");
   await waitFor("document.body.innerText.includes('From CRM: Active payment plans')", "linked-data label");
   await clickLabel("Back to elements");
   // Elementor-style inline editing: type straight into the headline on the canvas.
@@ -281,6 +434,10 @@ try {
   const setField = (selector, value) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing field: '+${JSON.stringify(selector)});const proto=e instanceof HTMLSelectElement?HTMLSelectElement.prototype:e instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await evaluate(`document.querySelector('[data-section-type="HERO"] [data-move-key="headline"]').click()`);
   await waitFor("document.querySelector('[data-testid=element-panel-title]')?.textContent === 'Headline'", "the headline's own style panel");
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('aside [role=tablist][aria-label=\"Element settings\"] [role=tab]')].map(e=>e.textContent)"), ["Content", "Style", "Advanced"], "elements have Content, Style and Advanced tabs");
+  assert.equal(await evaluate("document.querySelector('[data-testid=element-tab-content]').getAttribute('aria-selected')"), "true", "the element opens on its content");
+  assert.ok(await evaluate("[...document.querySelectorAll('aside textarea, aside input')].some(e=>e.value==='E2E Waterfront Launch')"), "the headline's text is in the Content tab");
+  await evaluate("document.querySelector('[data-testid=element-tab-style]').click()");
   await setField("aside input[placeholder='Theme colour']", "#b03a0b");
   await setField("aside input[type=range]", "64");
   await clickText("Centre", "aside [role=radio]");
@@ -288,15 +445,184 @@ try {
   await waitFor(headlineLook, "the headline's colour, size and alignment change on the canvas only");
   assert.ok(await evaluate(`getComputedStyle(document.querySelector('[data-section-type="HERO"] [data-move-key="subheadline"]')).color !== 'rgb(176, 58, 11)'`), "the rest of the section keeps its style");
   await screenshot("02b-editor-element-style");
-  await clickText("position", "aside [role=tab]");
-  await waitFor("document.body.innerText.includes('Move \"Headline\"')", "element position controls");
+  await evaluate("document.querySelector('[data-testid=element-tab-advanced]').click()");
+  await waitFor("document.body.innerText.includes('Move \"Headline\"') && document.body.innerText.includes('Show on mobile')", "element position, spacing and visibility controls");
   for (let press = 0; press < 2; press++) {
     await command("Input.dispatchKeyEvent", {type: "keyDown", key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39, modifiers: 1});
     await command("Input.dispatchKeyEvent", {type: "keyUp", key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39, modifiers: 1});
   }
   await waitFor(`document.querySelector('[data-section-type="HERO"] [data-move-key="headline"]').style.left === "8px"`, "Alt+arrow moves the headline on the canvas");
-  // Back to the section: centre the hero content and set custom padding in its Advanced tab.
+  // Drag the move handle: the headline follows and the move is saved once, when released.
+  await waitFor("!!document.querySelector('[data-testid=element-move-handle]')", "the move handle on the selected element");
+  const handle = await evaluate("(()=>{const r=document.querySelector('[data-testid=element-move-handle]').getBoundingClientRect();return {x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)};})()");
+  await command("Input.dispatchMouseEvent", {type: "mouseMoved", x: handle.x, y: handle.y});
+  await command("Input.dispatchMouseEvent", {type: "mousePressed", x: handle.x, y: handle.y, button: "left", buttons: 1, clickCount: 1});
+  for (let step = 1; step <= 6; step++) await command("Input.dispatchMouseEvent", {type: "mouseMoved", x: handle.x + step * 10, y: handle.y + step * 4, button: "left", buttons: 1});
+  await command("Input.dispatchMouseEvent", {type: "mouseReleased", x: handle.x + 60, y: handle.y + 24, button: "left", buttons: 0, clickCount: 1});
+  await waitFor(`(()=>{const e=document.querySelector('[data-section-type="HERO"] [data-move-key="headline"]');return e.style.left === "68px" && e.style.top === "24px" && !e.style.translate;})()`, "the dragged headline keeps its new place");
+  await screenshot("02b2-editor-drag-handle");
+  // The Navigator lists every element of a section, nested in its groups (open a section with its arrow).
+  const heroId = await evaluate("document.querySelector('[data-preview-device] [data-section-type=HERO]').closest('[data-editor-section]').dataset.editorSection");
+  await waitFor(`!!document.querySelector('[data-testid="navigator-elements-${heroId}"] [data-element-row="primaryCta"]')`, "the hero's elements in the Navigator");
+  const rows = await evaluate(`[...document.querySelectorAll('[data-testid="navigator-elements-${heroId}"] [data-element-row]')].map(e=>e.dataset.elementRow)`);
+  for (const key of ["headline", "subheadline", "buttons", "primaryCta"]) assert.ok(rows.includes(key), `the Navigator lists ${key}: ${rows.join(", ")}`);
+  await screenshot("02b3-editor-navigator-elements");
+  // A button from the Navigator: its Content tab edits the words and what it does.
+  await evaluate(`document.querySelector('[data-testid="navigator-elements-${heroId}"] [data-element-row="primaryCta"]').click()`);
+  await waitFor("document.querySelector('[data-testid=element-panel-title]')?.textContent === 'Primary button' && document.body.innerText.includes('When clicked')", "the button's content");
+  const buttonText = await evaluate("[...document.querySelectorAll('aside label')].find(l=>l.textContent.trim().startsWith('Button text'))?.htmlFor");
+  const originalButtonText = await evaluate(`document.querySelector('[id="${buttonText}"]').value`);
+  await setField(`[id="${buttonText}"]`, "Book a private viewing");
+  await waitFor(`document.querySelector('[data-section-type="HERO"] [data-move-key="primaryCta"]').innerText.includes('Book a private viewing')`, "the button's new words on the canvas");
+  // Back to its original words, so the published page below keeps its expected text.
+  await setField(`[id="${buttonText}"]`, originalButtonText);
+  await waitFor(`document.querySelector('[data-section-type="HERO"] [data-move-key="primaryCta"]').innerText.includes(${JSON.stringify(originalButtonText)})`, "the button's original words");
+  // A group lists its parts: the buttons group leads to each button.
+  await evaluate(`document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-move-key="buttons"]').click()`);
+  await waitFor("!!document.querySelector('[data-testid=\"element-part-primaryCta\"]')", "the parts of the buttons group");
+  // The enquiry form: its button and where its fields come from.
+  await evaluate(`document.querySelector('[data-preview-device] [data-section-type="ENQUIRY_FORM"] [data-move-key="form"]').click()`);
+  await waitFor("document.querySelector('[data-testid=element-panel-title]')?.textContent === 'Form' && document.body.innerText.includes('Edit lead form fields')", "the form's content");
+  await screenshot("02b4-editor-form-content");
+  // The eyebrow's marker is part of the eyebrow element, so they move and align together.
+  assert.ok(await evaluate("!!document.querySelector('[data-preview-device] [data-section-type=\"HERO\"] [data-move-key=\"eyebrow\"] > span[aria-hidden=\"true\"]')"), "the eyebrow's marker is inside the eyebrow element");
+  const rightClick = key => evaluate(`(()=>{const e=document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-move-key="${key}"]');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();e.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:r.left+8,clientY:r.top+8}));})()`);
+  const menuItem = async item => { await waitFor(`!!document.querySelector('[data-testid=element-menu] [data-menu-item="${item}"]:not([disabled])')`, `the ${item} menu item`); await evaluate(`document.querySelector('[data-testid=element-menu] [data-menu-item="${item}"]').click()`); };
+  // A real right mouse button on the canvas opens the element's menu: Duplicate, Copy, Paste, Copy style, Paste style…
+  const realRightClick = async key => {
+    const box = await evaluate(`(()=>{const e=document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-move-key="${key}"]');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return {x:r.left+Math.min(12,r.width/2),y:r.top+Math.min(12,r.height/2)};})()`);
+    await command("Input.dispatchMouseEvent", {type: "mouseMoved", x: box.x, y: box.y});
+    await command("Input.dispatchMouseEvent", {type: "mousePressed", x: box.x, y: box.y, button: "right", buttons: 2, clickCount: 1});
+    await command("Input.dispatchMouseEvent", {type: "mouseReleased", x: box.x, y: box.y, button: "right", buttons: 0, clickCount: 1});
+  };
+  await realRightClick("headline");
+  await waitFor("['duplicate','copy','paste','copyStyle','pasteStyle','delete'].every(k=>!!document.querySelector('[data-testid=element-menu] [data-menu-item='+k+']'))", "the element menu from a real right-click");
+  await screenshot("02b7-editor-element-menu");
+  // Copy style and Paste style: the headline's colour onto the subheadline.
+  await menuItem("copyStyle");
+  await rightClick("subheadline");
+  await menuItem("pasteStyle");
+  await waitFor(`getComputedStyle(document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-move-key="subheadline"]')).color === 'rgb(176, 58, 11)'`, "the pasted style on the subheadline");
+  // An automatic key fact: its panel shows its fields; its value is an element of its own, with its own colour.
+  await evaluate(`document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-move-key="facts.0"]').click()`);
+  await waitFor("!!document.querySelector('[data-testid=element-fact-value]')", "an automatic fact's fields");
+  await evaluate(`document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-move-key="facts.0.value"]').click()`);
+  await waitFor("document.querySelector('[data-testid=element-panel-title]')?.textContent === 'Fact 1 value' && !!document.querySelector('[data-testid=element-fact-value]')", "the fact value, with the fact's fields");
+  await evaluate("document.querySelector('[data-testid=element-tab-style]').click()");
+  await setField("aside input[placeholder='Theme colour']", "#22c55e");
+  await waitFor(`getComputedStyle(document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-move-key="facts.0.value"]')).color === 'rgb(34, 197, 94)'`, "the fact value in its own colour");
+  await screenshot("02b13-editor-fact-value-colour");
+  await clickLabel("Undo");
+  // Duplicate and delete a key fact from its right-click menu (the automatic facts become the hero's own list).
+  // Whole facts only (each fact also holds its label and value as elements of their own).
+  const factCount = "[...document.querySelectorAll('[data-preview-device] [data-section-type=\"HERO\"] [data-move-key^=\"facts.\"]')].filter(e=>/^facts\\.\\d+$/.test(e.dataset.moveKey)).length";
+  const factsBefore = await evaluate(factCount);
+  await rightClick("facts.0");
+  await menuItem("duplicate");
+  await waitFor(`${factCount} === ${factsBefore + 1}`, "the duplicated fact");
+  await screenshot("02b5-editor-duplicated-fact");
+  await rightClick(`facts.${factsBefore}`);
+  await menuItem("delete");
+  await waitFor(`${factCount} === ${factsBefore}`, "the deleted fact");
+  // Copy a fact and paste it on another: a new fact right after the target.
+  await rightClick("facts.0");
+  await menuItem("copy");
+  await rightClick("facts.1");
+  await menuItem("paste");
+  await waitFor(`${factCount} === ${factsBefore + 1}`, "the pasted fact");
+  await rightClick("facts.2");
+  await menuItem("delete");
+  await waitFor(`${factCount} === ${factsBefore}`, "the pasted fact removed");
+  // A fact's own panel: its CRM value, which can be replaced by your own value, shown on the canvas.
+  await evaluate(`document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-move-key="facts.1"]').click()`);
+  await waitFor("!!document.querySelector('[data-testid=element-fact-value]') && !!document.querySelector('[data-testid=element-duplicate]')", "the fact's CRM value and actions");
+  const valueId = await evaluate("[...document.querySelectorAll('aside label')].find(l=>l.textContent.trim().startsWith('Value'))?.htmlFor");
+  assert.ok(valueId, "the value field of a custom fact");
+  await setField(`[id="${valueId}"]`, "Sea view");
+  await waitFor(`document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-move-key="facts.1"]')?.textContent.includes('Sea view')`, "the typed value on the canvas");
+  await screenshot("02b8-editor-fact-own-value");
+  // A fact's label is typed on the canvas, like a headline, and the panel follows.
+  await evaluate(`(()=>{const e=document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-edit-path="facts.1.label"]');e.scrollIntoView({block:'center'});e.focus();const r=document.createRange();r.selectNodeContents(e);const s=getSelection();s.removeAllRanges();s.addRange(r);})()`);
+  await command("Input.insertText", {text: "View"});
+  await command("Input.dispatchKeyEvent", {type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13});
+  await command("Input.dispatchKeyEvent", {type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13});
+  await waitFor("[...document.querySelectorAll('aside input')].some(i=>i.value==='View')", "the typed label in the panel");
+  // Navigator: drag an element row onto another (the subheadline above the headline), then undo.
+  const heroText = "document.querySelector('[data-preview-device] [data-section-type=\"HERO\"] [data-order-group=heroText]')";
+  const subFirst = `!!(${heroText}.querySelector('[data-move-key=headline]').compareDocumentPosition(${heroText}.querySelector('[data-move-key=subheadline]')) & Node.DOCUMENT_POSITION_PRECEDING)`;
+  assert.equal(await evaluate(subFirst), false);
+  await waitFor("!!document.querySelector('[data-testid=navigator-dock] [data-element-item=subheadline]') && !!document.querySelector('[data-testid=navigator-dock] [data-element-item=headline]')", "the hero's element rows");
+  await evaluate("(()=>{window.__dt=new DataTransfer();document.querySelector('[data-testid=navigator-dock] [data-element-item=subheadline]').dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:window.__dt}));})()");
+  await evaluate("new Promise(r=>setTimeout(()=>{const to=document.querySelector('[data-testid=navigator-dock] [data-element-item=headline]');const y=to.getBoundingClientRect().top+2;to.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:window.__dt,clientY:y}));r();},50))");
+  await evaluate("new Promise(r=>setTimeout(()=>{const to=document.querySelector('[data-testid=navigator-dock] [data-element-item=headline]');const y=to.getBoundingClientRect().top+2;to.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:window.__dt,clientY:y}));document.querySelector('[data-testid=navigator-dock] [data-element-item=subheadline]').dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:window.__dt}));r();},50))");
+  await waitFor(subFirst, "the subheadline above the headline on the canvas");
+  await screenshot("02b9-editor-navigator-reordered");
+  await clickLabel("Undo");
+  await waitFor(`!(${subFirst})`, "the original order again");
+  // Right-click on a Navigator row: the same element menu.
+  await evaluate("(()=>{const e=document.querySelector('[data-testid=navigator-dock] [data-element-item=headline]');const r=e.getBoundingClientRect();e.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:r.left+10,clientY:r.top+5}));})()");
+  await waitFor("!!document.querySelector('[data-testid=element-menu] [data-menu-item=copy]') && !!document.querySelector('[data-testid=element-menu] [data-menu-item=duplicate]')", "the element menu from the Navigator");
+  await evaluate("document.body.click()");
+  // The key facts group lists them, with the list to add, remove and reorder.
+  await evaluate(`document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-move-key="facts"]').click()`);
+  await waitFor("document.querySelector('[data-testid=element-panel-title]')?.textContent === 'Key facts' && document.body.innerText.includes('Back to the automatic facts')", "the key facts list");
+  // Every fact in the list has a value field: typing in a CRM fact's field shows your own text instead.
+  assert.ok(await evaluate("document.querySelectorAll('aside input[aria-label=Value]').length >= 3"), "a value field for every fact");
+  await setField("aside input[aria-label=Value]", "Ready 2027");
+  await waitFor(`document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-move-key="facts.0"]')?.textContent.includes('Ready 2027')`, "the typed value on the canvas");
+  await screenshot("02b14-editor-key-facts-values");
+  await clickLabel("Undo");
+  // Minimise the Navigator and open it again.
+  await evaluate("document.querySelector('[data-testid=navigator-dock-minimise]').click()");
+  await waitFor("document.querySelector('[data-testid=navigator-dock]')?.dataset.minimised === 'true'", "the minimised Navigator");
+  await screenshot("02b6-editor-navigator-minimised");
+  await evaluate("document.querySelector('[data-testid=navigator-dock-open]').click()");
+  await waitFor("!document.querySelector('[data-testid=navigator-dock]').dataset.minimised", "the Navigator open again");
+  await evaluate(`document.querySelector('[data-preview-device] [data-section-type="HERO"] [data-move-key="headline"]').click()`);
+  await waitFor("document.querySelector('[data-testid=element-panel-title]')?.textContent === 'Headline'", "back to the headline");
+  const heroBackground = "(()=>{const s=document.querySelector('[data-preview-device] section[data-section-type=HERO]');const i=s.querySelector(':scope > div[aria-hidden] img');const v=s.querySelector(':scope > video');return (i?i.getAttribute('src'):'')+'|'+(v?v.getAttribute('src'):'');})()";
+  const originalBackground = await evaluate(heroBackground);
   await clickLabel("Back to Hero");
+  await clickText("style", "aside [role=tab]");
+  // Every layout choice keeps its label inside its own button (eight hero layouts sit in a grid of three).
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('aside [role=radiogroup] [role=radio]')].filter(b=>b.offsetParent&&(b.scrollWidth>b.clientWidth+1||b.scrollHeight>b.clientHeight+1)).map(b=>b.textContent)"), [], "no squeezed option labels");
+  await screenshot("02b11-editor-hero-layout-options");
+  // "Showcase with image": the hero image framed beside the text, over the background.
+  const heroVariant = "document.querySelector('[data-preview-device] section[data-section-type=HERO]').dataset.sectionVariant";
+  const variantBefore = await evaluate(heroVariant);
+  await clickText("Showcase with image", "aside [role=radiogroup] [role=radio]");
+  await waitFor(`${heroVariant} === 'showcaseImage' && !!document.querySelector('[data-preview-device] section[data-section-type=HERO] .pg-tilt-stage [data-move-key=image]')`, "the showcase with image layout");
+  await screenshot("02b12-editor-showcase-with-image");
+  await clickLabel("Undo");
+  await waitFor(`${heroVariant} === ${JSON.stringify(variantBefore)}`, "the original layout again");
+  await clickText("Image", "aside [role=radiogroup] [role=radio]");
+  await clickText("content", "aside [role=tab]");
+  await waitFor("[...document.querySelectorAll('aside label, aside p')].some(e=>e.textContent.trim()==='Background image')", "the background image in the Content tab");
+  const backgroundField = "[...document.querySelectorAll('aside label')].find(e=>e.textContent.trim()==='Background image').parentElement.parentElement";
+  await evaluate(`${backgroundField}.querySelector('button[aria-expanded]').click()`);
+  await waitFor(`!!${backgroundField}.querySelector('[role=tab]')`, "the background image choices");
+  await evaluate(`[...${backgroundField}.querySelectorAll('[role=tab]')].find(b=>b.textContent.trim()==='Stock').click()`);
+  const chosenStock = await evaluate(`new Promise(r=>setTimeout(()=>{const b=[...${backgroundField}.querySelectorAll('button[title] img')].map(i=>i.closest('button'))[3];b.click();r(b.querySelector('img').src.split('?')[0]);},100))`);
+  await waitFor(`(${heroBackground}).startsWith(${JSON.stringify(chosenStock)})`, "the chosen photo as the hero background");
+  await screenshot("02b10-editor-hero-background");
+  for (let attempt = 0; attempt < 4 && await evaluate(heroBackground) !== originalBackground; attempt++) await clickLabel("Undo");
+  assert.equal(await evaluate(heroBackground), originalBackground, "undo restores the background");
+  // Convert to custom section: the hero becomes rows of widgets (an H1 heading, buttons, CRM counters), then undo.
+  await evaluate(`(()=>{const e=document.querySelector('[data-editor-section="${heroId}"]');e.scrollIntoView({block:'start'});const r=e.getBoundingClientRect();e.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:r.left+4,clientY:r.top+4}));})()`);
+  await waitFor("!!document.querySelector('[role=menu] [data-menu-item=convert]:not([disabled])')", "the convert item in the section menu");
+  await evaluate("document.querySelector('[role=menu] [data-menu-item=convert]').click()");
+  await waitFor("!!document.querySelector('[data-testid=convert-dialog]')", "the convert confirmation");
+  await screenshot("02b15-editor-convert-dialog");
+  await evaluate("document.querySelector('[data-testid=convert-confirm]').click()");
+  const converted = `document.querySelector('[data-editor-section="${heroId}"] section')`;
+  await waitFor(`${converted}?.dataset.sectionType === 'CUSTOM' && !!${converted}.querySelector('h1') && ${converted}.querySelectorAll('[data-widget-path]').length >= 5`, "the hero as a custom section");
+  assert.match(await evaluate(`${converted}.querySelector('h1').textContent`), /E2E Waterfront Launch/, "the headline is still the page's main heading");
+  assert.ok(await evaluate(`${converted}.textContent.includes('AED 1,250,000')`), "the price is still read from the CRM");
+  await screenshot("02b16-editor-converted-hero");
+  await clickLabel("Undo");
+  await waitFor(`${converted}?.dataset.sectionType === 'HERO'`, "the built-in hero again");
+  await evaluate(`document.querySelector('[data-editor-section="${heroId}"]').click()`);
+  // Back to the section: centre the hero content and set custom padding in its Advanced tab.
   await clickText("advanced", "aside [role=tab]");
   await clickText("Middle", "[role=radio]");
   await evaluate(`(()=>{const e=document.querySelector('[aria-label="Padding (desktop) top"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'120');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
@@ -310,9 +636,9 @@ try {
   assert.equal(stored.data.sections[3].type, "STATS");
   assert.equal(stored.data.sections.find(section => section.type === "HERO").props.headline, "E2E Waterfront Launch");
   const storedHero = stored.data.sections.find(section => section.type === "HERO");
-  assert.deepEqual(storedHero.style.elementOffsets, {headline: {x: 8, y: 0}}, "the moved headline was saved");
+  assert.deepEqual(storedHero.style.elementOffsets, {headline: {x: 68, y: 24}}, "the moved headline (keyboard nudge and drag) was saved");
   assert.deepEqual([storedHero.style.elementStyles.headline.color, storedHero.style.elementStyles.headline.size, storedHero.style.elementStyles.headline.align], ["#b03a0b", 64, "CENTER"], "the headline's own style was saved");
-  assert.deepEqual(Object.keys(storedHero.style.elementStyles), ["headline"], "only the styled element is stored");
+  assert.deepEqual(Object.keys(storedHero.style.elementStyles), ["headline", "subheadline"], "only the styled elements are stored (the headline, and the subheadline its style was pasted onto)");
   assert.equal(storedHero.style.contentVertical, "CENTER");
   assert.equal(storedHero.style.padding.desktop.top, 120);
   pass("Editor shows linked CRM data (labelled From CRM), stock photos and video, edits the headline inline, styles it on its own (colour, size, alignment) and moves it, sets padding and content position in the Advanced tab, reorders from the section toolbar and saves version 2");
@@ -339,6 +665,23 @@ try {
   await command("DOM.setFileInputFiles", {nodeId: fileInput, files: [join(root, "public", "demo-assets", "demo-dunewell-properties", "demo-prj-05", "demo-p-013", "photo-1.png")]});
   await waitFor(`[...document.querySelectorAll('[data-preview-device] [data-section-type="CUSTOM"] img')].some(i => (i.getAttribute('src') || '').startsWith('/api/websites/media/') && i.complete && i.naturalWidth > 0)`, "the uploaded image on the canvas");
   await screenshot("02d-editor-custom-section");
+  // A video from the computer as the custom section's background: a real WebM recorded in the browser, streamed by byte range.
+  await clickText("Custom section", "[data-testid=navigator-dock] li button");
+  await waitFor("!!document.querySelector('[role=tablist][aria-label=\"Section settings\"]')", "the custom section's settings");
+  await clickText("style", "[role=tablist][aria-label='Section settings'] [role=tab]");
+  await clickText("Video", "[role=radiogroup] [role=radio]");
+  await evaluate("document.querySelector('[data-testid=video-tab-uploads]').click()");
+  await waitFor("!!document.querySelector('[data-testid=website-video-input]')", "the video upload control");
+  const recorded = await evaluate(`(async()=>{const c=document.createElement('canvas');c.width=320;c.height=180;const g=c.getContext('2d');const recorder=new MediaRecorder(c.captureStream(15),{mimeType:'video/webm'});const parts=[];recorder.ondataavailable=e=>{if(e.data.size)parts.push(e.data)};let frame=0;const paint=()=>{g.fillStyle='hsl('+(frame++*24)+',70%,45%)';g.fillRect(0,0,320,180)};paint();const timer=setInterval(paint,60);const stopped=new Promise(r=>recorder.onstop=r);recorder.start(200);await new Promise(r=>setTimeout(r,1500));recorder.stop();await stopped;clearInterval(timer);const file=new File(parts,'e2e-loop.webm',{type:'video/webm'});const input=document.querySelector('[data-testid=website-video-input]');const list=new DataTransfer();list.items.add(file);input.files=list.files;input.dispatchEvent(new Event('change',{bubbles:true}));return file.size;})()`);
+  assert.ok(recorded > 1000, "a WebM was recorded");
+  const backgroundVideo = `document.querySelector('[data-preview-device] [data-section-type="CUSTOM"] > video')`;
+  await waitFor(`(()=>{const v=${backgroundVideo};return !!v && (v.getAttribute('src')||'').startsWith('/api/websites/media/') && v.readyState >= 2;})()`, "the uploaded video playing as the background");
+  await screenshot("02d2-editor-background-video");
+  const videoSrc = await evaluate(`${backgroundVideo}.getAttribute('src')`);
+  const ranged = await evaluate(`(async()=>{const r=await fetch(${JSON.stringify(videoSrc)},{headers:{Range:'bytes=0-99'}});const b=await r.arrayBuffer();return {status:r.status,range:r.headers.get('content-range'),type:r.headers.get('content-type'),length:b.byteLength};})()`);
+  assert.deepEqual([ranged.status, ranged.length, ranged.type], [206, 100, "video/webm"], "the editor route answers a byte range");
+  assert.match(ranged.range, /^bytes 0-99\/\d+$/);
+  assert.equal(await evaluate(`fetch(${JSON.stringify(videoSrc)},{headers:{Range:'bytes=999999999-'}}).then(r=>r.status)`), 416, "a range past the end is unsatisfiable");
   // Elementor-style structure: a new 33/67 section, widths changed to 40/60, reversed on phones.
   await evaluate(`document.querySelector('[aria-label="Close settings"]')?.click()`);
   await clickText("Add a section", "main button");
@@ -360,11 +703,17 @@ try {
   const uploadId = imageWidget.props.image.uploadId;
   assert.match(uploadId, /^[0-9a-f-]{32,36}$/, "the uploaded image is stored as a library ID, never a URL");
   assert.ok(stored.linked.uploads.some(upload => upload.id.replaceAll("-", "") === uploadId.replaceAll("-", "")));
+  assert.equal(customSection.style.backgroundType, "VIDEO");
+  const videoUploadId = customSection.style.backgroundVideo.uploadId;
+  assert.match(videoUploadId, /^[0-9a-f-]{32,36}$/, "the uploaded video is stored as a library ID");
+  assert.ok(stored.linked.uploads.some(upload => upload.id.replaceAll("-", "") === videoUploadId.replaceAll("-", "") && upload.contentType === "video/webm"));
   const library = await api("/api/websites/media");
   assert.ok(library.body.data.items.some(item => item.id.replaceAll("-", "") === uploadId.replaceAll("-", "") && item.width === 960), "the library records the image size");
   assert.equal((await api(`/api/websites/media/${uploadId}/content`)).contentType, "image/png");
   const forged = await api("/api/websites/media", {method: "POST", headers: {"Content-Type": "image/png", "X-EstateOS-Organization": f.orgA}, body: "<html><script>alert(1)</script></html>"});
   assert.equal(forged.status, 415, "a file whose bytes are not an image is rejected");
+  const fakeVideo = await api("/api/websites/media", {method: "POST", headers: {"Content-Type": "video/mp4", "X-EstateOS-Organization": f.orgA}, body: "<html><script>alert(1)</script></html>"});
+  assert.equal(fakeVideo.status, 415, "a file whose bytes are not a video is rejected");
   await evaluate(`(()=>{const e=document.querySelector('[data-preview-device] [data-section-type="CUSTOM"]').closest('[data-editor-section]');const b=e.getBoundingClientRect();e.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:b.left+40,clientY:b.top+40}));})()`);
   await clickText("Save to library", "[role=menu] button");
   await waitFor("!!document.querySelector('#save-section-title')", "the save-to-library dialog");
@@ -393,6 +742,9 @@ try {
   const custom = structuredClone(stored.data);
   custom.sections.push({...custom.sections[0], id: "custom-1", type: "CUSTOM_HTML"});
   assert.equal((await save(custom, stored.page.revision)).status, 400);
+  const wrongKind = structuredClone(stored.data);
+  wrongKind.sections.find(section => section.type === "CUSTOM").style.backgroundVideo = {uploadId};
+  assert.equal((await save(wrongKind, stored.page.revision)).status, 400, "an uploaded image cannot fill a video slot");
   assert.equal((await save(stored.data, stored.page.revision - 1)).status, 409);
   const seo = await save(stored.data, stored.page.revision);
   assert.equal(seo.status, 200, JSON.stringify(seo.body));
@@ -428,7 +780,7 @@ try {
     assert.equal(after.versionCount, before.page.versionCount, "the existing page is unchanged");
     assert.equal(await counter("owner-a"), before.counter, "the allowance was returned");
     const records = await usage("owner-a");
-    assert.ok(records.length >= 2 && records.every(row => row.status === "FAILED" && row.promptVersion === "6d.2"), JSON.stringify(records));
+    assert.ok(records.length >= 2 && records.every(row => row.status === "FAILED" && row.promptVersion === "6e.1"), JSON.stringify(records));
     pass(`Claude failure (invalid key, ${failed.body.error.code}) creates nothing, leaves the page unchanged, returns the allowance and records PAGES usage`);
   } else {
     const generated = await post("/api/websites/pages/generate", {title: "E2E Claude page", brief: "A premium modern landing page for this Dubai Marina project with a luxury design, gallery, pricing, map, payment plan and enquiry form.", projectId: ids.project});
@@ -508,14 +860,19 @@ try {
   const uploadResponse = await fetch(origin + uploadUrl);
   assert.equal(uploadResponse.status, 200);
   assert.equal(uploadResponse.headers.get("content-type"), "image/png");
+  const videoUrl = [...html.matchAll(/\/api\/public\/site-media\/[0-9a-f-]+\/([0-9a-f-]+)/g)].find(match => match[1].replaceAll("-", "") === videoUploadId.replaceAll("-", ""))?.[0];
+  assert.ok(videoUrl, "the uploaded video is published through the publication allowlist");
+  const videoPart = await fetch(origin + videoUrl, {headers: {Range: "bytes=0-1023"}});
+  assert.deepEqual([videoPart.status, videoPart.headers.get("content-type"), (await videoPart.arrayBuffer()).byteLength], [206, "video/webm", 1024], "the public route streams a byte range of the video");
   assert.equal((await fetch(origin + `/api/websites/media/${uploadId}/content`)).status, 401, "the editor route needs a session");
   for (const path of ["/site/local-agency-b/e2e-marina-launch", "/site/local-agency-a/does-not-exist", "/site/local-agency-a/manager-draft", "/site/LOCAL/../etc"]) assert.equal((await fetch(origin + path)).status, 404, path);
   const sitemap = await (await fetch(origin + "/sitemap.xml")).text();
   assert.ok(sitemap.includes(publicPath) && !sitemap.includes("manager-draft"));
   await load(publicPath, "document.body.innerText.includes('E2E Waterfront Launch')");
+  assert.equal(await evaluate("getComputedStyle(document.documentElement).scrollBehavior"), "smooth", "links to sections glide on public pages");
   await screenshot("05a-public-desktop-hero");
-  await evaluate("window.scrollTo(0, document.body.scrollHeight * 0.35)"); await pause(800); await screenshot("05b-public-desktop-middle");
-  await evaluate("window.scrollTo(0, document.body.scrollHeight * 0.7)"); await pause(800); await screenshot("05c-public-desktop-lower");
+  await evaluate("window.scrollTo({top: document.body.scrollHeight * 0.35, behavior: 'instant'})"); await pause(800); await screenshot("05b-public-desktop-middle");
+  await evaluate("window.scrollTo({top: document.body.scrollHeight * 0.7, behavior: 'instant'})"); await pause(800); await screenshot("05c-public-desktop-lower");
   // Gallery photos open in a full-screen viewer (next with the arrow key, Escape closes).
   await evaluate(`(()=>{const a=document.querySelector('[data-lightbox-group][data-lightbox-index="0"]');a.scrollIntoView({block:'center'});a.click();})()`);
   await waitFor("/^Photo 1 of \\d+$/.test(document.querySelector('[role=dialog][aria-modal=true]')?.getAttribute('aria-label') || '')", "the photo viewer");
