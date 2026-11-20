@@ -3,12 +3,12 @@ import type { ReactNode } from "react";
 
 /*
  * Public legal pages (privacy, terms, data deletion), linked from Meta's app settings and the site footer. The
- * operator's name and contact address come from the server environment (ESTATEOS_LEGAL_ENTITY,
- * ESTATEOS_LEGAL_CONTACT_EMAIL), so no personal details are committed. The wording is a starting point to be
- * reviewed by the operator's legal adviser.
+ * operator's name and public contact address come from each environment's settings (ESTATEOS_LEGAL_ENTITY,
+ * ESTATEOS_LEGAL_CONTACT_EMAIL in apphosting.<environment>.yaml); the pages are built ahead of time, so the values
+ * are needed at build time. The wording is a starting point to be reviewed by the operator's legal adviser.
  */
 
-export const LAST_UPDATED = "17 November 2026";
+export const LAST_UPDATED = "20 November 2026";
 
 export function legalOperator() {
   const entity = process.env.ESTATEOS_LEGAL_ENTITY?.trim() || "the company that operates EstateOS";

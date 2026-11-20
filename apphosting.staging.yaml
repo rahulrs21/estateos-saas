@@ -40,6 +40,20 @@ env:
   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
     value: 1:456904631491:web:1308e224a06058522e2e76
 
+  # Legal pages (/privacy, /terms, /data-deletion): who operates EstateOS and its public contact address.
+  # The pages are built ahead of time, so both values are needed at build time too.
+  # The registered company that owns the Meta business portfolio ("Faza Home") under which EstateOS is set up.
+  - variable: ESTATEOS_LEGAL_ENTITY
+    value: Faza Building Materials Trading LLC
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: ESTATEOS_LEGAL_CONTACT_EMAIL
+    value: info@rahuldxb.com
+    availability:
+      - BUILD
+      - RUNTIME
+
   # Claude
   - variable: ESTATEOS_AI_ENABLED
     value: "true"
