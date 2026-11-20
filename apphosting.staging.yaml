@@ -49,7 +49,7 @@ env:
       - BUILD
       - RUNTIME
   - variable: ESTATEOS_LEGAL_CONTACT_EMAIL
-    value: info@rahuldxb.com
+    value: support@fazahome.ae
     availability:
       - BUILD
       - RUNTIME
