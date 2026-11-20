@@ -17,7 +17,7 @@ import { ConnectWhatsApp } from "./connect-whatsapp";
 
 type SettingsView = Awaited<ReturnType<typeof inboxSettings>>;
 type Connection = ConnectionsView["connections"][number];
-type Send = (path: string, method: "POST" | "PUT", body: unknown, success: string) => Promise<boolean>;
+type Send = (path: string, method: "POST" | "PUT", body: unknown, success: string | ((data: unknown) => string)) => Promise<boolean>;
 
 const STATUS_LABELS: Record<string, string> = {NOT_CONFIGURED: "Not configured", CONFIGURED: "Configured, not verified", VERIFIED: "Verified", DISABLED: "Disabled", ERROR: "Error"};
 const CAPABILITY_LABELS: Record<Capability, string> = {
@@ -74,7 +74,7 @@ function ConnectionFields({view, connection}: {view: ConnectionsView; connection
       <Input id={`${prefix}-access-token`} name="accessToken" type="password" maxLength={4096} autoComplete="off" spellCheck={false} data-testid="channel-access-token"
         placeholder={connection?.accessTokenStored ? "Saved (encrypted). Leave empty to keep it, or paste a new one." : "Paste the permanent access token from Meta"} /></LeadField>}
     {whatsapp && <LeadField id={`${prefix}-waba`} label="WhatsApp Business Account ID (optional, for templates)"
-      hint="In Meta Business Settings → WhatsApp accounts, select your number: the digits after selected_asset_id= in the address bar. Not secret. Needed only to list your approved templates.">
+      hint="In Meta Business Settings → WhatsApp accounts, select your number: → Goto Messaging Account → click •••  →  View Messaging Account: → the digits after selected_asset_id= in the address bar. Not secret. Needed only to list your approved templates.">
       <Input id={`${prefix}-waba`} name="businessAccountReference" maxLength={40} defaultValue={connection?.businessAccountReference ?? ""} autoComplete="off" inputMode="numeric" pattern="[0-9]{5,30}" /></LeadField>}
     <details className="rounded-md border px-3 py-2 text-sm" open={!whatsapp || undefined}>
       <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Advanced (EstateOS staff): server secret names</summary>
@@ -141,7 +141,8 @@ function ConnectionsSection({view, send, organizationId, reload}: {view: Connect
           <Button variant="outline" size="sm" onClick={() => void send(`/api/inbox/connections/${connection.id}/enabled`, "POST", {expectedRevision: connection.revision, enabled: connection.connectionStatus === "DISABLED"}, connection.connectionStatus === "DISABLED" ? "Channel enabled." : "Channel disabled; its webhooks are refused.").catch(() => undefined)}>
             {connection.connectionStatus === "DISABLED" ? "Enable" : "Disable"}</Button>
           {connection.provider === "WHATSAPP_CLOUD" && connection.connectionStatus !== "DISABLED" && <>
-            <Button variant="outline" size="sm" onClick={() => void send(`/api/inbox/connections/${connection.id}/check`, "POST", {}, "Connection checked with Meta.").catch(() => undefined)}>Check connection</Button>
+            <Button variant="outline" size="sm" onClick={() => void send(`/api/inbox/connections/${connection.id}/check`, "POST", {}, data => (data as {webhooksConnected?: boolean} | null)?.webhooksConnected
+              ? "Connection checked with Meta. Incoming messages now come to this channel." : "Connection checked with Meta.").catch(() => undefined)}>Check connection</Button>
             {connection.connectionStatus === "VERIFIED" && <Button variant={connection.sendingEnabled ? "outline" : "default"} size="sm"
               onClick={() => void send(`/api/inbox/connections/${connection.id}/sending`, "POST", {expectedRevision: connection.revision, enabled: !connection.sendingEnabled},
                 connection.sendingEnabled ? "Sending turned off." : "Sending turned on for test recipients.").catch(() => undefined)}>
@@ -177,7 +178,14 @@ export function InboxSettingsView({organizationId}: {organizationId: string}) {
 
   /** Sends a change, then reloads so the page shows what was stored. */
   const send: Send = async (path, method, body, success) => {
-    try { await communicationsSend(path, organizationId, method, body); toast.success(success); return true; }
+    try {
+      const data = await communicationsSend<unknown>(path, organizationId, method, body);
+      toast.success(typeof success === "function" ? success(data) : success);
+      // Notes the server returns (for example why incoming messages are not connected yet) stay on screen longer.
+      const notes = (data as {notes?: unknown} | null)?.notes;
+      if (Array.isArray(notes)) for (const note of notes) if (typeof note === "string") toast.warning(note, {duration: 20000});
+      return true;
+    }
     catch (problem) { toast.error(errorMessage(problem, "The change could not be saved.")); throw problem; }
     finally { void load(); }
   };

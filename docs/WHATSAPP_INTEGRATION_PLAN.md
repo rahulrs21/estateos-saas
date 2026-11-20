@@ -27,6 +27,7 @@ No Meta account, app, phone number or token was created, purchased or used in Ph
 
 What it adds:
 - **Check connection.** An OWNER or ADMIN presses **Check connection** in Inbox settings, and EstateOS asks Meta for the phone number with the access token: `GET /{version}/{phone-number-id}?fields=id,display_phone_number,verified_name,quality_rating`.
+- **Webhooks on hosted servers.** On staging and production (`ESTATEOS_ENVIRONMENT`), a successful check of a channel with a WhatsApp Business Account ID also routes that account's webhooks to the channel (`POST /{waba-id}/subscribed_apps` with `override_callback_uri` = the channel's webhook address and the channel's verify token), the same call Connect WhatsApp makes. Local development never does this, so a number used locally keeps the Meta app's default webhook. A refusal is shown with plain advice (`whatsapp-check.ts`); the number stays verified.
   - Only when Meta returns the same phone number ID does the channel become **VERIFIED**, with Meta's name and number shown.
   - A failure marks it **ERROR** and turns sending off.
   - This is a read-only request that sends nothing.

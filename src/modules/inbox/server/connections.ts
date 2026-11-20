@@ -10,8 +10,9 @@ import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { ADAPTERS, CREDENTIAL_REFERENCE, WEBHOOK_SLUGS, canSend } from "../adapters";
 import { ACCESS_TOKEN_PATTERN, PLATFORM_APP_SECRET, channelAccessToken, saveChannelAccessToken } from "./channel-credentials";
 import { vaultConfigured } from "../vault";
-import { checkBusinessAccount, checkPhoneNumber, liveSendingConfigured, realCustomersAllowed, testRecipients } from "./whatsapp-cloud";
+import { checkBusinessAccount, checkPhoneNumber, liveSendingConfigured, realCustomersAllowed, subscribeAccountWebhooks, testRecipients } from "./whatsapp-cloud";
 import { forgetTemplates } from "./whatsapp-templates";
+import { metaCheckAdvice, routesAccountWebhooks } from "../whatsapp-check";
 import type { ChannelProvider } from "../model";
 
 /*
@@ -215,8 +216,24 @@ export async function checkConnection(context: Context, rawId: string) {
     verifiedName: result.ok ? result.verifiedName : null, verifiedDisplayNumber: result.ok ? result.displayNumber : null, errorCode: result.ok ? null : result.code,
   }));
   // Recorded first (the channel is now ERROR, sending off), then explained to the administrator.
-  if (!result.ok) throw new WorkspaceError("INBOX_CHECK_FAILED", 409, `Meta did not confirm this number (${result.code}): ${result.message}`);
-  return {id, verified: true, verifiedName: phone.ok ? phone.verifiedName : null, displayNumber: phone.ok ? phone.displayNumber : null, templatesAvailable: Boolean(connection.businessAccountReference)};
+  if (!result.ok) throw new WorkspaceError("INBOX_CHECK_FAILED", 409, `Meta did not confirm this number (${result.code}): ${result.message} ${metaCheckAdvice(result.code, !phone.ok ? "number" : "account")}`.trim());
+  // On staging and production the WhatsApp Business Account's messages are routed to this channel's own webhook
+  // address (an account-level override, the same call Connect WhatsApp makes), so no manual call to Meta is needed.
+  const notes: string[] = [];
+  let webhooksConnected = false;
+  if (connection.businessAccountReference && routesAccountWebhooks(process.env)) {
+    const verifyTokenName = connection.credentialReference ? `${connection.credentialReference}${VERIFY_TOKEN_SUFFIX}` : null;
+    const verifyToken = readInboxSecret(verifyTokenName);
+    const path = webhookPath("WHATSAPP_CLOUD", id);
+    if (!verifyToken || !path) notes.push(`Incoming messages are not connected: the server has no value for ${verifyTokenName ?? "the verify token"}.`);
+    else {
+      const subscribed = await subscribeAccountWebhooks(token, connection.businessAccountReference, `${getAppOrigin()}${path}`, verifyToken);
+      console.info(JSON.stringify({event: "inbox.whatsapp_webhooks_routed", ok: subscribed.ok, code: subscribed.ok ? null : subscribed.code}));
+      if (subscribed.ok) webhooksConnected = true;
+      else notes.push(`Incoming messages are not connected yet: Meta refused (${subscribed.code}): ${subscribed.message} ${metaCheckAdvice(subscribed.code, "webhooks")}`.trim());
+    }
+  }
+  return {id, verified: true, webhooksConnected, notes, verifiedName: phone.ok ? phone.verifiedName : null, displayNumber: phone.ok ? phone.displayNumber : null, templatesAvailable: Boolean(connection.businessAccountReference)};
 }
 
 /** Sending on or off for a VERIFIED WhatsApp connection; on only where the server has test numbers or allows real customers. */

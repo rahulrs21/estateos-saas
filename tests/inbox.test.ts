@@ -1,3 +1,4 @@
+import { metaCheckAdvice, routesAccountWebhooks } from "../src/modules/inbox/whatsapp-check";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { channelIdentity, identityMatchesContact, matchDecision, normalizeEmailIdentity, normalizePhoneIdentity } from "../src/modules/inbox/identity";
@@ -50,4 +51,24 @@ test("cursors carry the last timestamp and the IDs already shown at that instant
   const rows = [{id: "a", at: "t3"}, {id: "b", at: "t2"}, {id: "c", at: "t2"}, {id: "d", at: "t1"}];
   assert.equal(nextCursor(rows, row => row.at, 4), null, "no further page");
   assert.deepEqual(nextCursor(rows, row => row.at, 3), {at: "t2", seen: ["b", "c"]});
+});
+
+// --- WhatsApp connection check: routing webhooks and plain advice ------------------------------------
+
+test("Check connection routes a WhatsApp account's webhooks only on hosted servers", () => {
+  assert.equal(routesAccountWebhooks({ESTATEOS_ENVIRONMENT: "staging"}), true);
+  assert.equal(routesAccountWebhooks({ESTATEOS_ENVIRONMENT: "production"}), true);
+  assert.equal(routesAccountWebhooks({ESTATEOS_ENVIRONMENT: "local"}), false, "local development keeps the Meta app's default webhook");
+  assert.equal(routesAccountWebhooks({}), false);
+  assert.equal(routesAccountWebhooks({ESTATEOS_ENVIRONMENT: "unknown"}), false, "an unknown environment never moves webhooks");
+});
+
+test("Meta's usual refusals come with plain advice", () => {
+  assert.match(metaCheckAdvice("100", "account"), /Messaging accounts.*Assign people.*System users/);
+  assert.match(metaCheckAdvice("100", "account"), /not the Phone number ID/);
+  assert.match(metaCheckAdvice("100", "number"), /Phone number ID/);
+  assert.match(metaCheckAdvice("190", "webhooks"), /new system user token/);
+  assert.match(metaCheckAdvice("200", "webhooks"), /Full control/);
+  assert.match(metaCheckAdvice("2200", "webhooks"), /verify token/);
+  assert.equal(metaCheckAdvice("131042", "account"), "", "other codes keep Meta's own message only");
 });

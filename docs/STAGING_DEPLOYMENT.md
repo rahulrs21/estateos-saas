@@ -212,11 +212,11 @@ gcloud scheduler jobs create http estateos-staging-tick --project <staging> --lo
 
 ### Step 10: WhatsApp test account (Owner)
 
-1. In Meta, use a **test** WhatsApp Business Account or number, **not the live UAE number**.
-2. In EstateOS staging → Inbox settings, add the WhatsApp channel with the secret names above.
-3. Point **only that account** at staging, so local development keeps the app's default webhook:
-   `POST /{test-waba-id}/subscribed_apps` with `override_callback_uri=https://<staging>/api/inbox/webhooks/whatsapp/<connectionId>` and `verify_token=<the verify token>`.
-4. Click **Check connection**. Leave real customers **off**.
+1. In Meta, use a **test** WhatsApp Business Account or number, **not the live UAE number**. On the app's API Setup page the test number shows its **Phone number ID** and **Messaging account ID** (the WhatsApp Business Account ID).
+2. Give the staging system user **Full control** of the **Messaging account** (Business Settings → Messaging accounts → the test account → Assign people → System users). Having only the phone number (under WhatsApp accounts) lets the number be checked but not its webhooks routed: Meta answers error 100, subcode 33.
+3. In EstateOS staging → Inbox settings, add the WhatsApp channel: the Phone number ID, the WhatsApp Business Account ID, and under Advanced the access token secret name `INBOX_WHATSAPP_ACCESS_TOKEN` (leave the token field and the app secret name empty).
+4. Click **Check connection**. On staging and production it also routes **only that account's** webhooks to the channel (`POST /{waba-id}/subscribed_apps` with `override_callback_uri` and the verify token, as Connect WhatsApp does), so local development keeps the app's default webhook. If Meta refuses, the message says what to fix. Leave real customers **off**.
+   - Fallback (manual): the same call from Graph API Explorer with the staging system user token.
 
 ### Step 11: smoke test (synthetic data)
 
