@@ -81,6 +81,8 @@ export interface LeadFilters {
   createdFrom: string;
   createdTo: string;
   sort: "CREATED_DESC" | "CREATED_ASC" | "UPDATED_DESC" | "NAME_ASC" | "NAME_DESC" | "FOLLOW_UP_ASC";
+  /** A created-date preset; the server turns it into createdFrom/createdTo (Dubai days). */
+  range: "TODAY" | "YESTERDAY" | "7D" | "30D" | "LAST_MONTH" | "ALL" | "CUSTOM";
   view: "LIST" | "KANBAN";
   followUp: "ALL" | "OVERDUE" | "UPCOMING";
   page: number;

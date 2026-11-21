@@ -12,7 +12,7 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { validateInput } from "@/modules/organizations/server/validation";
 import { leadIdInputSchema, leadPageFiltersSchema } from "../validation";
-import { leadEnquiryFrom, oldestActivityPlace } from "../presentation";
+import { leadEnquiryFrom, oldestActivityPlace, resolveLeadDateRange } from "../presentation";
 import type { LeadRecord, LeadWorkspace, LeadListData, LeadDetailData, LeadFormData } from "../types";
 import { leadListOperation, leadQueryVariables } from "./service";
 import { ensureLeadConfiguration } from "./crm-service";
@@ -66,13 +66,16 @@ async function workspace(context: Context): Promise<LeadWorkspace> {
 
 function filterInput(params: LeadSearchParams) {
   const value: Record<string, unknown> = {};
-  for (const key of ["search", "status", "branchId", "assignedMembershipId", "sourceId", "priority", "createdFrom", "createdTo", "sort", "view", "followUp", "page", "pageSize"]) {
+  for (const key of ["search", "status", "branchId", "assignedMembershipId", "sourceId", "priority", "createdFrom", "createdTo", "range", "sort", "view", "followUp", "page", "pageSize"]) {
     if (params[key] !== undefined) {
       if (Array.isArray(params[key])) throw new WorkspaceError("VALIDATION_ERROR", 400, "Each lead filter must have a single value.");
       value[key] = params[key];
     }
   }
-  return validateInput(leadPageFiltersSchema, value);
+  // Older links carry only dates: they mean a custom range.
+  if (value.range === undefined && (value.createdFrom || value.createdTo)) value.range = "CUSTOM";
+  const filters = validateInput(leadPageFiltersSchema, value);
+  return { ...filters, ...resolveLeadDateRange(filters.range, filters) };
 }
 
 export async function getLeadsPageData(params: LeadSearchParams = {}): Promise<LeadListData> {

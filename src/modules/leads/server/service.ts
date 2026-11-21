@@ -57,8 +57,9 @@ export function leadQueryVariables(organizationId: string, input: unknown) {
   return sqlCrmFields({
     ...pagination, organizationId, search: escapeLeadSearch(search),
     activeOnly: archive === "ALL" ? null : archive === "ACTIVE",
-    createdFrom: createdFrom ? `${createdFrom}T00:00:00.000Z` : undefined,
-    createdBefore: createdTo ? new Date(Date.parse(`${createdTo}T00:00:00.000Z`) + 86400000).toISOString() : undefined,
+    // Calendar days are Dubai days (UTC+4), the agencies' local time.
+    createdFrom: createdFrom ? new Date(`${createdFrom}T00:00:00.000+04:00`).toISOString() : undefined,
+    createdBefore: createdTo ? new Date(Date.parse(`${createdTo}T00:00:00.000+04:00`) + 86400000).toISOString() : undefined,
     status: status ? sqlLeadStatus[status] : undefined,
     followUpBefore: followUp === "OVERDUE" ? now : undefined,
     followUpAfter: followUp === "UPCOMING" ? now : undefined,

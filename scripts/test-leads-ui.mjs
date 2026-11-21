@@ -62,7 +62,7 @@ export function propertyData(id:string){
  return {organizationId,page:1,candidateTotal:1,reviewed:1,primaryProject:lead?.primaryProject??null,primaryProperty:lead?.primaryProperty??null,shortlist,shortlistTotal:shortlist.length,viewings,viewingTotal:viewings.length,leadAssignedMembershipId:membershipId,viewingAssignees:[{id:membershipId,role:'AGENT',name:'Fixture Agent'}],matches:[{property,listing:{id:'30000000-0000-4000-8000-000000000003',listingPurpose:'SALE',askingPriceMinor:'100000000',currency:'AED'},reasons:['Available property','Matches Dubai Marina','Within budget']}]};
 }
 export function pageData(params:Record<string,string|undefined>={}){
- const filters={search:'',status:'',branchId:'',assignedMembershipId:'',sourceId:'',priority:'',createdFrom:'',createdTo:'',sort:'CREATED_DESC',view:'LIST',followUp:'ALL',page:1,pageSize:10,...params};
+ const filters={search:'',status:'',branchId:'',assignedMembershipId:'',sourceId:'',priority:'',createdFrom:'',createdTo:'',range:'30D',sort:'CREATED_DESC',view:'LIST',followUp:'ALL',page:1,pageSize:10,...params};
  filters.page=Number(filters.page);filters.pageSize=Number(filters.pageSize);
  let rows=store.leads.filter(lead=>(!filters.search||[lead.fullName,lead.email,lead.phone].some(value=>value?.toLowerCase().includes(filters.search.toLowerCase())))&&(!filters.status||lead.status===filters.status)&&(!filters.sourceId||lead.sourceId===filters.sourceId)&&(!filters.priority||lead.priority===filters.priority)&&(!filters.assignedMembershipId||lead.assignedMembershipId===filters.assignedMembershipId));
  if(filters.sort==='NAME_ASC')rows=rows.toSorted((a,b)=>a.fullName.localeCompare(b.fullName));

@@ -67,3 +67,9 @@ export function fromDubaiDateTimeInput(value: string) {
   const date = new Date(`${value}:00+04:00`);
   return Number.isFinite(date.getTime()) ? date.toISOString() : value;
 }
+
+/** Initials in a neutral circle; the same for a lead everywhere it appears. */
+export function LeadAvatar({ name, className }: { name: string; className?: string }) {
+  const initials = name.trim().split(/\s+/).slice(0, 2).map(word => word[0]).join("").toUpperCase();
+  return <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-full border bg-muted text-[11px] font-semibold text-foreground/70", className)} aria-hidden="true">{initials || "?"}</span>;
+}

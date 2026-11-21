@@ -21,7 +21,10 @@ export function leadEnquiryFrom(activity: {kind: string; note?: string | null; c
 /** Keep applied filters while encoding every value as URL data. */
 export function leadsHref(filters: LeadFilters, changes: Partial<LeadFilters> = {}) {
   const query = new URLSearchParams();
-  for (const [key, value] of Object.entries({ ...filters, ...changes })) {
+  const next = { ...filters, ...changes };
+  for (const [key, value] of Object.entries(next)) {
+    // A preset range is recomputed by the server, so its dates are not part of the link.
+    if ((key === "createdFrom" || key === "createdTo") && next.range && next.range !== "CUSTOM") continue;
     if (value !== undefined && value !== null && value !== "") query.set(key, String(value));
   }
   return `/leads?${query.toString()}`;
@@ -63,14 +66,32 @@ export function enquiryFields(lead: Pick<LeadRecord, "fullName" | "email" | "pho
   return fields.flatMap(([label, value]) => typeof value === "string" && value.trim() ? [{label, value: value.trim()}] : []);
 }
 
-const AVATAR_TONES = [
-  "bg-blue-500/10 text-blue-700 dark:text-blue-300", "bg-violet-500/10 text-violet-700 dark:text-violet-300",
-  "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300", "bg-amber-500/10 text-amber-800 dark:text-amber-300",
-  "bg-rose-500/10 text-rose-700 dark:text-rose-300", "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
-];
-/** A stable colour per name, so the same lead always looks the same. */
-export function avatarTone(name: string) {
-  let hash = 0;
-  for (const character of name) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  return AVATAR_TONES[hash % AVATAR_TONES.length];
+const DUBAI_OFFSET_MS = 4 * 60 * 60 * 1000; // UTC+4, no daylight saving.
+const dubaiDay = (instant: number) => new Date(instant + DUBAI_OFFSET_MS).toISOString().slice(0, 10);
+const addDays = (day: string, days: number) => new Date(Date.parse(`${day}T00:00:00.000Z`) + days * 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * The created-date window (Dubai calendar days, both included) for a range preset.
+ * CUSTOM keeps the chosen dates; ALL has none. `now` is injectable for tests.
+ */
+export function resolveLeadDateRange(range: LeadFilters["range"], custom: {createdFrom: string; createdTo: string}, now = Date.now()): {createdFrom: string; createdTo: string} {
+  const today = dubaiDay(now);
+  switch (range) {
+    case "TODAY": return {createdFrom: today, createdTo: today};
+    case "YESTERDAY": { const day = addDays(today, -1); return {createdFrom: day, createdTo: day}; }
+    case "7D": return {createdFrom: addDays(today, -6), createdTo: today};
+    case "30D": return {createdFrom: addDays(today, -29), createdTo: today};
+    case "LAST_MONTH": {
+      const firstOfThisMonth = `${today.slice(0, 7)}-01`;
+      const lastOfPrevious = addDays(firstOfThisMonth, -1);
+      return {createdFrom: `${lastOfPrevious.slice(0, 7)}-01`, createdTo: lastOfPrevious};
+    }
+    case "ALL": return {createdFrom: "", createdTo: ""};
+    default: return {createdFrom: custom.createdFrom, createdTo: custom.createdTo};
+  }
 }
+
+export const leadDateRangeLabels: Record<LeadFilters["range"], string> = {
+  TODAY: "Today", YESTERDAY: "Yesterday", "7D": "Last 7 days", "30D": "Last 30 days",
+  LAST_MONTH: "Last month", ALL: "All time", CUSTOM: "Custom range",
+};

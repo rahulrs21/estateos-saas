@@ -14,7 +14,8 @@ test("/leads is the company list route and calls list data, not a single-lead lo
   assert.match(listPage, /scope="list"/);
   const list = source("src/modules/leads/components/leads-list.tsx");
   assert.match(list, /<LeadEditorDialog data=\{data\} \/>/);
-  assert.match(list, /Your next relationship starts here/);
+  assert.match(list, /"No leads yet"/);
+  assert.match(list, /Create your first lead/);
 });
 
 test("lead detail failures only use the unavailable-record state on the detail route", () => {

@@ -41,6 +41,14 @@ async function load(path, width = 1440) {
   await pause(250);
 }
 async function click(selector) {
+  // Wait until the target stops moving (for example a Kanban card finishing its move animation).
+  let last = "";
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const rect = await evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.getBoundingClientRect().width>0);if(!e)return '';const r=e.getBoundingClientRect();return [r.x,r.y,r.width,r.height].map(Math.round).join(',')})()`);
+    if (rect && rect === last) break;
+    last = rect;
+    await pause(80);
+  }
   const point = await evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.getBoundingClientRect().width>0);if(!e)throw Error('No visible control: '+${JSON.stringify(selector)});e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
   await command("Input.dispatchMouseEvent", { type: "mouseMoved", ...point, button: "none" });
   await command("Input.dispatchMouseEvent", { type: "mousePressed", ...point, button: "left", clickCount: 1 });
@@ -117,11 +125,27 @@ try {
   await waitFor(`!!document.querySelector('#fixture-ready[data-ready="true"]')`, "the filtered list");
   await click('[data-testid="lead-filter-status"]');
   await clickMenuItem("Qualified");
-  await waitFor(`new URL(location.href).searchParams.get('status')==='QUALIFIED'&&document.body.innerText.includes('No leads match this view')`, "the status dropdown filter");
+  await waitFor(`new URL(location.href).searchParams.get('status')==='QUALIFIED'&&document.body.innerText.includes('No leads in this view')`, "the status dropdown filter");
   assert.equal(await evaluate(`new URL(location.href).searchParams.get('search')`), "Fixture Prospect 12");
-  await clickText("Clear filters3");
+  await clickText("Clear filters(3)");
   await waitFor(`!new URL(location.href).searchParams.get('status')&&!new URL(location.href).searchParams.get('search')&&document.querySelectorAll('[data-testid="lead-row"]').length===10`, "clearing every filter");
   pass("Dropdown filters keep the typed search, and Clear filters resets them all.");
+
+  await click('[data-testid="lead-date-range"]');
+  await clickMenuItem("Last 7 days");
+  await waitFor(`new URL(location.href).searchParams.get('range')==='7D'&&!new URL(location.href).searchParams.has('createdFrom')`, "the date range preset");
+  await click('[data-testid="lead-date-range"]');
+  await clickMenuItem("Custom range…");
+  await waitFor(`!!document.querySelector('[role="dialog"] #lead-created-from')`, "the custom date range dialog");
+  await fill("createdFrom", "2026-10-20");
+  await fill("createdTo", "2026-10-10");
+  await clickText("Apply", "document.querySelector('[role=dialog]')");
+  await pause(300);
+  assert.equal(await evaluate(`!!document.querySelector('[role="dialog"]')&&!document.querySelector('[role="dialog"] form').checkValidity()&&new URL(location.href).searchParams.get('range')==='7D'`), true, "A reversed range must not be applied");
+  await fill("createdTo", "2026-10-25");
+  await clickText("Apply", "document.querySelector('[role=dialog]')");
+  await waitFor(`new URL(location.href).searchParams.get('range')==='CUSTOM'&&new URL(location.href).searchParams.get('createdFrom')==='2026-10-20'&&new URL(location.href).searchParams.get('createdTo')==='2026-10-25'`, "the custom date range");
+  pass("The date range offers presets and a validated custom range, carried in the URL.");
 
   await load("/lead-forms");
   const formRows = () => evaluate(`[...document.querySelectorAll('[data-testid="lead-form-row"]')].filter(e=>e.getBoundingClientRect().width>0).length`);
@@ -295,16 +319,17 @@ try {
   await load("/leads?view=KANBAN&pageSize=25");
   const cardSelector = `[data-lead-id="${lead.id}"]`;
   await waitFor(`!!document.querySelector(${JSON.stringify(cardSelector)})`, "a real kanban lead card");
-  const moveSelector = cardSelector + " select";
   const stageId = "10000000-0000-4000-8000-000000000101";
   await rejectNext();
-  await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(moveSelector)});e.value=${JSON.stringify(stageId)};e.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+  await click(cardSelector + ' [data-testid="lead-move"]');
+  await clickMenuItem("Contacted");
   await waitFor(`document.body.innerText.includes('Fixture rejected the change.')`, "the kanban rejection");
   assert.equal((await fixtureState()).leads.find(row => row.id === lead.id).pipelineStageId, "10000000-0000-4000-8000-000000000100");
-  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(cardSelector)})?.closest('[data-stage-id]')?.getAttribute('data-stage-id')`), "10000000-0000-4000-8000-000000000100");
+  await waitFor(`document.querySelector(${JSON.stringify(cardSelector)})?.closest('[data-stage-id]')?.getAttribute('data-stage-id')==='10000000-0000-4000-8000-000000000100'`, "the rejected card back in its original stage");
   pass("A rejected optimistic Kanban move rolls the card back to its original stage.");
 
-  await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(moveSelector)});e.value=${JSON.stringify(stageId)};e.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+  await click(cardSelector + ' [data-testid="lead-move"]');
+  await clickMenuItem("Contacted");
   await waitFor(`document.querySelector(${JSON.stringify(cardSelector)})?.closest('[data-stage-id]')?.getAttribute('data-stage-id')===${JSON.stringify(stageId)}`, "the saved Kanban stage");
   await load("/leads?view=KANBAN&pageSize=25");
   assert.equal(await evaluate(`document.querySelector(${JSON.stringify(cardSelector)})?.closest('[data-stage-id]')?.getAttribute('data-stage-id')`), stageId);

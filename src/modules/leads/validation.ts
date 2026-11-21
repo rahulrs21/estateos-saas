@@ -5,6 +5,8 @@ import { contactFields, crmLeadFields, crmLeadFilterFields, validBudget } from "
 
 const uuid = z.string().transform(canonicalUuid).pipe(z.uuid());
 const optionalText = (maximum: number) => z.string().trim().min(1).max(maximum).nullable().optional();
+/** Created-date presets for the leads list and board; CUSTOM uses createdFrom/createdTo. Days are Dubai calendar days. */
+export const leadDateRanges = ["TODAY", "YESTERDAY", "7D", "30D", "LAST_MONTH", "ALL", "CUSTOM"] as const;
 export const leadSorts = ["CREATED_DESC", "CREATED_ASC", "UPDATED_DESC", "NAME_ASC", "NAME_DESC", "FOLLOW_UP_ASC"] as const;
 const calendarDate = z.iso.date().refine(value => Number.isFinite(Date.parse(`${value}T00:00:00.000Z`)), "Choose a valid date.");
 const dateRangeIsValid = (value: {createdFrom?: string; createdTo?: string}) => !value.createdFrom || !value.createdTo || value.createdFrom <= value.createdTo;
@@ -64,6 +66,7 @@ export const leadPageFiltersSchema = z.strictObject({
   priority: z.union([z.enum(["LOW", "NORMAL", "HIGH", "URGENT"]), z.literal("")]).default(""),
   createdFrom: z.union([calendarDate, z.literal("")]).default(""),
   createdTo: z.union([calendarDate, z.literal("")]).default(""),
+  range: z.enum(leadDateRanges).default("30D"),
   sort: z.enum(leadSorts).default("CREATED_DESC"),
   view: z.enum(["LIST", "KANBAN"]).default("LIST"),
   followUp: z.enum(["ALL", "OVERDUE", "UPCOMING"]).default("ALL"),

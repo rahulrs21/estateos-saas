@@ -8,8 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { LeadActivity, LeadDetailData } from "@/modules/leads/types";
 import { LeadAssignment, LeadFollowUp, LeadFollowUpCompletion, LeadNoteForm, LeadStatusPipeline } from "./lead-actions";
 import { LeadEditorDialog } from "./lead-form";
-import { formatLeadDate, LeadStatusBadge, leadStatusLabels } from "./lead-ui";
-import { avatarTone, enquiryFields, leadBudget, leadInitials, leadPriorityLabels } from "../presentation";
+import { formatLeadDate, LeadAvatar, LeadStatusBadge, leadStatusLabels } from "./lead-ui";
+import { enquiryFields, leadBudget, leadPriorityLabels } from "../presentation";
 import { cn } from "@/lib/utils";
 import { AiContentLink } from "@/modules/ai/content/components/ai-content-link";
 import { CALL_DIRECTION_LABELS, CALL_OUTCOME_LABELS, CALL_STATUS_LABELS, type CallDirection, type CallOutcome, type CallStatus } from "@/modules/communications/model";
@@ -48,7 +48,7 @@ function DetailValue({ label, icon, children }: { label: string; icon?: ReactNod
 
 /** One fact in the header strip. */
 function HeaderFact({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
-  return <div className="flex min-w-0 items-start gap-2.5 px-4 py-3 sm:px-5"><span className="mt-0.5 rounded-md bg-muted p-1.5 text-muted-foreground [&_svg]:size-3.5" aria-hidden="true">{icon}</span><div className="min-w-0"><p className="text-[11px] text-muted-foreground">{label}</p><div className="mt-0.5 text-sm font-medium [overflow-wrap:anywhere] lg:truncate">{children}</div></div></div>;
+  return <div className="flex min-w-0 items-start gap-2 px-4 py-2.5"><span className="mt-0.5 text-muted-foreground [&_svg]:size-3.5" aria-hidden="true">{icon}</span><div className="min-w-0"><p className="text-[11px] text-muted-foreground">{label}</p><div className="mt-0.5 text-sm font-medium [overflow-wrap:anywhere] lg:truncate">{children}</div></div></div>;
 }
 
 const PRIORITY_TONE = {
@@ -85,19 +85,19 @@ export function LeadDetail({ data, propertySection, salesSection, callSection }:
     { href: "#follow-up-history", label: `Follow-ups${followUpTotal ? ` · ${followUpTotal}` : ""}` },
   ].filter((section): section is { href: string; label: string } => Boolean(section));
 
-  return <div className="space-y-6 break-words">
+  return <div className="space-y-4 break-words">
     <Link href="/leads" className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" aria-hidden="true" />Back to leads</Link>
 
     {/* Profile header: who, where they are in the pipeline, and the quickest ways to reach them. */}
     <Card className="gap-0 overflow-hidden py-0 shadow-xs ring-border">
-      <div className="relative bg-gradient-to-br from-primary/10 via-primary/[0.03] to-transparent px-5 pt-5 pb-5 sm:px-6">
+      <div className="px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 items-start gap-4">
-            <span className={cn("flex size-14 shrink-0 items-center justify-center rounded-2xl text-lg font-semibold ring-4 ring-background sm:size-16 sm:text-xl", avatarTone(lead.fullName))} aria-hidden="true">{leadInitials(lead.fullName) || "?"}</span>
+            <LeadAvatar name={lead.fullName} className="size-12 text-base" />
             <div className="min-w-0">
-              <p className="text-xs font-semibold tracking-[0.14em] text-primary uppercase">{organization.name}</p>
-              <h1 className="mt-1 text-2xl font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-[28px]">{lead.fullName}</h1>
-              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <p className="text-xs text-muted-foreground">{organization.name}</p>
+              <h1 className="text-xl font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-2xl">{lead.fullName}</h1>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <LeadStatusBadge status={lead.status} />
                 {lead.pipelineStage?.name && lead.pipelineStage.name !== leadStatusLabels[lead.status] && <span className="text-xs text-muted-foreground">{lead.pipelineStage.name}</span>}
                 <span className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium", PRIORITY_TONE[priority])}><Flag className="size-3" aria-hidden="true" />{leadPriorityLabels[priority]} priority</span>
@@ -112,7 +112,7 @@ export function LeadDetail({ data, propertySection, salesSection, callSection }:
             {!lead.archivedAt && <LeadEditorDialog data={data} />}
           </div>
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <AiContentLink size="sm" label="Generate WhatsApp Follow-up" type="WHATSAPP_MESSAGE" purpose="ENQUIRY_FOLLOW_UP" record={{kind: "leadId", id: lead.id}} />
           <AiContentLink size="sm" label="Generate Email Draft" type="EMAIL" purpose="FOLLOW_UP" record={{kind: "leadId", id: lead.id}} />
           <a href="#ai-sales" className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10"><Sparkles className="size-3.5" aria-hidden="true" />Lead score and next actions</a>
@@ -129,16 +129,16 @@ export function LeadDetail({ data, propertySection, salesSection, callSection }:
     {lead.archivedAt && <div role="status" className="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">Archived on {formatLeadDate(lead.archivedAt, true)}. This record and its history are available for reference.</div>}
 
     <nav aria-label="Lead sections" className="sticky top-0 z-20 -mx-1 overflow-x-auto [scrollbar-width:none] bg-background/85 px-1 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-      <ul className="flex w-max gap-1 rounded-xl border bg-card p-1 shadow-xs">{sections.map(section => <li key={section.href}><a href={section.href} className="block rounded-lg px-3 py-1.5 text-xs font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">{section.label}</a></li>)}</ul>
+      <ul className="flex w-max gap-0.5 rounded-lg border bg-card p-0.5">{sections.map(section => <li key={section.href}><a href={section.href} className="block rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">{section.label}</a></li>)}</ul>
     </nav>
 
-    <Card className="gap-4 py-5 shadow-xs ring-border"><CardHeader className="px-5 sm:px-6"><CardTitle role="heading" aria-level={2}>Lead pipeline</CardTitle><CardDescription>Move this opportunity to reflect your latest conversation.</CardDescription></CardHeader><CardContent className="px-5 sm:px-6"><LeadStatusPipeline lead={lead} pipelines={data.pipelines} /></CardContent></Card>
+    <Card className="gap-4 py-4 shadow-xs ring-border"><CardHeader className="px-5 sm:px-6"><CardTitle role="heading" aria-level={2}>Lead pipeline</CardTitle><CardDescription>Move this opportunity to reflect your latest conversation.</CardDescription></CardHeader><CardContent className="px-5 sm:px-6"><LeadStatusPipeline lead={lead} pipelines={data.pipelines} /></CardContent></Card>
 
     {salesSection}
 
-    <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-      <div className="min-w-0 space-y-5">
-        <Card id="overview" className="scroll-mt-24 gap-5 py-5 shadow-xs ring-border"><CardHeader className="px-5 sm:px-6"><div className="flex items-center gap-2"><UserRound className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Customer information</CardTitle></div><CardDescription>Contact information shared with your agency.</CardDescription></CardHeader><CardContent className="px-5 sm:px-6"><dl className="grid gap-6 sm:grid-cols-2">
+    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-w-0 space-y-4">
+        <Card id="overview" className="scroll-mt-24 gap-4 py-4 shadow-xs ring-border"><CardHeader className="px-5 sm:px-6"><div className="flex items-center gap-2"><UserRound className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Customer information</CardTitle></div><CardDescription>Contact information shared with your agency.</CardDescription></CardHeader><CardContent className="px-5 sm:px-6"><dl className="grid gap-6 sm:grid-cols-2">
           <DetailValue label="Full name" icon={<UserRound />}>{lead.fullName}</DetailValue>
           <DetailValue label="Email address" icon={<Mail />}>{lead.email && <a href={`mailto:${encodeURIComponent(lead.email)}`} className="inline-flex items-center gap-2 text-primary underline-offset-4 hover:underline"><Mail className="size-3.5 shrink-0" aria-hidden="true" />{lead.email}</a>}</DetailValue>
           <DetailValue label="Phone number" icon={<Phone />}>{lead.phone && <a href={`tel:${lead.phone.replace(/[^+0-9]/g, "")}`} className="inline-flex items-center gap-2 text-primary underline-offset-4 hover:underline"><Phone className="size-3.5" aria-hidden="true" />{lead.phone}</a>}</DetailValue>
@@ -147,7 +147,7 @@ export function LeadDetail({ data, propertySection, salesSection, callSection }:
           <DetailValue label="Lead source" icon={<Megaphone />}>{sourceName}</DetailValue><DetailValue label="Branch" icon={<Building2 />}>{lead.branch?.name}</DetailValue>
         </dl>{lead.contact?.notes && <div className="mt-6 border-t pt-5"><h3 className="text-xs font-medium">Contact notes</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{lead.contact.notes}</p></div>}</CardContent></Card>
 
-        {data.enquiry && <Card id="enquiry" className="scroll-mt-24 gap-4 py-5 shadow-xs ring-border" data-testid="lead-enquiry"><CardHeader className="px-5 sm:px-6"><div className="flex items-center gap-2"><MessageSquareText className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Website enquiry</CardTitle></div><CardDescription>What the visitor sent, received {formatLeadDate(data.enquiry.receivedAt, true)} through {sourceName || "the website"}.</CardDescription></CardHeader><CardContent className="space-y-5 px-5 sm:px-6">
+        {data.enquiry && <Card id="enquiry" className="scroll-mt-24 gap-4 py-4 shadow-xs ring-border" data-testid="lead-enquiry"><CardHeader className="px-5 sm:px-6"><div className="flex items-center gap-2"><MessageSquareText className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Website enquiry</CardTitle></div><CardDescription>What the visitor sent, received {formatLeadDate(data.enquiry.receivedAt, true)} through {sourceName || "the website"}.</CardDescription></CardHeader><CardContent className="space-y-5 px-5 sm:px-6">
           <div><h3 className="text-xs text-muted-foreground">Message</h3>
             {data.enquiry.message ? <p className="mt-2 whitespace-pre-wrap break-words rounded-lg border bg-muted/40 px-4 py-3 text-sm leading-6">{data.enquiry.message}</p> : <p className="mt-2 text-sm text-muted-foreground">The visitor did not write a message.</p>}</div>
           <dl className="grid gap-5 sm:grid-cols-2" data-testid="lead-enquiry-fields">{enquiryFields(lead).map(field => <div key={field.label}><dt className="text-xs text-muted-foreground">{field.label}</dt><dd className="mt-1.5 break-words text-sm font-medium">{field.value}</dd></div>)}</dl>
@@ -156,7 +156,7 @@ export function LeadDetail({ data, propertySection, salesSection, callSection }:
 
         {callSection}
 
-        <Card id="lead-requirements" className="scroll-mt-24 gap-5 py-5 shadow-xs ring-border"><CardHeader className="px-5 sm:px-6"><div className="flex items-center gap-2"><Building2 className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Property requirements</CardTitle></div><CardDescription>Preferences for this opportunity.</CardDescription></CardHeader><CardContent className="px-5 sm:px-6"><dl className="grid gap-6 sm:grid-cols-2">
+        <Card id="lead-requirements" className="scroll-mt-24 gap-4 py-4 shadow-xs ring-border"><CardHeader className="px-5 sm:px-6"><div className="flex items-center gap-2"><Building2 className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Property requirements</CardTitle></div><CardDescription>Preferences for this opportunity.</CardDescription></CardHeader><CardContent className="px-5 sm:px-6"><dl className="grid gap-6 sm:grid-cols-2">
           <DetailValue label="Project or property interest" icon={<Home />}>{lead.propertyInterest}</DetailValue><DetailValue label="Preferred location" icon={<MapPin />}>{lead.preferredLocation}</DetailValue>
           <DetailValue label="Property type" icon={<Building2 />}>{lead.propertyType}</DetailValue><DetailValue label="Transaction type" icon={<Flag />}>{lead.transactionType && <span className="capitalize">{lead.transactionType.toLowerCase()}</span>}</DetailValue>
           <DetailValue label="Minimum budget" icon={<Wallet />}>{amount(lead.budgetMin)}</DetailValue><DetailValue label="Maximum budget" icon={<Wallet />}>{amount(lead.budgetMax)}</DetailValue><DetailValue label="Bedrooms" icon={<BedDouble />}>{lead.bedroomPreference}</DetailValue>
@@ -173,12 +173,12 @@ export function LeadDetail({ data, propertySection, salesSection, callSection }:
           {(activityPage > 1 || hasMoreActivities) && <nav aria-label="Activity pagination" className="mt-5 flex items-center justify-between gap-3 border-t px-5 pt-4 sm:px-6"><span className="text-xs text-muted-foreground">Activity page {activityPage}</span><div className="flex gap-2">{activityPage > 1 && <Link href={historyHref(activityPage - 1, followUpPage, "timeline")} className={buttonVariants({ variant: "outline", size: "sm" })}><ChevronLeft aria-hidden="true" />Newer</Link>}{hasMoreActivities && <Link href={historyHref(activityPage + 1, followUpPage, "timeline")} className={buttonVariants({ variant: "outline", size: "sm" })}>Older<ChevronRight aria-hidden="true" /></Link>}</div></nav>}
         </Card>
 
-        <Card id="follow-up-history" className="scroll-mt-24 gap-5 py-5 shadow-xs ring-border"><CardHeader className="px-5 sm:px-6"><div className="flex items-center justify-between gap-3"><CardTitle role="heading" aria-level={2}>Follow-up history</CardTitle><Badge variant="outline">{followUpTotal}</Badge></div><CardDescription>Scheduled, completed and cancelled work for this lead.</CardDescription></CardHeader><CardContent className="px-5 sm:px-6">{followUps.length ? <ol className="space-y-3" aria-label="Follow-up history">{followUps.map(followUp => <li key={followUp.id} className="rounded-lg border p-4"><div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><h3 className="break-words text-sm font-medium">{followUp.title}</h3><p className="mt-1 text-xs text-muted-foreground">Due <time dateTime={followUp.dueAt}>{formatLeadDate(followUp.dueAt, true)}</time></p>{followUp.assignedUser && <p className="mt-1 text-xs text-muted-foreground">Assigned to {followUp.assignedUser.userProfile?.displayName || followUp.assignedUser.email}</p>}</div><Badge variant="outline" className="capitalize">{followUp.status.toLowerCase()}</Badge></div>{followUp.completedAt && <p className="mt-2 text-xs text-muted-foreground">Completed <time dateTime={followUp.completedAt}>{formatLeadDate(followUp.completedAt, true)}</time></p>}<div className="mt-3"><LeadFollowUpCompletion lead={lead} followUp={followUp} /></div></li>)}</ol> : <EmptyState icon={CalendarClock} title="No follow-ups on this page" description="Schedule a next step to start a history of your work on this lead." className="py-8" />}</CardContent>{(followUpPage > 1 || hasMoreFollowUps) && <nav aria-label="Follow-up pagination" className="flex items-center justify-between gap-3 border-t px-5 pt-4 sm:px-6"><span className="text-xs text-muted-foreground">Page {followUpPage} of {Math.max(1, Math.ceil(followUpTotal / 10))}</span><div className="flex gap-2">{followUpPage > 1 && <Link href={historyHref(activityPage, followUpPage - 1, "follow-up-history")} className={buttonVariants({ variant: "outline", size: "sm" })}><ChevronLeft aria-hidden="true" />Previous</Link>}{hasMoreFollowUps && <Link href={historyHref(activityPage, followUpPage + 1, "follow-up-history")} className={buttonVariants({ variant: "outline", size: "sm" })}>Next<ChevronRight aria-hidden="true" /></Link>}</div></nav>}</Card>
+        <Card id="follow-up-history" className="scroll-mt-24 gap-4 py-4 shadow-xs ring-border"><CardHeader className="px-5 sm:px-6"><div className="flex items-center justify-between gap-3"><CardTitle role="heading" aria-level={2}>Follow-up history</CardTitle><Badge variant="outline">{followUpTotal}</Badge></div><CardDescription>Scheduled, completed and cancelled work for this lead.</CardDescription></CardHeader><CardContent className="px-5 sm:px-6">{followUps.length ? <ol className="space-y-3" aria-label="Follow-up history">{followUps.map(followUp => <li key={followUp.id} className="rounded-lg border p-4"><div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><h3 className="break-words text-sm font-medium">{followUp.title}</h3><p className="mt-1 text-xs text-muted-foreground">Due <time dateTime={followUp.dueAt}>{formatLeadDate(followUp.dueAt, true)}</time></p>{followUp.assignedUser && <p className="mt-1 text-xs text-muted-foreground">Assigned to {followUp.assignedUser.userProfile?.displayName || followUp.assignedUser.email}</p>}</div><Badge variant="outline" className="capitalize">{followUp.status.toLowerCase()}</Badge></div>{followUp.completedAt && <p className="mt-2 text-xs text-muted-foreground">Completed <time dateTime={followUp.completedAt}>{formatLeadDate(followUp.completedAt, true)}</time></p>}<div className="mt-3"><LeadFollowUpCompletion lead={lead} followUp={followUp} /></div></li>)}</ol> : <EmptyState icon={CalendarClock} title="No follow-ups on this page" description="Schedule a next step to start a history of your work on this lead." className="py-8" />}</CardContent>{(followUpPage > 1 || hasMoreFollowUps) && <nav aria-label="Follow-up pagination" className="flex items-center justify-between gap-3 border-t px-5 pt-4 sm:px-6"><span className="text-xs text-muted-foreground">Page {followUpPage} of {Math.max(1, Math.ceil(followUpTotal / 10))}</span><div className="flex gap-2">{followUpPage > 1 && <Link href={historyHref(activityPage, followUpPage - 1, "follow-up-history")} className={buttonVariants({ variant: "outline", size: "sm" })}><ChevronLeft aria-hidden="true" />Previous</Link>}{hasMoreFollowUps && <Link href={historyHref(activityPage, followUpPage + 1, "follow-up-history")} className={buttonVariants({ variant: "outline", size: "sm" })}>Next<ChevronRight aria-hidden="true" /></Link>}</div></nav>}</Card>
       </div>
 
-      <aside className="space-y-5" aria-label="Lead responsibility and follow-up">
-        <Card className="gap-4 py-5 shadow-xs ring-border"><CardHeader className="px-5"><div className="flex items-center gap-2"><UserRound className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Responsibility</CardTitle></div></CardHeader><CardContent className="px-5"><LeadAssignment data={data} /></CardContent></Card>
-        <Card className="gap-4 py-5 shadow-xs ring-border"><CardHeader className="px-5"><div className="flex items-center gap-2"><CalendarClock className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Next follow-up</CardTitle></div></CardHeader><CardContent className="px-5"><LeadFollowUp lead={lead} /><p className="mt-4 text-[11px] leading-5 text-muted-foreground">Follow-ups are saved to this company workspace. Email, calendar and push reminders are not connected.</p></CardContent></Card>
+      <aside className="space-y-4" aria-label="Lead responsibility and follow-up">
+        <Card className="gap-4 py-4 shadow-xs ring-border"><CardHeader className="px-5"><div className="flex items-center gap-2"><UserRound className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Responsibility</CardTitle></div></CardHeader><CardContent className="px-5"><LeadAssignment data={data} /></CardContent></Card>
+        <Card className="gap-4 py-4 shadow-xs ring-border"><CardHeader className="px-5"><div className="flex items-center gap-2"><CalendarClock className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Next follow-up</CardTitle></div></CardHeader><CardContent className="px-5"><LeadFollowUp lead={lead} /><p className="mt-4 text-[11px] leading-5 text-muted-foreground">Follow-ups are saved to this company workspace. Email, calendar and push reminders are not connected.</p></CardContent></Card>
         <section aria-label="Lead record information" className="space-y-3 px-1 text-xs text-muted-foreground"><p className="flex items-start gap-2"><Clock3 className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /><span>Created <time dateTime={lead.createdAt}>{formatLeadDate(lead.createdAt, true)}</time><br /><span className="mt-1 inline-block">Updated <time dateTime={lead.updatedAt}>{formatLeadDate(lead.updatedAt, true)}</time></span></span></p>{lead.leadNumber && <p className="break-all leading-5">Lead reference: {lead.leadNumber}</p>}<p className="leading-5">All times are in Dubai (UTC+4). {["AGENT", "MANAGER"].includes(membership.role) ? "Your access is limited to leads assigned to you." : "Access follows your active company membership."}</p></section>
       </aside>
     </div>

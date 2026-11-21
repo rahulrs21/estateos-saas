@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { enquiryFields, leadBudget, leadEnquiryFrom, leadsHref, oldestActivityPlace } from "../src/modules/leads/presentation";
+import { enquiryFields, leadBudget, leadEnquiryFrom, leadsHref, oldestActivityPlace, resolveLeadDateRange } from "../src/modules/leads/presentation";
 import type { LeadFilters } from "../src/modules/leads/types";
 
 const filters: LeadFilters = {
   search: "R&D + sales?status=WON#private", status: "QUALIFIED", branchId: "",
   assignedMembershipId: "10000000-0000-4000-8000-000000000001",
   sourceId: "10000000-0000-4000-8000-000000000002", priority: "HIGH",
-  createdFrom: "2026-10-01", createdTo: "2026-10-20", sort: "FOLLOW_UP_ASC",
+  createdFrom: "2026-10-01", createdTo: "2026-10-20", range: "CUSTOM", sort: "FOLLOW_UP_ASC",
   view: "KANBAN", followUp: "UPCOMING", page: 3, pageSize: 25,
 };
 
@@ -62,4 +62,28 @@ test("the website enquiry lists every detail the form sent, in the form's order,
   assert.equal(fields.find(field => field.label === "Budget")?.value, "AED 1,000,000 – 1,500,000");
   assert.equal(fields.find(field => field.label === "Buy, rent or invest")?.value, "Buy");
   assert.deepEqual(enquiryFields({fullName: "Only Name", email: null, phone: null}).map(field => field.label), ["Full name"], "no budget line when none was given");
+});
+
+test("created-date presets are Dubai calendar days, both included", () => {
+  const custom = {createdFrom: "2026-01-05", createdTo: "2026-01-09"};
+  // 21:30 UTC on 14 March is already 15 March in Dubai (UTC+4).
+  const now = Date.parse("2026-03-14T21:30:00.000Z");
+  assert.deepEqual(resolveLeadDateRange("TODAY", custom, now), {createdFrom: "2026-03-15", createdTo: "2026-03-15"});
+  assert.deepEqual(resolveLeadDateRange("YESTERDAY", custom, now), {createdFrom: "2026-03-14", createdTo: "2026-03-14"});
+  assert.deepEqual(resolveLeadDateRange("7D", custom, now), {createdFrom: "2026-03-09", createdTo: "2026-03-15"});
+  assert.deepEqual(resolveLeadDateRange("30D", custom, now), {createdFrom: "2026-02-14", createdTo: "2026-03-15"});
+  assert.deepEqual(resolveLeadDateRange("LAST_MONTH", custom, now), {createdFrom: "2026-02-01", createdTo: "2026-02-28"});
+  assert.deepEqual(resolveLeadDateRange("LAST_MONTH", custom, Date.parse("2026-01-10T08:00:00.000Z")), {createdFrom: "2025-12-01", createdTo: "2025-12-31"});
+  assert.deepEqual(resolveLeadDateRange("ALL", custom, now), {createdFrom: "", createdTo: ""});
+  assert.deepEqual(resolveLeadDateRange("CUSTOM", custom, now), custom);
+});
+
+test("a preset range leaves its computed dates out of links; a custom range keeps them", () => {
+  const preset = new URL(leadsHref({...filters, range: "7D"}), "https://estateos.example.test");
+  assert.equal(preset.searchParams.get("range"), "7D");
+  assert.equal(preset.searchParams.has("createdFrom"), false);
+  assert.equal(preset.searchParams.has("createdTo"), false);
+  const custom = new URL(leadsHref(filters, {range: "CUSTOM"}), "https://estateos.example.test");
+  assert.equal(custom.searchParams.get("createdFrom"), "2026-10-01");
+  assert.equal(custom.searchParams.get("createdTo"), "2026-10-20");
 });
