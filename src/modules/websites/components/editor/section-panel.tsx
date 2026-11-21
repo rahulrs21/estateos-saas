@@ -313,10 +313,11 @@ function ElementContent({section, elementKey, kind, linked, onProps, onSection, 
     const fields = payload.form?.view?.fields ?? [];
     return <>
       {labelPath && typeof label === "string" && <TextControl label="Button text" value={label} max={40} onChange={update(labelPath)} />}
+      <LeadFormControl />
       <div className="space-y-2 rounded-md border border-white/10 bg-white/[.03] p-3 text-xs text-zinc-300">
-        <p className="font-semibold text-zinc-100">{fields.length ? "Fields from the connected lead form" : "No lead form connected yet"}</p>
+        <p className="font-semibold text-zinc-100">{fields.length ? "Fields from the connected lead form" : "Sample fields for now"}</p>
         {fields.length > 0 ? <ul className="list-disc space-y-0.5 ps-4">{fields.map(field => <li key={field.key}>{field.label}{field.required ? " (required)" : ""}</li>)}</ul>
-          : <p>The form shows sample fields until an owner or administrator connects a lead form in the Publish tab.</p>}
+          : <p>The canvas shows sample fields until a lead form is connected above. Visitors see the form only once one is.</p>}
         <p className="text-zinc-400">Fields, consent text and the privacy link belong to the lead form, so every page that uses it stays consistent and enquiries arrive with the right details.</p>
         <a href="/settings/lead-forms" target="_blank" rel="noreferrer" className="inline-flex font-medium text-sky-300 hover:underline">Edit lead form fields ↗</a>
       </div>

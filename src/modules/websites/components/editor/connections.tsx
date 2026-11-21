@@ -9,6 +9,7 @@ import { errorMessage, websitesGet, websitesSend } from "../../client";
 import type { LinkedAgent } from "../../linked";
 import { Field, inputClass, textareaClass } from "./controls";
 import { useEditorServices } from "./editor-context";
+import { formPublicIdFrom } from "../../form-embed";
 
 /*
  * Controls that connect a page to company records: the lead form that
@@ -28,7 +29,10 @@ export function LeadFormControl() {
   const [choice, setChoice] = useState(payload.form?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [pasted, setPasted] = useState("");
+  const [pasteProblem, setPasteProblem] = useState<string | null>(null);
   const selectId = useId();
+  const pasteId = useId();
 
   const connect = async (formId: string | null) => {
     setBusy(true);
@@ -39,7 +43,19 @@ export function LeadFormControl() {
     } catch (error) { toast.error(errorMessage(error, "The lead form could not be connected.")); } finally { setBusy(false); }
   };
 
-  return <div className="space-y-3 rounded-md border border-white/10 bg-white/[0.03] p-3">
+  // A pasted link or embed code connects the company's form it names; the pasted text itself is never kept.
+  const connectPasted = async () => {
+    const publicId = formPublicIdFrom(pasted);
+    if (!publicId) { setPasteProblem("This doesn't contain an EstateOS form link. Paste the form's link (Copy URL) or embed code (Copy embed) from Settings → Website lead forms."); return; }
+    const form = forms.find(item => item.publicId === publicId);
+    if (!form) { setPasteProblem("That form isn't one of this company's active or draft forms. Check that you copied it in this company's Website lead forms."); return; }
+    setPasteProblem(null); setChoice(form.id);
+    if (form.id !== payload.form?.id) await connect(form.id);
+    else toast.success(`${form.name} is already connected.`);
+    setPasted("");
+  };
+
+  return <div className="space-y-3 rounded-md border border-white/10 bg-white/[0.03] p-3" data-testid="lead-form-control">
     <div className="flex items-start justify-between gap-2">
       <div>
         <p className="text-[13px] font-medium text-zinc-100">Lead form</p>
@@ -60,6 +76,14 @@ export function LeadFormControl() {
             <button type="button" className={primary} disabled={busy || choice === (payload.form?.id ?? "")} onClick={() => connect(choice || null)}>{busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}Connect</button>
           </div>
         </Field>
+        <Field label="Or paste a form's link or embed code" htmlFor={pasteId} hint="From Settings → Website lead forms: Copy URL or Copy embed. Only the form it names is connected; the code itself is not added to the page.">
+          <div className="flex gap-2">
+            <input id={pasteId} value={pasted} maxLength={4000} onChange={event => { setPasted(event.target.value); setPasteProblem(null); }} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void connectPasted(); } }}
+              placeholder="https://…/forms/… or <iframe src=…>" autoComplete="off" spellCheck={false} data-testid="lead-form-paste" className={inputClass} />
+            <button type="button" className={primary} disabled={busy || !pasted.trim()} onClick={() => void connectPasted()} data-testid="lead-form-paste-connect">Connect</button>
+          </div>
+        </Field>
+        {pasteProblem && <p role="alert" className="text-[11px] leading-4 text-amber-200">{pasteProblem}</p>}
         {creating ? <CreateFormDialog onCancel={() => setCreating(false)} onCreated={async id => { setCreating(false); setChoice(id); await connect(id); }} />
           : <button type="button" className={ghost} onClick={() => setCreating(true)}><Plus className="size-3.5" aria-hidden="true" />Create a new form</button>}
       </>}

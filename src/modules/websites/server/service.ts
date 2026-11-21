@@ -173,7 +173,7 @@ export async function editorPayload(context: Context, rawId: string, versionNumb
     contentWarnings: validation?.warnings.length ?? 0, today: today(),
   });
   const permissions = pagePermissions(context, stored.page);
-  const forms = permissions.canBindForm ? (await listLeadCaptureForms().catch(() => null))?.forms.map(item => ({id: item.id, name: item.name, status: item.status})) ?? null : null;
+  const forms = permissions.canBindForm ? (await listLeadCaptureForms().catch(() => null))?.forms.map(item => ({id: item.id, name: item.name, status: item.status, publicId: item.publicId})) ?? null : null;
   return {
     organization: stored.organization,
     page: {

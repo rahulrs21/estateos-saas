@@ -482,7 +482,7 @@ try {
   await waitFor("!!document.querySelector('[data-testid=\"element-part-primaryCta\"]')", "the parts of the buttons group");
   // The enquiry form: its button and where its fields come from.
   await evaluate(`document.querySelector('[data-preview-device] [data-section-type="ENQUIRY_FORM"] [data-move-key="form"]').click()`);
-  await waitFor("document.querySelector('[data-testid=element-panel-title]')?.textContent === 'Form' && document.body.innerText.includes('Edit lead form fields')", "the form's content");
+  await waitFor("document.querySelector('[data-testid=element-panel-title]')?.textContent === 'Form' && document.body.innerText.includes('Edit lead form fields') && !!document.querySelector('[data-testid=lead-form-control] select') && !!document.querySelector('[data-testid=lead-form-paste]')", "the form's content, with choosing or pasting a lead form");
   await screenshot("02b4-editor-form-content");
   // The eyebrow's marker is part of the eyebrow element, so they move and align together.
   assert.ok(await evaluate("!!document.querySelector('[data-preview-device] [data-section-type=\"HERO\"] [data-move-key=\"eyebrow\"] > span[aria-hidden=\"true\"]')"), "the eyebrow's marker is inside the eyebrow element");

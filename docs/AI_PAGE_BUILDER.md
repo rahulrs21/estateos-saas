@@ -235,7 +235,7 @@ Widgets in custom sections have the same typography and colour controls in their
 - A banner marks the canvas as an internal preview, not approved for public advertising.
 
 **Lead form and contact details**
-- The enquiry form section's Content tab connects a lead form, or creates one (default fields, consent text, privacy link, thank-you message) and connects it, through the existing lead-form APIs. Until a form is connected the canvas shows a sample form; public pages show nothing.
+- The enquiry form section's Content tab, and the form's own panel (click the form on the canvas), connect a lead form: choose one of the company's forms, **paste its link or embed code** (Copy URL or Copy embed in Settings → Website lead forms; only the form's public ID is read and matched to the company's forms, and the pasted text is never stored or rendered, `form-embed.ts`), or create one (default fields, consent text, privacy link, thank-you message) and connects it, through the existing lead-form APIs. Until a form is connected the canvas shows a sample form; public pages show nothing.
 - The **Contact details** section shows the approved company contacts (phone, WhatsApp, email, office address and hours) and, optionally, an agent card. Owners and administrators edit company contacts in a drawer (the same brand settings as Content Studio) and set an agent's public title, phone and WhatsApp. Pages store only the agent's membership ID; inactive members are never shown. Publishing asks for the agent-consent attestation.
 
 **Uploads**

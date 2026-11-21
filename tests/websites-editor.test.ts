@@ -8,6 +8,7 @@ import { PageRenderer } from "../src/modules/websites/components/page-renderer";
 import { buildLinkedData } from "../src/modules/websites/linked";
 import { blankPage } from "../src/modules/websites/templates";
 import { convertBlocker, convertToCustom } from "../src/modules/websites/convert";
+import { formPublicIdFrom } from "../src/modules/websites/form-embed";
 import { newRow } from "../src/modules/websites/custom-ops";
 import { DEFAULT_ELEMENT_STYLE, HERO_DEFAULT_FACTS, createSection, defaultProps, pageDataSchema, sectionWidgets, type PageSection } from "../src/modules/websites/registry";
 
@@ -189,4 +190,18 @@ test("highlights become a header row and a grid of icon boxes; added rows are ke
   assert.equal(convertBlocker(createSection("FEATURE_SPLIT", "feature-1")), null);
   const refused = convertToCustom(createSection("UNIT_TYPES", "unit-types-1"), pageWith(createSection("UNIT_TYPES", "unit-types-1")));
   assert.equal(refused.ok, false);
+});
+
+// --- Connecting a lead form by pasting its link or embed code ---------------------------------------
+
+test("a pasted form link, embed code or ID gives the form's public ID; anything else gives none", () => {
+  const id = "5o_tM64m8PP-Xws3UNqY1aBcDeFgHiJkL";
+  assert.equal(formPublicIdFrom(`https://estateos-staging--estateos-staging.us-east4.hosted.app/forms/${id}`), id);
+  assert.equal(formPublicIdFrom(`<iframe src="https://example.test/forms/${id}" title="Staging Test Form" width="100%" height="720" loading="lazy"></iframe>`), id);
+  assert.equal(formPublicIdFrom(`  ${id}  `), id, "a bare ID");
+  assert.equal(formPublicIdFrom(`https://example.test/forms/${id}?utm_source=ad#top`), id);
+  assert.equal(formPublicIdFrom("<script>alert(1)</script>"), null);
+  assert.equal(formPublicIdFrom("https://example.test/forms/short"), null, "too short to be a form");
+  assert.equal(formPublicIdFrom(`/forms/${id} and /forms/${id.replace("5o", "6p")}`), null, "two different forms: none is chosen");
+  assert.equal(formPublicIdFrom(`<iframe src="/forms/${id}"></iframe><iframe src="/forms/${id}"></iframe>`), id, "the same form twice is fine");
 });
