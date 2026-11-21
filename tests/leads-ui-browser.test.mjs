@@ -42,6 +42,7 @@ async function load(path, width = 1440) {
 }
 async function click(selector) {
   const point = await evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.getBoundingClientRect().width>0);if(!e)throw Error('No visible control: '+${JSON.stringify(selector)});e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+  await command("Input.dispatchMouseEvent", { type: "mouseMoved", ...point, button: "none" });
   await command("Input.dispatchMouseEvent", { type: "mousePressed", ...point, button: "left", clickCount: 1 });
   await command("Input.dispatchMouseEvent", { type: "mouseReleased", ...point, button: "left", clickCount: 1 });
   await pause(150);
@@ -54,6 +55,12 @@ async function clickText(label, scope = "document") {
 }
 async function fill(name, value) {
   await evaluate(`(()=>{const e=[...(document.querySelector('[role="dialog"]')??document).querySelectorAll('[name='+${JSON.stringify(JSON.stringify(name))}+']')].find(e=>e.getBoundingClientRect().width>0&&!e.disabled);if(!e)throw Error('Missing field '+${JSON.stringify(name)});const prototype=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:e.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}));})()`);
+}
+async function clickMenuItem(label) {
+  await waitFor(`[...document.querySelectorAll('[role^="menuitem"]')].some(e=>e.textContent.trim()===${JSON.stringify(label)}&&e.getBoundingClientRect().width>0)`, "the menu item " + label);
+  const marker = "lead-ui-browser-menu";
+  await evaluate(`[...document.querySelectorAll('[role^="menuitem"]')].find(e=>e.textContent.trim()===${JSON.stringify(label)}&&e.getBoundingClientRect().width>0).setAttribute('data-browser-action','${marker}')`);
+  await click(`[data-browser-action="${marker}"]`);
 }
 async function fixtureState() {
   return (await fetch(origin + "/fixture")).json();
@@ -101,12 +108,50 @@ try {
 
   await load("/leads");
   await fill("search", "Fixture Prospect 12");
-  await fill("priority", "NORMAL");
-  await clickText("Apply filters");
-  await waitFor(`new URL(location.href).searchParams.get('search')==='Fixture Prospect 12'`, "search/filter URL submission");
+  await click('[data-testid="lead-filter-priority"]');
+  await clickMenuItem("Normal");
+  await waitFor(`new URL(location.href).searchParams.get('search')==='Fixture Prospect 12'&&new URL(location.href).searchParams.get('priority')==='NORMAL'`, "search/filter URL submission");
   assert.equal(await evaluate(`document.body.innerText.includes('Fixture Prospect 12')&&!document.body.innerText.includes('Fixture Prospect 11')`), true);
   assert.equal(new URL(await evaluate("location.href")).searchParams.get("page") ?? "1", "1");
   pass("Search and priority filters return matching rows and reset pagination.");
+  await waitFor(`!!document.querySelector('#fixture-ready[data-ready="true"]')`, "the filtered list");
+  await click('[data-testid="lead-filter-status"]');
+  await clickMenuItem("Qualified");
+  await waitFor(`new URL(location.href).searchParams.get('status')==='QUALIFIED'&&document.body.innerText.includes('No leads match this view')`, "the status dropdown filter");
+  assert.equal(await evaluate(`new URL(location.href).searchParams.get('search')`), "Fixture Prospect 12");
+  await clickText("Clear filters3");
+  await waitFor(`!new URL(location.href).searchParams.get('status')&&!new URL(location.href).searchParams.get('search')&&document.querySelectorAll('[data-testid="lead-row"]').length===10`, "clearing every filter");
+  pass("Dropdown filters keep the typed search, and Clear filters resets them all.");
+
+  await load("/lead-forms");
+  const formRows = () => evaluate(`[...document.querySelectorAll('[data-testid="lead-form-row"]')].filter(e=>e.getBoundingClientRect().width>0).length`);
+  assert.equal(await formRows(), 3);
+  await clickText("Draft1Not public yet");
+  assert.equal(await formRows(), 1);
+  await clickText("All forms3Forms in this company");
+  await evaluate(`(()=>{const e=document.querySelector('input[aria-label="Search lead forms"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'marina');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await waitFor(`document.querySelectorAll('[data-testid="lead-form-row"]').length===1&&document.body.innerText.includes('Marina enquiries')`, "the lead form search");
+  await evaluate(`(()=>{const e=document.querySelector('input[aria-label="Search lead forms"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'no such form');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await waitFor(`document.body.innerText.includes('No forms match.')`, "the lead form no-match state");
+  await clickText("Clear filters");
+  await waitFor(`document.querySelectorAll('[data-testid="lead-form-row"]').length===3`, "cleared lead form filters");
+  await click('[data-testid="lead-form-new"]');
+  await waitFor(`!!document.querySelector('[role="dialog"] input[id$="-form-name"]')`, "the new lead form panel");
+  await evaluate(`(()=>{const e=document.querySelector('[role="dialog"] input[id$="-form-name"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Browser launch form');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await click('[data-testid="lead-form-save"]');
+  await waitFor(`!document.querySelector('[role="dialog"]')`, "the saved lead form panel to close");
+  let formRequest = (await fixtureState()).requests.findLast(row => row.path === "lead-capture/forms");
+  assert.equal(formRequest?.method, "POST");
+  assert.equal(formRequest.body.name, "Browser launch form");
+  assert.equal(formRequest.organization, "10000000-0000-4000-8000-000000000001");
+  await click('[data-testid="lead-form-row"] button');
+  await waitFor(`document.querySelector('[role="dialog"] input[id$="-form-name"]')?.value==='Marina enquiries'`, "the edit panel with the saved form");
+  await click('[data-testid="lead-form-save"]');
+  await waitFor(`!document.querySelector('[role="dialog"]')`, "the edited lead form panel to close");
+  formRequest = (await fixtureState()).requests.findLast(row => row.path.startsWith("lead-capture/forms/"));
+  assert.equal(formRequest?.method, "PATCH");
+  assert.equal(formRequest.path, "lead-capture/forms/40000000-0000-4000-8000-000000000001");
+  pass("Lead forms: the status cards and search filter the table, and the side panel creates and edits forms.");
 
   await load("/leads");
   await clickText("Create lead");

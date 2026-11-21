@@ -73,12 +73,19 @@ Avoid unnecessary animations.
 12. Never access or expose production secrets.
 
 ## Current Priority
-Phase 1: SaaS foundation.
-Focus on application shell, authentication,
-organizations, memberships, permissions and leads.
+Phase 7: channels, lead capture and marketing.
+Staging is live (estateos-staging on App Hosting).
+Next, in order: 7D lead capture from ads (Meta Lead Ads first),
+7E lead source attribution, 7F campaigns, 7G WhatsApp media.
+Alongside: a polished, interactive UI for settings, leads and
+the lead detail page.
 
-Do not implement advanced AI, payment processing,
-advertising integrations or property portal publishing yet.
+Advertising integrations are allowed for lead capture,
+attribution and campaigns, through official provider APIs
+with server-side credentials and verified webhooks.
+
+Do not implement payment processing or property portal
+publishing yet.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
