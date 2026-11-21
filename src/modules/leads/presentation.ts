@@ -1,4 +1,22 @@
-import type { LeadFilters, LeadRecord } from "./types";
+import type { LeadEnquiry, LeadFilters, LeadRecord } from "./types";
+
+/**
+ * Where a lead's oldest activity is in its newest-first timeline: on the loaded page
+ * (when the page reaches the end), at an offset to read, or nowhere (no activity, or
+ * past the reading limit).
+ */
+export function oldestActivityPlace(input: {total: number; page: number; pageSize: number; loaded: number; maxOffset?: number}): "LOADED" | {offset: number} | null {
+  if (input.total <= 0) return null;
+  if ((input.page - 1) * input.pageSize + input.loaded >= input.total) return input.loaded > 0 ? "LOADED" : null;
+  const offset = input.total - 1;
+  return offset <= (input.maxOffset ?? 10_000) ? {offset} : null;
+}
+
+/** The visitor's enquiry, when the lead's first activity is a website form or landing page capture. */
+export function leadEnquiryFrom(activity: {kind: string; note?: string | null; createdAt: string} | null | undefined): LeadEnquiry | null {
+  if (activity?.kind !== "WEBSITE_LEAD_CAPTURED") return null;
+  return {message: activity.note?.trim() || null, receivedAt: activity.createdAt};
+}
 
 /** Keep applied filters while encoding every value as URL data. */
 export function leadsHref(filters: LeadFilters, changes: Partial<LeadFilters> = {}) {
@@ -26,4 +44,21 @@ export function leadBudget(lead: Pick<LeadRecord, "budgetMin" | "budgetMax" | "c
 
 export function leadInitials(name: string) {
   return name.trim().split(/\s+/).slice(0, 2).map(word => word[0]).join("").toUpperCase();
+}
+
+const TRANSACTION_LABELS = {BUY: "Buy", RENT: "Rent", INVEST: "Invest"} as const;
+
+/**
+ * The details a website form sends into a lead, in the form's order, leaving out the
+ * empty ones. They are read from the lead as saved now (EstateOS keeps no separate
+ * copy of the submitted values), so an edit by the team shows here too.
+ */
+export function enquiryFields(lead: Pick<LeadRecord, "fullName" | "email" | "phone" | "propertyInterest" | "preferredLocation" | "propertyType" | "transactionType" | "budgetMin" | "budgetMax" | "currency" | "bedroomPreference">) {
+  const budget = lead.budgetMin != null || lead.budgetMax != null ? leadBudget(lead) : null;
+  const fields: Array<[string, string | null | undefined]> = [
+    ["Full name", lead.fullName], ["Email address", lead.email], ["Phone number", lead.phone],
+    ["Property interest", lead.propertyInterest], ["Preferred location", lead.preferredLocation], ["Property type", lead.propertyType],
+    ["Buy, rent or invest", lead.transactionType ? TRANSACTION_LABELS[lead.transactionType] : null], ["Budget", budget], ["Bedrooms", lead.bedroomPreference],
+  ];
+  return fields.flatMap(([label, value]) => typeof value === "string" && value.trim() ? [{label, value: value.trim()}] : []);
 }

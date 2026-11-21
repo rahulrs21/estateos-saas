@@ -103,9 +103,14 @@ export interface LeadFollowUpRecord {
   assignedUser?: {id: string; email: string; userProfile?: {displayName: string} | null} | null;
   createdAt: string;
 }
+/** What the visitor wrote in the website form or landing page that created the lead. */
+export interface LeadEnquiry { message: string | null; receivedAt: string }
+
 export interface LeadDetailData extends LeadWorkspace {
   lead: LeadRecord;
   activities: LeadActivity[];
+  /** The website enquiry that created this lead, when it came from a form or landing page. */
+  enquiry?: LeadEnquiry | null;
   hasMoreActivities: boolean;
   activityPage: number;
   followUps: LeadFollowUpRecord[];

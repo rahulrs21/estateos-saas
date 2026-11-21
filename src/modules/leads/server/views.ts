@@ -12,6 +12,7 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { validateInput } from "@/modules/organizations/server/validation";
 import { leadIdInputSchema, leadPageFiltersSchema } from "../validation";
+import { leadEnquiryFrom, oldestActivityPlace } from "../presentation";
 import type { LeadRecord, LeadWorkspace, LeadListData, LeadDetailData, LeadFormData } from "../types";
 import { leadListOperation, leadQueryVariables } from "./service";
 import { ensureLeadConfiguration } from "./crm-service";
@@ -123,8 +124,16 @@ export async function getLeadDetailData(id: string, rawActivityPage: unknown = u
       organizationId: context.organizationId, leadId: lead.id, limit: 10, offset: (followUpPage - 1) * 10,
     }, context.request.options), "ListLeadFollowUps"),
   ]);
+  // A lead from a website form or landing page starts with its capture, so its oldest activity holds the visitor's message.
+  // It is on this page when the page reaches the end of the timeline; otherwise one more read fetches only that entry.
+  const place = oldestActivityPlace({total: timeline.total[0]?.count ?? 0, page: activityPage, pageSize: 25, loaded: timeline.activities.length});
+  const oldest = place === "LOADED" ? timeline.activities.at(-1) ?? null : place
+    ? (await executeWorkspaceOperation(() => listLeadActivities(context.request.dc, {
+      organizationId: context.organizationId, leadId: lead.id, limit: 1, offset: place.offset,
+    }, context.request.options), "ListLeadActivities")).activities[0] ?? null : null;
+  const enquiry = leadEnquiryFrom(oldest);
   return {
-    ...retainCurrentAssignee(choices, lead), lead, activityPage,
+    ...retainCurrentAssignee(choices, lead), lead, activityPage, enquiry,
     activities: timeline.activities.map(row => ({ ...row, id: canonicalUuid(row.id), organizationId: canonicalUuid(context.organizationId) })),
     hasMoreActivities: activityPage * 25 < (timeline.total[0]?.count ?? 0),
     followUps: followUps.followUps.map(row => ({...row, id: canonicalUuid(row.id), assignedUserId: canonicalUuid(row.assignedUserId), assignedUser: row.assignedUser ? {...row.assignedUser, id: canonicalUuid(row.assignedUser.id)} : null})),
