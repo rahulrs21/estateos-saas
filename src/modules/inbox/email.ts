@@ -265,6 +265,12 @@ export interface ReplyMessage {
   inReplyTo?: string | null; references?: string[]; estateosMessageId: string; date?: Date;
 }
 
+/** The Message-ID (without angle brackets) of a reply EstateOS sends from `from`, used to find it again in the mailbox. */
+export function replyMessageIdHeader(estateosMessageId: string, from: string) {
+  const domain = normalizeEmailIdentity(from)?.split("@")[1];
+  return domain && /^[A-Za-z0-9-]{8,64}$/.test(estateosMessageId) ? `estateos.${estateosMessageId}@${domain}` : null;
+}
+
 /** The raw RFC 5322 message (base64url), plain text in UTF-8. Refuses invalid addresses or IDs. */
 export function buildReplyMessage(input: ReplyMessage): string {
   const from = normalizeEmailIdentity(input.from), to = normalizeEmailIdentity(input.to);
@@ -273,7 +279,6 @@ export function buildReplyMessage(input: ReplyMessage): string {
   const inReplyTo = internetMessageIdOf(input.inReplyTo);
   const references = [...new Set((input.references ?? []).map(internetMessageIdOf).filter((id): id is string => Boolean(id)))].slice(-10);
   if (inReplyTo && !references.includes(inReplyTo)) references.push(inReplyTo);
-  const domain = from.split("@")[1];
   const name = input.fromName ? headerValue(input.fromName).replace(/["\\]/g, "").slice(0, 80) : "";
   const body = Buffer.from(input.text.replace(/\r\n?/g, "\n").replace(/\n/g, "\r\n"), "utf8").toString("base64").replace(/.{1,76}/g, "$&\r\n");
   const lines = [
@@ -281,7 +286,7 @@ export function buildReplyMessage(input: ReplyMessage): string {
     `To: ${to}`,
     `Subject: ${encodeHeaderText(input.subject)}`,
     `Date: ${(input.date ?? new Date()).toUTCString().replace("GMT", "+0000")}`,
-    `Message-ID: <estateos.${input.estateosMessageId}@${domain}>`,
+    `Message-ID: <${replyMessageIdHeader(input.estateosMessageId, from)}>`,
     ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`] : []),
     ...(references.length ? [`References: ${references.join(" ")}`] : []),
     `X-EstateOS-Message: ${input.estateosMessageId}`,

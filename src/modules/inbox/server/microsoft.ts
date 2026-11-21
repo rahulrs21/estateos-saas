@@ -4,6 +4,7 @@ import { getAppOrigin } from "@/modules/auth/server/config";
 import { normalizeEmailIdentity } from "../identity";
 import { pkceChallenge } from "../oauth-state";
 import { MICROSOFT_SCOPES, microsoftScopesGranted, outlookReplyComment, type OutlookAttachment, type OutlookMessage } from "../outlook";
+import { SEND_TIMEOUT_MS, matchOutlookSentReply, type OutlookSentItem } from "../sent-confirmation";
 
 /*
  * Microsoft Entra sign-in and Microsoft Graph mail, server only
@@ -73,10 +74,10 @@ function failure(status: number, body: unknown): MicrosoftFailure {
     message: `${aadsts && !String(message).includes(aadsts) ? `${aadsts} ` : ""}${typeof message === "string" && message ? message.replace(/\s+/g, " ").replace(/token[^.]*/gi, "token problem").slice(0, 200) : `HTTP ${status}`}`};
 }
 
-async function call<T>(url: string, init: RequestInit): Promise<Result<T>> {
+async function call<T>(url: string, init: RequestInit, timeoutMs = TIMEOUT_MS): Promise<Result<T>> {
   let response: Response;
   try {
-    response = await fetch(url, {...init, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(TIMEOUT_MS)});
+    response = await fetch(url, {...init, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(timeoutMs)});
   } catch (error) {
     const timeout = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
     return {ok: false, status: 0, code: timeout ? "TIMEOUT" : "NETWORK", message: timeout ? "Microsoft did not answer in time." : "Microsoft could not be reached."};
@@ -134,9 +135,9 @@ export async function microsoftAccessTokenFor(connectionId: string, refreshToken
 }
 
 // --- Microsoft Graph --------------------------------------------------------------------------
-const graph = <T>(token: string, path: string, init: {method?: "GET" | "POST" | "PATCH" | "DELETE"; json?: unknown} = {}) =>
+const graph = <T>(token: string, path: string, init: {method?: "GET" | "POST" | "PATCH" | "DELETE"; json?: unknown; timeoutMs?: number} = {}) =>
   call<T>(`${microsoftEndpoints().graph}/v1.0/me/${path}`, {method: init.method ?? "GET", body: init.json === undefined ? undefined : JSON.stringify(init.json),
-    headers: {Authorization: `Bearer ${token}`, ...IMMUTABLE, ...(init.json === undefined ? {} : {"Content-Type": "application/json"})}});
+    headers: {Authorization: `Bearer ${token}`, ...IMMUTABLE, ...(init.json === undefined ? {} : {"Content-Type": "application/json"})}}, init.timeoutMs);
 const id = (value: string) => encodeURIComponent(value);
 
 /** The mailbox the grant really belongs to (its primary address, or the sign-in name of a personal account). */
@@ -168,10 +169,26 @@ export const outlookAttachment = (token: string, messageId: string, attachmentId
  * (`m365-reply:…`); it appears in the mailbox's Sent Items.
  */
 export async function outlookReply(token: string, input: {replyToId: string; to: string; text: string; reference: string}) {
-  const sent = await graph(token, `messages/${id(input.replyToId)}/reply`, {method: "POST", json: {
+  const sent = await graph(token, `messages/${id(input.replyToId)}/reply`, {method: "POST", timeoutMs: SEND_TIMEOUT_MS, json: {
     message: {toRecipients: [{emailAddress: {address: input.to}}], ccRecipients: [], bccRecipients: []},
     comment: outlookReplyComment(input.text),
   }});
   if (!sent.ok) return sent;
-  return {ok: true as const, providerMessageId: `m365-reply:${input.reference}`.slice(0, 200)};
+  return {ok: true as const, providerMessageId: outlookReplyReference(input.reference)};
+}
+
+/** EstateOS's own reference for an Outlook reply (Microsoft returns no message ID). */
+export const outlookReplyReference = (reference: string) => `m365-reply:${reference}`.slice(0, 200);
+
+/**
+ * After an unanswered reply: whether Sent Items holds it (same conversation as the
+ * message replied to, to the customer, sent since the attempt began). Read-only.
+ */
+export async function outlookFindSentReply(token: string, input: {replyToId: string; to: string; since: string}) {
+  const original = await outlookMessageHeaders(token, input.replyToId);
+  const conversationId = original.ok ? original.data.conversationId : null;
+  if (!conversationId) return null;
+  const sent = await graph<{value?: OutlookSentItem[]}>(token, `mailFolders/sentitems/messages?${new URLSearchParams({
+    "$filter": `conversationId eq '${conversationId.replace(/'/g, "''")}'`, "$select": "id,sentDateTime,toRecipients", "$top": "25"})}`);
+  return sent.ok ? matchOutlookSentReply(sent.data.value ?? [], {since: input.since, to: input.to}) : null;
 }

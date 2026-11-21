@@ -4,10 +4,11 @@ import { test } from "node:test";
 // Phase 7C.2: the Microsoft 365 / Outlook rules run with these (tests/inbox-outlook.test.ts).
 import "./inbox-outlook.test";
 import { openSecret, sealSecret, TokenVaultError, vaultKey } from "../src/modules/inbox/vault";
+import { SEND_TIMEOUT_MS, SENT_CHECK_DELAYS_MS, confirmSent, matchOutlookSentReply, uncertainSend } from "../src/modules/inbox/sent-confirmation";
 import { newOAuthState, openOAuthState, pkceChallenge, sealOAuthState } from "../src/modules/inbox/oauth-state";
 import {
   automatedReason, buildReplyMessage, cutQuotedHistory, decodeEncodedWords, encodeHeaderText, headerValue, htmlToText, internetMessageIdOf, messageParts, messageText,
-  emailHtmlForStorage, hasRemoteContent, mailboxImportDecision, normalizeGmailMessage, parseMailbox, parseMailboxes, replySubject, sanitizeEmailHtml, type GmailMessage,
+  emailHtmlForStorage, hasRemoteContent, mailboxImportDecision, normalizeGmailMessage, parseMailbox, parseMailboxes, replyMessageIdHeader, replySubject, sanitizeEmailHtml, type GmailMessage,
 } from "../src/modules/inbox/email";
 
 const key = randomBytes(32);
@@ -208,4 +209,48 @@ test("email HTML keeps its layout but loses everything active: scripts, handlers
   assert.equal(hasRemoteContent(`<img src="cid:a">`), false);
   const stored = emailHtmlForStorage({mimeType: "text/html", body: {data: b64("<p onclick=\"x()\">Hi</p>")}});
   assert.equal(stored, "<p>Hi</p>");
+});
+
+// --- Unanswered sends: the Sent folder decides --------------------------------------------------
+
+test("only an unanswered send is checked in Sent; a refusal stays a refusal", () => {
+  assert.equal(uncertainSend("TIMEOUT"), true);
+  assert.equal(uncertainSend("NETWORK"), true);
+  for (const code of ["ErrorAccessDenied", "invalid_grant", "429", "NO_MESSAGE_ID"]) assert.equal(uncertainSend(code), false, code);
+  assert.ok(SEND_TIMEOUT_MS >= 30_000, "a send may take longer than other calls");
+  assert.ok(SENT_CHECK_DELAYS_MS.reduce((sum, delay) => sum + delay, 0) <= 15_000, "the look in Sent stays short");
+});
+
+test("the Sent folder is looked at after each pause until the reply is found; a failed look is retried", async () => {
+  const waits: number[] = [];
+  let calls = 0;
+  const found = await confirmSent(async () => { calls += 1; if (calls === 1) throw new Error("Microsoft could not be reached."); return calls === 3 ? "sent-id" : null; },
+    [1, 2, 3, 4], async ms => { waits.push(ms); });
+  assert.equal(found, "sent-id");
+  assert.deepEqual(waits, [1, 2, 3], "it stops at the first match");
+  const never = await confirmSent(async () => null, [5, 6], async () => {});
+  assert.equal(never, null, "not found: the reply is reported as failed, with the advice to check Sent");
+});
+
+test("an Outlook reply is matched in Sent Items by recipient and time, never an older reply", () => {
+  const since = "2026-11-20T15:00:02Z";
+  const items = [
+    {id: "older", sentDateTime: "2026-11-20T14:50:00Z", toRecipients: [{emailAddress: {address: "Layla@Example.test"}}]},
+    {id: "other-person", sentDateTime: "2026-11-20T15:00:20Z", toRecipients: [{emailAddress: {address: "someone@example.test"}}]},
+    {id: "this-reply", sentDateTime: "2026-11-20T15:00:24Z", toRecipients: [{emailAddress: {address: "layla@example.test"}}]},
+  ];
+  assert.equal(matchOutlookSentReply(items, {since, to: "layla@example.test"}), "this-reply");
+  assert.equal(matchOutlookSentReply(items.slice(0, 2), {since, to: "layla@example.test"}), null);
+  assert.equal(matchOutlookSentReply(items, {since: "not a date", to: "layla@example.test"}), null);
+  assert.equal(matchOutlookSentReply([{sentDateTime: "2026-11-20T15:00:24Z", toRecipients: [{emailAddress: {address: "layla@example.test"}}]}], {since, to: "layla@example.test"}), null, "no ID, no match");
+});
+
+test("a Gmail reply is looked up by exactly the Message-ID it was sent with", () => {
+  const id = "30000000-0000-4000-8000-000000000042";
+  const header = replyMessageIdHeader(id, "Sales@Agency.test");
+  assert.equal(header, `estateos.${id}@agency.test`);
+  const raw = Buffer.from(buildReplyMessage({from: "sales@agency.test", to: "layla@example.test", subject: "Villa", text: "Hello", estateosMessageId: id}), "base64url").toString("utf8");
+  assert.ok(raw.includes(`Message-ID: <${header}>`), "the header searched for is the one sent");
+  assert.equal(replyMessageIdHeader("bad id!", "sales@agency.test"), null);
+  assert.equal(replyMessageIdHeader(id, "not an address"), null);
 });

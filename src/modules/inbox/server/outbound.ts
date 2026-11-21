@@ -21,10 +21,11 @@ import { dailyTemplateLimit, liveSendingConfigured, realCustomersAllowed, recipi
 import { enforceRateLimit } from "@/lib/rate-limit/server";
 import { preview } from "../policy";
 import { getConversation } from "./conversations";
-import { buildReplyMessage, replySubject } from "../email";
-import { gmailSend } from "./google";
+import { buildReplyMessage, replyMessageIdHeader, replySubject } from "../email";
+import { gmailFindByMessageId, gmailSend } from "./google";
+import { confirmSent, uncertainSend } from "../sent-confirmation";
 import { emailRecipientAllowed, emailSendingConfigured, mailboxAccessToken, providerLabel } from "./mailboxes";
-import { outlookReply } from "./microsoft";
+import { outlookFindSentReply, outlookReply, outlookReplyReference } from "./microsoft";
 import { renderTemplate, templateComponents, templateValueProblems, templateValues } from "../whatsapp-templates";
 import { approvedTemplate } from "./whatsapp-templates";
 
@@ -325,7 +326,7 @@ export async function sendReply(context: Context, rawConversationId: string, raw
   const messageId = randomUUID();
   const simulated = target.simulated;
   // Email: the grant and the threaded reply are ready before anything is queued, so a mailbox that cannot send queues nothing.
-  let email: {provider: "GMAIL"; token: string; raw: string; threadId: string | null} | {provider: "MICROSOFT_365"; token: string; replyToId: string} | null = null;
+  let email: {provider: "GMAIL"; token: string; raw: string; threadId: string | null; messageIdHeader: string | null} | {provider: "MICROSOFT_365"; token: string; replyToId: string} | null = null;
   if (delivery.mode === "EMAIL") {
     const connectionId = canonicalUuid(target.channelConnectionId);
     const label = providerLabel(provider);
@@ -341,7 +342,7 @@ export async function sendReply(context: Context, rawConversationId: string, raw
     } else {
       const ids = thread.messages.map(row => row.internetMessageId).filter((value): value is string => Boolean(value));
       email = {
-        provider: "GMAIL", token: access.token,
+        provider: "GMAIL", token: access.token, messageIdHeader: replyMessageIdHeader(messageId, mailbox.externalAccountReference),
         threadId: target.externalThreadId?.startsWith("gmail:") ? target.externalThreadId.slice(6) : null,
         raw: buildReplyMessage({from: mailbox.externalAccountReference, to: target.customerIdentity, subject: replySubject(target.subject), text: job.content, estateosMessageId: messageId,
           inReplyTo: thread.messages.find(row => row.direction === "INBOUND")?.internetMessageId ?? null, references: [...ids].reverse()}),
@@ -360,9 +361,20 @@ export async function sendReply(context: Context, rawConversationId: string, raw
     ack = sent.ok ? {accepted: true, providerMessageId: sent.providerMessageId}
       : {accepted: false, reason: sent.code === "TIMEOUT" || sent.code === "NETWORK" ? `${sent.message} It may or may not have been delivered; check WhatsApp before sending again.` : `Meta refused it (${sent.code}): ${sent.message}`};
   } else if (delivery.mode === "EMAIL" && email) {
-    const sent = email.provider === "GMAIL" ? await gmailSend(email.token, email.raw, email.threadId)
+    // A few seconds early, so a send whose clock differs slightly from the provider's is still found.
+    const attemptStart = new Date(Date.now() - 5_000).toISOString();
+    let sent = email.provider === "GMAIL" ? await gmailSend(email.token, email.raw, email.threadId)
       : await outlookReply(email.token, {replyToId: email.replyToId, to: target.customerIdentity, text: job.content, reference: messageId});
     console.info(JSON.stringify({event: "inbox.email.send", provider: email.provider, replyId: facts.replyId, ok: sent.ok, code: sent.ok ? null : sent.code}));
+    // No answer is not a refusal: the provider may have sent it after EstateOS stopped waiting. The Sent folder decides.
+    if (!sent.ok && uncertainSend(sent.code)) {
+      const pending = email;
+      const found = await confirmSent(async () => pending.provider === "GMAIL"
+        ? await gmailFindByMessageId(pending.token, pending.messageIdHeader ?? "")
+        : await outlookFindSentReply(pending.token, {replyToId: pending.replyToId, to: target.customerIdentity, since: attemptStart}) ? outlookReplyReference(messageId) : null);
+      console.info(JSON.stringify({event: "inbox.email.send_confirmed", provider: email.provider, replyId: facts.replyId, found: Boolean(found)}));
+      if (found) sent = {ok: true as const, providerMessageId: found};
+    }
     ack = sent.ok ? {accepted: true, providerMessageId: sent.providerMessageId}
       : {accepted: false, reason: sent.code === "TIMEOUT" || sent.code === "NETWORK" ? `${sent.message} It may or may not have been sent; check the mailbox's Sent folder before sending again.` : `${providerLabel(email.provider)} refused it (${sent.code}): ${sent.message}`};
   } else {

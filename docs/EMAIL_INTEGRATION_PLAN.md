@@ -67,7 +67,8 @@ Related: [CHANNEL_ADAPTERS.md](CHANNEL_ADAPTERS.md), [INBOX_SECURITY.md](INBOX_S
   - an `X-EstateOS-Message` header, so the next sync never imports it back.
 
   Header values are stripped of line breaks.
-- **Results.** SENT comes only from Gmail's returned message ID. A refusal fails the reply with Google's reason. A timeout says it may or may not have been sent. Nothing is retried automatically.
+- **Results.** SENT comes from Gmail's returned message ID. A refusal fails the reply with Google's reason. Nothing is retried automatically.
+- **No answer in time.** A send may take up to 30 seconds (other calls 15). If Google still has not answered, or could not be reached, the reply is not called failed straight away: EstateOS looks for it by its own `Message-ID` (`estateos.<reply ID>@<mailbox domain>`, in any folder) three times over about 12 seconds (`sent-confirmation.ts`). Found, it is SENT with that Gmail ID; not found, it fails with the advice to check the Sent folder before sending again. Event `inbox.email.send_confirmed` records the outcome.
 
 ### Server settings
 
@@ -128,6 +129,7 @@ Microsoft 365 uses the same foundation as Gmail: the same mailbox kinds and perm
   - EstateOS names exactly one recipient, the customer. It never uses the original's Reply-To, copies or blind copies.
   - The approved text is escaped, with its lines kept.
 - **Results.** Microsoft answers 202 Accepted with no body and no message ID. The reply is marked SENT on that acceptance and recorded under EstateOS's own reference (`m365-reply:…`); it appears in the mailbox's Sent Items. A refusal fails the reply with Microsoft's code. A timeout says it may or may not have been sent, so the member checks Sent Items before trying again.
+- **No answer in time.** The reply action may take up to 30 seconds. Found on staging (2026-11-20): Microsoft can finish sending after EstateOS stopped waiting, so an unanswered reply is checked in **Sent Items** before it is called failed: a message in the same conversation as the message replied to, to the customer, sent since the attempt began (three looks over about 12 seconds, Mail.Read). Found, it is SENT under its `m365-reply:…` reference; not found, it fails with the advice to check Sent Items before sending again.
 - **Not imported back.** Only the Inbox is read, so EstateOS's own replies (in Sent Items) never come back as customer mail.
 
 ### Server settings

@@ -4,6 +4,7 @@ import { getAppOrigin } from "@/modules/auth/server/config";
 import { normalizeEmailIdentity } from "../identity";
 import type { GmailMessage } from "../email";
 import { pkceChallenge } from "../oauth-state";
+import { SEND_TIMEOUT_MS } from "../sent-confirmation";
 
 /*
  * Google OAuth and the Gmail API, server only (docs/EMAIL_INTEGRATION_PLAN.md#gmail).
@@ -66,10 +67,10 @@ function failure(status: number, body: unknown): GoogleFailure {
   return {ok: false, status, code: raw.replace(/[^A-Za-z0-9_]/g, "_").slice(0, 40) || String(status), message: typeof message === "string" ? message.replace(/\s+/g, " ").replace(/token[^.]*/gi, "token problem").slice(0, 200) : `HTTP ${status}`};
 }
 
-async function call<T>(url: string, init: RequestInit): Promise<Result<T>> {
+async function call<T>(url: string, init: RequestInit, timeoutMs = TIMEOUT_MS): Promise<Result<T>> {
   let response: Response;
   try {
-    response = await fetch(url, {...init, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(TIMEOUT_MS)});
+    response = await fetch(url, {...init, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(timeoutMs)});
   } catch (error) {
     const timeout = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
     return {ok: false, status: 0, code: timeout ? "TIMEOUT" : "NETWORK", message: timeout ? "Google did not answer in time." : "Google could not be reached."};
@@ -134,8 +135,8 @@ export async function revokeGrant(refreshToken: string) {
 }
 
 // --- Gmail API --------------------------------------------------------------------------------
-const gmail = <T>(token: string, path: string, init: {method?: "GET" | "POST"; json?: unknown} = {}) =>
-  call<T>(`${endpoints().gmail}/gmail/v1/users/me/${path}`, {method: init.method ?? "GET", headers: {Authorization: `Bearer ${token}`, ...(init.json ? {"Content-Type": "application/json"} : {})}, body: init.json ? JSON.stringify(init.json) : undefined});
+const gmail = <T>(token: string, path: string, init: {method?: "GET" | "POST"; json?: unknown; timeoutMs?: number} = {}) =>
+  call<T>(`${endpoints().gmail}/gmail/v1/users/me/${path}`, {method: init.method ?? "GET", headers: {Authorization: `Bearer ${token}`, ...(init.json ? {"Content-Type": "application/json"} : {})}, body: init.json ? JSON.stringify(init.json) : undefined}, init.timeoutMs);
 
 /** The mailbox the grant really belongs to, and its current history cursor. */
 export async function gmailProfile(token: string) {
@@ -161,9 +162,17 @@ export const gmailMessage = (token: string, id: string) => gmail<GmailMessage>(t
 export const gmailAttachment = (token: string, messageId: string, attachmentId: string) =>
   gmail<{data?: string; size?: number}>(token, `messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`);
 
+/** After an unanswered send: the Gmail ID of the message with this Message-ID (any folder, Sent included), or null. Read-only. */
+export async function gmailFindByMessageId(token: string, messageIdHeader: string) {
+  if (!/^[A-Za-z0-9.@-]{10,200}$/.test(messageIdHeader)) return null;
+  const result = await gmail<{messages?: Array<{id?: unknown}>}>(token, `messages?${new URLSearchParams({q: `rfc822msgid:${messageIdHeader}`, maxResults: "1"})}`);
+  const found = result.ok ? result.data.messages?.find(message => typeof message.id === "string" && message.id) : null;
+  return typeof found?.id === "string" ? found.id.slice(0, 200) : null;
+}
+
 /** Sends a raw message in a thread. Only a response with a message ID counts as sent. */
 export async function gmailSend(token: string, raw: string, threadId: string | null) {
-  const result = await gmail<{id?: unknown; threadId?: unknown}>(token, "messages/send", {method: "POST", json: {raw, ...(threadId ? {threadId} : {})}});
+  const result = await gmail<{id?: unknown; threadId?: unknown}>(token, "messages/send", {method: "POST", timeoutMs: SEND_TIMEOUT_MS, json: {raw, ...(threadId ? {threadId} : {})}});
   if (!result.ok) return result;
   if (typeof result.data.id !== "string" || !result.data.id) return {ok: false, status: 200, code: "NO_MESSAGE_ID", message: "Google accepted the request but returned no message ID."} satisfies GoogleFailure;
   return {ok: true as const, providerMessageId: result.data.id.slice(0, 200)};
