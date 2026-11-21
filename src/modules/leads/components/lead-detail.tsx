@@ -128,7 +128,7 @@ export function LeadDetail({ data, propertySection, salesSection, callSection }:
     </Card>
     {lead.archivedAt && <div role="status" className="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">Archived on {formatLeadDate(lead.archivedAt, true)}. This record and its history are available for reference.</div>}
 
-    <nav aria-label="Lead sections" className="sticky top-0 z-20 -mx-1 overflow-x-auto [scrollbar-width:none] bg-background/85 px-1 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+    <nav aria-label="Lead sections" className="sticky top-14 z-20 -mx-1 md:top-0 overflow-x-auto [scrollbar-width:none] bg-background/85 px-1 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
       <ul className="flex w-max gap-0.5 rounded-lg border bg-card p-0.5">{sections.map(section => <li key={section.href}><a href={section.href} className="block rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">{section.label}</a></li>)}</ul>
     </nav>
 

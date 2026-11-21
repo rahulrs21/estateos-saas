@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bell, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatLeadDate } from "@/modules/leads/components/lead-ui";
@@ -13,6 +13,17 @@ export function NotificationBell({ organizationId }: { organizationId: string })
   const [items, setItems] = useState<InAppNotification[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const root = useRef<HTMLDivElement>(null);
+
+  // Close on Escape or a click/tap outside the bell and its panel.
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", onPointer); document.removeEventListener("keydown", onKey); };
+  }, [open]);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -34,14 +45,14 @@ export function NotificationBell({ organizationId }: { organizationId: string })
   }
 
   const unread = items.filter(item => !item.readAt).length;
-  return <div className="relative">
+  return <div className="relative" ref={root}>
     <Button type="button" variant="ghost" size="icon" aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`} aria-expanded={open} aria-controls="workspace-notifications" onClick={() => { setOpen(value => !value); if (!open) void load(); }}>
       <Bell aria-hidden="true" />{unread > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-[9px] font-semibold leading-4 text-primary-foreground">{unread > 9 ? "9+" : unread}</span>}
     </Button>
-    {open && <section id="workspace-notifications" aria-label="Notifications" className="absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-xl border bg-popover p-3 text-popover-foreground shadow-xl">
+    {open && <section id="workspace-notifications" aria-label="Notifications" className="fixed inset-x-2 top-16 z-50 rounded-xl border bg-popover p-3 text-popover-foreground shadow-xl md:absolute md:inset-x-auto md:right-0 md:top-12 md:w-[22rem]">
       <div className="flex items-center justify-between border-b pb-2"><h2 className="text-sm font-semibold">Notifications</h2><Button type="button" variant="ghost" size="sm" disabled={loading} onClick={() => void load()}>{loading ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : "Refresh"}</Button></div>
       {error && <p role="alert" className="mt-3 text-xs text-destructive">{error}</p>}
-      {loading && items.length === 0 ? <p role="status" className="py-5 text-center text-sm text-muted-foreground">Loading notifications…</p> : items.length === 0 ? <p className="py-5 text-center text-sm text-muted-foreground">You’re all caught up.</p> : <ul className="max-h-80 divide-y overflow-y-auto">{items.map(item => {
+      {loading && items.length === 0 ? <p role="status" className="py-5 text-center text-sm text-muted-foreground">Loading notifications…</p> : items.length === 0 ? <p className="py-5 text-center text-sm text-muted-foreground">You’re all caught up.</p> : <ul className="max-h-[min(20rem,60dvh)] divide-y overflow-y-auto">{items.map(item => {
         const content = <span className="block min-w-0"><span className="flex items-center gap-2 text-sm font-medium"><span className={`size-1.5 shrink-0 rounded-full ${item.readAt ? "bg-transparent" : "bg-primary"}`} aria-hidden="true" />{item.title}</span><span className="mt-1 block truncate pl-3.5 text-xs text-muted-foreground">{item.body}</span><time className="mt-1 block pl-3.5 text-[10px] text-muted-foreground" dateTime={item.createdAt}>{formatLeadDate(item.createdAt, true)}</time></span>;
         return <li key={item.id} className="py-1">{item.lead ? <Link href={`/leads/${item.lead.id}`} onClick={() => void markRead(item)} className="block rounded-lg p-2 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{content}</Link> : <button type="button" onClick={() => void markRead(item)} className="w-full rounded-lg p-2 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{content}</button>}</li>;
       })}</ul>}

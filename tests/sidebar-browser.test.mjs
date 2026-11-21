@@ -31,6 +31,12 @@ async function evaluate(expression) {
   return result.result.value;
 }
 async function click(selector) {
+  // A closing panel can still cover the control for a moment; wait until a real pointer can reach it.
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const free = await evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.getBoundingClientRect().width>0);if(!e)return false;const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()`);
+    if (free) break;
+    await pause(50);
+  }
   const point = await evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.getBoundingClientRect().width>0);if(!e)throw Error('No visible control');const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return{x,y,reachable:e.contains(document.elementFromPoint(x,y))}})()`);
   assert.equal(point.reachable, true, "A real pointer must reach " + selector);
   await command("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
@@ -54,7 +60,8 @@ async function assertOpen(mobile) {
   const current = await state();
   assert.equal(current.open, true);
   assert.equal(current.targetExists, true, "aria-controls points to visible navigation");
-  assert.equal(current.links, 16);
+  // One link per workspace navigation item in src/config/navigation.ts.
+  assert.equal(current.links, 22);
   assert.ok((mobile ? current.mobile : current.desktop).width > 200, "Full labelled navigation is visible");
 }
 
@@ -111,6 +118,21 @@ try {
     console.log(`${basename(executable)}: ${width}px passed for both company contexts.`);
   }
 
+  // Phones: a fixed bottom bar whose "More" opens the full navigation; nothing scrolls sideways.
+  await load(375);
+  const tabBar = 'nav[aria-label="Quick navigation"]';
+  assert.equal(await evaluate(`(()=>{const n=document.querySelector('${tabBar}');const r=n.getBoundingClientRect();return getComputedStyle(n).position==='fixed'&&Math.round(r.bottom)===innerHeight&&n.querySelectorAll('a').length===4})()`), true, "The mobile bottom bar is fixed with four sections");
+  assert.equal(await evaluate("document.documentElement.scrollWidth<=innerWidth+1"), true, "The mobile workspace must not scroll sideways");
+  // The fixture's own switch button sits over this corner, so press the control directly.
+  await evaluate(`document.querySelector('${tabBar} button[aria-label="More navigation"]').click()`);
+  await pause(400);
+  await assertOpen(true);
+  await click('[data-mobile="true"] button[aria-label="Close navigation"]');
+  assert.equal((await state()).open, false);
+  cases++;
+  await load(1440);
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector('${tabBar}')).display`), "none", "The bottom bar is phones only");
+  cases++;
   await load(1440);
   await evaluate(`(()=>{const b=document.querySelector('${header}');b.click();b.click()})()`);
   await pause(250);
@@ -151,12 +173,13 @@ try {
       await command("Input.dispatchMouseEvent", { type: "mouseReleased", x: frame.x, y: frame.y, button: "left", clickCount: 1 });
       await pause(250);
     }
-    assert.equal(await evaluate(`(()=>{const d=document.querySelector('#fractional-test').contentDocument,b=d.querySelector('${header}');return b.getAttribute('aria-expanded')==='true'&&[...d.querySelectorAll('nav[aria-label="Workspace navigation"] a')].filter(e=>e.getBoundingClientRect().width>0).length===16})()`), true);
+    assert.equal(await evaluate(`(()=>{const d=document.querySelector('#fractional-test').contentDocument,b=d.querySelector('${header}');return b.getAttribute('aria-expanded')==='true'&&[...d.querySelectorAll('nav[aria-label="Workspace navigation"] a')].filter(e=>e.getBoundingClientRect().width>0).length===22})()`), true);
     await evaluate("document.querySelector('#fractional-test').remove()");
     cases++;
   }
   assert.deepEqual(errors, [], "No browser exceptions");
-  assert.deepEqual(apiRequests, [], "UI checks must not access authentication or database APIs");
+  // The sidebar's Approvals badge reads its pending count (unanswered here: the fixture has no API). Nothing else may call an API.
+  assert.deepEqual(apiRequests.filter(url => new URL(url).pathname + new URL(url).search !== "/api/approvals?view=pending"), [], "UI checks must not access authentication or database APIs");
   console.log(`${basename(executable)}: ${cases} sidebar checks passed (real pointer, two companies, mobile, fractional widths, rapid toggles, keyboard, blocked preference cookies).`);
 } finally {
   if (socket?.readyState === WebSocket.OPEN) await command("Browser.close").catch(() => {});

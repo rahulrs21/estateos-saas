@@ -54,13 +54,17 @@ if (process.env.ESTATEOS_TEST_APP_URL) {
 }
 write("app/style.css", stylesheet);
 write("app/layout.tsx", `import {Providers} from '@/components/providers';import './style.css';export default function Layout({children}:{children:React.ReactNode}){return <html lang="en" suppressHydrationWarning><body><Providers>{children}</Providers></body></html>}`);
-write("app/workspace/dashboard/page.tsx", `'use client';
-import {useEffect,useState} from 'react';
+// The dashboard is a server component, so it renders on the server and is passed in;
+// only the company switch and the shell are client code.
+write("app/workspace/dashboard/fixture.tsx", `'use client';
+import {useEffect,useState,type ReactNode} from 'react';
 import {WorkspaceShell} from '@/components/layout/workspace-shell';
-import {Dashboard} from '@/modules/dashboard/components/dashboard';
 import type {CompanyChoice} from '@/modules/organizations/types';
 const choices:CompanyChoice[]=[{id:'10000000-0000-4000-8000-000000000001',name:'UI Test Company A',slug:'ui-a',role:'OWNER'},{id:'20000000-0000-4000-8000-000000000001',name:'UI Test Company B',slug:'ui-b',role:'OWNER'}];
-export default function Fixture(){const [index,setIndex]=useState(0);const [ready,setReady]=useState(false);useEffect(()=>setReady(true),[]);const company=choices[index];return <><button id="fixture-company-switch" data-fixture-ready={ready} style={{position:'fixed',bottom:8,right:8,zIndex:100}} onClick={()=>setIndex(i=>1-i)}>Switch UI fixture</button><WorkspaceShell workspace={{companies:[company],activeCompany:company,hasPendingInvitations:false}} user={{name:'UI Test User',email:'ui@example.test'}}><Dashboard companyName={company.name}/></WorkspaceShell></>}`);
+export function Fixture({dashboards}:{dashboards:ReactNode[]}){const [index,setIndex]=useState(0);const [ready,setReady]=useState(false);useEffect(()=>setReady(true),[]);const company=choices[index];return <><button id="fixture-company-switch" data-fixture-ready={ready} style={{position:'fixed',bottom:8,right:8,zIndex:100}} onClick={()=>setIndex(i=>1-i)}>Switch UI fixture</button><WorkspaceShell workspace={{companies:[company],activeCompany:company,hasPendingInvitations:false}} user={{name:'UI Test User',email:'ui@example.test'}}>{dashboards[index]}</WorkspaceShell></>}`);
+write("app/workspace/dashboard/page.tsx", `import {Dashboard} from '@/modules/dashboard/components/dashboard';
+import {Fixture} from './fixture';
+export default function Page(){return <Fixture dashboards={[<Dashboard key="a" companyName="UI Test Company A"/>,<Dashboard key="b" companyName="UI Test Company B"/>]}/>}`);
 
 const reservation = createServer();
 await new Promise(resolve => reservation.listen(0, "127.0.0.1", resolve));
