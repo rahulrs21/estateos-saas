@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { enquiryFields, leadBudget, leadEnquiryFrom, leadsHref, oldestActivityPlace, resolveLeadDateRange } from "../src/modules/leads/presentation";
+import { enquiryFields, leadAdEnquiryFrom, leadBudget, leadEnquiryFrom, leadsHref, oldestActivityPlace, resolveLeadDateRange } from "../src/modules/leads/presentation";
 import type { LeadFilters } from "../src/modules/leads/types";
 
 const filters: LeadFilters = {
@@ -86,4 +86,26 @@ test("a preset range leaves its computed dates out of links; a custom range keep
   const custom = new URL(leadsHref(filters, {range: "CUSTOM"}), "https://estateos.example.test");
   assert.equal(custom.searchParams.get("createdFrom"), "2026-10-01");
   assert.equal(custom.searchParams.get("createdTo"), "2026-10-20");
+});
+
+test("a Meta lead ad enquiry is read from the capture activity, defensively", () => {
+  const createdAt = "2026-11-23T10:00:00.000Z";
+  assert.equal(leadAdEnquiryFrom({kind: "LEAD_CREATED", metadata: {}, createdAt}), null);
+  assert.equal(leadAdEnquiryFrom(null), null);
+  const enquiry = leadAdEnquiryFrom({kind: "AD_LEAD_CAPTURED", createdAt, metadata: {
+    platform: "instagram", isOrganic: false, pageName: "Estate OS test lead", formName: "Marina enquiries",
+    leadgenId: "444555666777", formId: "888999000111", adId: "123123123123", adsetId: "not-an-id", campaignId: 42,
+    metaCreatedAt: "2026-11-23T09:59:00+0000",
+    answers: [{key: "what_is_your_budget?", label: "What is your budget?", value: " AED 2M "}, {key: "empty", label: "Empty", value: ""}, {key: 7, value: "x"}, {key: "no_label", value: "kept"}],
+    consent: [{key: "marketing_optin", checked: true}, {key: "terms", checked: "yes"}, {checked: true}],
+  }});
+  assert.ok(enquiry);
+  assert.equal(enquiry.platform, "instagram");
+  assert.deepEqual(enquiry.answers, [{key: "what_is_your_budget?", label: "What is your budget?", value: "AED 2M"}, {key: "no_label", label: "no_label", value: "kept"}], "blank or malformed answers are dropped");
+  assert.deepEqual(enquiry.consent, [{key: "marketing_optin", checked: true}, {key: "terms", checked: false}], "only a real true counts as ticked");
+  assert.deepEqual(enquiry.ids, {leadgenId: "444555666777", formId: "888999000111", adId: "123123123123", adsetId: null, campaignId: null}, "only numeric Meta IDs are shown");
+  assert.equal(enquiry.receivedAt, createdAt);
+  // An unknown platform or missing metadata still gives a card, without guessing.
+  const bare = leadAdEnquiryFrom({kind: "AD_LEAD_CAPTURED", createdAt, metadata: {platform: "messenger"}});
+  assert.deepEqual({platform: bare?.platform, answers: bare?.answers.length, page: bare?.pageName}, {platform: null, answers: 0, page: null});
 });

@@ -1,4 +1,4 @@
-import type { LeadEnquiry, LeadFilters, LeadRecord } from "./types";
+import type { LeadAdEnquiry, LeadEnquiry, LeadFilters, LeadRecord } from "./types";
 
 /**
  * Where a lead's oldest activity is in its newest-first timeline: on the loaded page
@@ -16,6 +16,37 @@ export function oldestActivityPlace(input: {total: number; page: number; pageSiz
 export function leadEnquiryFrom(activity: {kind: string; note?: string | null; createdAt: string} | null | undefined): LeadEnquiry | null {
   if (activity?.kind !== "WEBSITE_LEAD_CAPTURED") return null;
   return {message: activity.note?.trim() || null, receivedAt: activity.createdAt};
+}
+
+const text = (value: unknown, max: number) => typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+const metaId = (value: unknown) => typeof value === "string" && /^[0-9]{5,30}$/.test(value) ? value : null;
+
+/**
+ * The Meta lead ad enquiry, when the lead's first activity is an ad lead capture (Phase 7D.4). The activity's
+ * metadata is read defensively: only the expected fields, bounded, never markup (React escapes what is shown).
+ */
+export function leadAdEnquiryFrom(activity: {kind: string; metadata?: unknown; createdAt: string} | null | undefined): LeadAdEnquiry | null {
+  if (activity?.kind !== "AD_LEAD_CAPTURED") return null;
+  const data = activity.metadata && typeof activity.metadata === "object" ? activity.metadata as Record<string, unknown> : {};
+  const answers = Array.isArray(data.answers) ? data.answers.slice(0, 60).flatMap(item => {
+    const {key, label, value} = (item ?? {}) as Record<string, unknown>;
+    const answer = text(value, 1000);
+    return typeof key === "string" && key && answer ? [{key: key.slice(0, 120), label: text(label, 300) ?? key.slice(0, 120), value: answer}] : [];
+  }) : [];
+  const consent = Array.isArray(data.consent) ? data.consent.slice(0, 20).flatMap(item => {
+    const {key, checked} = (item ?? {}) as Record<string, unknown>;
+    return typeof key === "string" && key ? [{key: key.slice(0, 120), checked: checked === true}] : [];
+  }) : [];
+  return {
+    receivedAt: activity.createdAt,
+    platform: data.platform === "instagram" || data.platform === "facebook" ? data.platform : null,
+    isOrganic: data.isOrganic === true,
+    pageName: text(data.pageName, 200),
+    formName: text(data.formName, 200),
+    answers, consent,
+    ids: {leadgenId: metaId(data.leadgenId), formId: metaId(data.formId), adId: metaId(data.adId), adsetId: metaId(data.adsetId), campaignId: metaId(data.campaignId)},
+    metaCreatedAt: text(data.metaCreatedAt, 40),
+  };
 }
 
 /** Keep applied filters while encoding every value as URL data. */

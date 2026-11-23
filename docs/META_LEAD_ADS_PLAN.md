@@ -56,6 +56,19 @@ Status: **7D.1** (data and webhook core) is live on staging. **7D.2** (connectin
   - the SQL Connect cases cover roles, reconnecting the same Page only, disconnecting with its forms, and the due list;
   - the inbox end-to-end suite runs the whole flow in a browser against a fake Facebook sign-in and Graph API: connect, a Page another company already uses, import, the worker's check, a cancelled sign-in, a forged return, and disconnect.
 
+## Built in 7D.4
+
+- **The lead page has a Lead ad enquiry card** (`leads/components/lead-ad-enquiry.tsx`), read from the capture activity's metadata by `leadAdEnquiryFrom` (`leads/presentation.ts`). It shows:
+  - every question with its label, and the answer;
+  - Facebook or Instagram (and Organic when there was no ad);
+  - the form and the Page;
+  - the consent checkboxes;
+  - Meta's IDs (campaign, ad set, ad, form, lead) under "Ad details from Meta".
+- These are the answers as received: editing the lead doesn't change them.
+- The metadata is read defensively: only the expected fields, bounded, and only numeric Meta IDs.
+- **Timeline:** "Meta ad lead received · Submitted on Instagram, form …".
+- No database change.
+
 **Owner steps for 7D.2 (Meta app EstateOS RE):**
 1. Facebook Login for Business → **Settings** → Valid OAuth Redirect URIs: add `https://<staging>/api/lead-ads/meta/callback`.
 2. Facebook Login for Business → **Configurations** → create one for Lead Ads:

@@ -107,12 +107,26 @@ export interface LeadFollowUpRecord {
 }
 /** What the visitor wrote in the website form or landing page that created the lead. */
 export interface LeadEnquiry { message: string | null; receivedAt: string }
+/** What a Meta lead ad's instant form sent, as stored with the lead's first activity (Phase 7D.4). */
+export interface LeadAdEnquiry {
+  receivedAt: string;
+  platform: "facebook" | "instagram" | null;
+  isOrganic: boolean;
+  pageName: string | null;
+  formName: string | null;
+  answers: Array<{key: string; label: string; value: string}>;
+  consent: Array<{key: string; checked: boolean}>;
+  ids: {leadgenId: string | null; formId: string | null; adId: string | null; adsetId: string | null; campaignId: string | null};
+  metaCreatedAt: string | null;
+}
 
 export interface LeadDetailData extends LeadWorkspace {
   lead: LeadRecord;
   activities: LeadActivity[];
   /** The website enquiry that created this lead, when it came from a form or landing page. */
   enquiry?: LeadEnquiry | null;
+  /** The Meta lead ad form that created this lead, with every answer. */
+  adEnquiry?: LeadAdEnquiry | null;
   hasMoreActivities: boolean;
   activityPage: number;
   followUps: LeadFollowUpRecord[];

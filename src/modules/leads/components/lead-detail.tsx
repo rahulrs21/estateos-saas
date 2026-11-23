@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { LeadActivity, LeadDetailData } from "@/modules/leads/types";
 import { LeadAssignment, LeadFollowUp, LeadFollowUpCompletion, LeadNoteForm, LeadStatusPipeline } from "./lead-actions";
 import { LeadEditorDialog } from "./lead-form";
+import { LeadAdEnquiryCard } from "./lead-ad-enquiry";
 import { formatLeadDate, LeadAvatar, LeadStatusBadge, leadStatusLabels } from "./lead-ui";
 import { enquiryFields, leadBudget, leadPriorityLabels } from "../presentation";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,11 @@ function activityDescription(activity: LeadActivity, data: LeadDetailData) {
     const direction = CALL_DIRECTION_LABELS[metadata.direction as CallDirection] ?? "Call";
     const outcome = typeof metadata.outcome === "string" ? CALL_OUTCOME_LABELS[metadata.outcome as CallOutcome] : null;
     return [`${direction} call`, CALL_STATUS_LABELS[metadata.callStatus as CallStatus]?.toLowerCase(), outcome?.toLowerCase()].filter(Boolean).join(", ") + ". Details are in Calls.";
+  }
+  if (activity.kind === "AD_LEAD_CAPTURED") {
+    const platform = metadata.platform === "instagram" ? "Instagram" : metadata.platform === "facebook" ? "Facebook" : null;
+    const form = typeof metadata.formName === "string" && metadata.formName.trim() ? metadata.formName.trim().slice(0, 200) : null;
+    if (platform || form) return [platform && `Submitted on ${platform}`, form && `form ${form}`].filter(Boolean).join(", ") + ". The answers are in Lead ad enquiry.";
   }
   if (activity.kind === "CALL_UPDATED" && typeof metadata.outcome === "string") return `Outcome recorded: ${CALL_OUTCOME_LABELS[metadata.outcome as CallOutcome]?.toLowerCase() ?? "updated"}.`;
   return null;
@@ -77,7 +83,7 @@ export function LeadDetail({ data, propertySection, salesSection, callSection }:
   const phoneHref = lead.phone ? `tel:${lead.phone.replace(/[^+0-9]/g, "")}` : null;
   const sections = [
     { href: "#overview", label: "Overview" },
-    data.enquiry && { href: "#enquiry", label: "Enquiry" },
+    (data.enquiry || data.adEnquiry) && { href: "#enquiry", label: "Enquiry" },
     salesSection && { href: "#ai-sales", label: "AI sales" },
     callSection && { href: "#calls", label: "Calls" },
     { href: "#lead-requirements", label: "Requirements" },
@@ -147,6 +153,8 @@ export function LeadDetail({ data, propertySection, salesSection, callSection }:
           <DetailValue label="Nationality" icon={<Globe />}>{lead.contact?.nationality}</DetailValue><DetailValue label="Preferred language" icon={<Languages />}>{lead.contact?.preferredLanguage}</DetailValue>
           <DetailValue label="Lead source" icon={<Megaphone />}>{sourceName}</DetailValue><DetailValue label="Branch" icon={<Building2 />}>{lead.branch?.name}</DetailValue>
         </dl>{lead.contact?.notes && <div className="mt-6 border-t pt-5"><h3 className="text-xs font-medium">Contact notes</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{lead.contact.notes}</p></div>}</CardContent></Card>
+
+        {data.adEnquiry && <LeadAdEnquiryCard enquiry={data.adEnquiry} />}
 
         {data.enquiry && <Card id="enquiry" className="scroll-mt-24 gap-4 py-4 shadow-xs ring-border" data-testid="lead-enquiry"><CardHeader className="px-5 sm:px-6"><div className="flex items-center gap-2"><MessageSquareText className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Website enquiry</CardTitle></div><CardDescription>What the visitor sent, received {formatLeadDate(data.enquiry.receivedAt, true)} through {sourceName || "the website"}.</CardDescription></CardHeader><CardContent className="space-y-5 px-5 sm:px-6">
           <div><h3 className="text-xs text-muted-foreground">Message</h3>

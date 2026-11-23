@@ -773,6 +773,20 @@ try {
     const [stillB] = await connectionOf(META_B_PAGE);
     assert.equal(stillB.organizationId.replaceAll("-", ""), f.orgB.replaceAll("-", ""), "company B keeps its Page");
     assert.deepEqual((await leadsWithEmail(firstEmail)).map(row => row.source), ["Meta Lead Ads"], "the last 7 days of leads were imported when connecting");
+    // Phase 7D.4: the lead page shows the ad enquiry with every answer, and the timeline says where it came from.
+    const [firstRow] = await leadsWithEmail(firstEmail);
+    await load(`/leads/${firstRow.id}`, "Boolean(document.querySelector('[data-testid=lead-ad-enquiry]'))");
+    const card = await evaluate("document.querySelector('[data-testid=lead-ad-enquiry]').innerText");
+    assert.match(card, /Lead ad enquiry/);
+    assert.match(card, /Facebook/, "the platform Meta reported");
+    assert.match(card, /E2E Connected form/);
+    assert.match(card, /Full name\s+Connected Lead/);
+    assert.ok(card.includes(firstEmail), "the email answer is shown");
+    assert.match(await evaluate("document.body.innerText"), /Meta ad lead received[\s\S]*Submitted on Facebook, form E2E Connected form/);
+    await evaluate("document.querySelector('[data-testid=lead-ad-enquiry]').scrollIntoView({block: 'center'})");
+    await pause(300);
+    await screenshot("meta-lead-ad-enquiry");
+    await load("/settings/meta-lead-ads", "document.body.innerText.includes('E2E Connect Page')");
     assert.ok(graphRequests.filter(item => item.authorization === `Bearer ${connectPageToken}` || item.authorization === `Bearer ${metaUserToken}`).every(item => !item.url.includes(connectPageToken) && !item.url.includes(metaUserToken)), "tokens never appear in URLs");
     pass("Phase 7D.2: Connect Facebook (owner or admin only) connects the shared Pages with encrypted tokens, subscribes them, imports their recent leads, and never takes another company's Page");
 
