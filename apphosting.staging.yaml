@@ -107,6 +107,11 @@ env:
     secret: META_LEAD_ADS_VERIFY_TOKEN
     availability:
       - RUNTIME
+  # Facebook Login for Business configuration "EstateOS Lead Ads" (Pages + the lead permissions; a public value).
+  - variable: META_LEAD_ADS_LOGIN_CONFIG_ID
+    value: "1159016429860328"
+    availability:
+      - RUNTIME
 
   # One-click Connect WhatsApp (Meta Embedded Signup): the Meta app and its signup configuration (public values).
   - variable: INBOX_META_APP_ID
