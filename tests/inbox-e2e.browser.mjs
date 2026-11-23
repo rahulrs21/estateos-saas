@@ -107,14 +107,59 @@ const metaForms = new Map([[META_FORM, {id: META_FORM, name: "E2E Marina enquiri
   {key: "what_is_your_budget?", label: "What is your budget?", type: "CUSTOM"}, {key: "preferred_community", label: "Preferred community", type: "CUSTOM"},
 ]}], [META_REVOKED_FORM, {id: META_REVOKED_FORM, name: "E2E Revoked Page form", questions: []}]]);
 let metaRevokedWorks = false;
+// Phase 7D.2: Facebook sign-in (on localhost, so the return is cross-site like Facebook's), the person's tokens, and the Pages they share.
+const META_CONNECT_PAGE = "5" + String(Date.now()).slice(-13) + "7", META_B_PAGE = "6" + String(Date.now()).slice(-13) + "7", META_CONNECT_FORM = "7" + String(Date.now()).slice(-13) + "7";
+const metaLoginCode = "e2e-meta-login-code-" + randomBytes(10).toString("hex"), metaShortToken = "e2e-meta-short-user-token-" + randomBytes(12).toString("hex");
+const metaUserToken = "e2e-meta-long-user-token-" + randomBytes(12).toString("hex"), connectPageToken = "e2e-meta-connect-page-token-" + randomBytes(12).toString("hex");
+const metaConnect = {deny: false, subscribed: [], unsubscribed: [], formLeads: new Map()};
+metaForms.set(META_CONNECT_FORM, {id: META_CONNECT_FORM, name: "E2E Connected form", status: "ACTIVE", questions: [{key: "full_name", label: "Full name", type: "FULL_NAME"}, {key: "email", label: "Email", type: "EMAIL"}]});
 let graphMessages = 0;
 const graph = createHttpServer((request, response) => {
   let raw = "";
   request.on("data", chunk => { raw += chunk; });
   request.on("end", () => {
-    const body = raw ? JSON.parse(raw) : null;
+    let body = null;
+    try { body = raw ? JSON.parse(raw) : null; } catch { body = Object.fromEntries(new URLSearchParams(raw)); }
     graphRequests.push({method: request.method, url: request.url, authorization: request.headers.authorization ?? null, body});
     const reply = (status, value) => { response.writeHead(status, {"Content-Type": "application/json"}); response.end(JSON.stringify(value)); };
+    // Phase 7D.2: Facebook's sign-in dialog, the token endpoint, the person's Pages and the Page/form edges.
+    if (request.method === "GET" && request.url.startsWith("/v27.0/dialog/oauth?")) {
+      const query = new URL(request.url, "http://localhost").searchParams;
+      const target = new URL(query.get("redirect_uri"));
+      if (query.get("client_id") !== META_APP_ID || !String(query.get("scope") ?? "").split(",").includes("leads_retrieval") || query.get("response_type") !== "code") return reply(400, {error: {code: 100, message: "Invalid dialog request."}});
+      target.searchParams.set("state", query.get("state") ?? "");
+      if (metaConnect.deny) target.searchParams.set("error", "access_denied"); else target.searchParams.set("code", metaLoginCode);
+      response.writeHead(302, {Location: target.toString()});
+      return response.end();
+    }
+    if (request.method === "GET" && request.url.startsWith("/v27.0/oauth/access_token?")) {
+      const query = new URL(request.url, "http://graph").searchParams;
+      if (query.get("code") === metaLoginCode) {
+        return query.get("client_id") === META_APP_ID && query.get("client_secret") === platformSecret && query.get("redirect_uri") === `${origin}/api/lead-ads/meta/callback`
+          ? reply(200, {access_token: metaShortToken, token_type: "bearer"}) : reply(400, {error: {code: 100, message: "Invalid code exchange."}});
+      }
+      if (query.get("grant_type") === "fb_exchange_token") {
+        return query.get("fb_exchange_token") === metaShortToken && query.get("client_secret") === platformSecret
+          ? reply(200, {access_token: metaUserToken, token_type: "bearer", expires_in: 5_184_000}) : reply(400, {error: {code: 190, message: "Invalid token."}});
+      }
+    }
+    if (request.headers.authorization === `Bearer ${metaUserToken}`) {
+      if (request.method === "GET" && request.url.startsWith("/v27.0/me/accounts?")) return reply(200, {data: [
+        {id: META_CONNECT_PAGE, name: "E2E Connect Page", access_token: connectPageToken, tasks: ["ADVERTISE", "MANAGE", "CREATE_CONTENT"]},
+        {id: META_PAGE, name: "E2E Test Page", access_token: metaPageToken, tasks: ["ADVERTISE"]},
+        {id: META_B_PAGE, name: "E2E Company B Page", access_token: connectPageToken, tasks: ["ADVERTISE"]},
+      ]});
+      return reply(400, {error: {code: 100, message: "Unknown path"}});
+    }
+    if (request.headers.authorization === `Bearer ${connectPageToken}` || request.headers.authorization === `Bearer ${metaPageToken}`) {
+      const pageEdge = /^\/v27\.0\/(\d+)\/subscribed_apps$/.exec(request.url);
+      if (pageEdge && request.method === "POST") { metaConnect.subscribed.push({page: pageEdge[1], body}); return reply(200, {success: true}); }
+      if (pageEdge && request.method === "DELETE") { metaConnect.unsubscribed.push(pageEdge[1]); return reply(200, {success: true}); }
+      const formsOf = /^\/v27\.0\/(\d+)\/leadgen_forms\?/.exec(request.url)?.[1];
+      if (request.method === "GET" && formsOf) return reply(200, {data: formsOf === META_CONNECT_PAGE ? [metaForms.get(META_CONNECT_FORM)] : []});
+      const leadsOf = /^\/v27\.0\/(\d+)\/leads\?/.exec(request.url)?.[1];
+      if (request.method === "GET" && leadsOf) return reply(200, {data: (metaConnect.formLeads.get(leadsOf) ?? []).map(id => ({id, created_time: new Date().toISOString()}))});
+    }
     if (request.method === "GET" && request.url.startsWith("/v27.0/oauth/access_token?")) {
       const query = new URL(request.url, "http://graph").searchParams;
       return query.get("client_id") === META_APP_ID && query.get("client_secret") === platformSecret && query.get("code") === signupCode
@@ -128,7 +173,7 @@ const graph = createHttpServer((request, response) => {
       return reply(404, {error: {code: 803, message: "Unknown path"}});
     }
     // Meta Lead Ads: a lead or a form, read with a Page token (never a token in the URL).
-    if (request.headers.authorization === `Bearer ${metaPageToken}` || request.headers.authorization === `Bearer ${metaRevokedToken}`) {
+    if (request.headers.authorization === `Bearer ${metaPageToken}` || request.headers.authorization === `Bearer ${metaRevokedToken}` || request.headers.authorization === `Bearer ${connectPageToken}`) {
       if (request.headers.authorization === `Bearer ${metaRevokedToken}` && !metaRevokedWorks) return reply(400, {error: {code: 190, message: "Error validating access token: The user has not authorized application."}});
       const id = /^\/v27\.0\/(\d+)\?fields=/.exec(request.url)?.[1];
       if (request.method === "GET" && id && metaLeads.has(id)) return reply(200, metaLeads.get(id));
@@ -445,6 +490,8 @@ function startNext() {
       INBOX_MICROSOFT_CLIENT_ID: microsoftClient.id, INBOX_MICROSOFT_CLIENT_SECRET: microsoftClient.secret,
       // Phase 7D: Meta Lead Ads reads leads from the fake Graph API; the webhook's verify token (its signatures use INBOX_WHATSAPP_APP_SECRET, the same Meta app).
       META_GRAPH_BASE: `http://127.0.0.1:${graphPort}`, META_LEAD_ADS_VERIFY_TOKEN: metaVerify,
+      // Phase 7D.2: Facebook's sign-in on localhost (a cross-site return, like Facebook's); the app ID comes from INBOX_META_APP_ID.
+      META_OAUTH_BASE: `http://localhost:${graphPort}`,
       // The developer simulator (local emulators and a demo project only).
       ESTATEOS_DEV_TOOLS: "1",
     },
@@ -686,7 +733,96 @@ try {
   assert.equal((await post("/api/inbox/conversations/" + randomUUID() + "/notes", {body: "x"})).status, 401);
   pass("Unauthenticated inbox reads and changes are rejected");
   if (process.env.INBOX_E2E_ONLY === "mailboxes") { await mailboxChecks(); await microsoftChecks(); throw ONLY_DONE; }
-  if (process.env.INBOX_E2E_ONLY === "lead-ads") { await metaLeadAdsChecks(); throw ONLY_DONE; }
+
+  // ------------------------------------------------------------ Phase 7D.2: connecting Facebook Pages
+  // A function (hoisted in this block) so INBOX_E2E_ONLY=lead-ads runs it after the webhook checks.
+  async function metaConnectChecks() {
+    const connectionOf = async pageId => (await sql(`query P($id: String!) { metaLeadConnections(where: {pageId: {eq: $id}}) { id organizationId status tokenCiphertext lastPolledAt } }`, {id: pageId})).metaLeadConnections;
+    const leadsWithEmail = async email => (await sql(`query L($org: UUID!, $email: String!) { leads(where: {organizationId: {eq: $org}, email: {eq: $email}}) { id source } }`, {org: f.orgA, email})).leads;
+    const pageRow = name => `[...document.querySelectorAll('[data-testid=meta-page]')].find(e=>e.innerText.includes(${JSON.stringify(name)}))`;
+    // Company B already uses one of the Pages the person will share: it must stay company B's.
+    const bConnection = randomUUID();
+    await sqlSdk.createMetaLeadConnection(dc, {organizationId: f.orgB, id: bConnection, actorUid: "owner-b", pageId: META_B_PAGE, pageName: "E2E Company B Page", ...sealPageToken(connectPageToken, f.orgB, bConnection)});
+    const firstEmail = `meta.connect.${randomBytes(3).toString("hex")}@example.test`;
+    const firstLead = "1" + String(Date.now()).slice(-13) + "8";
+    metaLeads.set(firstLead, {id: firstLead, form_id: META_CONNECT_FORM, platform: "fb", field_data: [{name: "full_name", values: ["Connected Lead"]}, {name: "email", values: [firstEmail]}]});
+    metaConnect.formLeads.set(META_CONNECT_FORM, [firstLead]);
+
+    // Only owners and administrators.
+    await signIn("agent-a");
+    assert.equal((await api("/api/lead-ads/meta/pages")).status, 403);
+    assert.equal((await post("/api/lead-ads/meta/connect", {})).status, 403);
+    await signIn("owner-a");
+
+    // Connect Facebook: Facebook's window, then the callback (cross-site, so only the sealed state counts), then back to settings.
+    await load("/settings/meta-lead-ads", "document.body.innerText.includes('Connected Facebook Pages') && Boolean(document.querySelector('[data-testid=meta-connect]'))");
+    await evaluate("document.querySelector('[data-testid=meta-connect]').click()");
+    await waitFor("Boolean(document.querySelector('[data-testid=meta-connect-result]'))", "the Facebook callback page");
+    const result = await evaluate("document.querySelector('[data-testid=meta-connect-result]').innerText");
+    assert.match(result, /Connected: E2E Connect Page, E2E Test Page/);
+    assert.match(result, /Not connected: E2E Company B Page \(already connected to another EstateOS company\)/);
+    await waitFor("location.pathname === '/settings/meta-lead-ads' && location.search.includes('meta=connected') && document.body.innerText.includes('E2E Connect Page')", "the return to Meta Lead Ads settings", 900);
+    await screenshot("meta-lead-ads-settings");
+    const [connected] = await connectionOf(META_CONNECT_PAGE);
+    assert.equal(connected.organizationId.replaceAll("-", ""), f.orgA.replaceAll("-", ""));
+    assert.equal(connected.status, "ACTIVE");
+    assert.ok(connected.tokenCiphertext.startsWith("v1:") && !connected.tokenCiphertext.includes(connectPageToken), "the Page token is stored encrypted");
+    assert.ok(connected.lastPolledAt, "the Page's forms were checked right after connecting");
+    assert.deepEqual(metaConnect.subscribed.map(item => [item.page, item.body?.subscribed_fields]).filter(([page]) => page === META_CONNECT_PAGE), [[META_CONNECT_PAGE, "leadgen"]], "the Page was subscribed to lead notifications");
+    const [stillB] = await connectionOf(META_B_PAGE);
+    assert.equal(stillB.organizationId.replaceAll("-", ""), f.orgB.replaceAll("-", ""), "company B keeps its Page");
+    assert.deepEqual((await leadsWithEmail(firstEmail)).map(row => row.source), ["Meta Lead Ads"], "the last 7 days of leads were imported when connecting");
+    assert.ok(graphRequests.filter(item => item.authorization === `Bearer ${connectPageToken}` || item.authorization === `Bearer ${metaUserToken}`).every(item => !item.url.includes(connectPageToken) && !item.url.includes(metaUserToken)), "tokens never appear in URLs");
+    pass("Phase 7D.2: Connect Facebook (owner or admin only) connects the shared Pages with encrypted tokens, subscribes them, imports their recent leads, and never takes another company's Page");
+
+    // Import recent leads: a lead Meta has but EstateOS has not seen (no webhook while the app is unpublished).
+    const secondEmail = `meta.import.${randomBytes(3).toString("hex")}@example.test`;
+    const secondLead = "2" + String(Date.now()).slice(-13) + "8";
+    metaLeads.set(secondLead, {id: secondLead, form_id: META_CONNECT_FORM, platform: "ig", field_data: [{name: "full_name", values: ["Imported Lead"]}, {name: "email", values: [secondEmail]}]});
+    metaConnect.formLeads.set(META_CONNECT_FORM, [firstLead, secondLead]);
+    await evaluate(`${pageRow("E2E Connect Page")}.querySelector('[data-testid=meta-import]').click()`);
+    await waitFor(`document.body.innerText.includes('1 new lead imported from E2E Connect Page')`, "the import confirmation");
+    assert.equal((await leadsWithEmail(secondEmail)).length, 1);
+    assert.equal((await leadsWithEmail(firstEmail)).length, 1, "a lead already imported is not imported again");
+    pass("Phase 7D.2: Import recent leads brings in leads Meta has that EstateOS has not seen, once each");
+
+    // The worker checks Pages due a check (15 minutes) on its own.
+    const thirdEmail = `meta.poll.${randomBytes(3).toString("hex")}@example.test`;
+    const thirdLead = "3" + String(Date.now()).slice(-13) + "8";
+    metaLeads.set(thirdLead, {id: thirdLead, form_id: META_CONNECT_FORM, field_data: [{name: "full_name", values: ["Polled Lead"]}, {name: "email", values: [thirdEmail]}]});
+    metaConnect.formLeads.set(META_CONNECT_FORM, [firstLead, secondLead, thirdLead]);
+    await sql(`mutation D($org: UUID!, $id: UUID!) { metaLeadConnection_update(key: {organizationId: $org, id: $id}, data: {lastPolledAt: "2000-01-01T00:00:00Z"}) }`, {org: f.orgA, id: connected.id});
+    const tick = await fetch(origin + "/api/internal/automations/tick", {method: "POST", headers: {Authorization: `Bearer ${workerSecret}`}, signal: AbortSignal.timeout(180000)});
+    assert.equal(tick.status, 200);
+    assert.ok((await tick.json()).data.metaPolls.pages >= 1);
+    assert.equal((await leadsWithEmail(thirdEmail)).length, 1);
+    pass("Phase 7D.2: the worker checks connected Pages' forms every 15 minutes and imports leads whose notification never came");
+
+    // A cancelled sign-in and a forged return change nothing.
+    metaConnect.deny = true;
+    await load("/settings/meta-lead-ads", "Boolean(document.querySelector('[data-testid=meta-connect]'))");
+    await evaluate("document.querySelector('[data-testid=meta-connect]').click()");
+    await waitFor("Boolean(document.querySelector('[data-testid=meta-connect-result]'))", "the cancelled callback");
+    assert.match(await evaluate("document.body.innerText"), /Facebook sign-in was cancelled/);
+    metaConnect.deny = false;
+    await load(`/api/lead-ads/meta/callback?code=${metaLoginCode}&state=forged-state-value`, "Boolean(document.querySelector('[data-testid=meta-connect-result]'))");
+    assert.match(await evaluate("document.body.innerText"), /could not be confirmed/);
+    pass("Phase 7D.2: a cancelled Facebook sign-in, or a return without the sealed state, connects nothing");
+
+    // Disconnect: Meta stops sending, the token and form settings go, the leads stay.
+    await load("/settings/meta-lead-ads", `Boolean(${pageRow("E2E Connect Page")})`);
+    await evaluate(`${pageRow("E2E Connect Page")}.querySelector('[data-testid=meta-page-actions]').click()`);
+    await waitFor("[...document.querySelectorAll('[role=menuitem]')].some(e=>e.textContent.includes('Disconnect'))", "the Page actions menu");
+    await evaluate("[...document.querySelectorAll('[role=menuitem]')].find(e=>e.textContent.includes('Disconnect')).click()");
+    await waitFor("Boolean(document.querySelector('[data-testid=meta-disconnect-confirm]'))", "the disconnect confirmation");
+    await evaluate("document.querySelector('[data-testid=meta-disconnect-confirm]').click()");
+    await waitFor("document.body.innerText.includes('E2E Connect Page disconnected')", "the disconnect confirmation message");
+    assert.equal((await connectionOf(META_CONNECT_PAGE)).length, 0);
+    assert.ok(metaConnect.unsubscribed.includes(META_CONNECT_PAGE), "Meta was asked to stop sending the Page's leads");
+    assert.equal((await leadsWithEmail(firstEmail)).length, 1, "the Page's leads stay");
+    pass("Phase 7D.2: disconnecting a Page stops Meta's notifications and removes its token and form settings; its leads stay");
+  }
+  if (process.env.INBOX_E2E_ONLY === "lead-ads") { await metaLeadAdsChecks(); await metaConnectChecks(); throw ONLY_DONE; }
 
   // ------------------------------------------------------------ fixtures through the server-only storage (as ingestion writes them)
   await signIn("owner-a");
@@ -2176,6 +2312,7 @@ try {
   await mailboxChecks();
   await microsoftChecks();
   await metaLeadAdsChecks();
+  await metaConnectChecks();
   assert.equal((await post("/api/dev/communication-tests/reset")).status, 200);
 
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");

@@ -120,3 +120,50 @@ mutation CaptureMetaLeadAd($organizationId: UUID!, $eventId: UUID!, $connectionI
   formSeen: metaLeadForm_update(key: {organizationId: $organizationId, id: $formId}, data: {lastLeadAt_expr: "request.time", updatedAt_expr: "request.time"})
   connectionSeen: metaLeadConnection_update(key: {organizationId: $organizationId, id: $connectionId}, data: {lastLeadAt_expr: "request.time", updatedAt_expr: "request.time"})
 }
+
+# ---------------------------------------------------------------- Phase 7D.2: connecting Pages, settings and the safety net
+
+# The connected Pages a company's OWNER or ADMIN sees in settings (never the encrypted token).
+query MetaLeadOverview($organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
+  actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) {role}
+  connections: metaLeadConnections(where: {organizationId: {eq: $organizationId}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+    orderBy: [{createdAt: ASC}], limit: 50) {
+    id pageId pageName status lastErrorCode lastLeadAt lastPolledAt subscribedAt createdAt connectedBy {displayName}
+    forms: metaLeadForms_on_connection(orderBy: [{createdAt: ASC}], limit: 100) {id metaFormId name enabled lastLeadAt}
+  }
+  recentFailures: metaLeadEvents(where: {organizationId: {eq: $organizationId}, status: {in: [FAILED, DEAD]}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+    orderBy: [{receivedAt: DESC}], limit: 20) {id connectionId leadgenId status errorCode attempts receivedAt}
+}
+
+# A new Page token for a Page this company already connected (signing in again): the connection is active again.
+mutation ReconnectMetaLeadConnection($organizationId: UUID!, $id: UUID!, $actorUid: String!, $pageId: String!, $pageName: String!, $tokenCiphertext: String!, $tokenKeyId: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}})
+      @check(expr: "this != null && this.role in ['OWNER', 'ADMIN'] && vars.pageName.size() >= 1 && vars.pageName.size() <= 200", message: "META_LEAD_CONNECT_NOT_ALLOWED") {role}
+    connection: metaLeadConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, pageId: {eq: $pageId}}}) @check(expr: "this != null", message: "META_LEAD_CONNECTION_CHANGED") {id}
+  }
+  metaLeadConnection_update(key: {organizationId: $organizationId, id: $id}, data: {pageName: $pageName, status: ACTIVE, tokenCiphertext: $tokenCiphertext, tokenKeyId: $tokenKeyId,
+    connectedByUid: $actorUid, subscribedAt_expr: "request.time", lastErrorCode: null, revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: META_LEAD_PAGE_CONNECTED, targetType: META_LEAD_CONNECTION, targetId: $id, metadata_expr: "{'pageId': vars.pageId, 'reconnected': true}"})
+}
+
+# Disconnects a Page: the connection, its token and its form settings are deleted (forms cascade); leads already
+# created, their lead sources and the event history stay. An OWNER or ADMIN only.
+mutation DisconnectMetaLeadConnection($organizationId: UUID!, $id: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}})
+      @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "META_LEAD_CONNECT_NOT_ALLOWED") {role}
+    connection: metaLeadConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}}}) @check(expr: "this != null", message: "META_LEAD_CONNECTION_CHANGED") {pageId}
+  }
+  metaLeadConnection_delete(key: {organizationId: $organizationId, id: $id})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: META_LEAD_PAGE_DISCONNECTED, targetType: META_LEAD_CONNECTION, targetId: $id, metadata_expr: "{'pageId': response.before.connection.pageId}"})
+}
+
+# Active Pages whose forms are due a check for leads (never checked, or not since dueBefore), oldest first.
+query MetaLeadConnectionsDue($dueBefore: Timestamp!, $limit: Int!) @auth(level: NO_ACCESS) {
+  connections: metaLeadConnections(where: {_or: [{status: {eq: ACTIVE}, lastPolledAt: {isNull: true}}, {status: {eq: ACTIVE}, lastPolledAt: {lt: $dueBefore}}]}, orderBy: [{lastPolledAt: ASC}], limit: $limit) {organizationId id lastPolledAt}
+}
+
+mutation MarkMetaLeadConnectionPolled($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  metaLeadConnection_update(key: {organizationId: $organizationId, id: $id}, data: {lastPolledAt_expr: "request.time"})
+}

@@ -2172,6 +2172,41 @@ function captureMetaLeadAd(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.captureMetaLeadAd = captureMetaLeadAd;
 
+function metaLeadOverview(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaLeadOverview', inputVars, inputOpts);
+}
+exports.metaLeadOverview = metaLeadOverview;
+
+function reconnectMetaLeadConnection(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('ReconnectMetaLeadConnection', inputVars, inputOpts);
+}
+exports.reconnectMetaLeadConnection = reconnectMetaLeadConnection;
+
+function disconnectMetaLeadConnection(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DisconnectMetaLeadConnection', inputVars, inputOpts);
+}
+exports.disconnectMetaLeadConnection = disconnectMetaLeadConnection;
+
+function metaLeadConnectionsDue(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaLeadConnectionsDue', inputVars, inputOpts);
+}
+exports.metaLeadConnectionsDue = metaLeadConnectionsDue;
+
+function markMetaLeadConnectionPolled(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('MarkMetaLeadConnectionPolled', inputVars, inputOpts);
+}
+exports.markMetaLeadConnectionPolled = markMetaLeadConnectionPolled;
+
 function getLeadPropertyContext(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

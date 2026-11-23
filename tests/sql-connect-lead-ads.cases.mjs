@@ -107,5 +107,41 @@ export function registerLeadAdsCases({ sdk, run, forbidden, dc }) {
       const created = await capture({eventId: event.id});
       assert.ok(created.lead.id);
     });
+
+    it("settings, reconnecting and disconnecting are for owners and administrators of the company only", async () => {
+      const overview = await noAccess(sdk.metaLeadOverview, {organizationId: f.orgA, actorUid: "owner-a"});
+      assert.ok(overview.actor);
+      assert.ok(overview.connections.some(row => uuid(row.id) === uuid(connectionA)));
+      assert.ok(overview.connections.find(row => uuid(row.id) === uuid(connectionA)).forms.some(form => form.metaFormId === metaFormId));
+      const agent = await noAccess(sdk.metaLeadOverview, {organizationId: f.orgA, actorUid: "agent-a"});
+      assert.deepEqual({actor: agent.actor ?? null, connections: agent.connections.length, failures: agent.recentFailures.length}, {actor: null, connections: 0, failures: 0}, "an agent sees nothing");
+      const outsider = await noAccess(sdk.metaLeadOverview, {organizationId: f.orgA, actorUid: "owner-b"});
+      assert.equal(outsider.connections.length, 0, "another company's owner sees nothing");
+      await forbidden(sdk.metaLeadOverview, "owner-a", {organizationId: f.orgA, actorUid: "owner-a"});
+
+      await assert.rejects(() => noAccess(sdk.reconnectMetaLeadConnection, {organizationId: f.orgA, id: connectionA, actorUid: "agent-a", pageId: pageA, pageName: "Renamed", tokenCiphertext: "x", tokenKeyId: "k1"}));
+      await assert.rejects(() => noAccess(sdk.reconnectMetaLeadConnection, {organizationId: f.orgA, id: connectionA, actorUid: "owner-a", pageId: digits(), pageName: "Other page", tokenCiphertext: "x", tokenKeyId: "k1"}), "the Page must stay the same");
+      await noAccess(sdk.setMetaLeadConnectionStatus, {organizationId: f.orgA, id: connectionA, status: "NEEDS_RECONNECT", errorCode: "META_190"});
+      await noAccess(sdk.reconnectMetaLeadConnection, {organizationId: f.orgA, id: connectionA, actorUid: "owner-a", pageId: pageA, pageName: "Renamed page", tokenCiphertext: "sealed-new-value", tokenKeyId: "k1"});
+      const secret = await noAccess(sdk.metaLeadConnectionSecret, {organizationId: f.orgA, id: connectionA});
+      assert.deepEqual({status: secret.connection.status, name: secret.connection.pageName, token: secret.connection.tokenCiphertext}, {status: "ACTIVE", name: "Renamed page", token: "sealed-new-value"});
+
+      // The worker's list of Pages due a check, and marking one checked.
+      const due = await noAccess(sdk.metaLeadConnectionsDue, {dueBefore: new Date(Date.now() + 60_000).toISOString(), limit: 500});
+      assert.ok(due.connections.some(row => uuid(row.id) === uuid(connectionA)));
+      await noAccess(sdk.markMetaLeadConnectionPolled, {organizationId: f.orgA, id: connectionA});
+      const after = await noAccess(sdk.metaLeadConnectionsDue, {dueBefore: new Date(Date.now() - 60_000).toISOString(), limit: 500});
+      assert.equal(after.connections.some(row => uuid(row.id) === uuid(connectionA)), false, "just checked, so not due");
+
+      // Disconnecting: owner or admin only; the connection and its forms go, the lead source and the leads stay.
+      await assert.rejects(() => noAccess(sdk.disconnectMetaLeadConnection, {organizationId: f.orgA, id: connectionA, actorUid: "agent-a"}));
+      await assert.rejects(() => noAccess(sdk.disconnectMetaLeadConnection, {organizationId: f.orgB, id: connectionA, actorUid: "owner-b"}), "another company cannot disconnect it");
+      await noAccess(sdk.disconnectMetaLeadConnection, {organizationId: f.orgA, id: connectionA, actorUid: "admin-a"});
+      assert.equal((await noAccess(sdk.metaLeadConnectionSecret, {organizationId: f.orgA, id: connectionA})).connection ?? null, null);
+      const leftovers = await noAccess(sdk.findMetaLeadForm, {organizationId: f.orgA, metaFormId});
+      assert.equal(leftovers.form ?? null, null, "its forms were removed");
+      assert.ok(leftovers.source, "its lead source stays (leads keep their source)");
+      assert.equal((await noAccess(sdk.metaLeadConnectionForPage, {pageId: pageA})).connections.length, 0, "the Page can be connected again, by any company");
+    });
   });
 }

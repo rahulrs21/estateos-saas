@@ -2559,6 +2559,17 @@ export interface Developer_Key {
   __typename?: 'Developer_Key';
 }
 
+export interface DisconnectMetaLeadConnectionData {
+  metaLeadConnection_delete?: MetaLeadConnection_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface DisconnectMetaLeadConnectionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+}
+
 export interface DismissPendingWebsiteEnquiryData {
   pending?: PendingWebsiteEnquiry_Key | null;
   audit: AuditLog_Key;
@@ -7954,6 +7965,15 @@ export interface MarkInAppNotificationReadVariables {
   notificationId: UUIDString;
 }
 
+export interface MarkMetaLeadConnectionPolledData {
+  metaLeadConnection_update?: MetaLeadConnection_Key | null;
+}
+
+export interface MarkMetaLeadConnectionPolledVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
 export interface MarkPendingWebsiteEnquiryRecoveredData {
   pending?: PendingWebsiteEnquiry_Key | null;
   audit: AuditLog_Key;
@@ -8008,6 +8028,19 @@ export interface MetaLeadConnection_Key {
   __typename?: 'MetaLeadConnection_Key';
 }
 
+export interface MetaLeadConnectionsDueData {
+  connections: ({
+    organizationId: UUIDString;
+    id: UUIDString;
+    lastPolledAt?: TimestampString | null;
+  } & MetaLeadConnection_Key)[];
+}
+
+export interface MetaLeadConnectionsDueVariables {
+  dueBefore: TimestampString;
+  limit: number;
+}
+
 export interface MetaLeadEventContextData {
   event?: {
     id: UUIDString;
@@ -8041,6 +8074,47 @@ export interface MetaLeadForm_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'MetaLeadForm_Key';
+}
+
+export interface MetaLeadOverviewData {
+  actor?: {
+    role: MembershipRole;
+  };
+  connections: ({
+    id: UUIDString;
+    pageId: string;
+    pageName: string;
+    status: MetaLeadConnectionStatus;
+    lastErrorCode?: string | null;
+    lastLeadAt?: TimestampString | null;
+    lastPolledAt?: TimestampString | null;
+    subscribedAt?: TimestampString | null;
+    createdAt: TimestampString;
+    connectedBy: {
+      displayName: string;
+    };
+    forms: ({
+      id: UUIDString;
+      metaFormId: string;
+      name: string;
+      enabled: boolean;
+      lastLeadAt?: TimestampString | null;
+    })[];
+  })[];
+  recentFailures: ({
+    id: UUIDString;
+    connectionId: UUIDString;
+    leadgenId: string;
+    status: MetaLeadEventStatus;
+    errorCode?: string | null;
+    attempts: number;
+    receivedAt: TimestampString;
+  })[];
+}
+
+export interface MetaLeadOverviewVariables {
+  organizationId: UUIDString;
+  actorUid: string;
 }
 
 export interface MoveLeadStageData {
@@ -8270,6 +8344,21 @@ export interface QueueManualAutomationRunVariables {
 export interface RateLimitCounter_Key {
   bucketKey: string;
   __typename?: 'RateLimitCounter_Key';
+}
+
+export interface ReconnectMetaLeadConnectionData {
+  metaLeadConnection_update?: MetaLeadConnection_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface ReconnectMetaLeadConnectionVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  pageId: string;
+  pageName: string;
+  tokenCiphertext: string;
+  tokenKeyId: string;
 }
 
 export interface RecordAiSalesInsightData {
@@ -10764,6 +10853,31 @@ export function pendingMetaLeadEvents(vars: PendingMetaLeadEventsVariables, opti
 export function captureMetaLeadAd(dc: DataConnect, vars: CaptureMetaLeadAdVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CaptureMetaLeadAdData>>;
 /** Generated Node Admin SDK operation action function for the 'CaptureMetaLeadAd' Mutation. Allow users to pass in custom DataConnect instances. */
 export function captureMetaLeadAd(vars: CaptureMetaLeadAdVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CaptureMetaLeadAdData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MetaLeadOverview' Query. Allow users to execute without passing in DataConnect. */
+export function metaLeadOverview(dc: DataConnect, vars: MetaLeadOverviewVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaLeadOverviewData>>;
+/** Generated Node Admin SDK operation action function for the 'MetaLeadOverview' Query. Allow users to pass in custom DataConnect instances. */
+export function metaLeadOverview(vars: MetaLeadOverviewVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaLeadOverviewData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ReconnectMetaLeadConnection' Mutation. Allow users to execute without passing in DataConnect. */
+export function reconnectMetaLeadConnection(dc: DataConnect, vars: ReconnectMetaLeadConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReconnectMetaLeadConnectionData>>;
+/** Generated Node Admin SDK operation action function for the 'ReconnectMetaLeadConnection' Mutation. Allow users to pass in custom DataConnect instances. */
+export function reconnectMetaLeadConnection(vars: ReconnectMetaLeadConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ReconnectMetaLeadConnectionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DisconnectMetaLeadConnection' Mutation. Allow users to execute without passing in DataConnect. */
+export function disconnectMetaLeadConnection(dc: DataConnect, vars: DisconnectMetaLeadConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DisconnectMetaLeadConnectionData>>;
+/** Generated Node Admin SDK operation action function for the 'DisconnectMetaLeadConnection' Mutation. Allow users to pass in custom DataConnect instances. */
+export function disconnectMetaLeadConnection(vars: DisconnectMetaLeadConnectionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DisconnectMetaLeadConnectionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MetaLeadConnectionsDue' Query. Allow users to execute without passing in DataConnect. */
+export function metaLeadConnectionsDue(dc: DataConnect, vars: MetaLeadConnectionsDueVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaLeadConnectionsDueData>>;
+/** Generated Node Admin SDK operation action function for the 'MetaLeadConnectionsDue' Query. Allow users to pass in custom DataConnect instances. */
+export function metaLeadConnectionsDue(vars: MetaLeadConnectionsDueVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaLeadConnectionsDueData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MarkMetaLeadConnectionPolled' Mutation. Allow users to execute without passing in DataConnect. */
+export function markMetaLeadConnectionPolled(dc: DataConnect, vars: MarkMetaLeadConnectionPolledVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkMetaLeadConnectionPolledData>>;
+/** Generated Node Admin SDK operation action function for the 'MarkMetaLeadConnectionPolled' Mutation. Allow users to pass in custom DataConnect instances. */
+export function markMetaLeadConnectionPolled(vars: MarkMetaLeadConnectionPolledVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkMetaLeadConnectionPolledData>>;
 
 /** Generated Node Admin SDK operation action function for the 'GetLeadPropertyContext' Query. Allow users to execute without passing in DataConnect. */
 export function getLeadPropertyContext(dc: DataConnect, vars: GetLeadPropertyContextVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetLeadPropertyContextData>>;

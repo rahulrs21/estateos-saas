@@ -23,6 +23,8 @@ type MetaLeadConnection @table(key: ["organization", "id"])
   connectedBy: UserProfile!
   subscribedAt: Timestamp
   lastLeadAt: Timestamp
+  # When EstateOS last read the Page's forms for new leads itself (the safety net beside webhooks; Phase 7D.2).
+  lastPolledAt: Timestamp
   # A short code, never a message from Meta or personal data.
   lastErrorCode: String @col(dataType: "varchar(64)")
   revision: Int! @default(value: 0)

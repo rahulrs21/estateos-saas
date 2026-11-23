@@ -7,7 +7,7 @@ import { openSecret } from "@/modules/inbox/vault";
 import { eventRetry } from "@/modules/inbox/policy";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { WorkspaceError, mapWorkspaceDataError } from "@/modules/organizations/server/errors";
-import { leadMetadata, mapMetaLead, parseFieldMapping, parseQuestions, type LeadgenChange, type MetaLead } from "../meta";
+import { leadMetadata, mapMetaLead, parseFieldMapping, parseQuestions, type LeadgenChange, type MetaLead, type MetaQuestion } from "../meta";
 import { fetchMetaForm, fetchMetaLead, MetaGraphError } from "./graph";
 import { pageTokenBinding } from "./secrets";
 
@@ -70,11 +70,11 @@ async function setOutcome(dc: Handle, organizationId: string, eventId: string, a
 
 const sourceName = (name: string, metaFormId: string) => `Meta - ${name.slice(0, 90)} - ${metaFormId.slice(-6)}`.slice(0, 120);
 
-/** The form's settings, registering the form (and its lead source) the first time one of its leads arrives. */
-async function formFor(dc: Handle, organizationId: string, connectionId: string, metaFormId: string, token: string) {
+/** The form's settings, registering the form (and its lead source) the first time one of its leads arrives, or when a Page's forms are listed. */
+export async function formFor(dc: Handle, organizationId: string, connectionId: string, metaFormId: string, token: string, known?: {name: string | null; questions: MetaQuestion[]}) {
   const found = await read(() => sdk.findMetaLeadForm(dc, {organizationId, metaFormId}));
   if (found.form) return found.form;
-  const details = await fetchMetaForm(metaFormId, token);
+  const details = known ?? await fetchMetaForm(metaFormId, token);
   const name = details.name ?? `Form ${metaFormId}`;
   try {
     await sdk.registerMetaLeadForm(dc, {
@@ -90,6 +90,12 @@ async function formFor(dc: Handle, organizationId: string, connectionId: string,
   return registered.form;
 }
 
+/** The Page's token, or null if it cannot be read (no key, or a value not sealed for this company and connection). */
+export function connectionToken(organizationId: string, connectionId: string, row: {tokenCiphertext?: string | null; tokenKeyId?: string | null}) {
+  try { return openSecret(row.tokenCiphertext, row.tokenKeyId, pageTokenBinding(organizationId, connectionId)); }
+  catch { return null; }
+}
+
 /** Processes one recorded event. Safe to call more than once: a processed event is left alone. */
 export async function processMetaLeadEvent(organizationId: string, eventId: string, dc: Handle = serverDataConnect()): Promise<MetaEventOutcome> {
   const event = (await read(() => sdk.metaLeadEventContext(dc, {organizationId, eventId}))).event;
@@ -99,9 +105,8 @@ export async function processMetaLeadEvent(organizationId: string, eventId: stri
   const connection = (await read(() => sdk.metaLeadConnectionSecret(dc, {organizationId, id: connectionId}))).connection;
   if (!connection) return setOutcome(dc, organizationId, eventId, event.attempts, {status: "DEAD", errorCode: "META_CONNECTION_REMOVED"});
 
-  let token: string;
-  try { token = openSecret(connection.tokenCiphertext, connection.tokenKeyId, pageTokenBinding(organizationId, connectionId)); }
-  catch {
+  const token = connectionToken(organizationId, connectionId, connection);
+  if (!token) {
     await read(() => sdk.setMetaLeadConnectionStatus(dc, {organizationId, id: connectionId, status: sdk.MetaLeadConnectionStatus.NEEDS_RECONNECT, errorCode: "META_TOKEN_UNAVAILABLE"}));
     return setOutcome(dc, organizationId, eventId, event.attempts, {status: "FAILED", errorCode: "META_TOKEN_UNAVAILABLE"});
   }

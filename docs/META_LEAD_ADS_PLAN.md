@@ -1,6 +1,6 @@
 # Phase 7D: Meta Lead Ads (plan)
 
-Status: **7D.1 built locally** (data and webhook core, below). Not deployed: staging needs the database deploy and one secret first. 7D.2 to 7D.5 are not built.
+Status: **7D.1** (data and webhook core) is live on staging. **7D.2** (connecting Pages, the settings screen, the 15-minute check and Import recent leads) is built and tested locally. 7D.3 to 7D.5 are not built. The 15-minute check and **Import recent leads**, planned for 7D.5, moved into 7D.2, because Meta sends no real webhooks while the app is unpublished.
 
 ## Built in 7D.1
 
@@ -31,10 +31,46 @@ Status: **7D.1 built locally** (data and webhook core, below). Not deployed: sta
     - failed leads are retried.
   - Inbox end-to-end (`INBOX_E2E_ONLY=lead-ads npm run test:inbox:e2e`): real signed webhooks against the app and a fake Graph API, including a revoked token, a redelivery, a form switched off and a lead with no contact details.
 
+## Built in 7D.2
+
+- **Settings → Meta Lead Ads** (`/settings/meta-lead-ads`, owners and admins only):
+  - connected Pages with their status, forms, last lead and last check;
+  - **Connect Facebook**, **Import recent leads**, **Reconnect** and **Disconnect** (with a confirmation);
+  - leads that could not be imported.
+- **Connecting** (`src/modules/lead-ads/server/connect.ts`):
+  1. `POST /api/lead-ads/meta/connect` sets a sealed, single-use, 10-minute state cookie and opens Facebook's sign-in (`config_id` when `META_LEAD_ADS_LOGIN_CONFIG_ID` is set, otherwise the five permissions as `scope`).
+  2. `GET /api/lead-ads/meta/callback` trusts only that sealed state, because the session cookie is SameSite=strict and isn't sent on Facebook's return. It re-checks the member's role and swaps the code for the person's long-lived token with the app secret.
+  3. For every Page shared in Facebook's window, it seals the Page token for its connection, subscribes the Page (`leadgen`) and imports the last 7 days.
+  - Pages that another company already uses are skipped.
+  - The person's own token is never stored.
+- **The safety net** (`server/poll.ts`):
+  - every 15 minutes the worker reads each connected Page's active forms and their recent leads;
+  - **Import recent leads** does the same for the last 7 days;
+  - both work while the Meta app is unpublished, when Meta sends no real webhooks;
+  - leads are recorded once, so a webhook, a check and an import never create two leads.
+- **Disconnecting:** asks Meta to stop the Page's notifications, deletes the connection and its form settings, and keeps the leads and their lead source.
+- **Database:**
+  - one new column, `MetaLeadConnection.lastPolledAt`;
+  - operations `MetaLeadOverview`, `ReconnectMetaLeadConnection`, `DisconnectMetaLeadConnection`, `MetaLeadConnectionsDue` and `MarkMetaLeadConnectionPolled`.
+- **Tests:**
+  - the SQL Connect cases cover roles, reconnecting the same Page only, disconnecting with its forms, and the due list;
+  - the inbox end-to-end suite runs the whole flow in a browser against a fake Facebook sign-in and Graph API: connect, a Page another company already uses, import, the worker's check, a cancelled sign-in, a forged return, and disconnect.
+
+**Owner steps for 7D.2 (Meta app EstateOS RE):**
+1. Facebook Login for Business → **Settings** → Valid OAuth Redirect URIs: add `https://<staging>/api/lead-ads/meta/callback`.
+2. Facebook Login for Business → **Configurations** → create one for Lead Ads:
+   - token type: user access token;
+   - assets: Pages;
+   - permissions: the five listed below.
+
+   Set its ID as `META_LEAD_ADS_LOGIN_CONFIG_ID`. It's a plain value, not a secret.
+
 **Server settings:**
 - `META_LEAD_ADS_VERIFY_TOKEN`: new, at least 16 random characters, a secret on hosted servers.
 - The app secret: `META_APP_SECRET`, or `INBOX_WHATSAPP_APP_SECRET` (the same Meta app) if it is not set.
-- Test-only, ignored in production: `META_GRAPH_BASE`. Optional: `META_GRAPH_VERSION`.
+- The app ID: `META_APP_ID`, or `INBOX_META_APP_ID` (the same Meta app) if it is not set.
+- `META_LEAD_ADS_LOGIN_CONFIG_ID`: the Login for Business configuration (optional; without it the permissions are asked for as `scope`).
+- Test-only, ignored in production: `META_GRAPH_BASE` and `META_OAUTH_BASE`. Optional: `META_GRAPH_VERSION`.
 - Without the verify token the subscription check answers 503; without the app secret the webhook does too.
 
 ## Goal

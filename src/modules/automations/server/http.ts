@@ -19,6 +19,7 @@ import { applyInboxRetention } from "@/modules/inbox/server/retention";
 import { syncMailboxes } from "@/modules/inbox/server/mail-sync";
 import { fetchPendingWhatsAppMedia } from "@/modules/inbox/server/whatsapp-media";
 import { retryMetaLeadEvents } from "@/modules/lead-ads/server/process";
+import { pollDueConnections } from "@/modules/lead-ads/server/poll";
 import { generateWorkflowDraft } from "./generate";
 import { completeWorkTask, listMyTasks } from "./tasks";
 import {
@@ -169,6 +170,11 @@ export async function tickResponse(request: Request) {
       console.error(JSON.stringify({event: "lead_ads.retry_failed", name: error instanceof Error ? error.name : typeof error}));
       return null;
     });
+    // The safety net beside Meta's webhooks: connected Pages' forms are read for new leads every 15 minutes.
+    const metaPolls = await pollDueConnections().catch(error => {
+      console.error(JSON.stringify({event: "lead_ads.poll_failed", name: error instanceof Error ? error.name : typeof error}));
+      return null;
+    });
     const result = await runAutomationTick();
     if (result.errors.length) console.error(JSON.stringify({event: "automations.tick_errors", count: result.errors.length, first: result.errors[0]?.slice(0, 600)}));
     // The same worker removes call recordings and transcripts past retention (docs/CALL_PRIVACY_COMPLIANCE.md#retention); its failure never fails the automation tick.
@@ -181,7 +187,7 @@ export async function tickResponse(request: Request) {
       console.error(JSON.stringify({event: "inbox.retention_failed", name: error instanceof Error ? error.name : typeof error}));
       return null;
     });
-    return Response.json({data: {...result, errors: result.errors.length, communications, inbox, inboxRetention, mailboxes, media, metaLeads}}, {headers: {"Cache-Control": "no-store"}});
+    return Response.json({data: {...result, errors: result.errors.length, communications, inbox, inboxRetention, mailboxes, media, metaLeads, metaPolls}}, {headers: {"Cache-Control": "no-store"}});
   } catch (error) {
     console.error(JSON.stringify({event: "automations.tick_failed", name: error instanceof Error ? error.name : typeof error, detail: error instanceof Error ? error.message.slice(0, 200) : undefined}));
     return Response.json({error: {code: "TICK_FAILED", message: "The automation tick failed; it will be retried."}}, {status: 503});
