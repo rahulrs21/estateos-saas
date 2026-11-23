@@ -164,6 +164,7 @@ try {
   await evaluate(`(()=>{const e=document.querySelector('[role="dialog"] input[id$="-form-name"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Browser launch form');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
   await click('[data-testid="lead-form-save"]');
   await waitFor(`!document.querySelector('[role="dialog"]')`, "the saved lead form panel to close");
+  await waitFor(`[...document.querySelectorAll('[data-sonner-toast]')].some(e=>e.textContent.includes('Lead form created.'))`, "the visible confirmation toast");
   let formRequest = (await fixtureState()).requests.findLast(row => row.path === "lead-capture/forms");
   assert.equal(formRequest?.method, "POST");
   assert.equal(formRequest.body.name, "Browser launch form");
