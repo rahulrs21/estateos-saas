@@ -1,0 +1,84 @@
+# Phase 7D: Meta Lead Ads (docs/META_LEAD_ADS_PLAN.md).
+# Additive tables only. A company connects its Facebook Pages; Meta's signed "leadgen" webhooks name a Page,
+# and the lead goes to the ONE company that connected it (pageId is unique across all companies, so a Page can
+# never feed two companies). Page access tokens are encrypted by the server (AES-256-GCM, bound to the company
+# and the connection); no query returns them.
+
+enum MetaLeadConnectionStatus { ACTIVE NEEDS_RECONNECT }
+enum MetaLeadEventStatus { RECEIVED PROCESSED DUPLICATE FAILED DEAD IGNORED }
+
+type MetaLeadConnection @table(key: ["organization", "id"])
+  @unique(fields: ["pageId"])
+  @index(fields: ["organizationId", "createdAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  # Facebook Page ID (digits).
+  pageId: String! @col(dataType: "varchar(40)")
+  pageName: String! @col(dataType: "varchar(200)")
+  status: MetaLeadConnectionStatus! @default(value: ACTIVE)
+  tokenCiphertext: String @col(dataType: "varchar(4096)")
+  tokenKeyId: String @col(dataType: "varchar(16)")
+  # The owner or administrator who connected the Page; imported leads and their activity are recorded as theirs.
+  connectedBy: UserProfile!
+  subscribedAt: Timestamp
+  lastLeadAt: Timestamp
+  # A short code, never a message from Meta or personal data.
+  lastErrorCode: String @col(dataType: "varchar(64)")
+  revision: Int! @default(value: 0)
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# A Meta instant form, registered when its first lead arrives (or when the Page is connected).
+type MetaLeadForm @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "metaFormId"])
+  @index(fields: ["organizationId", "connectionId"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  connectionId: UUID!
+  connection: MetaLeadConnection! @ref(fields: ["organizationId", "connectionId"], references: ["organizationId", "id"])
+  metaFormId: String! @col(dataType: "varchar(40)")
+  name: String! @col(dataType: "varchar(200)")
+  # Off: new leads from this form are recorded as ignored, not imported.
+  enabled: Boolean! @default(value: true)
+  sourceId: UUID!
+  source: LeadSource! @ref(fields: ["organizationId", "sourceId"], references: ["organizationId", "id"])
+  branchId: UUID
+  branch: Branch @ref(fields: ["organizationId", "branchId"], references: ["organizationId", "id"])
+  # The form's questions as Meta lists them ([{key, label, type}]), used to label answers.
+  questions: Any
+  # Which custom question fills which lead field ({budget: "question_key", ...}); validated by the server.
+  fieldMapping: Any
+  lastLeadAt: Timestamp
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# One lead notification from Meta, recorded once per company (leadgenId is unique), so webhook retries, the
+# safety-net poll and manual imports can never create a second lead.
+type MetaLeadEvent @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "leadgenId"])
+  @index(fields: ["status", "nextAttemptAt"])
+  @index(fields: ["organizationId", "receivedAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  connectionId: UUID!
+  leadgenId: String! @col(dataType: "varchar(40)")
+  pageId: String! @col(dataType: "varchar(40)")
+  metaFormId: String @col(dataType: "varchar(40)")
+  adId: String @col(dataType: "varchar(40)")
+  adGroupId: String @col(dataType: "varchar(40)")
+  metaCreatedAt: Timestamp
+  # WEBHOOK, POLL, IMPORT or SIMULATED (development only).
+  origin: String! @default(value: "WEBHOOK") @col(dataType: "varchar(16)")
+  status: MetaLeadEventStatus! @default(value: RECEIVED)
+  attempts: Int! @default(value: 0)
+  nextAttemptAt: Timestamp
+  errorCode: String @col(dataType: "varchar(64)")
+  leadId: UUID
+  receivedAt: Timestamp! @default(expr: "request.time")
+  processedAt: Timestamp
+}

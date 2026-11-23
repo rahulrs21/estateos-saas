@@ -14,7 +14,7 @@ import { validateInput } from "@/modules/organizations/server/validation";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { assertExpectedOrganization } from "@/modules/leads/server/request-policy";
 import { normalizePhone } from "@/modules/leads/normalization";
-import { buildDistributionPlan, type DistributionAgent, type DistributionRulePolicy } from "@/modules/leads/distribution/policy";
+import { matchSingleContact, planAutoAssignment } from "./intake";
 import { captureFormSchema, type CaptureFormInput } from "../validation";
 
 function adminDataConnect() {
@@ -176,41 +176,9 @@ async function ingestSubmission(dc: ReturnType<typeof adminDataConnect>, form: R
   const formId = canonicalUuid(form.id);
   const phone = normalizePhone(parsed.phone);
   const normalizedEmail = parsed.email?.toLowerCase() ?? null;
-  const contacts = await noAccessOperation(() => sdk.findWebsiteLeadCaptureContact(dc, {
-    organizationId, normalizedEmail, normalizedPhone: phone.normalizedPhone,
-  }));
   // Exact single matches may be associated. Ambiguous candidates are never merged.
-  const existingContactId = contacts.contacts.length === 1 ? canonicalUuid(contacts.contacts[0].id) : null;
-  const ruleData = await noAccessOperation(() => sdk.getWebsiteLeadDistributionPlan(dc, { organizationId }));
-  const agents: DistributionAgent[] = ruleData.eligibleAgents.map((agent) => ({
-    id: canonicalUuid(agent.id), role: agent.role, status: agent.status, userProfileUid: agent.userProfileUid ?? null,
-    availability: agent.agentAvailability_on_membership ? {
-      status: agent.agentAvailability_on_membership.status,
-      unavailableUntil: agent.agentAvailability_on_membership.unavailableUntil ?? null,
-    } : null,
-  }));
-  const rule = ruleData.rule;
-  let assignedMembershipId: string | null = null;
-  let hasDistributionAttempt = false;
-  let distributionRuleId: string | null = null;
-  let expectedCursorVersion: number | null = null;
-  if (rule) {
-    const policy: DistributionRulePolicy = {
-      enabled: rule.enabled, mode: rule.mode, branchId: rule.branchId ?? null, projectId: rule.projectId ?? null,
-      skipUnavailable: rule.skipUnavailable, businessHoursEnabled: rule.businessHoursEnabled,
-      timeZone: rule.timeZone, businessDaysMask: rule.businessDaysMask, businessStart: rule.businessStart, businessEnd: rule.businessEnd,
-    };
-    const plan = buildDistributionPlan({
-      rule: policy, lead: { branchId: form.branchId ?? null, projectId: form.projectId ?? null }, agents,
-      lastMembershipId: rule.cursor?.lastMembershipId ? canonicalUuid(rule.cursor.lastMembershipId) : null,
-    });
-    if (plan.attempted) {
-      hasDistributionAttempt = true;
-      distributionRuleId = canonicalUuid(rule.id);
-      assignedMembershipId = plan.membershipId ? canonicalUuid(plan.membershipId) : null;
-      expectedCursorVersion = rule.cursor?.version ?? null;
-    }
-  }
+  const existingContactId = await matchSingleContact(dc, organizationId, normalizedEmail, phone.normalizedPhone);
+  const {assignedMembershipId, hasDistributionAttempt, distributionRuleId, expectedCursorVersion} = await planAutoAssignment(dc, organizationId, {branchId: form.branchId ?? null, projectId: form.projectId ?? null});
 
   // A landing page records its own URL (server-built, never the browser's) and,
   // when the visitor did not describe their interest, the page's property or project.

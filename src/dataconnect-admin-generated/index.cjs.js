@@ -122,6 +122,10 @@ const ActivityKind = {
   INBOX_SETTINGS_UPDATED: "INBOX_SETTINGS_UPDATED",
   INBOX_ATTACHMENT_ACCESSED: "INBOX_ATTACHMENT_ACCESSED",
   INBOX_AI_GENERATED: "INBOX_AI_GENERATED",
+  AD_LEAD_CAPTURED: "AD_LEAD_CAPTURED",
+  META_LEAD_PAGE_CONNECTED: "META_LEAD_PAGE_CONNECTED",
+  META_LEAD_PAGE_DISCONNECTED: "META_LEAD_PAGE_DISCONNECTED",
+  META_LEAD_FORM_UPDATED: "META_LEAD_FORM_UPDATED",
 }
 exports.ActivityKind = ActivityKind;
 
@@ -265,6 +269,8 @@ const AuditTargetType = {
   CONVERSATION: "CONVERSATION",
   CHANNEL_CONNECTION: "CHANNEL_CONNECTION",
   OUTBOUND_MESSAGE: "OUTBOUND_MESSAGE",
+  META_LEAD_CONNECTION: "META_LEAD_CONNECTION",
+  META_LEAD_FORM: "META_LEAD_FORM",
 }
 exports.AuditTargetType = AuditTargetType;
 
@@ -612,6 +618,7 @@ const LeadSourceType = {
   WEBSITE: "WEBSITE",
   PORTAL: "PORTAL",
   OTHER: "OTHER",
+  META_LEAD_ADS: "META_LEAD_ADS",
 }
 exports.LeadSourceType = LeadSourceType;
 
@@ -729,6 +736,22 @@ const MembershipStatus = {
   REMOVED: "REMOVED",
 }
 exports.MembershipStatus = MembershipStatus;
+
+const MetaLeadConnectionStatus = {
+  ACTIVE: "ACTIVE",
+  NEEDS_RECONNECT: "NEEDS_RECONNECT",
+}
+exports.MetaLeadConnectionStatus = MetaLeadConnectionStatus;
+
+const MetaLeadEventStatus = {
+  RECEIVED: "RECEIVED",
+  PROCESSED: "PROCESSED",
+  DUPLICATE: "DUPLICATE",
+  FAILED: "FAILED",
+  DEAD: "DEAD",
+  IGNORED: "IGNORED",
+}
+exports.MetaLeadEventStatus = MetaLeadEventStatus;
 
 const NotificationAudience = {
   MEMBER: "MEMBER",
@@ -2071,6 +2094,83 @@ function listPaymentPlans(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeQuery('ListPaymentPlans', inputVars, inputOpts);
 }
 exports.listPaymentPlans = listPaymentPlans;
+
+function metaLeadConnectionForPage(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaLeadConnectionForPage', inputVars, inputOpts);
+}
+exports.metaLeadConnectionForPage = metaLeadConnectionForPage;
+
+function createMetaLeadConnection(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateMetaLeadConnection', inputVars, inputOpts);
+}
+exports.createMetaLeadConnection = createMetaLeadConnection;
+
+function setMetaLeadConnectionStatus(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetMetaLeadConnectionStatus', inputVars, inputOpts);
+}
+exports.setMetaLeadConnectionStatus = setMetaLeadConnectionStatus;
+
+function recordMetaLeadEvent(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RecordMetaLeadEvent', inputVars, inputOpts);
+}
+exports.recordMetaLeadEvent = recordMetaLeadEvent;
+
+function metaLeadEventContext(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaLeadEventContext', inputVars, inputOpts);
+}
+exports.metaLeadEventContext = metaLeadEventContext;
+
+function metaLeadConnectionSecret(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaLeadConnectionSecret', inputVars, inputOpts);
+}
+exports.metaLeadConnectionSecret = metaLeadConnectionSecret;
+
+function findMetaLeadForm(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('FindMetaLeadForm', inputVars, inputOpts);
+}
+exports.findMetaLeadForm = findMetaLeadForm;
+
+function registerMetaLeadForm(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RegisterMetaLeadForm', inputVars, inputOpts);
+}
+exports.registerMetaLeadForm = registerMetaLeadForm;
+
+function setMetaLeadEventOutcome(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SetMetaLeadEventOutcome', inputVars, inputOpts);
+}
+exports.setMetaLeadEventOutcome = setMetaLeadEventOutcome;
+
+function pendingMetaLeadEvents(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('PendingMetaLeadEvents', inputVars, inputOpts);
+}
+exports.pendingMetaLeadEvents = pendingMetaLeadEvents;
+
+function captureMetaLeadAd(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CaptureMetaLeadAd', inputVars, inputOpts);
+}
+exports.captureMetaLeadAd = captureMetaLeadAd;
 
 function getLeadPropertyContext(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);

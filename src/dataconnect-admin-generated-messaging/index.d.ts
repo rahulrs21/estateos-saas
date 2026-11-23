@@ -65,6 +65,8 @@ export enum AuditTargetType {
   CONVERSATION = "CONVERSATION",
   CHANNEL_CONNECTION = "CHANNEL_CONNECTION",
   OUTBOUND_MESSAGE = "OUTBOUND_MESSAGE",
+  META_LEAD_CONNECTION = "META_LEAD_CONNECTION",
+  META_LEAD_FORM = "META_LEAD_FORM",
 }
 export enum CallConsentStatus {
   NOTICE_GIVEN = "NOTICE_GIVEN",
@@ -3793,6 +3795,24 @@ export interface Membership_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'Membership_Key';
+}
+
+export interface MetaLeadConnection_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'MetaLeadConnection_Key';
+}
+
+export interface MetaLeadEvent_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'MetaLeadEvent_Key';
+}
+
+export interface MetaLeadForm_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'MetaLeadForm_Key';
 }
 
 export interface OpenInboxAttachmentData {

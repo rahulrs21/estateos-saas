@@ -1,0 +1,122 @@
+# Phase 7D: Meta Lead Ads (docs/META_LEAD_ADS_PLAN.md).
+# Every operation here is server-only (NO_ACCESS). The company always comes from a stored connection that the
+# server found by the Page in a signature-verified webhook, never from Meta's payload or a browser. Operations
+# that act for a person take the uid the server verified from the session and re-check that member's role.
+
+# The connection (if any) that receives a Page's leads. pageId is unique across companies, so at most one row.
+query MetaLeadConnectionForPage($pageId: String!) @auth(level: NO_ACCESS) {
+  connections: metaLeadConnections(where: {pageId: {eq: $pageId}}, limit: 2) {organizationId id pageId status}
+}
+
+# Connects a Page for a company after the server verified the person and Meta's answer (Phase 7D.2), with the
+# Page token already encrypted for this company and connection. An OWNER or ADMIN only. A Page another company
+# uses is refused by the unique pageId.
+mutation CreateMetaLeadConnection($organizationId: UUID!, $id: UUID!, $actorUid: String!, $pageId: String!, $pageName: String!, $tokenCiphertext: String!, $tokenKeyId: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}})
+      @check(expr: "this != null && this.role in ['OWNER', 'ADMIN'] && vars.pageId.matches('^[0-9]{5,30}$') && vars.pageName.size() >= 1 && vars.pageName.size() <= 200", message: "META_LEAD_CONNECT_NOT_ALLOWED") {role}
+  }
+  connection: metaLeadConnection_insert(data: {organizationId: $organizationId, id: $id, pageId: $pageId, pageName: $pageName, status: ACTIVE, tokenCiphertext: $tokenCiphertext, tokenKeyId: $tokenKeyId,
+    connectedByUid: $actorUid, subscribedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: META_LEAD_PAGE_CONNECTED, targetType: META_LEAD_CONNECTION, targetId: $id, metadata_expr: "{'pageId': vars.pageId}"})
+}
+
+# Marks a connection as needing a new sign-in (Meta refused its token) or healthy again.
+mutation SetMetaLeadConnectionStatus($organizationId: UUID!, $id: UUID!, $status: MetaLeadConnectionStatus!, $errorCode: String) @auth(level: NO_ACCESS) {
+  metaLeadConnection_update(key: {organizationId: $organizationId, id: $id}, data: {status: $status, lastErrorCode: $errorCode, revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+}
+
+# Records one lead notification once (organizationId + leadgenId is unique: a repeat fails as a duplicate).
+mutation RecordMetaLeadEvent($organizationId: UUID!, $connectionId: UUID!, $pageId: String!, $leadgenId: String!, $metaFormId: String, $adId: String, $adGroupId: String, $metaCreatedAt: Timestamp, $origin: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    connection: metaLeadConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $connectionId}, pageId: {eq: $pageId}}})
+      @check(expr: "this != null && vars.leadgenId.matches('^[0-9]{5,30}$') && vars.origin in ['WEBHOOK', 'POLL', 'IMPORT', 'SIMULATED']", message: "META_LEAD_EVENT_INVALID") {id}
+  }
+  event: metaLeadEvent_insert(data: {organizationId: $organizationId, connectionId: $connectionId, pageId: $pageId, leadgenId: $leadgenId, metaFormId: $metaFormId, adId: $adId, adGroupId: $adGroupId,
+    metaCreatedAt: $metaCreatedAt, origin: $origin, status: RECEIVED})
+}
+
+# What processing one event needs: the event, its connection's encrypted token, and the form if registered.
+query MetaLeadEventContext($organizationId: UUID!, $eventId: UUID!) @auth(level: NO_ACCESS) {
+  event: metaLeadEvent(key: {organizationId: $organizationId, id: $eventId}) {
+    id organizationId connectionId leadgenId pageId metaFormId adId adGroupId metaCreatedAt origin status attempts leadId
+  }
+}
+query MetaLeadConnectionSecret($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  connection: metaLeadConnection(key: {organizationId: $organizationId, id: $id}) {id pageId pageName status tokenCiphertext tokenKeyId connectedByUid}
+}
+query FindMetaLeadForm($organizationId: UUID!, $metaFormId: String!) @auth(level: NO_ACCESS) {
+  form: metaLeadForm(first: {where: {organizationId: {eq: $organizationId}, metaFormId: {eq: $metaFormId}}}) {id connectionId name enabled sourceId branchId questions fieldMapping}
+  source: leadSource(first: {where: {organizationId: {eq: $organizationId}, sourceType: {eq: META_LEAD_ADS}, externalSourceId: {eq: $metaFormId}}}) {id}
+}
+
+# Registers a Meta form for a connection: its lead source ("Meta - name - id", kept if the Page is reconnected) and settings.
+mutation RegisterMetaLeadForm($organizationId: UUID!, $connectionId: UUID!, $metaFormId: String!, $name: String!, $sourceName: String!, $questions: Any, $existingSourceId: UUID, $hasExistingSource: Boolean!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    connection: metaLeadConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $connectionId}}})
+      @check(expr: "this != null && vars.metaFormId.matches('^[0-9]{5,30}$') && vars.name.size() >= 1 && vars.name.size() <= 200 && vars.sourceName.size() <= 120", message: "META_LEAD_FORM_INVALID") {id}
+    existingSource: leadSource(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $existingSourceId}, sourceType: {eq: META_LEAD_ADS}, externalSourceId: {eq: $metaFormId}}})
+      @check(expr: "!vars.hasExistingSource || this != null", message: "META_LEAD_SOURCE_CHANGED") {id}
+  }
+  source: leadSource_insert(data: {organizationId: $organizationId, name: $sourceName, sourceType: META_LEAD_ADS, externalSourceId: $metaFormId}) @skip(if: $hasExistingSource)
+  form: metaLeadForm_insert(data: {organizationId: $organizationId, connectionId: $connectionId, metaFormId: $metaFormId, name: $name, enabled: true, questions: $questions,
+    sourceId_expr: "vars.hasExistingSource ? vars.existingSourceId : response.source.id"})
+}
+
+# A processing outcome other than a created lead (failed and scheduled for retry, dead, ignored or duplicate).
+# A processed event is never changed again.
+mutation SetMetaLeadEventOutcome($organizationId: UUID!, $id: UUID!, $status: MetaLeadEventStatus!, $errorCode: String, $nextAttemptAt: Timestamp) @auth(level: NO_ACCESS) {
+  metaLeadEvent_updateMany(where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {ne: PROCESSED}}, data: {status: $status, errorCode: $errorCode, nextAttemptAt: $nextAttemptAt,
+    attempts_update: {inc: 1}, processedAt_expr: "request.time"})
+}
+
+# Events to retry: failed ones whose time has come, and received ones never processed (the server stopped mid-way).
+query PendingMetaLeadEvents($now: Timestamp!, $staleBefore: Timestamp!, $limit: Int!) @auth(level: NO_ACCESS) {
+  events: metaLeadEvents(where: {_or: [{status: {eq: FAILED}, nextAttemptAt: {le: $now}}, {status: {eq: RECEIVED}, receivedAt: {lt: $staleBefore}}]}, orderBy: [{receivedAt: ASC}], limit: $limit) {
+    organizationId id attempts
+  }
+}
+
+# Creates the lead for one Meta lead, atomically: contact (or the one exact match), lead, assignment (round robin
+# like website leads), activity with the answers and ad IDs, audit, notification, workflow events, and the event
+# marked PROCESSED. The event must still be unprocessed, so the same Meta lead can never create two leads.
+mutation CaptureMetaLeadAd($organizationId: UUID!, $eventId: UUID!, $connectionId: UUID!, $formId: UUID!, $fullName: String!, $email: String, $phone: String, $normalizedEmail: String, $normalizedPhone: String,
+  $contactId: UUID, $hasExistingContact: Boolean!, $propertyInterest: String, $preferredLocation: String, $propertyType: String, $transactionType: TransactionType, $budgetMin: Float, $budgetMax: Float,
+  $currency: String!, $bedroomPreference: String, $metadata: Any!, $assignedMembershipId: UUID, $distributionRuleId: UUID, $expectedCursorVersion: Int, $hasAutoAssignment: Boolean!,
+  $hasDistributionAttempt: Boolean!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    connection: metaLeadConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $connectionId}}}) @check(expr: "this != null", message: "META_LEAD_CONNECTION_UNAVAILABLE") {connectedByUid}
+    form: metaLeadForm(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $formId}, connectionId: {eq: $connectionId}, enabled: {eq: true}}})
+      @check(expr: "this != null && vars.fullName.size() >= 2 && vars.fullName.size() <= 160 && ((has(vars.email) && vars.email != null) || (has(vars.phone) && vars.phone != null)) && (!has(vars.normalizedPhone) || vars.normalizedPhone == null || vars.normalizedPhone.matches('^[+][1-9][0-9]{6,14}$'))", message: "META_LEAD_FORM_UNAVAILABLE_OR_INVALID") {sourceId branchId}
+    event: metaLeadEvent(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $eventId}, connectionId: {eq: $connectionId}, status: {in: [RECEIVED, FAILED]}, leadId: {isNull: true}}})
+      @check(expr: "this != null", message: "META_LEAD_EVENT_ALREADY_HANDLED") {id}
+    pipeline: pipeline(first: {where: {organizationId: {eq: $organizationId}, isDefault: {eq: true}, isActive: {eq: true}}}) @check(expr: "this != null", message: "ACTIVE_PIPELINE_UNAVAILABLE") {id}
+  }
+  sourceAndStage: query @redact {
+    source: leadSource(first: {where: {organizationId: {eq: $organizationId}, id: {eq_expr: "response.before.form.sourceId"}, sourceType: {eq: META_LEAD_ADS}}}) @check(expr: "this != null", message: "META_LEAD_SOURCE_UNAVAILABLE") {id}
+    stage: pipelineStage(first: {where: {organizationId: {eq: $organizationId}, pipelineId: {eq_expr: "response.before.pipeline.id"}, status: {eq: NEW}, stageType: {eq: OPEN}}}) @check(expr: "this != null", message: "NEW_LEAD_STAGE_UNAVAILABLE") {id}
+  }
+  contactValidation: query @redact @check(expr: "!vars.hasExistingContact || (this.contact != null && ((has(vars.normalizedEmail) && vars.normalizedEmail != null && this.contact.normalizedEmail == vars.normalizedEmail) || (has(vars.normalizedPhone) && vars.normalizedPhone != null && this.contact.normalizedPhone == vars.normalizedPhone)))", message: "CONTACT_MATCH_CHANGED") {
+    contact: contact(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $contactId}}}) {id normalizedEmail normalizedPhone}
+  }
+  distributionValidation: query @redact @check(expr: "!vars.hasDistributionAttempt || (this.rule != null && (this.rule.branchId == null || (has(response.before.form.branchId) && this.rule.branchId == response.before.form.branchId)) && this.rule.projectId == null && (!vars.hasAutoAssignment || (vars.assignedMembershipId != null && this.cursor != null && this.cursor.version == vars.expectedCursorVersion && this.eligibleAgent != null && (!this.rule.skipUnavailable || this.availability == null || this.availability.status != 'UNAVAILABLE' || (has(this.availability.unavailableUntil) && timestamp(this.availability.unavailableUntil) <= request.time)))))", message: "DISTRIBUTION_RULE_CHANGED") {
+    rule: leadDistributionRule(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $distributionRuleId}, enabled: {eq: true}, mode: {eq: ROUND_ROBIN}}}) {id branchId projectId skipUnavailable}
+    cursor: distributionCursor(first: {where: {organizationId: {eq: $organizationId}, ruleId: {eq: $distributionRuleId}}}) {version}
+    eligibleAgent: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $assignedMembershipId}, role: {eq: AGENT}, status: {eq: ACTIVE}, distributionEligible: {eq: true}, userProfileUid: {isNull: false}}}) {id}
+    availability: agentAvailability(first: {where: {organizationId: {eq: $organizationId}, membershipId: {eq: $assignedMembershipId}}}) {status unavailableUntil}
+  }
+  advanceCursor: distributionCursor_update(first: {where: {organizationId: {eq: $organizationId}, ruleId: {eq: $distributionRuleId}, version: {eq: $expectedCursorVersion}}}, data: {version_update: {inc: 1}, lastMembershipId: $assignedMembershipId, lastAssignedAt_expr: "request.time", updatedAt_expr: "request.time"}) @include(if: $hasAutoAssignment) @check(expr: "this != null", message: "DISTRIBUTION_CURSOR_CHANGED")
+  contact: contact_insert(data: {organizationId: $organizationId, fullName: $fullName, email: $email, normalizedEmail: $normalizedEmail, phone: $phone, normalizedPhone: $normalizedPhone, createdByUid_expr: "response.before.connection.connectedByUid"}) @skip(if: $hasExistingContact)
+  lead: lead_insert(data: {organizationId: $organizationId, contactId_expr: "vars.hasExistingContact ? response.contactValidation.contact.id : response.contact.id", fullName: $fullName, email: $email, phone: $phone, source: "Meta Lead Ads", sourceId_expr: "response.before.form.sourceId", pipelineId_expr: "response.before.pipeline.id", pipelineStageId_expr: "response.sourceAndStage.stage.id", assignedMembershipId: $assignedMembershipId, branchId_expr: "response.before.form.branchId", createdByUid_expr: "response.before.connection.connectedByUid", updatedByUid_expr: "response.before.connection.connectedByUid", status: NEW, propertyInterest: $propertyInterest, preferredLocation: $preferredLocation, propertyType: $propertyType, transactionType: $transactionType, budgetMin: $budgetMin, budgetMax: $budgetMax, currency: $currency, bedroomPreference: $bedroomPreference, priority: NORMAL})
+  assignment: leadAssignmentHistory_insert(data: {organizationId: $organizationId, leadId_expr: "response.lead.id", previousAgentId: null, newAgentId_expr: "has(vars.assignedMembershipId) ? vars.assignedMembershipId : dyn(null)", distributionRuleId_expr: "vars.hasAutoAssignment ? vars.distributionRuleId : dyn(null)", assignedByUid_expr: "response.before.connection.connectedByUid", assignmentType_expr: "vars.hasAutoAssignment ? 'ROUND_ROBIN' : 'INITIAL'", reason: "Meta lead ad"})
+  activity: activity_insert(data: {organizationId: $organizationId, actorUid_expr: "response.before.connection.connectedByUid", kind: AD_LEAD_CAPTURED, leadId_expr: "response.lead.id", targetId_expr: "response.lead.id", metadata: $metadata, newStageId_expr: "response.sourceAndStage.stage.id", pipelineId_expr: "response.before.pipeline.id"})
+  audit: auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "response.before.connection.connectedByUid", action: AD_LEAD_CAPTURED, targetType: LEAD, targetId_expr: "response.lead.id", metadata_expr: "{'eventId': vars.eventId}"})
+  assignedNotification: inAppNotification_insert(data: {organizationId: $organizationId, audience: MEMBER, recipientMembershipId: $assignedMembershipId, leadId_expr: "response.lead.id", type: LEAD_ASSIGNED, title: "New Meta ad lead assigned", body: $fullName, actorUid_expr: "response.before.connection.connectedByUid"}) @include(if: $hasAutoAssignment)
+  unassignedNotification: inAppNotification_insert(data: {organizationId: $organizationId, audience: ADMIN, leadId_expr: "response.lead.id", type: LEAD_UNASSIGNED, title: "New Meta ad lead in the unassigned queue", body: $fullName, actorUid_expr: "response.before.connection.connectedByUid"}) @skip(if: $hasAutoAssignment)
+  # Phase 6E outbox, as for website leads (docs/AUTOMATION_ENGINE.md#events).
+  leadCreatedEvent: automationEvent_insert(data: {organizationId: $organizationId, triggerType: "lead.created", targetType: "LEAD", targetId_expr: "response.lead.id", origin: "META_LEAD_ADS"})
+  leadAssignedEvent: automationEvent_insert(data: {organizationId: $organizationId, triggerType: "lead.assigned", targetType: "LEAD", targetId_expr: "response.lead.id", origin: "META_LEAD_ADS"}) @include(if: $hasAutoAssignment)
+  processed: metaLeadEvent_update(key: {organizationId: $organizationId, id: $eventId}, data: {status: PROCESSED, leadId_expr: "response.lead.id", errorCode: null, nextAttemptAt: null, attempts_update: {inc: 1}, processedAt_expr: "request.time"})
+  formSeen: metaLeadForm_update(key: {organizationId: $organizationId, id: $formId}, data: {lastLeadAt_expr: "request.time", updatedAt_expr: "request.time"})
+  connectionSeen: metaLeadConnection_update(key: {organizationId: $organizationId, id: $connectionId}, data: {lastLeadAt_expr: "request.time", updatedAt_expr: "request.time"})
+}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createCipheriv, createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
-import { localDataConnect } from "../scripts/sql-connect-local.mjs";
+import { localDataConnect, sdk as sqlSdk } from "../scripts/sql-connect-local.mjs";
 import { fixture as f } from "./fixtures/sql-connect-fixtures.mjs";
 
 // Phase 7A unified inbox (7A.1-7A.5) against the real app, real sessions and real SQL Connect authorization.
@@ -96,6 +96,17 @@ const META_APP_ID = "1837000000000099", SIGNUP_CONFIG_ID = "9100000000000099", p
 const SIGNUP_PHONE = "3" + String(Date.now()).slice(-14), SIGNUP_WABA = "4" + String(Date.now()).slice(-14);
 const signupCode = "e2e-signup-code-" + randomBytes(8).toString("hex"), signupToken = "e2e-business-token-" + randomBytes(12).toString("hex");
 const graphRequests = [];
+// Phase 7D: Meta Lead Ads on the same fake Graph API: a test Page's token, one whose access Meta revoked, and the leads and forms it serves.
+const META_PAGE = "5" + String(Date.now()).slice(-14), META_REVOKED_PAGE = "6" + String(Date.now()).slice(-14), META_FORM = "7" + String(Date.now()).slice(-14), META_REVOKED_FORM = "7" + String(Date.now()).slice(-13) + "2";
+const metaPageToken = "e2e-meta-page-token-" + randomBytes(12).toString("hex"), metaRevokedToken = "e2e-meta-revoked-token-" + randomBytes(12).toString("hex");
+const metaVerify = "e2e-meta-verify-" + randomBytes(10).toString("hex");
+const vaultKey = randomBytes(32);
+const metaLeads = new Map();
+const metaForms = new Map([[META_FORM, {id: META_FORM, name: "E2E Marina enquiries", questions: [
+  {key: "full_name", label: "Full name", type: "FULL_NAME"}, {key: "email", label: "Email", type: "EMAIL"},
+  {key: "what_is_your_budget?", label: "What is your budget?", type: "CUSTOM"}, {key: "preferred_community", label: "Preferred community", type: "CUSTOM"},
+]}], [META_REVOKED_FORM, {id: META_REVOKED_FORM, name: "E2E Revoked Page form", questions: []}]]);
+let metaRevokedWorks = false;
 let graphMessages = 0;
 const graph = createHttpServer((request, response) => {
   let raw = "";
@@ -115,6 +126,14 @@ const graph = createHttpServer((request, response) => {
       if (request.method === "POST" && request.url === `/v27.0/${SIGNUP_WABA}/subscribed_apps`) return reply(200, {success: true});
       if (request.method === "POST" && request.url === `/v27.0/${SIGNUP_PHONE}/register`) return reply(200, {success: true});
       return reply(404, {error: {code: 803, message: "Unknown path"}});
+    }
+    // Meta Lead Ads: a lead or a form, read with a Page token (never a token in the URL).
+    if (request.headers.authorization === `Bearer ${metaPageToken}` || request.headers.authorization === `Bearer ${metaRevokedToken}`) {
+      if (request.headers.authorization === `Bearer ${metaRevokedToken}` && !metaRevokedWorks) return reply(400, {error: {code: 190, message: "Error validating access token: The user has not authorized application."}});
+      const id = /^\/v27\.0\/(\d+)\?fields=/.exec(request.url)?.[1];
+      if (request.method === "GET" && id && metaLeads.has(id)) return reply(200, metaLeads.get(id));
+      if (request.method === "GET" && id && metaForms.has(id)) return reply(200, metaForms.get(id));
+      return reply(400, {error: {code: 100, message: "Unsupported get request."}});
     }
     if (request.headers.authorization !== `Bearer ${graphToken}`) return reply(401, {error: {code: 190, message: "Invalid OAuth access token - Cannot parse access token"}});
     const mediaFile = /^\/media\/([A-Z0-9-]+)$/.exec(request.url);
@@ -419,11 +438,13 @@ function startNext() {
       INBOX_WHATSAPP_LIVE_SENDING: "enabled", INBOX_WHATSAPP_DAILY_TEMPLATE_LIMIT: "8",
       // Phase 7C.1: the fake Google (OAuth on localhost, so the return is cross-site), a per-run client and encryption key, and fictional test addresses.
       INBOX_GOOGLE_OAUTH_BASE: `http://localhost:${googlePort}`, INBOX_GOOGLE_API_BASE: `http://127.0.0.1:${googlePort}`,
-      INBOX_GOOGLE_CLIENT_ID: googleClient.id, INBOX_GOOGLE_CLIENT_SECRET: googleClient.secret, INBOX_TOKEN_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
+      INBOX_GOOGLE_CLIENT_ID: googleClient.id, INBOX_GOOGLE_CLIENT_SECRET: googleClient.secret, INBOX_TOKEN_ENCRYPTION_KEY: vaultKey.toString("base64"),
       INBOX_EMAIL_TEST_RECIPIENTS: "layla.customer@example.test, refused@example.test",
       // Phase 7C.2: the fake Microsoft (sign-in on localhost, Graph on 127.0.0.1) and a per-run app registration.
       INBOX_MICROSOFT_OAUTH_BASE: `http://localhost:${microsoftPort}`, INBOX_MICROSOFT_API_BASE: `http://127.0.0.1:${microsoftPort}`,
       INBOX_MICROSOFT_CLIENT_ID: microsoftClient.id, INBOX_MICROSOFT_CLIENT_SECRET: microsoftClient.secret,
+      // Phase 7D: Meta Lead Ads reads leads from the fake Graph API; the webhook's verify token (its signatures use INBOX_WHATSAPP_APP_SECRET, the same Meta app).
+      META_GRAPH_BASE: `http://127.0.0.1:${graphPort}`, META_LEAD_ADS_VERIFY_TOKEN: metaVerify,
       // The developer simulator (local emulators and a demo project only).
       ESTATEOS_DEV_TOOLS: "1",
     },
@@ -432,6 +453,119 @@ function startNext() {
   child.stderr.on("data", data => { serverLog = (serverLog + data).slice(-30000); });
   return child;
 }
+
+// ---------------------------------------------------------------- Phase 7D: Meta Lead Ads webhooks
+// The Page token is sealed exactly as the server seals it (AES-256-GCM, bound to the company and the connection).
+function sealPageToken(token, organizationId, connectionId) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", vaultKey, iv, {authTagLength: 16});
+  cipher.setAAD(Buffer.from(`estateos.inbox.meta-page-token|${organizationId.toLowerCase()}|${connectionId.toLowerCase()}`, "utf8"));
+  const sealed = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
+  return {tokenCiphertext: ["v1", iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), sealed.toString("base64url")].join(":"), tokenKeyId: "k1"};
+}
+async function metaLeadAdsChecks() {
+  const hook = origin + "/api/lead-ads/webhooks/meta";
+  const signature = body => "sha256=" + createHmac("sha256", platformSecret).update(body).digest("hex");
+  const signed = (body, sig = signature(body)) => ({method: "POST", headers: {"Content-Type": "application/json", "X-Hub-Signature-256": sig}, body});
+  const metaId = prefix => prefix + String(Date.now()).slice(-13) + String(Math.floor(Math.random() * 10));
+  const leadgen = (pageId, leadgenId, formId = META_FORM) => JSON.stringify({object: "page", entry: [{id: pageId, time: Math.floor(Date.now() / 1000), changes: [{field: "leadgen",
+    value: {page_id: pageId, leadgen_id: leadgenId, form_id: formId, ad_id: metaId("8"), adgroup_id: metaId("9"), created_time: Math.floor(Date.now() / 1000)}}]}]});
+  const eventOf = async leadgenId => (await sql(`query E($id: String!) { metaLeadEvents(where: {leadgenId: {eq: $id}}) { id organizationId status errorCode leadId attempts } }`, {id: leadgenId})).metaLeadEvents;
+  const settled = async (leadgenId, statuses) => {
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const rows = await eventOf(leadgenId);
+      if (rows.length === 1 && statuses.includes(rows[0].status)) return rows[0];
+      await new Promise(done => setTimeout(done, 250));
+    }
+    throw new Error("Meta lead event did not settle: " + JSON.stringify(await eventOf(leadgenId)));
+  };
+  const leadsWith = async email => (await sql(`query L($org: UUID!, $email: String!) { leads(where: {organizationId: {eq: $org}, email: {eq: $email}}) { id fullName source preferredLocation budgetMin budgetMax } }`, {org: f.orgA, email})).leads;
+  const connectionStatus = async id => (await sql(`query C($org: UUID!, $id: UUID!) { metaLeadConnection(key: {organizationId: $org, id: $id}) { status lastErrorCode } }`, {org: f.orgA, id})).metaLeadConnection;
+  const tick = async () => {
+    const response = await fetch(origin + "/api/internal/automations/tick", {method: "POST", headers: {Authorization: `Bearer ${workerSecret}`}, signal: AbortSignal.timeout(180000)});
+    assert.equal(response.status, 200);
+    return (await response.json()).data;
+  };
+
+  // The subscription check answers only Meta's verify token.
+  const challenge = await fetch(`${hook}?hub.mode=subscribe&hub.verify_token=${metaVerify}&hub.challenge=1158201444`);
+  assert.deepEqual({status: challenge.status, body: await challenge.text()}, {status: 200, body: "1158201444"});
+  assert.equal((await fetch(`${hook}?hub.mode=subscribe&hub.verify_token=wrong-${metaVerify}&hub.challenge=1158201444`)).status, 403);
+  pass("Phase 7D: the Meta Lead Ads webhook answers Meta's subscription check only with the configured verify token");
+
+  // Company A connects the test Page (7D.2 does this through Facebook Login; here through the same server-only operation).
+  const connectionId = randomUUID(), revokedConnectionId = randomUUID();
+  await sqlSdk.createMetaLeadConnection(dc, {organizationId: f.orgA, id: connectionId, actorUid: "owner-a", pageId: META_PAGE, pageName: "E2E Test Page", ...sealPageToken(metaPageToken, f.orgA, connectionId)});
+  await sqlSdk.createMetaLeadConnection(dc, {organizationId: f.orgA, id: revokedConnectionId, actorUid: "owner-a", pageId: META_REVOKED_PAGE, pageName: "E2E Revoked Page", ...sealPageToken(metaRevokedToken, f.orgA, revokedConnectionId)});
+
+  // Unsigned, wrongly signed and malformed requests are refused; a lead for a Page no company connected is ignored (200, nothing stored).
+  const firstLead = metaId("1");
+  const body = leadgen(META_PAGE, firstLead);
+  assert.equal((await fetch(hook, {method: "POST", headers: {"Content-Type": "application/json"}, body})).status, 401);
+  assert.equal((await fetch(hook, signed(body, "sha256=" + "0".repeat(64)))).status, 401);
+  assert.equal((await fetch(hook, signed(JSON.stringify({object: "user", entry: []})))).status, 400);
+  const strangerLead = metaId("2");
+  assert.equal((await fetch(hook, signed(leadgen(metaId("1"), strangerLead)))).status, 200);
+  assert.equal((await eventOf(strangerLead)).length, 0, "no company connected that Page");
+  assert.equal((await eventOf(firstLead)).length, 0, "nothing was stored from the refused requests");
+  pass("Phase 7D: unsigned, wrongly signed and malformed webhooks are refused; leads for Pages no company connected are ignored");
+
+  // A signed lead becomes a lead in company A with its answers, once.
+  const email = `meta.buyer.${randomBytes(3).toString("hex")}@example.test`;
+  metaLeads.set(firstLead, {id: firstLead, created_time: new Date().toISOString(), form_id: META_FORM, ad_id: "123123123123", adset_id: "456456456456", campaign_id: "789789789789", platform: "ig", is_organic: false,
+    field_data: [{name: "full_name", values: ["Meta Buyer"]}, {name: "email", values: [email]}, {name: "what_is_your_budget?", values: ["AED 1.5M - 2M"]}, {name: "preferred_community", values: ["Dubai Marina"]}]});
+  assert.equal((await fetch(hook, signed(body))).status, 200);
+  const processed = await settled(firstLead, ["PROCESSED"]);
+  const created = await leadsWith(email);
+  assert.equal(created.length, 1);
+  assert.deepEqual({name: created[0].fullName, source: created[0].source, location: created[0].preferredLocation, min: created[0].budgetMin, max: created[0].budgetMax},
+    {name: "Meta Buyer", source: "Meta Lead Ads", location: "Dubai Marina", min: 1_500_000, max: 2_000_000});
+  assert.equal(processed.leadId.replaceAll("-", ""), created[0].id.replaceAll("-", ""));
+  const activity = (await sql(`query A($org: UUID!, $lead: UUID!) { activities(where: {organizationId: {eq: $org}, leadId: {eq: $lead}, kind: {eq: AD_LEAD_CAPTURED}}) { metadata } }`, {org: f.orgA, lead: created[0].id})).activities;
+  assert.equal(activity.length, 1);
+  assert.deepEqual(activity[0].metadata.answers.find(answer => answer.key === "what_is_your_budget?"), {key: "what_is_your_budget?", label: "What is your budget?", value: "AED 1.5M - 2M"}, "answers are labelled with the form's questions");
+  assert.deepEqual({platform: activity[0].metadata.platform, campaign: activity[0].metadata.campaignId, form: activity[0].metadata.formName}, {platform: "instagram", campaign: "789789789789", form: "E2E Marina enquiries"});
+  const form = (await sql(`query F($org: UUID!, $id: String!) { metaLeadForms(where: {organizationId: {eq: $org}, metaFormId: {eq: $id}}) { name enabled source { name sourceType } } }`, {org: f.orgA, id: META_FORM})).metaLeadForms;
+  assert.deepEqual({name: form[0].name, type: form[0].source.sourceType}, {name: "E2E Marina enquiries", type: "META_LEAD_ADS"}, "the form was registered with its own lead source");
+  const metaCalls = graphRequests.filter(item => item.authorization === `Bearer ${metaPageToken}`);
+  assert.ok(metaCalls.length >= 2 && metaCalls.every(item => !item.url.includes("access_token") && !item.url.includes(metaPageToken)), "the Page token goes in the Authorization header, never in a URL");
+  // Meta delivers again (it retries on any doubt): still one lead.
+  assert.equal((await fetch(hook, signed(body))).status, 200);
+  await new Promise(done => setTimeout(done, 1500));
+  assert.equal((await leadsWith(email)).length, 1);
+  assert.equal((await eventOf(firstLead)).length, 1);
+  pass("Phase 7D: a signed Meta lead becomes one lead in the company that connected the Page, with labelled answers, budget, location and ad IDs; a redelivery creates nothing");
+
+  // A Page whose access Meta revoked: the event fails and the Page needs a new sign-in; once access works again, the worker imports the lead.
+  const revokedLead = metaId("3");
+  const revokedEmail = `meta.revoked.${randomBytes(3).toString("hex")}@example.test`;
+  metaLeads.set(revokedLead, {id: revokedLead, form_id: META_REVOKED_FORM, platform: "fb", field_data: [{name: "full_name", values: ["Revoked Page Lead"]}, {name: "email", values: [revokedEmail]}]});
+  assert.equal((await fetch(hook, signed(leadgen(META_REVOKED_PAGE, revokedLead, META_REVOKED_FORM)))).status, 200);
+  const failed = await settled(revokedLead, ["FAILED"]);
+  assert.equal(failed.errorCode, "META_190");
+  assert.deepEqual(await connectionStatus(revokedConnectionId), {status: "NEEDS_RECONNECT", lastErrorCode: "META_190"});
+  metaRevokedWorks = true;
+  await sql(`mutation R($org: UUID!, $id: UUID!) { metaLeadEvent_update(key: {organizationId: $org, id: $id}, data: {nextAttemptAt: "2000-01-01T00:00:00Z"}) }`, {org: f.orgA, id: failed.id});
+  assert.ok((await tick()).metaLeads.processed >= 1);
+  assert.equal((await settled(revokedLead, ["PROCESSED"])).status, "PROCESSED");
+  assert.equal((await connectionStatus(revokedConnectionId)).status, "ACTIVE", "healthy again once Meta answers");
+  assert.equal((await leadsWith(revokedEmail)).length, 1);
+  pass("Phase 7D: when Meta refuses a Page's token the lead waits and the Page is marked for a new sign-in; the worker imports it once access works again");
+
+  // A form switched off, and a lead with no way to reach the person, are recorded but not imported.
+  await sql(`mutation O($org: UUID!, $id: String!) { metaLeadForm_updateMany(where: {organizationId: {eq: $org}, metaFormId: {eq: $id}}, data: {enabled: false}) }`, {org: f.orgA, id: META_FORM});
+  const offLead = metaId("4");
+  metaLeads.set(offLead, {id: offLead, form_id: META_FORM, field_data: [{name: "full_name", values: ["Form Off"]}, {name: "email", values: ["form.off@example.test"]}]});
+  assert.equal((await fetch(hook, signed(leadgen(META_PAGE, offLead)))).status, 200);
+  assert.deepEqual({status: (await settled(offLead, ["IGNORED"])).status, leads: (await leadsWith("form.off@example.test")).length}, {status: "IGNORED", leads: 0});
+  await sql(`mutation O($org: UUID!, $id: String!) { metaLeadForm_updateMany(where: {organizationId: {eq: $org}, metaFormId: {eq: $id}}, data: {enabled: true}) }`, {org: f.orgA, id: META_FORM});
+  const silentLead = metaId("5");
+  metaLeads.set(silentLead, {id: silentLead, form_id: META_FORM, field_data: [{name: "full_name", values: ["No Contact"]}, {name: "city", values: ["Dubai"]}]});
+  assert.equal((await fetch(hook, signed(leadgen(META_PAGE, silentLead)))).status, 200);
+  assert.equal((await settled(silentLead, ["IGNORED"])).errorCode, "META_LEAD_NO_CONTACT_DETAILS");
+  pass("Phase 7D: leads from a form switched off, or with no email and no phone, are recorded but not imported");
+}
+
 const server = startNext();
 function stop(child) {
   if (!child || child.exitCode !== null) return;
@@ -552,6 +686,7 @@ try {
   assert.equal((await post("/api/inbox/conversations/" + randomUUID() + "/notes", {body: "x"})).status, 401);
   pass("Unauthenticated inbox reads and changes are rejected");
   if (process.env.INBOX_E2E_ONLY === "mailboxes") { await mailboxChecks(); await microsoftChecks(); throw ONLY_DONE; }
+  if (process.env.INBOX_E2E_ONLY === "lead-ads") { await metaLeadAdsChecks(); throw ONLY_DONE; }
 
   // ------------------------------------------------------------ fixtures through the server-only storage (as ingestion writes them)
   await signIn("owner-a");
@@ -2040,6 +2175,7 @@ try {
   }
   await mailboxChecks();
   await microsoftChecks();
+  await metaLeadAdsChecks();
   assert.equal((await post("/api/dev/communication-tests/reset")).status, 200);
 
   assert.deepEqual(exceptions.filter(message => !/ResizeObserver/.test(message)), [], "no uncaught browser exceptions");

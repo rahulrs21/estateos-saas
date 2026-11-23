@@ -1,6 +1,41 @@
 # Phase 7D: Meta Lead Ads (plan)
 
-Status: **proposed, not built.** Nothing here is deployed or configured.
+Status: **7D.1 built locally** (data and webhook core, below). Not deployed: staging needs the database deploy and one secret first. 7D.2 to 7D.5 are not built.
+
+## Built in 7D.1
+
+- **Database** (`dataconnect/schema/lead-ads.gql`, operations in `dataconnect/connector/lead-ads.gql`, all server-only):
+  - tables `MetaLeadConnection` (`pageId` unique across all companies), `MetaLeadForm` and `MetaLeadEvent` (`organizationId` + `leadgenId` unique);
+  - new enum values: lead source `META_LEAD_ADS`, activity `AD_LEAD_CAPTURED` (plus three for connecting, disconnecting and form changes, used from 7D.2), and audit targets `META_LEAD_CONNECTION` and `META_LEAD_FORM`.
+- **Webhook** `GET/POST /api/lead-ads/webhooks/meta` (`src/modules/lead-ads/server/webhook.ts`):
+  - the GET answers Meta's subscription check;
+  - the POST checks the signature, records each lead once, answers 200, then imports the lead just after the response.
+- **Import** (`src/modules/lead-ads/server/process.ts`):
+  1. reads the lead from Meta with the Page token (in the `Authorization` header, never in a URL);
+  2. registers its form and lead source on first sight;
+  3. maps the answers (`src/modules/lead-ads/meta.ts`);
+  4. creates the lead with the same contact matching and round robin as website leads (shared in `lead-capture/server/intake.ts`), in one transaction that also marks the event processed.
+- **What can go wrong, and what happens:**
+  - Meta refuses the token: the event fails and the Page is marked "needs reconnect". It becomes active again when Meta answers.
+  - Meta is unreachable, or rate-limits: the event is retried by the every-minute worker (1, 5, 15 and 60 minutes), then left dead.
+  - The form is switched off, or the person left no email and no phone: the lead is recorded as ignored, not imported.
+- **Lead page:** the timeline shows "Meta ad lead received · From a Facebook or Instagram lead ad". The full Ad enquiry card is 7D.4.
+- **Tests:**
+  - `npm run test:lead-ads`: signature, subscription check, parsing, mapping, budgets, error handling.
+  - SQL Connect integration (`tests/sql-connect-lead-ads.cases.mjs`):
+    - only owners and admins can connect;
+    - a Page belongs to one company;
+    - members cannot call these operations;
+    - a lead is recorded once and created once;
+    - no capture crosses companies;
+    - failed leads are retried.
+  - Inbox end-to-end (`INBOX_E2E_ONLY=lead-ads npm run test:inbox:e2e`): real signed webhooks against the app and a fake Graph API, including a revoked token, a redelivery, a form switched off and a lead with no contact details.
+
+**Server settings:**
+- `META_LEAD_ADS_VERIFY_TOKEN`: new, at least 16 random characters, a secret on hosted servers.
+- The app secret: `META_APP_SECRET`, or `INBOX_WHATSAPP_APP_SECRET` (the same Meta app) if it is not set.
+- Test-only, ignored in production: `META_GRAPH_BASE`. Optional: `META_GRAPH_VERSION`.
+- Without the verify token the subscription check answers 503; without the app secret the webhook does too.
 
 ## Goal
 
