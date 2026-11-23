@@ -167,3 +167,8 @@ query MetaLeadConnectionsDue($dueBefore: Timestamp!, $limit: Int!) @auth(level: 
 mutation MarkMetaLeadConnectionPolled($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
   metaLeadConnection_update(key: {organizationId: $organizationId, id: $id}, data: {lastPolledAt_expr: "request.time"})
 }
+
+# One company's event for a Meta lead (an import retries one that failed earlier).
+query MetaLeadEventByLeadgen($organizationId: UUID!, $leadgenId: String!) @auth(level: NO_ACCESS) {
+  event: metaLeadEvent(first: {where: {organizationId: {eq: $organizationId}, leadgenId: {eq: $leadgenId}}}) {id status}
+}

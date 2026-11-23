@@ -148,3 +148,20 @@ test("the activity metadata keeps the answers and ad IDs, never the token", () =
   assert.equal(metadata.answers.length, 2);
   assert.equal(JSON.stringify(metadata).includes("token"), false);
 });
+
+test("answers never overflow the lead's columns: Meta's testing tool sends placeholder text as the phone", () => {
+  const mapped = mapMetaLead(lead({
+    full_name: "<test lead: dummy data for full_name>", email: "test@fb.com",
+    phone_number: "<test lead: dummy data for phone_number>", city: "x".repeat(400),
+  }));
+  assert.ok(mapped);
+  assert.equal(mapped.phone, null, "not a phone number, so the phone field stays empty");
+  assert.equal(mapped.normalizedPhone, null);
+  assert.equal(mapped.answers.find(answer => answer.key === "phone_number")?.value, "<test lead: dummy data for phone_number>", "the raw answer is kept");
+  assert.equal(mapped.preferredLocation?.length, 160);
+  assert.equal(mapped.fullName, "<test lead: dummy data for full_name>");
+  // A number that cannot be normalized but looks like one, and fits, is kept as given.
+  assert.equal(mapMetaLead(lead({full_name: "Local Number", phone_number: "1234 5678"}))?.phone, "1234 5678");
+  // Placeholder phone and no email: nothing to reach the person with.
+  assert.equal(mapMetaLead(lead({full_name: "Only Placeholder", phone_number: "<test lead: dummy data for phone_number>"})), null);
+});

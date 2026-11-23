@@ -111,7 +111,7 @@ let metaRevokedWorks = false;
 const META_CONNECT_PAGE = "5" + String(Date.now()).slice(-13) + "7", META_B_PAGE = "6" + String(Date.now()).slice(-13) + "7", META_CONNECT_FORM = "7" + String(Date.now()).slice(-13) + "7";
 const metaLoginCode = "e2e-meta-login-code-" + randomBytes(10).toString("hex"), metaShortToken = "e2e-meta-short-user-token-" + randomBytes(12).toString("hex");
 const metaUserToken = "e2e-meta-long-user-token-" + randomBytes(12).toString("hex"), connectPageToken = "e2e-meta-connect-page-token-" + randomBytes(12).toString("hex");
-const metaConnect = {deny: false, subscribed: [], unsubscribed: [], formLeads: new Map()};
+const metaConnect = {deny: false, subscribed: [], unsubscribed: [], formLeads: new Map(), failOnce: new Set()};
 metaForms.set(META_CONNECT_FORM, {id: META_CONNECT_FORM, name: "E2E Connected form", status: "ACTIVE", questions: [{key: "full_name", label: "Full name", type: "FULL_NAME"}, {key: "email", label: "Email", type: "EMAIL"}]});
 let graphMessages = 0;
 const graph = createHttpServer((request, response) => {
@@ -176,6 +176,7 @@ const graph = createHttpServer((request, response) => {
     if (request.headers.authorization === `Bearer ${metaPageToken}` || request.headers.authorization === `Bearer ${metaRevokedToken}` || request.headers.authorization === `Bearer ${connectPageToken}`) {
       if (request.headers.authorization === `Bearer ${metaRevokedToken}` && !metaRevokedWorks) return reply(400, {error: {code: 190, message: "Error validating access token: The user has not authorized application."}});
       const id = /^\/v27\.0\/(\d+)\?fields=/.exec(request.url)?.[1];
+      if (request.method === "GET" && id && metaConnect.failOnce.delete(id)) return reply(500, {error: {code: 2, message: "An unexpected error has occurred."}});
       if (request.method === "GET" && id && metaLeads.has(id)) return reply(200, metaLeads.get(id));
       if (request.method === "GET" && id && metaForms.has(id)) return reply(200, metaForms.get(id));
       return reply(400, {error: {code: 100, message: "Unsupported get request."}});
@@ -785,6 +786,23 @@ try {
     assert.equal((await leadsWithEmail(secondEmail)).length, 1);
     assert.equal((await leadsWithEmail(firstEmail)).length, 1, "a lead already imported is not imported again");
     pass("Phase 7D.2: Import recent leads brings in leads Meta has that EstateOS has not seen, once each");
+
+    // Meta's testing tool: placeholder text in the phone field. Its first read fails; pressing Import again retries it.
+    const testToolEmail = `meta.testtool.${randomBytes(3).toString("hex")}@example.test`;
+    const testToolLead = "4" + String(Date.now()).slice(-13) + "8";
+    metaLeads.set(testToolLead, {id: testToolLead, form_id: META_CONNECT_FORM, field_data: [{name: "full_name", values: ["<test lead: dummy data for full_name>"]}, {name: "email", values: [testToolEmail]}, {name: "phone_number", values: ["<test lead: dummy data for phone_number>"]}]});
+    metaConnect.formLeads.set(META_CONNECT_FORM, [firstLead, secondLead, testToolLead]);
+    metaConnect.failOnce.add(testToolLead);
+    await waitFor(`!${pageRow("E2E Connect Page")}.querySelector('[data-testid=meta-import]').disabled`, "the import button to be ready");
+    await evaluate(`${pageRow("E2E Connect Page")}.querySelector('[data-testid=meta-import]').click()`);
+    await waitFor("document.body.innerText.includes('1 lead from E2E Connect Page could not be imported yet')", "the honest partial-import message");
+    assert.equal((await leadsWithEmail(testToolEmail)).length, 0);
+    await waitFor(`!${pageRow("E2E Connect Page")}.querySelector('[data-testid=meta-import]').disabled`, "the import button to be ready again");
+    await evaluate(`${pageRow("E2E Connect Page")}.querySelector('[data-testid=meta-import]').click()`);
+    for (let attempt = 0; attempt < 100 && (await leadsWithEmail(testToolEmail)).length === 0; attempt++) await pause(200);
+    const testToolRow = (await sql(`query T($org: UUID!, $email: String!) { leads(where: {organizationId: {eq: $org}, email: {eq: $email}}) { fullName phone } }`, {org: f.orgA, email: testToolEmail})).leads;
+    assert.deepEqual(testToolRow, [{fullName: "<test lead: dummy data for full_name>", phone: null}], "the placeholder is not a phone number, so the phone stays empty");
+    pass("Phase 7D.2: a Meta testing-tool lead (placeholder phone) imports cleanly, and pressing Import again retries a lead that failed");
 
     // The worker checks Pages due a check (15 minutes) on its own.
     const thirdEmail = `meta.poll.${randomBytes(3).toString("hex")}@example.test`;

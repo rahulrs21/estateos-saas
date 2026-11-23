@@ -8041,6 +8041,18 @@ export interface MetaLeadConnectionsDueVariables {
   limit: number;
 }
 
+export interface MetaLeadEventByLeadgenData {
+  event?: {
+    id: UUIDString;
+    status: MetaLeadEventStatus;
+  };
+}
+
+export interface MetaLeadEventByLeadgenVariables {
+  organizationId: UUIDString;
+  leadgenId: string;
+}
+
 export interface MetaLeadEventContextData {
   event?: {
     id: UUIDString;
@@ -10878,6 +10890,11 @@ export function metaLeadConnectionsDue(vars: MetaLeadConnectionsDueVariables, op
 export function markMetaLeadConnectionPolled(dc: DataConnect, vars: MarkMetaLeadConnectionPolledVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkMetaLeadConnectionPolledData>>;
 /** Generated Node Admin SDK operation action function for the 'MarkMetaLeadConnectionPolled' Mutation. Allow users to pass in custom DataConnect instances. */
 export function markMetaLeadConnectionPolled(vars: MarkMetaLeadConnectionPolledVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkMetaLeadConnectionPolledData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MetaLeadEventByLeadgen' Query. Allow users to execute without passing in DataConnect. */
+export function metaLeadEventByLeadgen(dc: DataConnect, vars: MetaLeadEventByLeadgenVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaLeadEventByLeadgenData>>;
+/** Generated Node Admin SDK operation action function for the 'MetaLeadEventByLeadgen' Query. Allow users to pass in custom DataConnect instances. */
+export function metaLeadEventByLeadgen(vars: MetaLeadEventByLeadgenVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaLeadEventByLeadgenData>>;
 
 /** Generated Node Admin SDK operation action function for the 'GetLeadPropertyContext' Query. Allow users to execute without passing in DataConnect. */
 export function getLeadPropertyContext(dc: DataConnect, vars: GetLeadPropertyContextVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetLeadPropertyContextData>>;

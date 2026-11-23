@@ -195,7 +195,11 @@ export function mapMetaLead(lead: MetaLead, options: {questions?: MetaQuestion[]
 
   const rawEmail = first("email", "work_email");
   const email = rawEmail && EMAIL.test(rawEmail) ? normalizeEmail(rawEmail).slice(0, 254) : null;
-  const phone = normalizePhone(first("phone_number", "work_phone_number"));
+  // A number EstateOS cannot normalize is kept only if it fits the phone column (32) and looks like one; the raw
+  // answer always stays in the answers (Meta's testing tool, for example, sends placeholder text there).
+  const rawPhone = normalizePhone(first("phone_number", "work_phone_number"));
+  const phone = rawPhone.normalizedPhone ? rawPhone
+    : rawPhone.phone && rawPhone.phone.length <= 32 && /^[+()\d][\d\s().+-]{5,31}$/.test(rawPhone.phone) ? rawPhone : {phone: null, normalizedPhone: null};
   if (!email && !phone.phone) return null;
 
   const nameParts = [first("first_name"), first("last_name")].filter(Boolean).join(" ");
@@ -220,11 +224,11 @@ export function mapMetaLead(lead: MetaLead, options: {questions?: MetaQuestion[]
   return {
     fullName,
     email,
-    phone: phone.phone ? phone.phone.slice(0, 40) : null,
+    phone: phone.phone,
     normalizedEmail: email ? email.toLowerCase() : null,
     normalizedPhone: phone.normalizedPhone,
     propertyInterest: pick("propertyInterest")?.slice(0, 500) ?? null,
-    preferredLocation: (pick("preferredLocation") ?? first("city"))?.slice(0, 200) ?? null,
+    preferredLocation: (pick("preferredLocation") ?? first("city"))?.slice(0, 160) ?? null,
     propertyType: pick("propertyType")?.slice(0, 80) ?? null,
     transactionType: transactionText ? parseTransactionType(transactionText) : null,
     budgetMin: budget.min,

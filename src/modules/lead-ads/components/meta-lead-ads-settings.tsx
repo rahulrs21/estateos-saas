@@ -70,6 +70,7 @@ export function MetaLeadAdsSettings({ organizationId }: { organizationId: string
     try {
       const result = await leadRequest<{ forms: number; found: number; imported: number; known: number; failed: number; needsReconnect: boolean }>(`/api/lead-ads/meta/pages/${page.id}/import`, "POST", {}, organizationId);
       if (result.needsReconnect) toast.error(`Meta refused ${page.pageName}'s access. Reconnect the Page.`);
+      else if (result.failed) toast.error(`${result.imported ? `${result.imported} imported, but ` : ""}${result.failed} ${result.failed === 1 ? "lead" : "leads"} from ${page.pageName} could not be imported yet. EstateOS retries automatically; you can also import again.`);
       else toast.success(result.imported ? `${result.imported} new ${result.imported === 1 ? "lead" : "leads"} imported from ${page.pageName}.` : `No new leads in the last 7 days (${result.forms} ${result.forms === 1 ? "form" : "forms"} checked).`);
       await load(); router.refresh();
     } catch (caught) { toast.error(caught instanceof Error ? caught.message : "Leads could not be imported."); }

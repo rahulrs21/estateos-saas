@@ -2207,6 +2207,13 @@ function markMetaLeadConnectionPolled(dcOrVarsOrOptions, varsOrOptions, options)
 }
 exports.markMetaLeadConnectionPolled = markMetaLeadConnectionPolled;
 
+function metaLeadEventByLeadgen(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaLeadEventByLeadgen', inputVars, inputOpts);
+}
+exports.metaLeadEventByLeadgen = metaLeadEventByLeadgen;
+
 function getLeadPropertyContext(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

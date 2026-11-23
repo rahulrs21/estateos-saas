@@ -1933,6 +1933,12 @@ export function markMetaLeadConnectionPolled(dcOrVarsOrOptions, varsOrOptions, o
   return dcInstance.executeMutation('MarkMetaLeadConnectionPolled', inputVars, inputOpts);
 }
 
+export function metaLeadEventByLeadgen(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaLeadEventByLeadgen', inputVars, inputOpts);
+}
+
 export function getLeadPropertyContext(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

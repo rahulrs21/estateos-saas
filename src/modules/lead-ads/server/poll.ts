@@ -63,8 +63,15 @@ export async function pollConnection(organizationId: string, connectionId: strin
       result.found += leads.length;
       for (const lead of leads) {
         const event = await recordLeadgen({pageId: connection.pageId, leadgenId: lead.id, formId: metaForm.id, adId: null, adGroupId: null, createdAt: lead.createdAt}, options.origin, dc);
-        if (!event) { result.known += 1; continue; }
-        const outcome = await processMetaLeadEvent(event.organizationId, event.eventId, dc);
+        let eventId = event?.eventId ?? null;
+        if (!event) {
+          // Already recorded. An import (a person pressing the button) also retries one that failed earlier.
+          const known = options.origin === "IMPORT" ? (await read(() => sdk.metaLeadEventByLeadgen(dc, {organizationId, leadgenId: lead.id}))).event : null;
+          if (!known || (known.status !== "FAILED" && known.status !== "DEAD")) { result.known += 1; continue; }
+          eventId = canonicalUuid(known.id);
+          if (known.status === "DEAD") await read(() => sdk.setMetaLeadEventOutcome(dc, {organizationId, id: eventId!, status: sdk.MetaLeadEventStatus.FAILED, errorCode: "RETRIED_BY_IMPORT", nextAttemptAt: null}));
+        }
+        const outcome = await processMetaLeadEvent(organizationId, eventId!, dc);
         if (outcome.status === "PROCESSED") result.imported += 1; else if (outcome.status === "FAILED" || outcome.status === "DEAD") result.failed += 1;
       }
     } catch (error) {
