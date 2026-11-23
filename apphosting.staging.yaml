@@ -101,6 +101,13 @@ env:
     availability:
       - RUNTIME
 
+  # Meta Lead Ads (docs/META_LEAD_ADS_PLAN.md): the verify token Meta echoes when the Page webhook is set up.
+  # Its signatures use INBOX_WHATSAPP_APP_SECRET above (the same Meta app).
+  - variable: META_LEAD_ADS_VERIFY_TOKEN
+    secret: META_LEAD_ADS_VERIFY_TOKEN
+    availability:
+      - RUNTIME
+
   # One-click Connect WhatsApp (Meta Embedded Signup): the Meta app and its signup configuration (public values).
   - variable: INBOX_META_APP_ID
     value: "1837332403959295"
