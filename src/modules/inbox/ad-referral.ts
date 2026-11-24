@@ -56,11 +56,15 @@ export function conversationLeadChannel(conversation: {channel: string; adReferr
 }
 
 /**
- * Whether linking a conversation to a lead gives the lead the conversation's source: only a lead
- * with no source yet, created after the conversation began (so it came from this conversation).
- * The database checks the same rule again (LinkInboxConversation).
+ * What linking a conversation to a lead does to the lead's source. Only a lead created after the
+ * conversation began (so it came from this conversation) takes the conversation's source:
+ * INSERT when it has none yet, REPLACE when it only has the MANUAL source of a lead added by hand
+ * without a campaign (Phase 7E.3). Any other source is kept. The database checks the same rule
+ * again (LinkInboxConversation).
  */
-export function linkGivesSource(conversation: {channel: string; createdAt: string; adReferredAt?: string | null}, lead: {createdAt: string; hasSource: boolean}) {
-  if (lead.hasSource || !conversationLeadChannel(conversation)) return false;
-  return Date.parse(lead.createdAt) >= Date.parse(conversation.createdAt);
+export function linkSourceAction(conversation: {channel: string; createdAt: string; adReferredAt?: string | null},
+  lead: {createdAt: string; source: {channel: string; campaignKey?: string | null} | null}): "INSERT" | "REPLACE" | null {
+  if (!conversationLeadChannel(conversation) || Date.parse(lead.createdAt) < Date.parse(conversation.createdAt)) return null;
+  if (!lead.source) return "INSERT";
+  return lead.source.channel === "MANUAL" && !lead.source.campaignKey ? "REPLACE" : null;
 }

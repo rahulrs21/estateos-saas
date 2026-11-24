@@ -170,8 +170,10 @@ mutation SetInboxConversationState($organizationId: UUID!, $id: UUID!, $expected
 # created after the conversation began takes the conversation's source (the click-to-WhatsApp ad, or
 # WhatsApp or email). The rule is checked here as well as on the server; the values come from the
 # stored conversation, never from the caller.
-mutation LinkInboxConversation($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $hasLead: Boolean!, $leadId: UUID, $hasContact: Boolean!, $contactId: UUID, $identityMatches: Boolean!, $attribute: Boolean! = false)
-  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && !(vars.hasLead && vars.hasContact) && vars.hasLead == (has(vars.leadId) && vars.leadId != null) && vars.hasContact == (has(vars.contactId) && vars.contactId != null) && (!vars.attribute || vars.hasLead)") @transaction {
+# Phase 7E.3: with $replaceSource, a lead added by hand (MANUAL, no campaign) under the same rule has that
+# source replaced by the conversation's, since the conversation is where the lead really came from.
+mutation LinkInboxConversation($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $hasLead: Boolean!, $leadId: UUID, $hasContact: Boolean!, $contactId: UUID, $identityMatches: Boolean!, $attribute: Boolean! = false, $replaceSource: Boolean! = false)
+  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && !(vars.hasLead && vars.hasContact) && vars.hasLead == (has(vars.leadId) && vars.leadId != null) && vars.hasContact == (has(vars.contactId) && vars.contactId != null) && (!vars.attribute || vars.hasLead) && (!vars.replaceSource || vars.hasLead) && !(vars.attribute && vars.replaceSource)") @transaction {
   authorization: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED")
   current: query @redact {
     conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}, {_or: [
@@ -188,7 +190,7 @@ mutation LinkInboxConversation($organizationId: UUID!, $id: UUID!, $expectedRevi
     lead: lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}, {_or: [
       {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
       {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
-    ]}]}}) @include(if: $hasLead) {id contactId createdAt source: leadAttribution_on_lead {id}}
+    ]}]}}) @include(if: $hasLead) {id contactId createdAt source: leadAttribution_on_lead {id channel campaignKey}}
     contact: contact(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $contactId}}, {_or: [
       {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
       {leads_on_contact: {exist: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}}},
@@ -198,7 +200,7 @@ mutation LinkInboxConversation($organizationId: UUID!, $id: UUID!, $expectedRevi
   conversation: inboxConversation_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {
     leadId: $leadId, contactId_expr: "vars.hasLead ? response.target.lead.contactId : (vars.hasContact ? vars.contactId : dyn(null))", revision_update: {inc: 1}, updatedAt_expr: "request.time"})
     @check(expr: "this != null", message: "INBOX_CONVERSATION_CHANGED")
-  sourceRule: query @redact @check(expr: "!vars.attribute || (response.target.lead.source == null && response.current.conversation.channel in ['WHATSAPP', 'EMAIL'] && timestamp(response.target.lead.createdAt) >= timestamp(response.current.conversation.createdAt))", message: "INBOX_LEAD_SOURCE_NOT_ALLOWED") {
+  sourceRule: query @redact @check(expr: "(!vars.attribute || response.target.lead.source == null) && (!vars.replaceSource || (response.target.lead.source != null && response.target.lead.source.channel == 'MANUAL' && response.target.lead.source.campaignKey == null)) && (!(vars.attribute || vars.replaceSource) || (response.current.conversation.channel in ['WHATSAPP', 'EMAIL'] && timestamp(response.target.lead.createdAt) >= timestamp(response.current.conversation.createdAt)))", message: "INBOX_LEAD_SOURCE_NOT_ALLOWED") {
     conversation: inboxConversation(key: {organizationId: $organizationId, id: $id}) {id}
   }
   attribution: leadAttribution_insert(data: {organizationId: $organizationId, leadId: $leadId,
@@ -209,9 +211,17 @@ mutation LinkInboxConversation($organizationId: UUID!, $id: UUID!, $expectedRevi
     metaAdName_expr: "response.current.conversation.adHeadline",
     referrerHost_expr: "response.current.conversation.adSourceHost",
     ctwaClid_expr: "response.current.conversation.adCtwaClid"}) @include(if: $attribute)
+  replacedSource: leadAttribution_update(first: {where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, channel: {eq: MANUAL}, campaignKey: {isNull: true}}}, data: {
+    channel_expr: "response.current.conversation.channel == 'EMAIL' ? 'EMAIL' : (response.current.conversation.adReferredAt != null ? 'WHATSAPP_AD' : 'WHATSAPP')",
+    platform_expr: "response.current.conversation.channel == 'WHATSAPP' && response.current.conversation.adReferredAt != null ? 'meta' : 'direct'",
+    campaignKey_expr: "response.current.conversation.adCampaignKey",
+    metaAdId_expr: "response.current.conversation.adSourceType == 'ad' ? response.current.conversation.adSourceId : dyn(null)",
+    metaAdName_expr: "response.current.conversation.adHeadline",
+    referrerHost_expr: "response.current.conversation.adSourceHost",
+    ctwaClid_expr: "response.current.conversation.adCtwaClid", utmCampaign: null, capturedAt_expr: "request.time"}) @include(if: $replaceSource) @check(expr: "this != null", message: "INBOX_LEAD_SOURCE_NOT_ALLOWED")
   auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: INBOX_LINKED, targetType: CONVERSATION, targetId: $id,
-    metadata_expr: "{'leadId': vars.hasLead ? dyn(vars.leadId) : dyn(null), 'contactId': vars.hasContact ? dyn(vars.contactId) : dyn(null), 'identityMatches': vars.identityMatches, 'source': vars.attribute}"})
-  activity: activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: INBOX_LINKED, leadId: $leadId, targetId: $id, metadata_expr: "{'conversationId': vars.id, 'identityMatches': vars.identityMatches, 'source': vars.attribute}"}) @include(if: $hasLead)
+    metadata_expr: "{'leadId': vars.hasLead ? dyn(vars.leadId) : dyn(null), 'contactId': vars.hasContact ? dyn(vars.contactId) : dyn(null), 'identityMatches': vars.identityMatches, 'source': vars.attribute || vars.replaceSource}"})
+  activity: activity_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", kind: INBOX_LINKED, leadId: $leadId, targetId: $id, metadata_expr: "{'conversationId': vars.id, 'identityMatches': vars.identityMatches, 'source': vars.attribute || vars.replaceSource}"}) @include(if: $hasLead)
 }
 
 mutation AddInboxNote($organizationId: UUID!, $id: UUID!, $conversationId: UUID!, $body: String!)
@@ -283,7 +293,7 @@ query InboxLinkTarget($organizationId: UUID!, $hasLead: Boolean!, $leadId: UUID,
   lead: lead(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $leadId}, archivedAt: {isNull: true}}, {_or: [
     {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}},
     {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}}
-  ]}]}}) @include(if: $hasLead) {id fullName createdAt source: leadAttribution_on_lead {id} contact {id fullName normalizedEmail normalizedPhone normalizedAlternatePhone}}
+  ]}]}}) @include(if: $hasLead) {id fullName createdAt source: leadAttribution_on_lead {id channel campaignKey} contact {id fullName normalizedEmail normalizedPhone normalizedAlternatePhone}}
   contact: contact(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $contactId}}, {_or: [
     {organization: {memberships_on_organization: {exist: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
     {leads_on_contact: {exist: {assignedMembership: {userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}}}}},

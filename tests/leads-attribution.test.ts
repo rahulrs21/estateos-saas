@@ -85,3 +85,19 @@ test("the new embed code is still recognised when pasted into the page editor", 
   const snippet = `<div data-estateos-form data-src="https://estateos.example/forms/${id}" data-title="Marina enquiries" data-height="720"></div>\n<script src="https://estateos.example/embed/lead-form.js" async></script>`;
   assert.equal(formPublicIdFrom(snippet), id);
 });
+
+// Phase 7E.3: campaign names for the Campaign filter, the form's suggestions and the list.
+test("each campaign is offered once, by its newest name, in name order", async () => {
+  const {campaignLabel, campaignOptions, LEAD_CHANNELS, LEAD_CHANNEL_LABELS} = await import("../src/modules/lead-capture/attribution");
+  assert.equal(campaignLabel({campaignKey: "marina launch", metaCampaignName: "Marina Launch (Meta)", utmCampaign: "Marina_Launch"}), "Marina Launch (Meta)", "Meta's campaign name first");
+  assert.equal(campaignLabel({campaignKey: "marina launch", utmCampaign: "Marina_Launch"}), "Marina_Launch", "then the UTM or typed name");
+  assert.equal(campaignLabel({campaignKey: "meta ad 123", metaAdName: "Marina 2-bed"}), "Marina 2-bed", "then the ad's name");
+  assert.equal(campaignLabel({campaignKey: "spring"}), "spring");
+  assert.equal(campaignLabel({}), null);
+  assert.deepEqual(campaignOptions([
+    {campaignKey: "marina launch", utmCampaign: "Marina Launch Q4"}, {campaignKey: "marina launch", utmCampaign: "marina_launch"},
+    {campaignKey: null, utmCampaign: "ignored"}, {campaignKey: "creek view", metaCampaignName: "Creek View"},
+  ]), [{key: "creek view", label: "Creek View"}, {key: "marina launch", label: "Marina Launch Q4"}]);
+  assert.equal(campaignOptions(Array.from({length: 150}, (_, index) => ({campaignKey: `c${index}`})), 100).length, 100, "bounded");
+  assert.ok(LEAD_CHANNELS.every(channel => LEAD_CHANNEL_LABELS[channel]), "every channel has a label");
+});

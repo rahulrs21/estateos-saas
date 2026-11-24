@@ -14,6 +14,7 @@ import { leadBudget, leadDateRangeLabels, leadPriorityLabels, leadsHref } from "
 import { LeadEditorDialog } from "./lead-form";
 import { LeadDateRangeMenu, LeadFilterBar } from "./lead-filter-bar";
 import { LeadsKanban } from "./leads-kanban";
+import { LeadChannelTag } from "./lead-source";
 import { formatLeadDate, LeadAvatar, LeadStatusBadge, leadStatusLabels } from "./lead-ui";
 import { useClientNow } from "./use-client-now";
 
@@ -55,7 +56,7 @@ export function LeadsList({ data }: { data: LeadListData }) {
   const [pending, startTransition] = useTransition();
   const now = useClientNow();
   const { organization, sources, filters, leads, hasNext, total, metrics } = data;
-  const hasFilters = Boolean(filters.search || filters.status || filters.branchId || filters.assignedMembershipId || filters.sourceId || filters.priority || filters.followUp !== "ALL");
+  const hasFilters = Boolean(filters.search || filters.status || filters.branchId || filters.assignedMembershipId || filters.sourceId || filters.priority || filters.channel || filters.campaign || filters.followUp !== "ALL");
   const dated = filters.range !== "ALL";
   const pageCount = Math.max(1, Math.ceil(total / filters.pageSize));
   const navigate = (changes: Partial<LeadFilters>) => startTransition(() => router.push(leadsHref(filters, changes), { scroll: false }));
@@ -114,7 +115,7 @@ export function LeadsList({ data }: { data: LeadListData }) {
         <ul className="divide-y md:hidden">{leads.map(lead => <li key={lead.id}>
           <Link href={`/leads/${lead.id}`} className="block space-y-2 px-3 py-3 active:bg-muted/50">
             <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-2.5"><LeadAvatar name={lead.fullName} /><div className="min-w-0"><p className="truncate text-sm font-medium">{lead.fullName}</p><p className="truncate text-xs text-muted-foreground">{lead.email || lead.phone || "No contact details"}</p></div></div><LeadStatusBadge status={lead.status} /></div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-[42px] text-xs text-muted-foreground"><LeadPriority priority={lead.priority} /><span className="tabular-nums text-foreground/80">{leadBudget(lead)}</span><span>{agentName(lead) ?? "Unassigned"}</span>{lead.followUpAt && <FollowUp value={lead.followUpAt} now={now} />}</div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-[42px] text-xs text-muted-foreground"><LeadPriority priority={lead.priority} /><span className="tabular-nums text-foreground/80">{leadBudget(lead)}</span><span>{agentName(lead) ?? "Unassigned"}</span>{lead.origin && lead.origin.channel !== "MANUAL" && <LeadChannelTag origin={lead.origin} compact />}{lead.followUpAt && <FollowUp value={lead.followUpAt} now={now} />}</div>
           </Link>
         </li>)}</ul>
         <div className="hidden overflow-x-auto md:block"><table className="w-full text-left text-sm"><caption className="sr-only">Authorized leads for {organization.name}</caption>
@@ -124,6 +125,7 @@ export function LeadsList({ data }: { data: LeadListData }) {
             <th scope="col" className="px-3 py-2 font-medium">Priority</th>
             <th scope="col" className="min-w-36 px-3 py-2 font-medium">Agent</th>
             <th scope="col" className="px-3 py-2 font-medium">Source</th>
+            <th scope="col" className="min-w-36 px-3 py-2 font-medium">Channel</th>
             <th scope="col" className="min-w-36 px-3 py-2 font-medium">Budget</th>
             <th scope="col" className="min-w-36 px-3 py-2 font-medium"><button type="button" className={cn("inline-flex items-center gap-1 hover:text-foreground", filters.sort === "FOLLOW_UP_ASC" && "text-foreground")} onClick={() => navigate({sort:"FOLLOW_UP_ASC",page:1})}>Follow-up<ArrowUpDown className={cn("size-3", filters.sort !== "FOLLOW_UP_ASC" && "opacity-40")} aria-hidden="true" /></button></th>
             <th scope="col" className="px-3 py-2 font-medium"><SortHeader label="Created" sorts={["CREATED_DESC", "CREATED_ASC"]} filters={filters} onSort={sort => navigate({ sort, page: 1 })} /></th>
@@ -134,6 +136,7 @@ export function LeadsList({ data }: { data: LeadListData }) {
             <td className="px-3 py-2"><LeadPriority priority={lead.priority} /></td>
             <td className="max-w-44 truncate px-3 py-2 text-xs">{agentName(lead) ?? <span className="text-muted-foreground">Unassigned</span>}</td>
             <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{sourceName(lead)}</td>
+            <td className="max-w-48 px-3 py-2"><LeadChannelTag origin={lead.origin} /></td>
             <td className="whitespace-nowrap px-3 py-2 text-xs tabular-nums">{leadBudget(lead)}</td>
             <td className="px-3 py-2"><FollowUp value={lead.followUpAt} now={now} /></td>
             <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground"><time dateTime={lead.createdAt}>{formatLeadDate(lead.createdAt)}</time></td>

@@ -3,8 +3,8 @@ import "server-only";
 import { z } from "zod";
 import {
   getLead, listBranches, listLeadAssignees, listLeadActivities,
-  getLeadMetrics, listLeadFollowUps,
-  type GetLeadData,
+  getLeadMetrics, listLeadFollowUps, getLeadAttribution, leadCampaignOptions,
+  type GetLeadData, type GetLeadAttributionData,
 } from "@dataconnect/admin-generated";
 import { executeWorkspaceOperation } from "@/lib/firebase/dataconnect";
 import { requireActiveOrganizationRequest } from "@/modules/organizations/server/context";
@@ -13,7 +13,8 @@ import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { validateInput } from "@/modules/organizations/server/validation";
 import { leadIdInputSchema, leadPageFiltersSchema } from "../validation";
 import { leadAdEnquiryFrom, leadEnquiryFrom, oldestActivityPlace, resolveLeadDateRange } from "../presentation";
-import type { LeadRecord, LeadWorkspace, LeadListData, LeadDetailData, LeadFormData } from "../types";
+import type { LeadRecord, LeadWorkspace, LeadListData, LeadDetailData, LeadFormData, LeadOrigin, LeadSourceRecord } from "../types";
+import { campaignLabel, campaignOptions, type LeadChannel } from "@/modules/lead-capture/attribution";
 import { getConversation } from "@/modules/inbox/server/conversations";
 import { leadListOperation, leadQueryVariables } from "./service";
 import { ensureLeadConfiguration } from "./crm-service";
@@ -21,7 +22,12 @@ import { ensureLeadConfiguration } from "./crm-service";
 type Context = Awaited<ReturnType<typeof requireActiveOrganizationRequest>>;
 export type LeadSearchParams = Record<string, string | string[] | undefined>;
 
-function leadRecord(row: NonNullable<GetLeadData["lead"]>): LeadRecord {
+type OriginRow = {channel: string; platform: string; campaignKey?: string | null; utmCampaign?: string | null; metaCampaignName?: string | null; metaAdName?: string | null};
+function leadOrigin(row: OriginRow | null | undefined): LeadOrigin | null {
+  return row ? {channel: row.channel as LeadChannel, platform: row.platform, campaignKey: row.campaignKey ?? null, campaign: campaignLabel(row)} : null;
+}
+
+function leadRecord(row: NonNullable<GetLeadData["lead"]>, origin?: OriginRow | null): LeadRecord {
   return {
     id: canonicalUuid(row.id), organizationId: canonicalUuid(row.organizationId),
     fullName: row.contact?.fullName ?? row.fullName,
@@ -44,15 +50,30 @@ function leadRecord(row: NonNullable<GetLeadData["lead"]>): LeadRecord {
     transactionType: row.transactionType, budgetMin: row.budgetMin, budgetMax: row.budgetMax,
     currency: row.currency, bedroomPreference: row.bedroomPreference, priority: row.priority,
     archivedAt: row.archivedAt, nextFollowUpAt: row.followUpAt,
+    ...(origin !== undefined ? {origin: leadOrigin(origin)} : {}),
+  };
+}
+
+/** Phase 7E.3: the Source card's record, with the click IDs that were present. */
+function leadSourceRecord(row: NonNullable<GetLeadAttributionData["attribution"]> | null | undefined): LeadSourceRecord | null {
+  if (!row) return null;
+  const clickIds = ([["gclid", row.gclid], ["fbclid", row.fbclid], ["ttclid", row.ttclid], ["ctwa_clid", row.ctwaClid]] as const)
+    .filter((entry): entry is readonly ["gclid" | "fbclid" | "ttclid" | "ctwa_clid", string] => Boolean(entry[1])).map(([name, value]) => ({name, value}));
+  return {
+    ...leadOrigin(row)!, utmSource: row.utmSource ?? null, utmMedium: row.utmMedium ?? null, utmCampaign: row.utmCampaign ?? null, utmContent: row.utmContent ?? null, utmTerm: row.utmTerm ?? null,
+    metaCampaignId: row.metaCampaignId ?? null, metaCampaignName: row.metaCampaignName ?? null, metaAdsetId: row.metaAdsetId ?? null, metaAdsetName: row.metaAdsetName ?? null,
+    metaAdId: row.metaAdId ?? null, metaAdName: row.metaAdName ?? null, metaFormId: row.metaFormId ?? null,
+    landingHost: row.landingHost ?? null, landingPath: row.landingPath ?? null, referrerHost: row.referrerHost ?? null, clickIds, capturedAt: row.capturedAt,
   };
 }
 
 async function workspace(context: Context): Promise<LeadWorkspace> {
   const { request, organizationId, organization, membership } = context;
-  const [branches, assignees, configuration] = await Promise.all([
+  const [branches, assignees, configuration, campaigns] = await Promise.all([
     executeWorkspaceOperation(() => listBranches(request.dc, { organizationId }, request.options), "ListBranches"),
     executeWorkspaceOperation(() => listLeadAssignees(request.dc, { organizationId, limit: 100 }, request.options), "ListLeadAssignees"),
     ensureLeadConfiguration(context),
+    executeWorkspaceOperation(() => leadCampaignOptions(request.dc, { organizationId }, request.options), "LeadCampaignOptions"),
   ]);
   return {
     organization: { id: canonicalUuid(organizationId), name: organization.name },
@@ -62,12 +83,13 @@ async function workspace(context: Context): Promise<LeadWorkspace> {
     assignees: assignees.memberships.map(row => ({ ...row, id: canonicalUuid(row.id) })),
     pipelines: configuration.pipelines.map(row => ({id: canonicalUuid(row.id), name: row.name, isDefault: row.isDefault, stages: row.pipelineStages_on_pipeline.map(stage => ({...stage, id: canonicalUuid(stage.id)}))})),
     sources: configuration.leadSources.map(row => ({...row, id: canonicalUuid(row.id)})),
+    campaigns: campaignOptions(campaigns.campaigns),
   };
 }
 
 function filterInput(params: LeadSearchParams) {
   const value: Record<string, unknown> = {};
-  for (const key of ["search", "status", "branchId", "assignedMembershipId", "sourceId", "priority", "createdFrom", "createdTo", "range", "sort", "view", "followUp", "page", "pageSize"]) {
+  for (const key of ["search", "status", "branchId", "assignedMembershipId", "sourceId", "priority", "channel", "campaign", "createdFrom", "createdTo", "range", "sort", "view", "followUp", "page", "pageSize"]) {
     if (params[key] !== undefined) {
       if (Array.isArray(params[key])) throw new WorkspaceError("VALIDATION_ERROR", 400, "Each lead filter must have a single value.");
       value[key] = params[key];
@@ -86,6 +108,7 @@ export async function getLeadsPageData(params: LeadSearchParams = {}): Promise<L
     search: filters.search, status: filters.status || undefined,
     branchId: filters.branchId || undefined, assignedMembershipId: filters.assignedMembershipId || undefined,
     sourceId: filters.sourceId || undefined, priority: filters.priority || undefined,
+    channel: filters.channel || undefined, campaign: filters.campaign || undefined,
     createdFrom: filters.createdFrom || undefined, createdTo: filters.createdTo || undefined, sort: filters.sort,
     followUp: filters.followUp, limit: filters.pageSize, offset: (filters.page - 1) * filters.pageSize,
   });
@@ -95,7 +118,7 @@ export async function getLeadsPageData(params: LeadSearchParams = {}): Promise<L
     executeWorkspaceOperation(() => getLeadMetrics(context.request.dc, {organizationId: context.organizationId}, context.request.options), "GetLeadMetrics"),
   ]);
   const total = result.total[0]?.count ?? 0;
-  return { ...choices, filters, total, leads: result.leads.map(leadRecord), hasNext: filters.page * filters.pageSize < total,
+  return { ...choices, filters, total, leads: result.leads.map(row => leadRecord(row as unknown as NonNullable<GetLeadData["lead"]>, row.leadAttribution_on_lead ?? null)), hasNext: filters.page * filters.pageSize < total,
     metrics: {total: metrics.total[0]?.count ?? 0, new: metrics.newLeads[0]?.count ?? 0, qualified: metrics.qualified[0]?.count ?? 0, won: metrics.won[0]?.count ?? 0},
   };
 }
@@ -119,7 +142,7 @@ export async function getLeadDetailData(id: string, rawActivityPage: unknown = u
   const activityPage = validateInput(z.coerce.number().int().min(1).max(401).default(1), rawActivityPage);
   const followUpPage = validateInput(z.coerce.number().int().min(1).max(1001).default(1), rawFollowUpPage);
   const lead = await accessibleLead(context, id);
-  const [choices, timeline, followUps] = await Promise.all([
+  const [choices, timeline, followUps, attribution] = await Promise.all([
     workspace(context),
     executeWorkspaceOperation(() => listLeadActivities(context.request.dc, {
       organizationId: context.organizationId, leadId: lead.id, limit: 25, offset: (activityPage - 1) * 25,
@@ -127,6 +150,7 @@ export async function getLeadDetailData(id: string, rawActivityPage: unknown = u
     executeWorkspaceOperation(() => listLeadFollowUps(context.request.dc, {
       organizationId: context.organizationId, leadId: lead.id, limit: 10, offset: (followUpPage - 1) * 10,
     }, context.request.options), "ListLeadFollowUps"),
+    executeWorkspaceOperation(() => getLeadAttribution(context.request.dc, {organizationId: context.organizationId, leadId: lead.id}, context.request.options), "GetLeadAttribution"),
   ]);
   // A lead from a website form or landing page starts with its capture, so its oldest activity holds the visitor's message.
   // It is on this page when the page reaches the end of the timeline; otherwise one more read fetches only that entry.
@@ -138,7 +162,7 @@ export async function getLeadDetailData(id: string, rawActivityPage: unknown = u
   const enquiry = leadEnquiryFrom(oldest);
   const adEnquiry = leadAdEnquiryFrom(oldest);
   return {
-    ...retainCurrentAssignee(choices, lead), lead, activityPage, enquiry, adEnquiry,
+    ...retainCurrentAssignee(choices, lead), lead, activityPage, enquiry, adEnquiry, source: leadSourceRecord(attribution.attribution),
     activities: timeline.activities.map(row => ({ ...row, id: canonicalUuid(row.id), organizationId: canonicalUuid(context.organizationId) })),
     hasMoreActivities: activityPage * 25 < (timeline.total[0]?.count ?? 0),
     followUps: followUps.followUps.map(row => ({...row, id: canonicalUuid(row.id), assignedUserId: canonicalUuid(row.assignedUserId), assignedUser: row.assignedUser ? {...row.assignedUser, id: canonicalUuid(row.assignedUser.id)} : null})),

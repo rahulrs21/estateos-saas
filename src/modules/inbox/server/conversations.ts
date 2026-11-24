@@ -8,7 +8,7 @@ import { asMember, isAdministrator, sdk, type Context } from "@/modules/communic
 import { idSchema, parseInput } from "@/modules/communications/server/validation";
 import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
-import { linkGivesSource } from "../ad-referral";
+import { linkSourceAction } from "../ad-referral";
 import { identityMatchesContact } from "../identity";
 import { CONVERSATION_STATUSES, INBOX_CHANNELS, INBOX_VIEWS, PRIORITIES, type Role } from "../model";
 import { STATUS_ACTIONS, canAssign, nextCursor, serviceWindow } from "../policy";
@@ -148,14 +148,15 @@ const linkSchema = z.strictObject({expectedRevision: z.number().int().min(1), le
 /**
  * Links (or unlinks, with neither) a lead or contact the member may access. The lead's assignment is not changed.
  * Phase 7E.2: a lead with no source yet, created after the conversation began, takes the conversation's source
- * (its click-to-WhatsApp ad, or WhatsApp or email); the database checks the same rule.
+ * (its click-to-WhatsApp ad, or WhatsApp or email); Phase 7E.3: so does one added by hand without a campaign,
+ * whose MANUAL source is replaced. The database checks the same rule.
  */
 export async function linkConversation(context: Context, rawId: string, body: unknown) {
   const conversationId = parseInput(idSchema, rawId);
   const input = parseInput(linkSchema, body);
   const conversation = await getConversation(context, conversationId);
   let identityMatches = false;
-  let attribute = false;
+  let source: "INSERT" | "REPLACE" | null = null;
   if (input.leadId || input.contactId) {
     const target = await asMember(context, "InboxLinkTarget", (dc, options) => sdk.inboxLinkTarget(dc, {
       organizationId: context.organizationId, hasLead: Boolean(input.leadId), leadId: input.leadId ?? null, hasContact: Boolean(input.contactId), contactId: input.contactId ?? null,
@@ -163,13 +164,13 @@ export async function linkConversation(context: Context, rawId: string, body: un
     const contact = input.leadId ? target.lead?.contact : target.contact;
     if ((input.leadId && !target.lead) || (input.contactId && !target.contact)) throw new WorkspaceError("NOT_FOUND", 404, "This lead or contact was not found, or you cannot use it.");
     identityMatches = contact ? identityMatchesContact(conversation.customerIdentity, contact) : false;
-    if (input.leadId && target.lead) attribute = linkGivesSource(conversation, {createdAt: target.lead.createdAt, hasSource: Boolean(target.lead.source)});
+    if (input.leadId && target.lead) source = linkSourceAction(conversation, {createdAt: target.lead.createdAt, source: target.lead.source ?? null});
   }
   await asMember(context, "LinkInboxConversation", (dc, options) => sdk.linkInboxConversation(dc, {
     organizationId: context.organizationId, id: conversationId, expectedRevision: input.expectedRevision, hasLead: Boolean(input.leadId), leadId: input.leadId ?? null,
-    hasContact: Boolean(input.contactId), contactId: input.contactId ?? null, identityMatches, attribute,
+    hasContact: Boolean(input.contactId), contactId: input.contactId ?? null, identityMatches, attribute: source === "INSERT", replaceSource: source === "REPLACE",
   }, options));
-  return {id: conversationId, identityMatches, sourceAdded: attribute};
+  return {id: conversationId, identityMatches, sourceAdded: source !== null};
 }
 
 /** Phase 7E.2: links a conversation to the lead just created from it (Create lead in the inbox). */

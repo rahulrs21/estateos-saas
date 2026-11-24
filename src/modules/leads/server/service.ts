@@ -6,6 +6,7 @@ import {
   LeadStatus as SqlLeadStatus,
   LeadPriority as SqlLeadPriority,
   TransactionType as SqlTransactionType,
+  LeadChannel as SqlLeadChannel,
   createLead as createLeadOperation,
   createLeadForContact,
   getLead as getLeadOperation,
@@ -35,6 +36,7 @@ import { planNewLeadAssignment, refreshNewLeadAssignment } from "../distribution
 import { normalizePhone } from "../normalization";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { getConversation, linkCreatedLead } from "@/modules/inbox/server/conversations";
+import { campaignKey, cleanText } from "@/modules/lead-capture/attribution";
 
 function sqlCrmFields<T extends {priority?: "LOW" | "NORMAL" | "HIGH" | "URGENT"; transactionType?: "BUY" | "RENT" | "INVEST"}>(input: T) {
   const {priority, transactionType, ...rest} = input;
@@ -50,7 +52,9 @@ export const sqlLeadStatus = {
 
 /** Input filters only narrow an already authorized, server-selected company. */
 export function leadQueryVariables(organizationId: string, input: unknown) {
-  const { search, status, followUp, archive, createdFrom, createdTo, sort, ...pagination } = validateInput(leadListInputSchema, input);
+  const { search, status, followUp, archive, channel, campaign, createdFrom, createdTo, sort, ...pagination } = validateInput(leadListInputSchema, input);
+  // Phase 7E.3: Channel and Campaign narrow by the lead's recorded source; without them, leads with no source are kept.
+  const sourceCampaign = campaign ? campaignKey(campaign) ?? undefined : undefined;
   // Sorting selects a distinct stored query in leadListOperation; ListLeads
   // has no `$sort` variable, so never forward it to the generated SDK.
   void sort;
@@ -64,6 +68,7 @@ export function leadQueryVariables(organizationId: string, input: unknown) {
     status: status ? sqlLeadStatus[status] : undefined,
     followUpBefore: followUp === "OVERDUE" ? now : undefined,
     followUpAfter: followUp === "UPCOMING" ? now : undefined,
+    channel: channel ? SqlLeadChannel[channel] : undefined, campaignKey: sourceCampaign, sourceFiltered: Boolean(channel || sourceCampaign),
   });
 }
 
@@ -107,7 +112,10 @@ export async function createLead(input: unknown, expectedOrganizationId: string 
   const initial = {hasInitialNote: !!variables.initialNote, hasInitialFollowUp: !!variables.initialFollowUpAt};
   const contactId = variables.contactId;
   const fromConversationId = variables.fromConversationId;
-  delete variables.contactId; delete variables.propertyId; delete variables.fromConversationId;
+  // Phase 7E.3: a lead added by hand records the MANUAL channel with the campaign chosen, grouped by its key.
+  const campaign = fromConversationId ? null : cleanText(variables.campaign, 200);
+  const source = {campaign, campaignKey: campaign ? campaignKey(campaign) : null};
+  delete variables.contactId; delete variables.propertyId; delete variables.fromConversationId; delete variables.campaign;
   // The conversation must be one this member can see before a lead is created from it.
   if (fromConversationId) await getConversation(context, fromConversationId);
   const requestedMembershipId = variables.assignedMembershipId ?? null;
@@ -136,13 +144,13 @@ export async function createLead(input: unknown, expectedOrganizationId: string 
         const contactVariables = {...variables};
         delete contactVariables.fullName; delete contactVariables.email; delete contactVariables.phone;
         data = await executeWorkspaceOperation(() => createLeadForContact(request.dc, {
-          ...sqlCrmFields(contactVariables), ...assignment, contactId,
+          ...sqlCrmFields(contactVariables), ...assignment, ...source, contactId,
         }, request.options), "CreateLeadForContact");
       } else {
         data = await executeWorkspaceOperation(() => createLeadOperation(request.dc, {
           ...sqlCrmFields(variables), fullName: variables.fullName!, phone: normalized.phone,
           normalizedPhone: normalized.normalizedPhone, alternatePhone: normalizedAlternate.phone,
-          normalizedAlternatePhone: normalizedAlternate.normalizedPhone, ...assignment,
+          normalizedAlternatePhone: normalizedAlternate.normalizedPhone, ...assignment, ...source,
         }, request.options), "CreateLead");
       }
       return {...data, possibleDuplicates: duplicates, warnings, ...await linkFromConversation(context, fromConversationId, data.lead?.id, warnings)};

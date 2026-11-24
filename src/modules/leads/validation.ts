@@ -2,6 +2,7 @@ import { z } from "zod";
 import { canonicalUuid } from "../organizations/server/identifiers";
 import { leadStatuses } from "./types";
 import { contactFields, crmLeadFields, crmLeadFilterFields, validBudget } from "./crm-validation";
+import { LEAD_CHANNELS } from "../lead-capture/attribution";
 
 const uuid = z.string().transform(canonicalUuid).pipe(z.uuid());
 const optionalText = (maximum: number) => z.string().trim().min(1).max(maximum).nullable().optional();
@@ -24,6 +25,8 @@ export const createLeadSchema = z.strictObject({ ...fields, ...crmLeadFields, fu
   initialNote: optionalText(4000), initialFollowUpAt: futureTimestamp.nullable().optional(), initialFollowUpNote: optionalText(500),
   // Phase 7E.2: Create lead from an inbox conversation; the conversation is linked to the new lead.
   fromConversationId: uuid.optional(),
+  // Phase 7E.3: the campaign a lead added by hand came from (optional; grouped with the same name from other channels).
+  campaign: optionalText(200),
 })
   .refine(value => !!value.contactId || !!value.fullName, "Choose a contact or enter a full name.")
   .refine(validBudget, "Maximum budget must be at least the minimum budget.");
@@ -55,6 +58,8 @@ export const leadListInputSchema = z.strictObject({
   assignedMembershipId: uuid.optional(),
   followUp: z.enum(["ALL", "OVERDUE", "UPCOMING"]).default("ALL"),
   createdFrom: calendarDate.optional(), createdTo: calendarDate.optional(),
+  // Phase 7E.3: the lead's recorded source.
+  channel: z.enum(LEAD_CHANNELS).optional(), campaign: z.string().trim().max(200).optional(),
   sort: z.enum(leadSorts).default("CREATED_DESC"),
   limit: z.number().int().min(1).max(100).default(50),
   offset: z.number().int().min(0).max(10000).default(0),
@@ -66,6 +71,8 @@ export const leadPageFiltersSchema = z.strictObject({
   assignedMembershipId: z.union([uuid, z.literal("")]).default(""),
   sourceId: z.union([uuid, z.literal("")]).default(""),
   priority: z.union([z.enum(["LOW", "NORMAL", "HIGH", "URGENT"]), z.literal("")]).default(""),
+  channel: z.union([z.enum(LEAD_CHANNELS), z.literal("")]).default(""),
+  campaign: z.string().trim().max(200).default(""),
   createdFrom: z.union([calendarDate, z.literal("")]).default(""),
   createdTo: z.union([calendarDate, z.literal("")]).default(""),
   range: z.enum(leadDateRanges).default("30D"),

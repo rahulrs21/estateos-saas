@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { leadRequest } from "../client";
+import { LeadChannelTag } from "./lead-source";
 import { leadBudget } from "../presentation";
 import type { LeadListData, LeadRecord, LeadStatus } from "../types";
 import { STATUS_DOTS } from "./lead-filter-bar";
@@ -130,6 +131,7 @@ export function LeadsKanban({ data }: { data: LeadListData }) {
           {hasBudget && place && <span className="text-muted-foreground/60">·</span>}
           {place && <span className="flex min-w-0 items-center gap-1 text-muted-foreground"><MapPin className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{place}</span></span>}
         </div>}
+        {lead.origin && lead.origin.channel !== "MANUAL" && <div className="mt-1.5 [&_span]:text-[11px]" title={lead.origin.campaign ?? undefined}><LeadChannelTag origin={lead.origin} compact /></div>}
         <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
           <span className="flex min-w-0 items-center gap-1.5">{agent ? <><LeadAvatar name={agent} className="size-4 border-0 text-[8px]" /><span className="truncate">{agent}</span></> : <span className="italic">Unassigned</span>}</span>
           <span className="flex shrink-0 items-center gap-2">

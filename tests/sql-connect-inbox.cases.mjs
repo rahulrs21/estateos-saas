@@ -1024,26 +1024,36 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       assert.equal(listed.adHeadline, "Newer ad", "the list shows the ad");
     });
 
+    // Phase 7E.3: a lead created here records MANUAL; deleting its row stands in for a lead from before sources were recorded.
+    const dropSource = leadId => dc.executeGraphql(`mutation D($lead: UUID!) { leadAttribution_deleteMany(where: {leadId: {eq: $lead}}) }`, {variables: {lead: leadId}});
+
     it("gives a lead created from an ad conversation the ad as its source, checked by the database", async () => {
       const olderLead = await newLead("Older lead");
       const id = randomUUID();
       await create(id, PHONE, AD);
       const fromAd = await newLead("From the ad");
-      archived.push(olderLead, fromAd);
+      const typed = (await run(sdk.createLead, "owner-a", {organizationId: f.orgA, fullName: `Typed campaign ${randomUUID().slice(0, 6)}`, phone: PHONE, normalizedPhone: PHONE,
+        assignedMembershipId: f.memberAgentA, campaign: "Marina Launch", campaignKey: "marina launch"})).lead.id;
+      archived.push(olderLead, fromAd, typed);
+      assert.deepEqual((await sourceOf(fromAd)).map(row => row.channel), ["MANUAL"], "a lead added by hand records the MANUAL channel");
       let revision = (await read(id)).revision;
+      await rejectsWith(link("owner-a", id, revision, {hasLead: true, leadId: olderLead, replaceSource: true}), "INBOX_LEAD_SOURCE_NOT_ALLOWED");
       await rejectsWith(link("owner-a", id, revision, {hasLead: true, leadId: olderLead, attribute: true}), "INBOX_LEAD_SOURCE_NOT_ALLOWED");
+      await rejectsWith(link("owner-a", id, revision, {hasLead: true, leadId: typed, replaceSource: true}), "INBOX_LEAD_SOURCE_NOT_ALLOWED");
       await forbidden(sdk.linkInboxConversation, "owner-a", {organizationId: f.orgA, id, expectedRevision: revision, hasLead: false, leadId: null, hasContact: false, contactId: null, identityMatches: false, attribute: true});
-      await link("owner-a", id, revision, {hasLead: true, leadId: fromAd, attribute: true});
+      await forbidden(sdk.linkInboxConversation, "owner-a", {organizationId: f.orgA, id, expectedRevision: revision, hasLead: true, leadId: fromAd, hasContact: false, contactId: null, identityMatches: false, attribute: true, replaceSource: true});
+      await link("owner-a", id, revision, {hasLead: true, leadId: fromAd, replaceSource: true});
       assert.deepEqual(await sourceOf(fromAd), [{channel: "WHATSAPP_AD", platform: "meta", campaignKey: AD.adCampaignKey, metaAdId: AD.adSourceId, metaAdName: AD.adHeadline,
         referrerHost: "fb.me", ctwaClid: AD.adCtwaClid, utmSource: null}], "the values come from the stored conversation");
       const activity = (await dc.executeGraphql(`query A($lead: UUID!) { activities(where: {leadId: {eq: $lead}, kind: {eq: INBOX_LINKED}}) { metadata } }`, {variables: {lead: fromAd}})).data.activities;
       assert.equal(activity[0].metadata.source, true, "the lead's history says the source was added");
-      // A lead keeps the source it has: linking again cannot add another.
+      // A lead keeps the source it has now: linking again cannot change it.
       revision = (await read(id)).revision;
-      await rejectsWith(link("owner-a", id, revision, {hasLead: true, leadId: fromAd, attribute: true}), "INBOX_LEAD_SOURCE_NOT_ALLOWED");
-      // Linking without the source rule still works, and the older lead gets no source.
+      await rejectsWith(link("owner-a", id, revision, {hasLead: true, leadId: fromAd, replaceSource: true}), "INBOX_LEAD_SOURCE_NOT_ALLOWED");
+      // Linking without the source rule still works; the older lead and the typed campaign keep their own source.
       await link("owner-a", id, revision, {hasLead: true, leadId: olderLead});
-      assert.deepEqual(await sourceOf(olderLead), []);
+      assert.deepEqual((await sourceOf(olderLead)).map(row => row.channel), ["MANUAL"]);
+      assert.deepEqual((await sourceOf(typed)).map(row => row.campaignKey), ["marina launch"]);
     });
 
     it("gives a lead created from a WhatsApp conversation without an ad the WhatsApp channel", async () => {
@@ -1052,6 +1062,7 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       await create(id, phone, NO_AD);
       const lead = (await run(sdk.createLead, "owner-a", {organizationId: f.orgA, fullName: `Organic ${randomUUID().slice(0, 6)}`, phone, normalizedPhone: phone, assignedMembershipId: f.memberAgentA})).lead.id;
       archived.push(lead);
+      await dropSource(lead);
       await link("owner-a", id, (await read(id)).revision, {hasLead: true, leadId: lead, attribute: true});
       assert.deepEqual(await sourceOf(lead), [{channel: "WHATSAPP", platform: "direct", campaignKey: null, metaAdId: null, metaAdName: null, referrerHost: null, ctwaClid: null, utmSource: null}]);
       // These synthetic leads are archived so the agent's lead counts in later cases are unchanged.

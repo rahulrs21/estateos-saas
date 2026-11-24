@@ -4,7 +4,17 @@
  * kept as host and path only (a query string can carry personal data), and click IDs must look like click IDs.
  */
 
-export type LeadChannel = "MANUAL" | "WEBSITE_FORM" | "LANDING_PAGE" | "META_LEAD_AD" | "WHATSAPP_AD" | "WHATSAPP" | "EMAIL" | "PORTAL" | "OTHER";
+export const LEAD_CHANNELS = ["MANUAL", "WEBSITE_FORM", "LANDING_PAGE", "META_LEAD_AD", "WHATSAPP_AD", "WHATSAPP", "EMAIL", "PORTAL", "OTHER"] as const;
+export type LeadChannel = (typeof LEAD_CHANNELS)[number];
+/** Phase 7E.3: how each channel is named in the CRM. */
+export const LEAD_CHANNEL_LABELS: Record<LeadChannel, string> = {
+  MANUAL: "Added by hand", WEBSITE_FORM: "Website form", LANDING_PAGE: "Landing page", META_LEAD_AD: "Meta lead ad",
+  WHATSAPP_AD: "WhatsApp ad", WHATSAPP: "WhatsApp", EMAIL: "Email", PORTAL: "Property portal", OTHER: "Other",
+};
+export const LEAD_PLATFORM_LABELS: Record<string, string> = {
+  meta: "Meta (Facebook, Instagram)", google: "Google", tiktok: "TikTok", snapchat: "Snapchat", linkedin: "LinkedIn",
+  organic: "Organic search", referral: "Another website", direct: "Direct",
+};
 export type LeadPlatform = "meta" | "google" | "tiktok" | "snapchat" | "linkedin" | "organic" | "referral" | "direct";
 
 /** What a browser sends with an enquiry (all optional, all untrusted). */
@@ -106,4 +116,23 @@ export function websiteAttribution(channel: "WEBSITE_FORM" | "LANDING_PAGE", inp
 /** A Meta lead ad's campaign key: its campaign name, or its ID when Meta gave no name. */
 export function metaCampaignKey(name: string | null | undefined, id: string | null | undefined) {
   return campaignKey(name) ?? (id ? `meta campaign ${id}` : null);
+}
+
+/**
+ * Phase 7E.3: the name a campaign is shown with: Meta's campaign name, the UTM campaign (or the campaign typed on a
+ * lead added by hand), the ad's name, then the grouping key itself.
+ */
+export function campaignLabel(row: {campaignKey?: string | null; metaCampaignName?: string | null; utmCampaign?: string | null; metaAdName?: string | null}) {
+  return row.metaCampaignName || row.utmCampaign || row.metaAdName || row.campaignKey || null;
+}
+
+/** Phase 7E.3: one option per campaign key (rows newest first, so each takes its newest name), at most `limit`. */
+export function campaignOptions(rows: Array<{campaignKey?: string | null; metaCampaignName?: string | null; utmCampaign?: string | null; metaAdName?: string | null}>, limit = 100) {
+  const seen = new Map<string, string>();
+  for (const row of rows) {
+    if (!row.campaignKey || seen.has(row.campaignKey)) continue;
+    seen.set(row.campaignKey, campaignLabel(row) ?? row.campaignKey);
+    if (seen.size >= limit) break;
+  }
+  return [...seen].map(([key, label]) => ({key, label})).sort((x, y) => x.label.localeCompare(y.label, "en"));
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { ArrowDownUp, CalendarDays, ChevronDown, CircleDot, Clock, Flag, GitBranch, Megaphone, Search, UserRound, X } from "lucide-react";
+import { ArrowDownUp, CalendarDays, ChevronDown, CircleDot, Clock, Flag, GitBranch, Megaphone, Radio, Search, Target, UserRound, X } from "lucide-react";
+import { LEAD_CHANNELS, LEAD_CHANNEL_LABELS } from "@/modules/lead-capture/attribution";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -112,11 +113,11 @@ export function LeadDateRangeMenu({ filters, pending, onChange }: { filters: Lea
  * to a new URL (page 1); the server reads the filters from it and applies permissions.
  */
 export function LeadFilterBar({ data, pending, onChange }: { data: LeadListData; pending: boolean; onChange: (changes: Partial<LeadFilters>) => void }) {
-  const { filters, assignees, sources, branches, membership } = data;
+  const { filters, assignees, sources, branches, membership, campaigns } = data;
   const [search, setSearch] = useState(filters.search);
   // Every filter change carries the typed search too, and goes back to page 1.
   const apply = (changes: Partial<LeadFilters>) => onChange({ search: search.trim(), ...changes, page: 1 });
-  const active = [filters.search, filters.status, filters.assignedMembershipId, filters.sourceId, filters.priority, filters.branchId, filters.followUp !== "ALL" ? filters.followUp : ""].filter(Boolean).length;
+  const active = [filters.search, filters.status, filters.assignedMembershipId, filters.sourceId, filters.priority, filters.branchId, filters.channel, filters.campaign, filters.followUp !== "ALL" ? filters.followUp : ""].filter(Boolean).length;
 
   function submitSearch(event: FormEvent<HTMLFormElement>) { event.preventDefault(); apply({}); }
 
@@ -132,13 +133,18 @@ export function LeadFilterBar({ data, pending, onChange }: { data: LeadListData;
         options={assignees.map(member => ({ value: member.id, label: member.userProfile?.displayName || member.email, hint: member.id === membership.id ? "You" : undefined }))} onChange={assignedMembershipId => apply({ assignedMembershipId })} />
       <FilterMenu testId="lead-filter-source" label="Source" icon={<Megaphone />} allLabel="Any source" value={filters.sourceId} disabled={pending}
         options={sources.map(source => ({ value: source.id, label: source.name }))} onChange={sourceId => apply({ sourceId })} />
+      <FilterMenu testId="lead-filter-channel" label="Channel" icon={<Radio />} allLabel="Any channel" value={filters.channel} disabled={pending}
+        options={LEAD_CHANNELS.map(channel => ({ value: channel, label: LEAD_CHANNEL_LABELS[channel] }))} onChange={channel => apply({ channel: channel as LeadFilters["channel"] })} />
+      {(campaigns.length > 0 || filters.campaign) && <FilterMenu testId="lead-filter-campaign" label="Campaign" icon={<Target />} allLabel="Any campaign" value={filters.campaign} disabled={pending}
+        options={[...campaigns.map(campaign => ({ value: campaign.key, label: campaign.label })), ...(filters.campaign && !campaigns.some(campaign => campaign.key === filters.campaign) ? [{ value: filters.campaign, label: filters.campaign }] : [])]}
+        onChange={campaign => apply({ campaign })} />}
       <FilterMenu testId="lead-filter-priority" label="Priority" icon={<Flag />} allLabel="Any priority" value={filters.priority} disabled={pending}
         options={Object.entries(leadPriorityLabels).map(([value, label]) => ({ value, label, dot: PRIORITY_DOTS[value as keyof typeof PRIORITY_DOTS] }))} onChange={priority => apply({ priority: priority as LeadFilters["priority"] })} />
       {branches.length > 0 && <FilterMenu testId="lead-filter-branch" label="Branch" icon={<GitBranch />} allLabel="Any branch" value={filters.branchId} disabled={pending}
         options={branches.map(branch => ({ value: branch.id, label: branch.name }))} onChange={branchId => apply({ branchId })} />}
       <FilterMenu testId="lead-filter-follow-up" label="Follow-up" icon={<Clock />} allLabel="Any follow-up" value={filters.followUp === "ALL" ? "" : filters.followUp} disabled={pending}
         options={[{ value: "OVERDUE", label: "Overdue" }, { value: "UPCOMING", label: "Upcoming" }]} onChange={followUp => apply({ followUp: (followUp || "ALL") as LeadFilters["followUp"] })} />
-      {active > 0 && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground" disabled={pending} onClick={() => { setSearch(""); onChange({ search: "", status: "", assignedMembershipId: "", sourceId: "", priority: "", branchId: "", followUp: "ALL", page: 1 }); }}>
+      {active > 0 && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground" disabled={pending} onClick={() => { setSearch(""); onChange({ search: "", status: "", assignedMembershipId: "", sourceId: "", priority: "", branchId: "", channel: "", campaign: "", followUp: "ALL", page: 1 }); }}>
         <X aria-hidden="true" />Clear filters<span className="tabular-nums">({active})</span>
       </Button>}
     </div>

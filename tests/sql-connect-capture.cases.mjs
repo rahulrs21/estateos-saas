@@ -176,5 +176,65 @@ export function registerCaptureCases({ sdk, run, forbidden, dc }) {
       assert.equal(Number(otherCompany.summary?.total_leads ?? 0), 0);
     });
   });
-}
 
+  // Phase 7E.3 (docs/LEAD_ATTRIBUTION_PLAN.md): the source of leads added by hand, and the Channel and Campaign filters.
+  describe("Phase 7E.3 lead sources in the CRM", { concurrency: false }, () => {
+    const tag = randomBytes(3).toString("hex");
+    const NAME = `Spring_Open House ${tag}`, KEY = `spring open house ${tag}`;
+    const created = [];
+    const make = async (extra = {}) => {
+      const id = (await run(sdk.createLead, "owner-a", { organizationId: f.orgA, fullName: `Source ${randomUUID().slice(0, 6)}`, assignedMembershipId: f.memberAgentA, ...extra })).lead.id;
+      created.push(id);
+      return id;
+    };
+    const sourceOf = async (id) => (await dc.executeGraphql(`query S($lead: UUID!) { leadAttributions(where: {leadId: {eq: $lead}}) { channel platform utmCampaign campaignKey } }`, { variables: { lead: id } })).data.leadAttributions;
+    const list = (uid, extra = {}) => run(sdk.listLeads, uid, { organizationId: f.orgA, limit: 100, ...extra });
+    const ids = (rows) => rows.map((row) => uuid(row.id));
+    let tagged, plain, unrecorded, second;
+
+    it("records a lead added by hand as MANUAL with the campaign chosen, for a new contact and an existing one", async () => {
+      tagged = await make({ campaign: NAME, campaignKey: KEY });
+      plain = await make();
+      unrecorded = await make();
+      // Stands in for a lead created before sources were recorded.
+      await dc.executeGraphql(`mutation D($lead: UUID!) { leadAttribution_deleteMany(where: {leadId: {eq: $lead}}) }`, { variables: { lead: unrecorded } });
+      assert.deepEqual(await sourceOf(tagged), [{ channel: "MANUAL", platform: "direct", utmCampaign: NAME, campaignKey: KEY }]);
+      assert.deepEqual(await sourceOf(plain), [{ channel: "MANUAL", platform: "direct", utmCampaign: null, campaignKey: null }]);
+      const contactId = (await run(sdk.getLead, "owner-a", { organizationId: f.orgA, leadId: plain })).lead.contactId;
+      second = (await run(sdk.createLeadForContact, "owner-a", { organizationId: f.orgA, contactId, assignedMembershipId: f.memberAgentA, campaign: NAME, campaignKey: KEY })).lead.id;
+      created.push(second);
+      assert.deepEqual(await sourceOf(second), [{ channel: "MANUAL", platform: "direct", utmCampaign: NAME, campaignKey: KEY }]);
+      await forbidden(sdk.createLead, "owner-a", { organizationId: f.orgA, fullName: "Too long", campaign: "x".repeat(201) });
+    });
+
+    it("filters the list by channel and campaign, and never hides leads without a source when no source filter is chosen", async () => {
+      const all = await list("owner-a");
+      assert.ok([tagged, plain, unrecorded].every((id) => ids(all.leads).includes(uuid(id))), "leads without a source are listed");
+      const row = all.leads.find((lead) => uuid(lead.id) === uuid(tagged));
+      assert.deepEqual(row.leadAttribution_on_lead, { channel: "MANUAL", platform: "direct", campaignKey: KEY, utmCampaign: NAME, metaCampaignName: null, metaAdName: null }, "each row carries its source");
+      assert.equal(all.leads.find((lead) => uuid(lead.id) === uuid(unrecorded)).leadAttribution_on_lead, null);
+
+      const manual = await list("owner-a", { channel: sdk.LeadChannel.MANUAL, sourceFiltered: true });
+      assert.ok(ids(manual.leads).includes(uuid(tagged)) && ids(manual.leads).includes(uuid(plain)));
+      assert.ok(!ids(manual.leads).includes(uuid(unrecorded)), "a channel filter only matches leads with that recorded channel");
+      assert.equal(manual.total[0].count, manual.leads.length, "the count uses the same filter");
+      const campaign = await list("owner-a", { campaignKey: KEY, sourceFiltered: true });
+      assert.deepEqual(new Set(ids(campaign.leads)), new Set([uuid(tagged), uuid(second)]));
+      assert.equal((await list("owner-a", { channel: sdk.LeadChannel.WEBSITE_FORM, campaignKey: KEY, sourceFiltered: true })).leads.length, 0, "both filters apply together");
+      assert.equal((await list("agent-a", { campaignKey: KEY, sourceFiltered: true })).leads.length, 2, "the assigned agent sees their leads of the campaign");
+      assert.equal((await list("shared-agent", { campaignKey: KEY, sourceFiltered: true })).leads.length, 0, "other agents see none");
+      await forbidden(sdk.listLeads, "owner-a", { organizationId: f.orgA, limit: 10, sourceFiltered: true });
+      await forbidden(sdk.listLeads, "owner-a", { organizationId: f.orgA, limit: 10, campaignKey: "x".repeat(201), sourceFiltered: true });
+    });
+
+    it("offers each member only the campaigns of the leads they may see", async () => {
+      const keys = async (uid) => (await run(sdk.leadCampaignOptions, uid, { organizationId: f.orgA })).campaigns.map((row) => row.campaignKey);
+      assert.ok((await keys("owner-a")).includes(KEY));
+      assert.ok((await keys("agent-a")).includes(KEY), "the assigned agent");
+      assert.ok(!(await keys("shared-agent")).includes(KEY), "not another agent");
+      await forbidden(sdk.leadCampaignOptions, "owner-b", { organizationId: f.orgA });
+      // These synthetic leads are archived so later lead counts are unchanged.
+      for (const leadId of created) await run(sdk.archiveLead, "owner-a", { organizationId: f.orgA, leadId });
+    });
+  });
+}

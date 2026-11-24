@@ -9,6 +9,7 @@ import type { LeadActivity, LeadDetailData } from "@/modules/leads/types";
 import { LeadAssignment, LeadFollowUp, LeadFollowUpCompletion, LeadNoteForm, LeadStatusPipeline } from "./lead-actions";
 import { LeadEditorDialog } from "./lead-form";
 import { LeadAdEnquiryCard } from "./lead-ad-enquiry";
+import { LeadSourceCard } from "./lead-source";
 import { formatLeadDate, LeadAvatar, LeadStatusBadge, leadStatusLabels } from "./lead-ui";
 import { enquiryFields, leadBudget, leadPriorityLabels } from "../presentation";
 import { cn } from "@/lib/utils";
@@ -188,6 +189,7 @@ export function LeadDetail({ data, propertySection, salesSection, callSection }:
       <aside className="space-y-4" aria-label="Lead responsibility and follow-up">
         <Card className="gap-4 py-4 shadow-xs ring-border"><CardHeader className="px-5"><div className="flex items-center gap-2"><UserRound className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Responsibility</CardTitle></div></CardHeader><CardContent className="px-5"><LeadAssignment data={data} /></CardContent></Card>
         <Card className="gap-4 py-4 shadow-xs ring-border"><CardHeader className="px-5"><div className="flex items-center gap-2"><CalendarClock className="size-4 text-muted-foreground" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>Next follow-up</CardTitle></div></CardHeader><CardContent className="px-5"><LeadFollowUp lead={lead} /><p className="mt-4 text-[11px] leading-5 text-muted-foreground">Follow-ups are saved to this company workspace. Email, calendar and push reminders are not connected.</p></CardContent></Card>
+        <LeadSourceCard source={data.source} />
         <section aria-label="Lead record information" className="space-y-3 px-1 text-xs text-muted-foreground"><p className="flex items-start gap-2"><Clock3 className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /><span>Created <time dateTime={lead.createdAt}>{formatLeadDate(lead.createdAt, true)}</time><br /><span className="mt-1 inline-block">Updated <time dateTime={lead.updatedAt}>{formatLeadDate(lead.updatedAt, true)}</time></span></span></p>{lead.leadNumber && <p className="break-all leading-5">Lead reference: {lead.leadNumber}</p>}<p className="leading-5">All times are in Dubai (UTC+4). {["AGENT", "MANAGER"].includes(membership.role) ? "Your access is limited to leads assigned to you." : "Access follows your active company membership."}</p></section>
       </aside>
     </div>

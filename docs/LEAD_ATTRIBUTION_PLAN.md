@@ -1,6 +1,23 @@
 # Phase 7E: lead source attribution (plan)
 
-Status: **7E.1 built** (capture); its database change is deployed to staging (2026-11-24). **7E.2 built** (WhatsApp ads); its database change is deployed to staging (2026-11-24).
+Status: **7E.1 built** (capture) and **7E.2 built** (WhatsApp ads); their database changes are deployed to staging (2026-11-24). **7E.3 built** (showing it); its operations are deployed to staging (2026-11-24). Decisions taken: keep click IDs, one touch per lead, and an optional Campaign field on manual leads.
+
+## Built in 7E.3
+
+- **Leads added by hand:**
+  - `CreateLead` and `CreateLeadForContact` write a `MANUAL` source in the same transaction, with the optional **Campaign** typed on the form (kept as `utmCampaign`, grouped by `campaignKey`);
+  - the form suggests the campaigns of the leads the member may see (`LeadCampaignOptions`);
+  - a lead created from an inbox conversation has no campaign field: its source comes from the conversation.
+- **The link rule, extended:** a lead created after the conversation began, whose source is `MANUAL` with no campaign, has that source **replaced** by the conversation's (for example a lead typed in by hand after a WhatsApp ad enquiry). `LinkInboxConversation` checks this in the database (`$replaceSource`); any other source is kept.
+- **Lists:**
+  - every `ListLeads*` query returns the lead's source and takes `$channel`, `$campaignKey` and `$sourceFiltered`;
+  - with no source filter, every lead matches (`id isNull false`), so leads without a source are never hidden;
+  - with a filter, only leads whose recorded source matches are listed and counted.
+- **Where it shows:**
+  - a **Channel** column (with the campaign under it) in the list, a channel line on Kanban cards and on mobile rows;
+  - **Channel** and **Campaign** filters beside Status, Agent and the rest;
+  - a **Source** card on the lead page: channel, platform, campaign, ad set, ad, landing page and referring site, with UTM tags, Meta IDs and click IDs under *Tracking details*.
+- **Visibility:** the same as the lead's: the Source card uses `GetLeadAttribution`; campaign options and filters only cover leads the member may see.
 
 ## Built in 7E.2
 
@@ -19,7 +36,7 @@ Status: **7E.1 built** (capture); its database change is deployed to staging (20
   - the source is `WHATSAPP_AD` (platform meta, the ad's ID and headline, `ctwa_clid`, grouped by headline until 7F reads the campaign), else `WHATSAPP` or `EMAIL`;
   - `LinkInboxConversation` checks the same rule in the database and takes the values from the stored conversation, never from the caller;
   - a lead matched automatically by phone already existed, so it keeps its own source.
-- **7E.3 note:** when manual leads get a `MANUAL` source, a lead created from a conversation must skip it, so linking can add the conversation's source. Decisions taken: keep click IDs, one touch per lead, and an optional Campaign field on manual leads (7E.3).
+- **7E.3 note:** since manual leads now get a `MANUAL` source, linking replaces a bare `MANUAL` source (see Built in 7E.3).
 
 ## Built in 7E.1
 

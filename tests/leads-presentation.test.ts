@@ -6,7 +6,7 @@ import type { LeadFilters } from "../src/modules/leads/types";
 const filters: LeadFilters = {
   search: "R&D + sales?status=WON#private", status: "QUALIFIED", branchId: "",
   assignedMembershipId: "10000000-0000-4000-8000-000000000001",
-  sourceId: "10000000-0000-4000-8000-000000000002", priority: "HIGH",
+  sourceId: "10000000-0000-4000-8000-000000000002", priority: "HIGH", channel: "META_LEAD_AD", campaign: "Marina Launch",
   createdFrom: "2026-10-01", createdTo: "2026-10-20", range: "CUSTOM", sort: "FOLLOW_UP_ASC",
   view: "KANBAN", followUp: "UPCOMING", page: 3, pageSize: 25,
 };
@@ -17,7 +17,7 @@ test("pagination and view links preserve filters while encoding search as data",
   assert.equal(url.hash, "");
   assert.equal(url.searchParams.get("search"), filters.search);
   assert.deepEqual(url.searchParams.getAll("status"), ["QUALIFIED"]);
-  for (const key of ["assignedMembershipId", "sourceId", "priority", "createdFrom", "createdTo", "sort", "view", "followUp", "pageSize"] as const) {
+  for (const key of ["assignedMembershipId", "sourceId", "priority", "channel", "campaign", "createdFrom", "createdTo", "sort", "view", "followUp", "pageSize"] as const) {
     assert.equal(url.searchParams.get(key), String(filters[key]), `Preserve ${key}`);
   }
   assert.equal(url.searchParams.get("page"), "4");

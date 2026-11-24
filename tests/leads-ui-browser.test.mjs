@@ -131,6 +131,22 @@ try {
   await waitFor(`!new URL(location.href).searchParams.get('status')&&!new URL(location.href).searchParams.get('search')&&document.querySelectorAll('[data-testid="lead-row"]').length===10`, "clearing every filter");
   pass("Dropdown filters keep the typed search, and Clear filters resets them all.");
 
+  // Phase 7E.3: the Channel column and the Channel and Campaign filters.
+  await load("/leads");
+  assert.equal(await evaluate(`[...document.querySelectorAll('thead th')].some(e=>e.textContent.trim()==='Channel')`), true, "the list has a Channel column");
+  assert.equal(await evaluate(`[...document.querySelectorAll('[data-testid="lead-row"] [data-testid="lead-channel"]')].some(e=>e.innerText.includes('Meta lead ad')&&e.innerText.includes('Spring Open House'))`), true, "a row shows its channel and campaign");
+  await click('[data-testid="lead-filter-channel"]');
+  await clickMenuItem("Meta lead ad");
+  await waitFor(`new URL(location.href).searchParams.get('channel')==='META_LEAD_AD'&&document.querySelectorAll('[data-testid="lead-row"]').length===4`, "the channel filter");
+  assert.equal(await evaluate(`[...document.querySelectorAll('[data-testid="lead-row"] [data-testid="lead-channel"]')].every(e=>e.innerText.includes('Meta lead ad'))`), true);
+  await waitFor(`!!document.querySelector('#fixture-ready[data-ready="true"]')`, "the channel-filtered list");
+  await click('[data-testid="lead-filter-campaign"]');
+  await clickMenuItem("Spring Open House");
+  await waitFor(`new URL(location.href).searchParams.get('campaign')==='spring open house'&&new URL(location.href).searchParams.get('channel')==='META_LEAD_AD'`, "the campaign filter keeps the channel");
+  await clickText("Clear filters(2)");
+  await waitFor(`!new URL(location.href).searchParams.get('channel')&&!new URL(location.href).searchParams.get('campaign')&&document.querySelectorAll('[data-testid="lead-row"]').length===10`, "clearing the source filters");
+  pass("Phase 7E.3: the list shows each lead's channel and campaign; Channel and Campaign filters narrow it and clear with the others.");
+
   await click('[data-testid="lead-date-range"]');
   await clickMenuItem("Last 7 days");
   await waitFor(`new URL(location.href).searchParams.get('range')==='7D'&&!new URL(location.href).searchParams.has('createdFrom')`, "the date range preset");

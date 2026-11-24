@@ -2124,6 +2124,7 @@ export interface CreateLeadData {
   lead: Lead_Key;
   assignment: LeadAssignmentHistory_Key;
   activity_insert: Activity_Key;
+  source: LeadAttribution_Key;
   auditLog_insert: AuditLog_Key;
   assignedNotification: InAppNotification_Key;
   unassignedNotification: InAppNotification_Key;
@@ -2141,6 +2142,7 @@ export interface CreateLeadForContactData {
   lead: Lead_Key;
   assignment: LeadAssignmentHistory_Key;
   activity_insert: Activity_Key;
+  source: LeadAttribution_Key;
   auditLog_insert: AuditLog_Key;
   assignedNotification: InAppNotification_Key;
   unassignedNotification: InAppNotification_Key;
@@ -2185,6 +2187,8 @@ export interface CreateLeadForContactVariables {
   initialFollowUpNote?: string | null;
   hasInitialNote?: boolean;
   hasInitialFollowUp?: boolean;
+  campaign?: string | null;
+  campaignKey?: string | null;
 }
 
 export interface CreateLeadQualificationDetailsData {
@@ -2237,6 +2241,8 @@ export interface CreateLeadVariables {
   initialFollowUpNote?: string | null;
   hasInitialNote?: boolean;
   hasInitialFollowUp?: boolean;
+  campaign?: string | null;
+  campaignKey?: string | null;
 }
 
 export interface CreateMetaLeadConnectionData {
@@ -5147,6 +5153,20 @@ export interface LeadAttribution_Key {
   __typename?: 'LeadAttribution_Key';
 }
 
+export interface LeadCampaignOptionsData {
+  campaigns: ({
+    campaignKey?: string | null;
+    utmCampaign?: string | null;
+    metaCampaignName?: string | null;
+    metaAdName?: string | null;
+    channel: LeadChannel;
+  })[];
+}
+
+export interface LeadCampaignOptionsVariables {
+  organizationId: UUIDString;
+}
+
 export interface LeadCaptureForm_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -6364,6 +6384,14 @@ export interface ListLeadsCreatedAscData {
       name: string;
       sourceType: LeadSourceType;
     };
+    leadAttribution_on_lead?: {
+      channel: LeadChannel;
+      platform: string;
+      campaignKey?: string | null;
+      utmCampaign?: string | null;
+      metaCampaignName?: string | null;
+      metaAdName?: string | null;
+    };
     branch?: {
       id: UUIDString;
       name: string;
@@ -6402,6 +6430,9 @@ export interface ListLeadsCreatedAscVariables {
   followUpAfter?: TimestampString | null;
   createdFrom?: TimestampString | null;
   createdBefore?: TimestampString | null;
+  channel?: LeadChannel | null;
+  campaignKey?: string | null;
+  sourceFiltered?: boolean;
 }
 
 export interface ListLeadsData {
@@ -6465,6 +6496,14 @@ export interface ListLeadsData {
       id: UUIDString;
       name: string;
       sourceType: LeadSourceType;
+    };
+    leadAttribution_on_lead?: {
+      channel: LeadChannel;
+      platform: string;
+      campaignKey?: string | null;
+      utmCampaign?: string | null;
+      metaCampaignName?: string | null;
+      metaAdName?: string | null;
     };
     branch?: {
       id: UUIDString;
@@ -6546,6 +6585,14 @@ export interface ListLeadsFollowUpAscData {
       name: string;
       sourceType: LeadSourceType;
     };
+    leadAttribution_on_lead?: {
+      channel: LeadChannel;
+      platform: string;
+      campaignKey?: string | null;
+      utmCampaign?: string | null;
+      metaCampaignName?: string | null;
+      metaAdName?: string | null;
+    };
     branch?: {
       id: UUIDString;
       name: string;
@@ -6584,6 +6631,9 @@ export interface ListLeadsFollowUpAscVariables {
   followUpAfter?: TimestampString | null;
   createdFrom?: TimestampString | null;
   createdBefore?: TimestampString | null;
+  channel?: LeadChannel | null;
+  campaignKey?: string | null;
+  sourceFiltered?: boolean;
 }
 
 export interface ListLeadsNameAscData {
@@ -6647,6 +6697,14 @@ export interface ListLeadsNameAscData {
       name: string;
       sourceType: LeadSourceType;
     };
+    leadAttribution_on_lead?: {
+      channel: LeadChannel;
+      platform: string;
+      campaignKey?: string | null;
+      utmCampaign?: string | null;
+      metaCampaignName?: string | null;
+      metaAdName?: string | null;
+    };
     branch?: {
       id: UUIDString;
       name: string;
@@ -6685,6 +6743,9 @@ export interface ListLeadsNameAscVariables {
   followUpAfter?: TimestampString | null;
   createdFrom?: TimestampString | null;
   createdBefore?: TimestampString | null;
+  channel?: LeadChannel | null;
+  campaignKey?: string | null;
+  sourceFiltered?: boolean;
 }
 
 export interface ListLeadsNameDescData {
@@ -6748,6 +6809,14 @@ export interface ListLeadsNameDescData {
       name: string;
       sourceType: LeadSourceType;
     };
+    leadAttribution_on_lead?: {
+      channel: LeadChannel;
+      platform: string;
+      campaignKey?: string | null;
+      utmCampaign?: string | null;
+      metaCampaignName?: string | null;
+      metaAdName?: string | null;
+    };
     branch?: {
       id: UUIDString;
       name: string;
@@ -6786,6 +6855,9 @@ export interface ListLeadsNameDescVariables {
   followUpAfter?: TimestampString | null;
   createdFrom?: TimestampString | null;
   createdBefore?: TimestampString | null;
+  channel?: LeadChannel | null;
+  campaignKey?: string | null;
+  sourceFiltered?: boolean;
 }
 
 export interface ListLeadsUpdatedDescData {
@@ -6849,6 +6921,14 @@ export interface ListLeadsUpdatedDescData {
       name: string;
       sourceType: LeadSourceType;
     };
+    leadAttribution_on_lead?: {
+      channel: LeadChannel;
+      platform: string;
+      campaignKey?: string | null;
+      utmCampaign?: string | null;
+      metaCampaignName?: string | null;
+      metaAdName?: string | null;
+    };
     branch?: {
       id: UUIDString;
       name: string;
@@ -6887,6 +6967,9 @@ export interface ListLeadsUpdatedDescVariables {
   followUpAfter?: TimestampString | null;
   createdFrom?: TimestampString | null;
   createdBefore?: TimestampString | null;
+  channel?: LeadChannel | null;
+  campaignKey?: string | null;
+  sourceFiltered?: boolean;
 }
 
 export interface ListLeadsVariables {
@@ -6908,6 +6991,9 @@ export interface ListLeadsVariables {
   followUpAfter?: TimestampString | null;
   createdFrom?: TimestampString | null;
   createdBefore?: TimestampString | null;
+  channel?: LeadChannel | null;
+  campaignKey?: string | null;
+  sourceFiltered?: boolean;
 }
 
 export interface ListListingActivityData {
@@ -10301,6 +10387,11 @@ export function automationReassignConversation(vars: AutomationReassignConversat
 export function getLeadAttribution(dc: DataConnect, vars: GetLeadAttributionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetLeadAttributionData>>;
 /** Generated Node Admin SDK operation action function for the 'GetLeadAttribution' Query. Allow users to pass in custom DataConnect instances. */
 export function getLeadAttribution(vars: GetLeadAttributionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetLeadAttributionData>>;
+
+/** Generated Node Admin SDK operation action function for the 'LeadCampaignOptions' Query. Allow users to execute without passing in DataConnect. */
+export function leadCampaignOptions(dc: DataConnect, vars: LeadCampaignOptionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LeadCampaignOptionsData>>;
+/** Generated Node Admin SDK operation action function for the 'LeadCampaignOptions' Query. Allow users to pass in custom DataConnect instances. */
+export function leadCampaignOptions(vars: LeadCampaignOptionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LeadCampaignOptionsData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListAutomationWorkflows' Query. Allow users to execute without passing in DataConnect. */
 export function listAutomationWorkflows(dc: DataConnect, vars: ListAutomationWorkflowsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationWorkflowsData>>;

@@ -118,12 +118,12 @@ test("lead list validation bounds pagination and rejects invalid status or filte
 
 test("URL pagination rejects invalid or excessive pages while retaining explicit empty filters", () => {
   assert.deepEqual(leadPageFiltersSchema.parse({ page: "2", pageSize: "25" }), {
-    search: "", status: "", branchId: "", assignedMembershipId: "", sourceId: "", priority: "", createdFrom: "", createdTo: "", range: "30D", sort: "CREATED_DESC", view: "LIST", followUp: "ALL", page: 2, pageSize: 25,
+    search: "", status: "", branchId: "", assignedMembershipId: "", sourceId: "", priority: "", channel: "", campaign: "", createdFrom: "", createdTo: "", range: "30D", sort: "CREATED_DESC", view: "LIST", followUp: "ALL", page: 2, pageSize: 25,
   });
   assert.equal(leadPageFiltersSchema.safeParse({ page: "401", pageSize: "25" }).success, true);
   for (const input of [
     { page: "0" }, { page: "abc" }, { page: "1.5" }, { page: "402" },
-    { page: "202", pageSize: "50" }, { pageSize: "500" }, { status: "SUPERUSER" },
+    { page: "202", pageSize: "50" }, { pageSize: "500" }, { status: "SUPERUSER" }, { channel: "SUPERUSER" }, { campaign: "x".repeat(201) },
   ]) assert.equal(leadPageFiltersSchema.safeParse(input).success, false);
 });
 

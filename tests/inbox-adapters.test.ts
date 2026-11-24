@@ -178,7 +178,7 @@ test("a message from a click-to-WhatsApp ad carries the ad, bounded and cleaned;
 });
 
 test("a conversation's ad is kept, a newer ad replaces it after 30 days, and a lead takes the conversation's source only when it came from the conversation", async () => {
-  const {conversationLeadChannel, linkGivesSource, replacesReferral} = await import("../src/modules/inbox/ad-referral");
+  const {conversationLeadChannel, linkSourceAction, replacesReferral} = await import("../src/modules/inbox/ad-referral");
   const now = Date.parse("2026-11-24T10:00:00Z");
   assert.equal(replacesReferral(null, now), true, "no ad yet");
   assert.equal(replacesReferral("2026-11-20T10:00:00Z", now), false, "a recent ad is kept");
@@ -191,8 +191,12 @@ test("a conversation's ad is kept, a newer ad replaces it after 30 days, and a l
   assert.equal(conversationLeadChannel({channel: "INTERNAL"}), null);
 
   const conversation = {channel: "WHATSAPP", createdAt: "2026-11-20T10:00:00.123456Z", adReferredAt: "2026-11-20T10:00:00.123456Z"};
-  assert.equal(linkGivesSource(conversation, {createdAt: "2026-11-20T10:05:00Z", hasSource: false}), true, "a lead created from the conversation takes its source");
-  assert.equal(linkGivesSource(conversation, {createdAt: "2026-11-01T10:00:00Z", hasSource: false}), false, "an older lead was not created from it");
-  assert.equal(linkGivesSource(conversation, {createdAt: "2026-11-20T10:05:00Z", hasSource: true}), false, "a lead keeps the source it was created with");
-  assert.equal(linkGivesSource({...conversation, channel: "WEBSITE"}, {createdAt: "2026-11-20T10:05:00Z", hasSource: false}), false);
+  const after = "2026-11-20T10:05:00Z";
+  assert.equal(linkSourceAction(conversation, {createdAt: after, source: null}), "INSERT", "a lead created from the conversation takes its source");
+  assert.equal(linkSourceAction(conversation, {createdAt: after, source: {channel: "MANUAL", campaignKey: null}}), "REPLACE", "a lead added by hand without a campaign takes the conversation's source");
+  assert.equal(linkSourceAction(conversation, {createdAt: after, source: {channel: "MANUAL", campaignKey: "marina launch"}}), null, "a campaign chosen by hand is kept");
+  assert.equal(linkSourceAction(conversation, {createdAt: after, source: {channel: "WEBSITE_FORM", campaignKey: null}}), null, "a lead keeps the source it was created with");
+  assert.equal(linkSourceAction(conversation, {createdAt: "2026-11-01T10:00:00Z", source: null}), null, "an older lead was not created from it");
+  assert.equal(linkSourceAction(conversation, {createdAt: "2026-11-01T10:00:00Z", source: {channel: "MANUAL", campaignKey: null}}), null);
+  assert.equal(linkSourceAction({...conversation, channel: "WEBSITE"}, {createdAt: after, source: null}), null);
 });

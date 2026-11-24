@@ -13,3 +13,16 @@ query GetLeadAttribution($organizationId: UUID!, $leadId: UUID!)
   landingHost landingPath referrerHost gclid fbclid ttclid ctwaClid capturedAt
  }
 }
+
+# Phase 7E.3: the campaigns of the leads this member may see, newest first, for the Campaign filter and the
+# suggestions on the lead form. The server keeps one entry per campaign key.
+query LeadCampaignOptions($organizationId: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") @redact { id }
+ campaigns: leadAttributions(where: { _and: [{ organizationId: { eq: $organizationId }, campaignKey: { isNull: false } }, { lead: { _or: [
+  { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+ ] } }] }, orderBy: [{ capturedAt: DESC }], limit: 500) {
+  campaignKey utmCampaign metaCampaignName metaAdName channel
+ }
+}

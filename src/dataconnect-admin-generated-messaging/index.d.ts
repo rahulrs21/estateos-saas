@@ -2537,6 +2537,8 @@ export interface InboxLinkTargetData {
     createdAt: TimestampString;
     source?: {
       id: UUIDString;
+      channel: LeadChannel;
+      campaignKey?: string | null;
     };
     contact?: {
       id: UUIDString;
@@ -2880,6 +2882,7 @@ export interface LinkCallFollowUpVariables {
 export interface LinkInboxConversationData {
   conversation?: InboxConversation_Key | null;
   attribution: LeadAttribution_Key;
+  replacedSource?: LeadAttribution_Key | null;
   auditLog_insert: AuditLog_Key;
   activity: Activity_Key;
 }
@@ -2894,6 +2897,7 @@ export interface LinkInboxConversationVariables {
   contactId?: UUIDString | null;
   identityMatches: boolean;
   attribute?: boolean;
+  replaceSource?: boolean;
 }
 
 export interface ListCallSummariesData {
