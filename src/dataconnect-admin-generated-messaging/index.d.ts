@@ -2756,6 +2756,12 @@ export interface LeadAssignmentHistory_Key {
   __typename?: 'LeadAssignmentHistory_Key';
 }
 
+export interface LeadAttribution_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'LeadAttribution_Key';
+}
+
 export interface LeadCaptureForm_Key {
   organizationId: UUIDString;
   id: UUIDString;

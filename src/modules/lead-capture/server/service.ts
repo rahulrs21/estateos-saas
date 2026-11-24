@@ -15,6 +15,7 @@ import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { assertExpectedOrganization } from "@/modules/leads/server/request-policy";
 import { normalizePhone } from "@/modules/leads/normalization";
 import { matchSingleContact, planAutoAssignment } from "./intake";
+import { websiteAttribution } from "../attribution";
 import { captureFormSchema, type CaptureFormInput } from "../validation";
 
 function adminDataConnect() {
@@ -201,7 +202,12 @@ async function ingestSubmission(dc: ReturnType<typeof adminDataConnect>, form: R
     privacyPolicyUrlSnapshot: form.privacyPolicyUrl, assignedMembershipId, distributionRuleId,
     expectedCursorVersion, hasAutoAssignment: assignedMembershipId !== null, hasDistributionAttempt,
   };
-  const result = await noAccessOperation(() => sdk.submitWebsiteLeadCapture(dc, variables));
+  // Phase 7E: where the lead came from, saved with the lead (docs/LEAD_ATTRIBUTION_PLAN.md).
+  const source = websiteAttribution(page ? "LANDING_PAGE" : "WEBSITE_FORM", parsed.attribution, page?.landingPageUrl ?? parsed.attribution.landingPageUrl);
+  const result = await noAccessOperation(() => sdk.submitWebsiteLeadCapture(dc, {...variables,
+    channel: sdk.LeadChannel[source.channel], platform: source.platform, campaignKey: source.campaignKey,
+    landingHost: source.landingHost, landingPath: source.landingPath, referrerHost: source.referrerHost,
+    gclid: source.gclid, fbclid: source.fbclid, ttclid: source.ttclid}));
   return canonicalUuid(result.lead.id);
 }
 

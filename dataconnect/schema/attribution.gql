@@ -1,0 +1,42 @@
+# Phase 7E: lead source attribution (docs/LEAD_ATTRIBUTION_PLAN.md).
+# Additive. One row per lead, written in the same transaction that creates the lead: the touch that created it
+# (channel, platform, campaign, UTM tags, landing page and referrer host, click IDs). Values come from URLs and
+# browsers and are cleaned by the server: hosts and paths only (never query strings), bounded, never markup.
+
+enum LeadChannel { MANUAL WEBSITE_FORM LANDING_PAGE META_LEAD_AD WHATSAPP_AD WHATSAPP EMAIL PORTAL OTHER }
+
+type LeadAttribution @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "leadId"])
+  @index(fields: ["organizationId", "channel", "capturedAt"])
+  @index(fields: ["organizationId", "campaignKey", "capturedAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  leadId: UUID!
+  lead: Lead! @ref(fields: ["organizationId", "leadId"], references: ["organizationId", "id"])
+  channel: LeadChannel!
+  # meta, google, tiktok, snapchat, linkedin, organic, referral or direct.
+  platform: String! @col(dataType: "varchar(20)")
+  utmSource: String @col(dataType: "varchar(200)")
+  utmMedium: String @col(dataType: "varchar(200)")
+  utmCampaign: String @col(dataType: "varchar(200)")
+  utmContent: String @col(dataType: "varchar(200)")
+  utmTerm: String @col(dataType: "varchar(200)")
+  # The campaign name trimmed and lower-cased (underscores and hyphens as spaces), so variants group together.
+  campaignKey: String @col(dataType: "varchar(200)")
+  metaCampaignId: String @col(dataType: "varchar(40)")
+  metaCampaignName: String @col(dataType: "varchar(300)")
+  metaAdsetId: String @col(dataType: "varchar(40)")
+  metaAdsetName: String @col(dataType: "varchar(300)")
+  metaAdId: String @col(dataType: "varchar(40)")
+  metaAdName: String @col(dataType: "varchar(300)")
+  metaFormId: String @col(dataType: "varchar(40)")
+  landingHost: String @col(dataType: "varchar(253)")
+  landingPath: String @col(dataType: "varchar(500)")
+  referrerHost: String @col(dataType: "varchar(253)")
+  gclid: String @col(dataType: "varchar(256)")
+  fbclid: String @col(dataType: "varchar(256)")
+  ttclid: String @col(dataType: "varchar(256)")
+  ctwaClid: String @col(dataType: "varchar(256)")
+  capturedAt: Timestamp! @default(expr: "request.time")
+}

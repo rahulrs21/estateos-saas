@@ -1,0 +1,15 @@
+# Phase 7E: reading a lead's attribution (docs/LEAD_ATTRIBUTION_PLAN.md). The same visibility as the lead itself:
+# its assigned agent, or an OWNER or ADMIN of the company, with an active membership.
+query GetLeadAttribution($organizationId: UUID!, $leadId: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") @redact { id }
+ lead(first: { where: { _and: [{ organizationId: { eq: $organizationId }, id: { eq: $leadId } }, { _or: [
+  { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+ ] }] } }) @redact @check(expr: "this != null", message: "LEAD_NOT_FOUND_OR_FORBIDDEN") { id }
+ attribution: leadAttribution(first: { where: { organizationId: { eq: $organizationId }, leadId: { eq: $leadId } } }) {
+  channel platform utmSource utmMedium utmCampaign utmContent utmTerm campaignKey
+  metaCampaignId metaCampaignName metaAdsetId metaAdsetName metaAdId metaAdName metaFormId
+  landingHost landingPath referrerHost gclid fbclid ttclid ctwaClid capturedAt
+ }
+}

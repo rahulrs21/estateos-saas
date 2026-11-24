@@ -84,6 +84,18 @@ export function registerCaptureCases({ sdk, run, forbidden, dc }) {
       assert.equal(stored.privacyPolicyUrlSnapshot, variables.privacyPolicyUrlSnapshot);
       const notifications = await run(sdk.listInAppNotifications, "owner-a", { organizationId: f.orgA, limit: 50, offset: 0 });
       assert.ok(notifications.notifications.some((item) => item.lead?.id === created.lead.id && item.type === "LEAD_UNASSIGNED"));
+      // Phase 7E: the lead's attribution was written in the same transaction; the defaults apply when not given.
+      const attribution = (await run(sdk.getLeadAttribution, "owner-a", { organizationId: f.orgA, leadId: created.lead.id })).attribution;
+      assert.deepEqual({ channel: attribution.channel, platform: attribution.platform, campaign: attribution.utmCampaign, term: attribution.utmTerm },
+        { channel: "WEBSITE_FORM", platform: "direct", campaign: "dubai-property", term: "apartment" });
+      await forbidden(sdk.getLeadAttribution, "owner-b", { organizationId: f.orgB, leadId: created.lead.id });
+      await forbidden(sdk.getLeadAttribution, "agent-a", { organizationId: f.orgA, leadId: created.lead.id });
+      // A landing page enquiry with click IDs: channel, platform, campaign key, landing page and referrer host as given.
+      const landing = await noAccess(sdk.submitWebsiteLeadCapture, { ...variables, idempotencyKeyHash: digest(randomUUID()), email: `Landing-${suffix}@Example.test`, normalizedEmail: `landing-${suffix}@example.test`, phone: null, normalizedPhone: null,
+        channel: sdk.LeadChannel.LANDING_PAGE, platform: "google", campaignKey: "dubai property", landingHost: "agency.example", landingPath: "/dubai", referrerHost: "www.google.com", gclid: "Cj0KCQ_test" });
+      const landed = (await run(sdk.getLeadAttribution, "owner-a", { organizationId: f.orgA, leadId: landing.lead.id })).attribution;
+      assert.deepEqual({ channel: landed.channel, platform: landed.platform, key: landed.campaignKey, host: landed.landingHost, path: landed.landingPath, referrer: landed.referrerHost, gclid: landed.gclid },
+        { channel: "LANDING_PAGE", platform: "google", key: "dubai property", host: "agency.example", path: "/dubai", referrer: "www.google.com", gclid: "Cj0KCQ_test" });
       // A retry with the same key cannot commit another lead; the HTTP service
       // detects the saved key first and returns an idempotent acknowledgement.
       await assert.rejects(() => noAccess(sdk.submitWebsiteLeadCapture, variables));

@@ -1,0 +1,87 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { campaignKey, cleanClickId, inferPlatform, metaCampaignKey, urlParts, websiteAttribution } from "../src/modules/lead-capture/attribution";
+import { touchFromLocation } from "../src/modules/lead-capture/first-touch";
+import { defaultCaptureFields, parsePublicSubmission } from "../src/modules/lead-capture/validation";
+import { formPublicIdFrom } from "../src/modules/websites/form-embed";
+
+// Phase 7E: lead source attribution (docs/LEAD_ATTRIBUTION_PLAN.md). Fictional sites and IDs only.
+
+test("URLs keep only their host and path, never the query, fragment or credentials", () => {
+  assert.deepEqual(urlParts("https://user:pass@Homes.Example/dubai/marina?email=a@b.test#form"), {host: "homes.example", path: "/dubai/marina"});
+  assert.deepEqual(urlParts("javascript:alert(1)"), {host: null, path: null});
+  assert.deepEqual(urlParts("not a url"), {host: null, path: null});
+  assert.deepEqual(urlParts(null), {host: null, path: null});
+});
+
+test("click IDs must look like click IDs", () => {
+  assert.equal(cleanClickId("Cj0KCQiA_example-123"), "Cj0KCQiA_example-123");
+  assert.equal(cleanClickId("<script>"), null);
+  assert.equal(cleanClickId("a b"), null);
+  assert.equal(cleanClickId("x".repeat(300)), null);
+});
+
+test("campaign names group regardless of case, underscores and hyphens", () => {
+  assert.equal(campaignKey("Marina_Launch"), "marina launch");
+  assert.equal(campaignKey("  marina-launch "), "marina launch");
+  assert.equal(campaignKey("MARINA  LAUNCH"), "marina launch");
+  assert.equal(campaignKey(""), null);
+  assert.equal(metaCampaignKey("Off-plan Q4", "120200000000001"), "off plan q4");
+  assert.equal(metaCampaignKey(null, "120200000000001"), "meta campaign 120200000000001", "a Meta campaign without a name groups by its ID");
+});
+
+test("the platform comes from click IDs first, then utm_source, then the referring site", () => {
+  assert.equal(inferPlatform({gclid: "abc123", utmSource: "facebook"}), "google", "a click ID wins");
+  assert.equal(inferPlatform({fbclid: "abc123"}), "meta");
+  assert.equal(inferPlatform({ttclid: "abc123"}), "tiktok");
+  assert.equal(inferPlatform({utmSource: "Instagram"}), "meta");
+  assert.equal(inferPlatform({utmSource: "google"}), "google");
+  assert.equal(inferPlatform({utmSource: "snapchat"}), "snapchat");
+  assert.equal(inferPlatform({utmSource: "newsletter"}), "referral");
+  assert.equal(inferPlatform({referrerHost: "www.google.com"}), "organic", "a search engine without a click ID is organic search");
+  assert.equal(inferPlatform({referrerHost: "l.facebook.com"}), "meta");
+  assert.equal(inferPlatform({referrerHost: "propertyfinder.ae"}), "referral");
+  assert.equal(inferPlatform({}), "direct");
+});
+
+test("a website enquiry's attribution is cleaned and complete", () => {
+  const record = websiteAttribution("LANDING_PAGE", {
+    utmSource: " google ", utmMedium: "cpc", utmCampaign: "Marina_Launch\n", gclid: "Cj0KCQ_test", fbclid: "<bad>",
+    referrer: "https://www.google.com/search?q=private", landingPageUrl: "https://homes.example/marina?utm_source=google",
+  });
+  assert.deepEqual(record, {
+    channel: "LANDING_PAGE", platform: "google", campaignKey: "marina launch",
+    utmSource: "google", utmMedium: "cpc", utmCampaign: "Marina_Launch", utmContent: null, utmTerm: null,
+    gclid: "Cj0KCQ_test", fbclid: null, ttclid: null,
+    landingHost: "homes.example", landingPath: "/marina", referrerHost: "www.google.com",
+  });
+  // The agency's own site referring to its own form is not a source.
+  assert.equal(websiteAttribution("WEBSITE_FORM", {referrer: "https://homes.example/contact", landingPageUrl: "https://homes.example/marina"}).referrerHost, null);
+});
+
+test("the first touch is read from the page, or from the host page an embedded form was given", () => {
+  const direct = touchFromLocation("https://estateos.example/forms/abc?utm_source=facebook&utm_campaign=Launch&fbclid=IwAR_test&email=private@x.test", "https://l.facebook.com/");
+  assert.deepEqual(direct, {utmSource: "facebook", utmCampaign: "Launch", fbclid: "IwAR_test", landingPageUrl: "https://estateos.example/forms/abc", referrer: "https://l.facebook.com/"});
+  const embedded = touchFromLocation("https://estateos.example/forms/abc?utm_source=google&gclid=Cj0_test&eo_page=https%3A%2F%2Fhomes.example%2Fmarina&eo_ref=https%3A%2F%2Fwww.google.com%2F", "https://homes.example/");
+  assert.equal(embedded.landingPageUrl, "https://homes.example/marina", "the agency's own page, given by the embed script");
+  assert.equal(embedded.referrer, "https://www.google.com/", "the host page's referrer, not the host page");
+  assert.equal(embedded.gclid, "Cj0_test");
+  assert.equal(touchFromLocation("https://estateos.example/forms/abc?eo_page=javascript:alert(1)", "").landingPageUrl, "https://estateos.example/forms/abc");
+});
+
+test("a public submission accepts click IDs and keeps only the referrer's host", () => {
+  const result = parsePublicSubmission(defaultCaptureFields, {
+    fields: {FULL_NAME: "Aisha Rahman", EMAIL: "aisha@example.test", PHONE: ""}, consent: true, elapsedMs: 5000,
+    attribution: {utmSource: "google", gclid: "Cj0KCQ_test", fbclid: "<script>", referrer: "https://www.google.com/search?q=aisha+rahman"},
+  });
+  assert.ok(result);
+  assert.equal(result.attribution.gclid, "Cj0KCQ_test");
+  assert.equal(result.attribution.fbclid, undefined, "an invalid click ID is dropped, never the enquiry");
+  assert.equal(result.attribution.referrer, "https://www.google.com/", "the search terms are not kept");
+});
+
+test("the new embed code is still recognised when pasted into the page editor", () => {
+  const id = "A".repeat(40);
+  const snippet = `<div data-estateos-form data-src="https://estateos.example/forms/${id}" data-title="Marina enquiries" data-height="720"></div>\n<script src="https://estateos.example/embed/lead-form.js" async></script>`;
+  assert.equal(formPublicIdFrom(snippet), id);
+});

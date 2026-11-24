@@ -10,6 +10,7 @@ import { WorkspaceError, mapWorkspaceDataError } from "@/modules/organizations/s
 import { leadMetadata, mapMetaLead, parseFieldMapping, parseQuestions, type LeadgenChange, type MetaLead, type MetaQuestion } from "../meta";
 import { fetchMetaForm, fetchMetaLead, MetaGraphError } from "./graph";
 import { pageTokenBinding } from "./secrets";
+import { cleanText, metaCampaignKey } from "@/modules/lead-capture/attribution";
 
 /*
  * Meta lead events, from record to lead (docs/META_LEAD_ADS_PLAN.md).
@@ -96,6 +97,19 @@ export function connectionToken(organizationId: string, connectionId: string, ro
   catch { return null; }
 }
 
+const metaIdOrNull = (value: unknown) => typeof value === "string" && /^[0-9]{5,30}$/.test(value) ? value : null;
+/** A Meta lead's campaign, ad set and ad (IDs always; names when Meta returned them). */
+export function metaAttribution(lead: MetaLead, metaFormId: string) {
+  const campaignName = cleanText(lead.campaign_name, 300);
+  return {
+    campaignKey: metaCampaignKey(campaignName, metaIdOrNull(lead.campaign_id)),
+    metaCampaignId: metaIdOrNull(lead.campaign_id), metaCampaignName: campaignName,
+    metaAdsetId: metaIdOrNull(lead.adset_id), metaAdsetName: cleanText(lead.adset_name, 300),
+    metaAdId: metaIdOrNull(lead.ad_id), metaAdName: cleanText(lead.ad_name, 300),
+    metaFormId: metaIdOrNull(metaFormId),
+  };
+}
+
 /** Processes one recorded event. Safe to call more than once: a processed event is left alone. */
 export async function processMetaLeadEvent(organizationId: string, eventId: string, dc: Handle = serverDataConnect()): Promise<MetaEventOutcome> {
   const event = (await read(() => sdk.metaLeadEventContext(dc, {organizationId, eventId}))).event;
@@ -154,6 +168,8 @@ export async function processMetaLeadEvent(organizationId: string, eventId: stri
         budgetMin: mapped.budgetMin, budgetMax: mapped.budgetMax, currency: "AED", bedroomPreference: mapped.bedroomPreference,
         metadata: leadMetadata({lead, mapped, pageId: connection.pageId, pageName: connection.pageName, formName: form.name, origin: event.origin}),
         ...plan, hasAutoAssignment: plan.assignedMembershipId !== null,
+        // Phase 7E: where the lead came from (docs/LEAD_ATTRIBUTION_PLAN.md).
+        ...metaAttribution(lead, metaFormId),
       });
       const leadId = canonicalUuid(result.data.lead.id);
       log("lead_created", {organizationId, eventId, leadId});

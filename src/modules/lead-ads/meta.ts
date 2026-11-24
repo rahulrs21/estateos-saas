@@ -78,6 +78,9 @@ export interface MetaLead {
   ad_id?: string;
   adset_id?: string;
   campaign_id?: string;
+  campaign_name?: string;
+  adset_name?: string;
+  ad_name?: string;
   platform?: string;
   is_organic?: boolean;
   field_data?: Array<{name?: unknown; values?: unknown}>;

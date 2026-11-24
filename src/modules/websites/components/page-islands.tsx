@@ -7,6 +7,7 @@ import type { CaptureFieldKey } from "../../lead-capture/validation";
 import { MapCanvas } from "../../maps/components/map-canvas";
 import type { LinkedData } from "../linked";
 import type { PageFormView } from "../types";
+import { attributionForEnquiry, recordFirstTouch } from "../../lead-capture/first-touch";
 
 /*
  * Interactive parts of a landing page. They receive only the public-safe
@@ -16,6 +17,12 @@ import type { PageFormView } from "../types";
  */
 
 const inputClass = "pg-input h-11 w-full rounded-[calc(var(--pg-radius)*0.6)] border border-[var(--pg-border)] bg-[var(--pg-bg)] px-3 text-sm text-[var(--pg-fg)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--pg-accent)]";
+
+/** Phase 7E: on a published page, remembers how the visitor first arrived (docs/LEAD_ATTRIBUTION_PLAN.md). Renders nothing. */
+export function PageFirstTouch() {
+  useEffect(() => { recordFirstTouch(); }, []);
+  return null;
+}
 
 export function PageEnquiryForm({form, endpoint, submitLabel, pageTitle}: {form: PageFormView; endpoint: string | null; submitLabel: string; pageTitle: string}) {
   const prefix = useId();
@@ -39,8 +46,6 @@ export function PageEnquiryForm({form, endpoint, submitLabel, pageTitle}: {form:
         if (!value && !field.required) continue;
         values[field.key] = field.key === "BUDGET_MIN" || field.key === "BUDGET_MAX" ? Number(value) : value;
       }
-      const url = new URL(window.location.href);
-      const pick = (key: string) => url.searchParams.get(key) || undefined;
       idempotencyKey.current ||= crypto.randomUUID().replaceAll("-", "");
       const response = await fetch(endpoint, {
         method: "POST", credentials: "omit", cache: "no-store",
@@ -48,7 +53,7 @@ export function PageEnquiryForm({form, endpoint, submitLabel, pageTitle}: {form:
         body: JSON.stringify({
           fields: values, consent: data.get("consent") === "on", honeypot: String(data.get("companyWebsite") ?? ""),
           elapsedMs: startedAt.current ? Math.max(0, Date.now() - startedAt.current) : 0,
-          attribution: {utmSource: pick("utm_source"), utmMedium: pick("utm_medium"), utmCampaign: pick("utm_campaign"), utmContent: pick("utm_content"), utmTerm: pick("utm_term")},
+          attribution: attributionForEnquiry(),
         }),
       });
       const result = await response.json().catch(() => ({})) as {data?: {message?: string}; error?: {message?: string}};

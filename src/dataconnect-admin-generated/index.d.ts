@@ -471,6 +471,17 @@ export enum LeadCaptureFormStatus {
   ACTIVE = "ACTIVE",
   DISABLED = "DISABLED",
 }
+export enum LeadChannel {
+  MANUAL = "MANUAL",
+  WEBSITE_FORM = "WEBSITE_FORM",
+  LANDING_PAGE = "LANDING_PAGE",
+  META_LEAD_AD = "META_LEAD_AD",
+  WHATSAPP_AD = "WHATSAPP_AD",
+  WHATSAPP = "WHATSAPP",
+  EMAIL = "EMAIL",
+  PORTAL = "PORTAL",
+  OTHER = "OTHER",
+}
 export enum LeadDistributionMode {
   MANUAL = "MANUAL",
   ROUND_ROBIN = "ROUND_ROBIN",
@@ -1603,6 +1614,7 @@ export interface CaptureMetaLeadAdData {
   unassignedNotification: InAppNotification_Key;
   leadCreatedEvent: AutomationEvent_Key;
   leadAssignedEvent: AutomationEvent_Key;
+  attribution: LeadAttribution_Key;
   processed?: MetaLeadEvent_Key | null;
   formSeen?: MetaLeadForm_Key | null;
   connectionSeen?: MetaLeadConnection_Key | null;
@@ -1634,6 +1646,14 @@ export interface CaptureMetaLeadAdVariables {
   expectedCursorVersion?: number | null;
   hasAutoAssignment: boolean;
   hasDistributionAttempt: boolean;
+  campaignKey?: string | null;
+  metaCampaignId?: string | null;
+  metaCampaignName?: string | null;
+  metaAdsetId?: string | null;
+  metaAdsetName?: string | null;
+  metaAdId?: string | null;
+  metaAdName?: string | null;
+  metaFormId?: string | null;
 }
 
 export interface ChangeLeadStatusData {
@@ -3643,6 +3663,39 @@ export interface GetLeadAnalyticsVariables {
   assignedMembershipId?: UUIDString | null;
 }
 
+export interface GetLeadAttributionData {
+  attribution?: {
+    channel: LeadChannel;
+    platform: string;
+    utmSource?: string | null;
+    utmMedium?: string | null;
+    utmCampaign?: string | null;
+    utmContent?: string | null;
+    utmTerm?: string | null;
+    campaignKey?: string | null;
+    metaCampaignId?: string | null;
+    metaCampaignName?: string | null;
+    metaAdsetId?: string | null;
+    metaAdsetName?: string | null;
+    metaAdId?: string | null;
+    metaAdName?: string | null;
+    metaFormId?: string | null;
+    landingHost?: string | null;
+    landingPath?: string | null;
+    referrerHost?: string | null;
+    gclid?: string | null;
+    fbclid?: string | null;
+    ttclid?: string | null;
+    ctwaClid?: string | null;
+    capturedAt: TimestampString;
+  };
+}
+
+export interface GetLeadAttributionVariables {
+  organizationId: UUIDString;
+  leadId: UUIDString;
+}
+
 export interface GetLeadCaptureFormData {
   form?: {
     id: UUIDString;
@@ -5086,6 +5139,12 @@ export interface LeadAssignmentHistory_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'LeadAssignmentHistory_Key';
+}
+
+export interface LeadAttribution_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'LeadAttribution_Key';
 }
 
 export interface LeadCaptureForm_Key {
@@ -9332,6 +9391,7 @@ export interface SubmitWebsiteLeadCaptureData {
   audit: AuditLog_Key;
   assignedNotification: InAppNotification_Key;
   unassignedNotification: InAppNotification_Key;
+  attribution: LeadAttribution_Key;
   submission: LeadCaptureSubmission_Key;
   leadCreatedEvent: AutomationEvent_Key;
   formEvent: AutomationEvent_Key;
@@ -9377,6 +9437,15 @@ export interface SubmitWebsiteLeadCaptureVariables {
   expectedCursorVersion?: number | null;
   hasAutoAssignment: boolean;
   hasDistributionAttempt: boolean;
+  channel?: LeadChannel;
+  platform?: string;
+  campaignKey?: string | null;
+  landingHost?: string | null;
+  landingPath?: string | null;
+  referrerHost?: string | null;
+  gclid?: string | null;
+  fbclid?: string | null;
+  ttclid?: string | null;
 }
 
 export interface SubmitWebsitePageForReviewData {
@@ -10227,6 +10296,11 @@ export function getAutomationApprovalTarget(vars: GetAutomationApprovalTargetVar
 export function automationReassignConversation(dc: DataConnect, vars: AutomationReassignConversationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationReassignConversationData>>;
 /** Generated Node Admin SDK operation action function for the 'AutomationReassignConversation' Mutation. Allow users to pass in custom DataConnect instances. */
 export function automationReassignConversation(vars: AutomationReassignConversationVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AutomationReassignConversationData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetLeadAttribution' Query. Allow users to execute without passing in DataConnect. */
+export function getLeadAttribution(dc: DataConnect, vars: GetLeadAttributionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetLeadAttributionData>>;
+/** Generated Node Admin SDK operation action function for the 'GetLeadAttribution' Query. Allow users to pass in custom DataConnect instances. */
+export function getLeadAttribution(vars: GetLeadAttributionVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetLeadAttributionData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListAutomationWorkflows' Query. Allow users to execute without passing in DataConnect. */
 export function listAutomationWorkflows(dc: DataConnect, vars: ListAutomationWorkflowsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationWorkflowsData>>;

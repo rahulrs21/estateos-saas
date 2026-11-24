@@ -71,7 +71,12 @@ export function registerLeadAdsCases({ sdk, run, forbidden, dc }) {
 
     it("a lead is created atomically with its contact, activity answers and audit, and the event is processed exactly once", async () => {
       const event = (await record(f.orgA, connectionA, pageA, digits())).event;
-      const created = await capture({eventId: event.id, preferredLocation: "Dubai Marina", budgetMax: 2_000_000});
+      const created = await capture({eventId: event.id, preferredLocation: "Dubai Marina", budgetMax: 2_000_000,
+        campaignKey: "off plan q4", metaCampaignId: "120200000000001", metaCampaignName: "Off-plan Q4", metaAdsetId: "120200000000002", metaAdId: "120200000000003", metaAdName: "Marina video", metaFormId});
+      // Phase 7E: the Meta campaign and ad, saved with the lead.
+      const attribution = (await run(sdk.getLeadAttribution, "owner-a", {organizationId: f.orgA, leadId: created.lead.id})).attribution;
+      assert.deepEqual({channel: attribution.channel, platform: attribution.platform, key: attribution.campaignKey, campaign: attribution.metaCampaignName, ad: attribution.metaAdName, adset: attribution.metaAdsetName ?? null, form: attribution.metaFormId},
+        {channel: "META_LEAD_AD", platform: "meta", key: "off plan q4", campaign: "Off-plan Q4", ad: "Marina video", adset: null, form: metaFormId});
       const lead = await run(sdk.getLead, "owner-a", {organizationId: f.orgA, leadId: created.lead.id});
       assert.equal(lead.lead.source, "Meta Lead Ads");
       assert.equal(lead.lead.preferredLocation, "Dubai Marina");

@@ -11,6 +11,7 @@ import { classifyGraphError, isMetaId, parseQuestions, type GraphFailure, type M
 const DEFAULT_VERSION = "v27.0";
 const TIMEOUT_MS = 15_000;
 const LEAD_FIELDS = "id,created_time,field_data,form_id,ad_id,adset_id,campaign_id,platform,is_organic,custom_disclaimer_responses";
+const NAME_FIELDS = "campaign_name,adset_name,ad_name";
 
 export function metaGraphBase() {
   const override = process.env.META_GRAPH_BASE?.trim();
@@ -44,10 +45,16 @@ async function graphGet<T>(path: string, fields: string, token: string, extra: R
   return body;
 }
 
-/** One lead's answers and ad IDs. Needs the leads_retrieval permission on the Page's token. */
+/**
+ * One lead's answers and ad IDs. Needs the leads_retrieval permission on the Page's token. Phase 7E also asks for the
+ * campaign, ad set and ad names; if Meta refuses those fields (they may need ads_read), the lead is read without them,
+ * so an import never fails because of the names.
+ */
 export async function fetchMetaLead(leadgenId: string, pageToken: string): Promise<MetaLead> {
   if (!isMetaId(leadgenId)) throw new MetaGraphError("GIVE_UP", "META_LEAD_ID_INVALID");
-  const lead = await graphGet<MetaLead>(leadgenId, LEAD_FIELDS, pageToken);
+  let lead: MetaLead;
+  try { lead = await graphGet<MetaLead>(leadgenId, `${LEAD_FIELDS},${NAME_FIELDS}`, pageToken); }
+  catch { lead = await graphGet<MetaLead>(leadgenId, LEAD_FIELDS, pageToken); }
   if (lead.id !== leadgenId) throw new MetaGraphError("GIVE_UP", "META_LEAD_MISMATCH");
   return lead;
 }

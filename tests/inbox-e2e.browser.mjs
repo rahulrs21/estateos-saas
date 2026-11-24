@@ -111,7 +111,7 @@ let metaRevokedWorks = false;
 const META_CONNECT_PAGE = "5" + String(Date.now()).slice(-13) + "7", META_B_PAGE = "6" + String(Date.now()).slice(-13) + "7", META_CONNECT_FORM = "7" + String(Date.now()).slice(-13) + "7";
 const metaLoginCode = "e2e-meta-login-code-" + randomBytes(10).toString("hex"), metaShortToken = "e2e-meta-short-user-token-" + randomBytes(12).toString("hex");
 const metaUserToken = "e2e-meta-long-user-token-" + randomBytes(12).toString("hex"), connectPageToken = "e2e-meta-connect-page-token-" + randomBytes(12).toString("hex");
-const metaConnect = {deny: false, subscribed: [], unsubscribed: [], formLeads: new Map(), failOnce: new Set()};
+const metaConnect = {deny: false, subscribed: [], unsubscribed: [], formLeads: new Map(), failOnce: new Map(), refuseNames: false};
 metaForms.set(META_CONNECT_FORM, {id: META_CONNECT_FORM, name: "E2E Connected form", status: "ACTIVE", questions: [{key: "full_name", label: "Full name", type: "FULL_NAME"}, {key: "email", label: "Email", type: "EMAIL"}, {key: "price_range", label: "Your price range", type: "CUSTOM"}]});
 let graphMessages = 0;
 const graph = createHttpServer((request, response) => {
@@ -176,8 +176,14 @@ const graph = createHttpServer((request, response) => {
     if (request.headers.authorization === `Bearer ${metaPageToken}` || request.headers.authorization === `Bearer ${metaRevokedToken}` || request.headers.authorization === `Bearer ${connectPageToken}`) {
       if (request.headers.authorization === `Bearer ${metaRevokedToken}` && !metaRevokedWorks) return reply(400, {error: {code: 190, message: "Error validating access token: The user has not authorized application."}});
       const id = /^\/v27\.0\/(\d+)\?fields=/.exec(request.url)?.[1];
-      if (request.method === "GET" && id && metaConnect.failOnce.delete(id)) return reply(500, {error: {code: 2, message: "An unexpected error has occurred."}});
-      if (request.method === "GET" && id && metaLeads.has(id)) return reply(200, metaLeads.get(id));
+      // A failing lead fails both of EstateOS's reads (with the campaign names, then without).
+      if (request.method === "GET" && id && (metaConnect.failOnce.get(id) ?? 0) > 0) { metaConnect.failOnce.set(id, metaConnect.failOnce.get(id) - 1); return reply(500, {error: {code: 2, message: "An unexpected error has occurred."}}); }
+      if (request.method === "GET" && id && metaConnect.refuseNames && request.url.includes("campaign_name")) return reply(400, {error: {code: 100, message: "(#100) Tried accessing nonexisting field (campaign_name)"}});
+      // Like Meta, only the fields asked for are returned.
+      if (request.method === "GET" && id && metaLeads.has(id)) {
+        const fields = new Set((new URL(request.url, "http://graph").searchParams.get("fields") ?? "").split(","));
+        return reply(200, Object.fromEntries(Object.entries(metaLeads.get(id)).filter(([key]) => key === "id" || fields.has(key))));
+      }
       if (request.method === "GET" && id && metaForms.has(id)) return reply(200, metaForms.get(id));
       return reply(400, {error: {code: 100, message: "Unsupported get request."}});
     }
@@ -561,6 +567,7 @@ async function metaLeadAdsChecks() {
   // A signed lead becomes a lead in company A with its answers, once.
   const email = `meta.buyer.${randomBytes(3).toString("hex")}@example.test`;
   metaLeads.set(firstLead, {id: firstLead, created_time: new Date().toISOString(), form_id: META_FORM, ad_id: "123123123123", adset_id: "456456456456", campaign_id: "789789789789", platform: "ig", is_organic: false,
+    campaign_name: "Marina_Launch Q4", adset_name: "Dubai expats", ad_name: "Marina video",
     field_data: [{name: "full_name", values: ["Meta Buyer"]}, {name: "email", values: [email]}, {name: "what_is_your_budget?", values: ["AED 1.5M - 2M"]}, {name: "preferred_community", values: ["Dubai Marina"]}]});
   assert.equal((await fetch(hook, signed(body))).status, 200);
   const processed = await settled(firstLead, ["PROCESSED"]);
@@ -582,7 +589,22 @@ async function metaLeadAdsChecks() {
   await new Promise(done => setTimeout(done, 1500));
   assert.equal((await leadsWith(email)).length, 1);
   assert.equal((await eventOf(firstLead)).length, 1);
+  const metaSource = (await sql(`query S($lead: UUID!) { leadAttributions(where: {leadId: {eq: $lead}}) { channel platform campaignKey metaCampaignId metaCampaignName metaAdsetName metaAdName metaFormId } }`, {lead: created[0].id})).leadAttributions;
+  assert.deepEqual(metaSource, [{channel: "META_LEAD_AD", platform: "meta", campaignKey: "marina launch q4", metaCampaignId: "789789789789", metaCampaignName: "Marina_Launch Q4", metaAdsetName: "Dubai expats", metaAdName: "Marina video", metaFormId: META_FORM}], "Phase 7E: the campaign, ad set and ad are saved with the lead");
   pass("Phase 7D: a signed Meta lead becomes one lead in the company that connected the Page, with labelled answers, budget, location and ad IDs; a redelivery creates nothing");
+
+  // Phase 7E: if Meta refuses the campaign name fields, the lead is imported with the IDs only.
+  metaConnect.refuseNames = true;
+  const namelessLead = metaId("6");
+  const namelessEmail = `meta.nameless.${randomBytes(3).toString("hex")}@example.test`;
+  metaLeads.set(namelessLead, {id: namelessLead, form_id: META_FORM, campaign_id: "555666777888", campaign_name: "Hidden", field_data: [{name: "full_name", values: ["Nameless Campaign"]}, {name: "email", values: [namelessEmail]}]});
+  assert.equal((await fetch(hook, signed(leadgen(META_PAGE, namelessLead)))).status, 200);
+  await settled(namelessLead, ["PROCESSED"]);
+  const [nameless] = await leadsWith(namelessEmail);
+  const namelessSource = (await sql(`query S($lead: UUID!) { leadAttributions(where: {leadId: {eq: $lead}}) { campaignKey metaCampaignId metaCampaignName } }`, {lead: nameless.id})).leadAttributions;
+  assert.deepEqual(namelessSource, [{campaignKey: "meta campaign 555666777888", metaCampaignId: "555666777888", metaCampaignName: null}]);
+  metaConnect.refuseNames = false;
+  pass("Phase 7E: when Meta refuses the campaign name fields, the lead is still imported, grouped by its campaign ID");
 
   // A Page whose access Meta revoked: the event fails and the Page needs a new sign-in; once access works again, the worker imports the lead.
   const revokedLead = metaId("3");
@@ -806,7 +828,7 @@ try {
     const testToolLead = "4" + String(Date.now()).slice(-13) + "8";
     metaLeads.set(testToolLead, {id: testToolLead, form_id: META_CONNECT_FORM, field_data: [{name: "full_name", values: ["<test lead: dummy data for full_name>"]}, {name: "email", values: [testToolEmail]}, {name: "phone_number", values: ["<test lead: dummy data for phone_number>"]}]});
     metaConnect.formLeads.set(META_CONNECT_FORM, [firstLead, secondLead, testToolLead]);
-    metaConnect.failOnce.add(testToolLead);
+    metaConnect.failOnce.set(testToolLead, 2);
     await waitFor(`!${pageRow("E2E Connect Page")}.querySelector('[data-testid=meta-import]').disabled`, "the import button to be ready");
     await evaluate(`${pageRow("E2E Connect Page")}.querySelector('[data-testid=meta-import]').click()`);
     await waitFor("document.body.innerText.includes('1 lead from E2E Connect Page could not be imported yet')", "the honest partial-import message");
@@ -877,7 +899,7 @@ try {
     metaLeads.set(failingLead, {id: failingLead, form_id: META_CONNECT_FORM, field_data: [{name: "full_name", values: ["Failing Lead"]}, {name: "email", values: [failingEmail]}]});
     metaLeads.set(dismissedLead, {id: dismissedLead, form_id: META_CONNECT_FORM, field_data: [{name: "full_name", values: ["Dismissed Lead"]}, {name: "email", values: ["dismissed@example.test"]}]});
     metaConnect.formLeads.set(META_CONNECT_FORM, [firstLead, secondLead, testToolLead, mappedLead, offLead, failingLead, dismissedLead]);
-    metaConnect.failOnce.add(failingLead); metaConnect.failOnce.add(dismissedLead);
+    metaConnect.failOnce.set(failingLead, 2); metaConnect.failOnce.set(dismissedLead, 2);
     await importNow();
     await waitFor("document.body.innerText.includes('2 leads from E2E Connect Page could not be imported yet')", "the two failures");
     const failureRow = leadgenId => `[...document.querySelectorAll('[data-testid=meta-failure-row]')].find(e=>e.innerText.includes(${JSON.stringify(leadgenId)}))`;

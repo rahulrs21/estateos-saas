@@ -886,6 +886,8 @@ try {
   await waitFor("!document.querySelector('[role=dialog][aria-modal=true]')", "the viewer to close");
   pass("Public page needs no login, shows CRM values, permit, disclaimer, canonical and Open Graph tags, serves only allowlisted images, and leaks no coordinates, hidden addresses, notes, storage paths or other companies' data; wrong slugs and drafts are 404; sitemap lists live pages only");
 
+  // Phase 7E: the visitor first arrives from a Facebook ad (UTM tags and a click ID), then comes back to the page without them.
+  await load(`${publicPath}?utm_source=facebook&utm_medium=paid_social&utm_campaign=Marina_Launch&fbclid=IwAR_e2e_test`, "document.body.innerText.includes('Get the price list')");
   await load(publicPath, "document.body.innerText.includes('Get the price list')", {width: 390, height: 844, mobile: true});
   assert.ok(await evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "no horizontal scrolling on mobile");
   assert.equal(await evaluate("document.querySelectorAll('h1').length"), 1);
@@ -901,6 +903,22 @@ try {
   assert.equal(submissions[0].lead.fullName, "E2E Landing Visitor");
   assert.equal(submissions[0].landingPageUrl, `${origin}${publicPath}`);
   assert.match(submissions[0].lead.propertyInterest, /Landing page: E2E Marina Launch · Project: E2E Marina Towers/);
+  const firstTouch = (await dc.executeGraphql(`query A($lead: UUID!) { leadAttributions(where: {leadId: {eq: $lead}}) { channel platform utmSource utmCampaign campaignKey fbclid landingHost landingPath referrerHost } }`, {variables: {lead: submissions[0].leadId}})).data.leadAttributions;
+  assert.deepEqual(firstTouch, [{channel: "LANDING_PAGE", platform: "meta", utmSource: "facebook", utmCampaign: "Marina_Launch", campaignKey: "marina launch", fbclid: "IwAR_e2e_test",
+    landingHost: new URL(origin).hostname, landingPath: publicPath, referrerHost: null}], "the first visit's campaign is kept when the visitor enquires on a later visit");
+  // The embed script: a form placed with the embed code gets the host page's UTM tags and click IDs, its address and its referrer.
+  const embedId = "E".repeat(40);
+  await evaluate(`(()=>{history.replaceState(null,'',location.pathname+'?utm_source=google&utm_campaign=Embed_Test&gclid=Cj0_e2e');
+    const d=document.createElement('div');d.setAttribute('data-estateos-form','');d.setAttribute('data-src','${origin}/forms/${embedId}');d.id='embed-test';document.body.append(d);
+    const o=document.createElement('div');o.setAttribute('data-estateos-form','');o.setAttribute('data-src','https://evil.example.test/forms/${embedId}');o.id='embed-other';document.body.append(o);
+    const s=document.createElement('script');s.src='${origin}/embed/lead-form.js';document.body.append(s);})()`);
+  await waitFor("Boolean(document.querySelector('#embed-test iframe'))", "the embedded form");
+  const embedded = new URL(await evaluate("document.querySelector('#embed-test iframe').src"));
+  assert.equal(embedded.pathname, `/forms/${embedId}`);
+  assert.deepEqual({source: embedded.searchParams.get("utm_source"), campaign: embedded.searchParams.get("utm_campaign"), gclid: embedded.searchParams.get("gclid"), page: embedded.searchParams.get("eo_page")},
+    {source: "google", campaign: "Embed_Test", gclid: "Cj0_e2e", page: `${origin}${publicPath}`});
+  assert.equal(await evaluate("Boolean(document.querySelector('#embed-other iframe'))"), false, "only this EstateOS server's own forms are embedded");
+  pass("Phase 7E: a landing page enquiry keeps the campaign of the visitor's first visit, and the embed script passes the host page's UTM tags, click ID and address to the form");
   const enquiryKey = "e2e" + randomUUID().replaceAll("-", "");
   const publicPost = body => api(`/api/public/sites/local-agency-a/e2e-marina-launch/enquiries`, {method: "POST", public: true, headers: {"Content-Type": "application/json", "Idempotency-Key": enquiryKey}, body: JSON.stringify(body)});
   const valid = {fields: {FULL_NAME: "E2E Retry Visitor", EMAIL: "retry.e2e@example.test"}, consent: true, honeypot: "", elapsedMs: 5000, attribution: {utmSource: "e2e", utmCampaign: "launch"}};

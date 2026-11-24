@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { cleanClickId, urlParts } from "./attribution";
 
 export const captureFieldKeys = [
   "FULL_NAME", "EMAIL", "PHONE", "MESSAGE", "PROPERTY_INTEREST",
@@ -63,6 +64,11 @@ const baseSubmissionSchema = z.strictObject({
     utmCampaign: z.string().max(200).optional(),
     utmContent: z.string().max(200).optional(),
     utmTerm: z.string().max(200).optional(),
+    // Phase 7E: click IDs from ad platforms and the page that sent the visitor (untrusted; cleaned below).
+    gclid: z.string().max(512).optional(),
+    fbclid: z.string().max(512).optional(),
+    ttclid: z.string().max(512).optional(),
+    referrer: z.string().max(2048).optional(),
   }).default({}),
 });
 
@@ -137,6 +143,10 @@ export function parsePublicSubmission(configuredFields: unknown, input: unknown)
       utmCampaign: safeUtm(attribution.utmCampaign),
       utmContent: safeUtm(attribution.utmContent),
       utmTerm: safeUtm(attribution.utmTerm) ?? "",
+      gclid: cleanClickId(attribution.gclid) ?? undefined,
+      fbclid: cleanClickId(attribution.fbclid) ?? undefined,
+      ttclid: cleanClickId(attribution.ttclid) ?? undefined,
+      referrer: urlParts(attribution.referrer).host ? `https://${urlParts(attribution.referrer).host}/` : undefined,
     },
   };
 }

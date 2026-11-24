@@ -5,6 +5,7 @@ import { LoaderCircle, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { CaptureFieldKey } from "../validation";
+import { attributionForEnquiry, recordFirstTouch } from "../first-touch";
 
 type PublicForm = {
   publicId: string; name: string;
@@ -26,7 +27,8 @@ export function PublicLeadForm({ form }: { form: PublicForm }) {
   const [message, setMessage] = useState("");
   const [completed, setCompleted] = useState(false);
 
-  useEffect(() => { startedAt.current = Date.now(); }, []);
+  // Phase 7E: remember how the visitor first arrived (docs/LEAD_ATTRIBUTION_PLAN.md).
+  useEffect(() => { startedAt.current = Date.now(); recordFirstTouch(); }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -41,11 +43,6 @@ export function PublicLeadForm({ form }: { form: PublicForm }) {
         if (!value && !field.required) continue;
         values[field.key] = field.key === "BUDGET_MIN" || field.key === "BUDGET_MAX" ? Number(value) : value;
       }
-      const referrer = document.referrer;
-      const landing = referrer || window.location.href;
-      const landingUrl = new URL(landing, window.location.href);
-      const formUrl = new URL(window.location.href);
-      const pick = (key: string) => landingUrl.searchParams.get(key) || formUrl.searchParams.get(key) || undefined;
       idempotencyKey.current ||= crypto.randomUUID().replaceAll("-", "");
       const response = await fetch(`/api/public/lead-forms/${encodeURIComponent(form.publicId)}`, {
         method: "POST", credentials: "omit", cache: "no-store",
@@ -53,7 +50,7 @@ export function PublicLeadForm({ form }: { form: PublicForm }) {
         body: JSON.stringify({
           fields: values, consent: data.get("consent") === "on", honeypot: String(data.get("companyWebsite") ?? ""),
           elapsedMs: startedAt.current ? Math.max(0, Date.now() - startedAt.current) : 0,
-          attribution: { landingPageUrl: landing, utmSource: pick("utm_source"), utmMedium: pick("utm_medium"), utmCampaign: pick("utm_campaign"), utmContent: pick("utm_content"), utmTerm: pick("utm_term") },
+          attribution: attributionForEnquiry(),
         }),
       });
       const result = await response.json() as { data?: { message?: string }; error?: { message?: string } };

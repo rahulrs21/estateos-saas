@@ -119,7 +119,9 @@ export function LeadFormManager({ data, origin }: { data: ManagerData; origin: s
 
   // The same on the server and in the browser (no hydration mismatch).
   const absoluteUrl = (path: string) => new URL(path, origin).toString();
-  const embedCode = (item: FormSummary) => `<iframe src="${absoluteUrl(item.publicUrl)}" title="${item.name.replace(/["<>]/g, "")}" width="100%" height="720" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+  // Phase 7E: the embed script passes the host page's UTM tags and click IDs into the form (docs/LEAD_ATTRIBUTION_PLAN.md).
+  const embedCode = (item: FormSummary) => `<div data-estateos-form data-src="${absoluteUrl(item.publicUrl)}" data-title="${item.name.replace(/["<>&]/g, "")}" data-height="720"></div>
+<script src="${absoluteUrl("/embed/lead-form.js")}" async></script>`;
 
   const counts = useMemo(() => ({
     ALL: data.forms.length,

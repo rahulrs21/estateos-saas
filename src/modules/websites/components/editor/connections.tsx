@@ -79,7 +79,7 @@ export function LeadFormControl() {
         <Field label="Or paste a form's link or embed code" htmlFor={pasteId} hint="From Settings → Website lead forms: Copy URL or Copy embed. Only the form it names is connected; the code itself is not added to the page.">
           <div className="flex gap-2">
             <input id={pasteId} value={pasted} maxLength={4000} onChange={event => { setPasted(event.target.value); setPasteProblem(null); }} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void connectPasted(); } }}
-              placeholder="https://…/forms/… or <iframe src=…>" autoComplete="off" spellCheck={false} data-testid="lead-form-paste" className={inputClass} />
+              placeholder="https://…/forms/… or the embed code" autoComplete="off" spellCheck={false} data-testid="lead-form-paste" className={inputClass} />
             <button type="button" className={primary} disabled={busy || !pasted.trim()} onClick={() => void connectPasted()} data-testid="lead-form-paste-connect">Connect</button>
           </div>
         </Field>

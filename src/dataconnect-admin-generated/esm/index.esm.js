@@ -509,6 +509,18 @@ export const LeadCaptureFormStatus = {
   DISABLED: "DISABLED",
 }
 
+export const LeadChannel = {
+  MANUAL: "MANUAL",
+  WEBSITE_FORM: "WEBSITE_FORM",
+  LANDING_PAGE: "LANDING_PAGE",
+  META_LEAD_AD: "META_LEAD_AD",
+  WHATSAPP_AD: "WHATSAPP_AD",
+  WHATSAPP: "WHATSAPP",
+  EMAIL: "EMAIL",
+  PORTAL: "PORTAL",
+  OTHER: "OTHER",
+}
+
 export const LeadDistributionMode = {
   MANUAL: "MANUAL",
   ROUND_ROBIN: "ROUND_ROBIN",
@@ -1097,6 +1109,12 @@ export function automationReassignConversation(dcOrVarsOrOptions, varsOrOptions,
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeMutation('AutomationReassignConversation', inputVars, inputOpts);
+}
+
+export function getLeadAttribution(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetLeadAttribution', inputVars, inputOpts);
 }
 
 export function listAutomationWorkflows(dcOrVarsOrOptions, varsOrOptions, options) {

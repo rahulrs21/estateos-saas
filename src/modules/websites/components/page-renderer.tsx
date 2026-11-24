@@ -14,7 +14,7 @@ import {
 } from "../theme";
 import type { PublicPageContext, RenderMode, RenderablePage } from "../types";
 import { PageCarousel, PageCoverflow } from "./page-carousels";
-import { PageCountdown, PageEnquiryForm, PageLightbox, PageLocationMap } from "./page-islands";
+import { PageCountdown, PageEnquiryForm, PageFirstTouch, PageLightbox, PageLocationMap } from "./page-islands";
 
 /**
  * Renders validated page data with the registered components only. Every
@@ -1191,6 +1191,7 @@ export function PageRenderer({page, mode, today, publicContext, edit, hideNotice
   const sectionLinks = Object.fromEntries(data.sections.flatMap(section => section.visible && section.type !== "NAVBAR" && section.type !== "FOOTER" && availability.get(section.id)?.ok ? [[section.id, `#${anchorFor(section)}`]] : []));
   const baseCtx = {page, mode, hasForm, publicContext, headline, anchors, sectionLinks};
   return <div id="top" className="pg-root @container relative min-h-full antialiased" style={pageThemeStyle(data.theme)} data-page-mode={mode} data-pg-look={pageLook(data.theme)}>
+    {mode === "public" && <PageFirstTouch />}
     {mode !== "public" && !hideNotice && <p role="note" className="relative z-40 bg-amber-100 px-4 py-2 text-center text-xs font-medium text-amber-950">Internal preview – not approved for public advertising. Linked data as recorded on {dubaiDate(linked.readAt)}.</p>}
     <main className="relative">
       {!hero && <h1 className="sr-only">{page.title}</h1>}

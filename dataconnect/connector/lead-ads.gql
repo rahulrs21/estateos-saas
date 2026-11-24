@@ -83,7 +83,7 @@ query PendingMetaLeadEvents($now: Timestamp!, $staleBefore: Timestamp!, $limit: 
 mutation CaptureMetaLeadAd($organizationId: UUID!, $eventId: UUID!, $connectionId: UUID!, $formId: UUID!, $fullName: String!, $email: String, $phone: String, $normalizedEmail: String, $normalizedPhone: String,
   $contactId: UUID, $hasExistingContact: Boolean!, $propertyInterest: String, $preferredLocation: String, $propertyType: String, $transactionType: TransactionType, $budgetMin: Float, $budgetMax: Float,
   $currency: String!, $bedroomPreference: String, $metadata: Any!, $assignedMembershipId: UUID, $distributionRuleId: UUID, $expectedCursorVersion: Int, $hasAutoAssignment: Boolean!,
-  $hasDistributionAttempt: Boolean!) @auth(level: NO_ACCESS) @transaction {
+  $hasDistributionAttempt: Boolean!, $campaignKey: String, $metaCampaignId: String, $metaCampaignName: String, $metaAdsetId: String, $metaAdsetName: String, $metaAdId: String, $metaAdName: String, $metaFormId: String) @auth(level: NO_ACCESS) @transaction {
   before: query @redact {
     connection: metaLeadConnection(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $connectionId}}}) @check(expr: "this != null", message: "META_LEAD_CONNECTION_UNAVAILABLE") {connectedByUid}
     form: metaLeadForm(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $formId}, connectionId: {eq: $connectionId}, enabled: {eq: true}}})
@@ -116,6 +116,9 @@ mutation CaptureMetaLeadAd($organizationId: UUID!, $eventId: UUID!, $connectionI
   # Phase 6E outbox, as for website leads (docs/AUTOMATION_ENGINE.md#events).
   leadCreatedEvent: automationEvent_insert(data: {organizationId: $organizationId, triggerType: "lead.created", targetType: "LEAD", targetId_expr: "response.lead.id", origin: "META_LEAD_ADS"})
   leadAssignedEvent: automationEvent_insert(data: {organizationId: $organizationId, triggerType: "lead.assigned", targetType: "LEAD", targetId_expr: "response.lead.id", origin: "META_LEAD_ADS"}) @include(if: $hasAutoAssignment)
+  # Phase 7E: where the lead came from (docs/LEAD_ATTRIBUTION_PLAN.md).
+  attribution: leadAttribution_insert(data: {organizationId: $organizationId, leadId_expr: "response.lead.id", channel: META_LEAD_AD, platform: "meta", campaignKey: $campaignKey,
+    metaCampaignId: $metaCampaignId, metaCampaignName: $metaCampaignName, metaAdsetId: $metaAdsetId, metaAdsetName: $metaAdsetName, metaAdId: $metaAdId, metaAdName: $metaAdName, metaFormId: $metaFormId})
   processed: metaLeadEvent_update(key: {organizationId: $organizationId, id: $eventId}, data: {status: PROCESSED, leadId_expr: "response.lead.id", errorCode: null, nextAttemptAt: null, attempts_update: {inc: 1}, processedAt_expr: "request.time"})
   formSeen: metaLeadForm_update(key: {organizationId: $organizationId, id: $formId}, data: {lastLeadAt_expr: "request.time", updatedAt_expr: "request.time"})
   connectionSeen: metaLeadConnection_update(key: {organizationId: $organizationId, id: $connectionId}, data: {lastLeadAt_expr: "request.time", updatedAt_expr: "request.time"})

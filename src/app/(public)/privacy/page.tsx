@@ -11,6 +11,8 @@ export default function PrivacyPage() {
       <li>Account data of agency staff: name, email address, sign-in details and the company they belong to.</li>
       <li>Customer data an agency enters or receives: contact details, enquiries, leads, viewings, notes and property interests.</li>
       <li>Messages an agency connects: WhatsApp messages and media sent to the agency&apos;s business number through the WhatsApp Business Platform (Meta), and emails from mailboxes the agency connects (Google, Microsoft), including attachments.</li>
+      <li>Leads from Facebook and Instagram lead ads on Pages the agency connects (Meta Lead Ads): the answers the person gave in the form, and which form, ad and campaign it came from.</li>
+      <li>Where an enquiry came from: the campaign (advertising tags such as UTM tags, and the click identifiers ad platforms add to links), the page, and the referring website, without its search terms or any address details after the page. EstateOS forms and pages remember this in the visitor&apos;s own browser storage for 30 days, so an enquiry sent later keeps its campaign; it is sent only with an enquiry, and to no one else.</li>
       <li>Technical data needed to run the service securely, such as logs and rate-limit records.</li>
     </ul></section>
     <section><h2>How we use it</h2><ul>
@@ -21,7 +23,7 @@ export default function PrivacyPage() {
     <section><h2>WhatsApp, Google and Microsoft data</h2>
       <p>EstateOS uses the WhatsApp Business Platform only to receive and send messages for the agency that connected its number, and Google or Microsoft sign-in only to read and reply to the mailbox the agency connected. Access tokens are stored encrypted. Data received through these services is used only to provide EstateOS to that agency, never shared with other agencies, and deleted as described below.</p></section>
     <section><h2>Where data is stored and who processes it</h2>
-      <p>Data is stored with Google Cloud (Firebase). Service providers that process data for EstateOS: Google (hosting, database, storage, sign-in), Meta (WhatsApp messages), Microsoft and Google (connected mailboxes, at the agency&apos;s choice) and Anthropic (AI suggestions, only when enabled). Each acts under its own terms and data-protection commitments.</p></section>
+      <p>Data is stored with Google Cloud (Firebase). Service providers that process data for EstateOS: Google (hosting, database, storage, sign-in), Meta (WhatsApp messages and lead ads), Microsoft and Google (connected mailboxes, at the agency&apos;s choice) and Anthropic (AI suggestions, only when enabled). Each acts under its own terms and data-protection commitments.</p></section>
     <section><h2>How long we keep it</h2>
       <p>Each agency sets how long message content is kept (by default two years); after that, message text and files are removed. Account data is kept while the account is active. Deleted data may remain in backups for a limited period before it is overwritten.</p></section>
     <section><h2>Your choices</h2>
