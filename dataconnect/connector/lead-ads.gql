@@ -129,7 +129,7 @@ query MetaLeadOverview($organizationId: UUID!, $actorUid: String!) @auth(level: 
   connections: metaLeadConnections(where: {organizationId: {eq: $organizationId}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
     orderBy: [{createdAt: ASC}], limit: 50) {
     id pageId pageName status lastErrorCode lastLeadAt lastPolledAt subscribedAt createdAt connectedBy {displayName}
-    forms: metaLeadForms_on_connection(orderBy: [{createdAt: ASC}], limit: 100) {id metaFormId name enabled lastLeadAt}
+    forms: metaLeadForms_on_connection(orderBy: [{createdAt: ASC}], limit: 100) {id metaFormId name enabled lastLeadAt branchId questions fieldMapping source {name}}
   }
   recentFailures: metaLeadEvents(where: {organizationId: {eq: $organizationId}, status: {in: [FAILED, DEAD]}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
     orderBy: [{receivedAt: DESC}], limit: 20) {id connectionId leadgenId status errorCode attempts receivedAt}
@@ -171,4 +171,26 @@ mutation MarkMetaLeadConnectionPolled($organizationId: UUID!, $id: UUID!) @auth(
 # One company's event for a Meta lead (an import retries one that failed earlier).
 query MetaLeadEventByLeadgen($organizationId: UUID!, $leadgenId: String!) @auth(level: NO_ACCESS) {
   event: metaLeadEvent(first: {where: {organizationId: {eq: $organizationId}, leadgenId: {eq: $leadgenId}}}) {id status}
+}
+
+# ---------------------------------------------------------------- Phase 7D.3: form settings and failed leads
+
+# A form's settings: on or off, the branch its leads go to, and which question fills which lead field (validated by
+# the server against the form's own questions). An OWNER or ADMIN only; the branch must be this company's (the
+# composite reference refuses another company's branch).
+mutation UpdateMetaLeadForm($organizationId: UUID!, $id: UUID!, $actorUid: String!, $enabled: Boolean!, $branchId: UUID, $fieldMapping: Any) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}})
+      @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "META_LEAD_FORM_NOT_ALLOWED") {role}
+    form: metaLeadForm(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}}}) @check(expr: "this != null", message: "META_LEAD_FORM_UNAVAILABLE") {id}
+    branch: branch(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $branchId}}})
+      @check(expr: "!has(vars.branchId) || vars.branchId == null || this != null", message: "BRANCH_UNAVAILABLE") {id}
+  }
+  metaLeadForm_update(key: {organizationId: $organizationId, id: $id}, data: {enabled: $enabled, branchId: $branchId, fieldMapping: $fieldMapping, updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: META_LEAD_FORM_UPDATED, targetType: META_LEAD_FORM, targetId: $id, metadata_expr: "{'enabled': vars.enabled}"})
+}
+
+# A failed (or given-up) lead of this company, for Retry and Dismiss in settings.
+query MetaLeadFailure($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  event: metaLeadEvent(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, status: {in: [FAILED, DEAD]}}}) {id status}
 }

@@ -8082,6 +8082,18 @@ export interface MetaLeadEvent_Key {
   __typename?: 'MetaLeadEvent_Key';
 }
 
+export interface MetaLeadFailureData {
+  event?: {
+    id: UUIDString;
+    status: MetaLeadEventStatus;
+  };
+}
+
+export interface MetaLeadFailureVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
 export interface MetaLeadForm_Key {
   organizationId: UUIDString;
   id: UUIDString;
@@ -8111,6 +8123,12 @@ export interface MetaLeadOverviewData {
       name: string;
       enabled: boolean;
       lastLeadAt?: TimestampString | null;
+      branchId?: UUIDString | null;
+      questions?: unknown | null;
+      fieldMapping?: unknown | null;
+      source: {
+        name: string;
+      };
     })[];
   })[];
   recentFailures: ({
@@ -9662,6 +9680,20 @@ export interface UpdateLeadVariables {
   priority?: LeadPriority | null;
 }
 
+export interface UpdateMetaLeadFormData {
+  metaLeadForm_update?: MetaLeadForm_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface UpdateMetaLeadFormVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  enabled: boolean;
+  branchId?: UUIDString | null;
+  fieldMapping?: unknown | null;
+}
+
 export interface UpdateOrganizationData {
   organization?: Organization_Key | null;
   activity_insert: Activity_Key;
@@ -10895,6 +10927,16 @@ export function markMetaLeadConnectionPolled(vars: MarkMetaLeadConnectionPolledV
 export function metaLeadEventByLeadgen(dc: DataConnect, vars: MetaLeadEventByLeadgenVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaLeadEventByLeadgenData>>;
 /** Generated Node Admin SDK operation action function for the 'MetaLeadEventByLeadgen' Query. Allow users to pass in custom DataConnect instances. */
 export function metaLeadEventByLeadgen(vars: MetaLeadEventByLeadgenVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaLeadEventByLeadgenData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateMetaLeadForm' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateMetaLeadForm(dc: DataConnect, vars: UpdateMetaLeadFormVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateMetaLeadFormData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateMetaLeadForm' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateMetaLeadForm(vars: UpdateMetaLeadFormVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateMetaLeadFormData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MetaLeadFailure' Query. Allow users to execute without passing in DataConnect. */
+export function metaLeadFailure(dc: DataConnect, vars: MetaLeadFailureVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaLeadFailureData>>;
+/** Generated Node Admin SDK operation action function for the 'MetaLeadFailure' Query. Allow users to pass in custom DataConnect instances. */
+export function metaLeadFailure(vars: MetaLeadFailureVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaLeadFailureData>>;
 
 /** Generated Node Admin SDK operation action function for the 'GetLeadPropertyContext' Query. Allow users to execute without passing in DataConnect. */
 export function getLeadPropertyContext(dc: DataConnect, vars: GetLeadPropertyContextVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetLeadPropertyContextData>>;

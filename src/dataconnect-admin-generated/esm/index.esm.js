@@ -1939,6 +1939,18 @@ export function metaLeadEventByLeadgen(dcOrVarsOrOptions, varsOrOptions, options
   return dcInstance.executeQuery('MetaLeadEventByLeadgen', inputVars, inputOpts);
 }
 
+export function updateMetaLeadForm(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateMetaLeadForm', inputVars, inputOpts);
+}
+
+export function metaLeadFailure(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaLeadFailure', inputVars, inputOpts);
+}
+
 export function getLeadPropertyContext(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

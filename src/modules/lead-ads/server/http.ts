@@ -3,7 +3,7 @@ import "server-only";
 import { connection } from "next/server";
 import { enforceRateLimit } from "@/lib/rate-limit/server";
 import { read, write } from "@/modules/communications/server/http";
-import { completeMetaConnect, disconnectMetaPage, importRecentLeads, listMetaLeadPages, startMetaConnect, type MetaConnectOutcome } from "./connect";
+import { completeMetaConnect, disconnectMetaPage, dismissMetaLead, importRecentLeads, listMetaLeadPages, retryMetaLead, startMetaConnect, updateMetaLeadForm, type MetaConnectOutcome } from "./connect";
 
 /*
  * Meta Lead Ads settings endpoints (docs/META_LEAD_ADS_PLAN.md#4-settings-screen). Reads need a verified session;
@@ -19,6 +19,12 @@ export const importResponse = (request: Request, id: string) => write(request, "
   await enforceRateLimit([{rule: IMPORT_LIMIT, subject: context.membership.id}], "Please wait a moment before importing again.");
   return importRecentLeads(context, id);
 });
+export const updateFormResponse = (request: Request, id: string) => write(request, "lead_ads.form", (context, body) => updateMetaLeadForm(context, id, body));
+export const retryResponse = (request: Request, id: string) => write(request, "lead_ads.retry", async context => {
+  await enforceRateLimit([{rule: IMPORT_LIMIT, subject: context.membership.id}], "Please wait a moment before retrying again.");
+  return retryMetaLead(context, id);
+});
+export const dismissResponse = (request: Request, id: string) => write(request, "lead_ads.dismiss", context => dismissMetaLead(context, id));
 export const disconnectResponse = (request: Request, id: string) => write(request, "lead_ads.disconnect", context => disconnectMetaPage(context, id));
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[character]!);

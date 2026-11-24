@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, CheckCircle2, Download, FileText, Link2, LoaderCircle, MoreHorizontal, RefreshCw, Unplug } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, FileText, Link2, LoaderCircle, MoreHorizontal, Pencil, RefreshCw, RotateCcw, Unplug, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,8 +11,16 @@ import { cn } from "@/lib/utils";
 import { leadRequest } from "@/modules/leads/client";
 import { formatLeadDate } from "@/modules/leads/components/lead-ui";
 import type { MetaLeadPagesView } from "../server/connect";
+import { FIELD_LABELS, MetaFormPanel, NOT_USED } from "./meta-form-panel";
 
 type Page = MetaLeadPagesView["pages"][number];
+type MetaForm = Page["forms"][number];
+
+/** "Budget, Bedrooms" for the fields a form fills from a chosen question, or that they are detected automatically. */
+function mappingSummary(form: MetaForm) {
+  const chosen = Object.entries(form.fieldMapping).filter(([, key]) => key && key !== NOT_USED).map(([field]) => FIELD_LABELS[field as keyof typeof FIELD_LABELS] ?? field);
+  return chosen.length ? chosen.join(", ") : "Detected automatically";
+}
 
 const FAILURE_LABELS: Record<string, string> = {
   STATE_INVALID: "The Facebook sign-in expired or could not be confirmed.",
@@ -42,6 +50,7 @@ export function MetaLeadAdsSettings({ organizationId }: { organizationId: string
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Page | null>(null);
+  const [editing, setEditing] = useState<MetaForm | null>(null);
 
   const load = useCallback(async () => {
     setError("");
@@ -74,6 +83,17 @@ export function MetaLeadAdsSettings({ organizationId }: { organizationId: string
       else toast.success(result.imported ? `${result.imported} new ${result.imported === 1 ? "lead" : "leads"} imported from ${page.pageName}.` : `No new leads in the last 7 days (${result.forms} ${result.forms === 1 ? "form" : "forms"} checked).`);
       await load(); router.refresh();
     } catch (caught) { toast.error(caught instanceof Error ? caught.message : "Leads could not be imported."); }
+    finally { setBusy(null); }
+  }
+  async function settleFailure(id: string, action: "retry" | "dismiss") {
+    setBusy(`${action}:${id}`);
+    try {
+      const result = await leadRequest<{ imported?: boolean; reason?: string; dismissed?: boolean }>(`/api/lead-ads/meta/failures/${id}/${action}`, "POST", {}, organizationId);
+      if (action === "dismiss") toast.success("Dismissed. It will not be retried again.");
+      else if (result.imported) toast.success("Lead imported.");
+      else toast.error(`Still could not be imported (${result.reason ?? "unknown reason"}).`);
+      await load(); router.refresh();
+    } catch (caught) { toast.error(caught instanceof Error ? caught.message : "That did not work. Please try again."); }
     finally { setBusy(null); }
   }
   async function disconnect(page: Page) {
@@ -139,21 +159,35 @@ export function MetaLeadAdsSettings({ organizationId }: { organizationId: string
           </div>
           <div className="pl-12">
             {page.forms.length === 0 ? <p className="text-xs text-muted-foreground">No lead forms found yet. Forms appear here after their first lead, or when you import.</p>
-              : <ul className="flex flex-wrap gap-1.5" aria-label={`Lead forms of ${page.pageName}`}>{page.forms.map(form => <li key={form.id} className={cn("inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-xs", !form.enabled && "opacity-60")}>
-                <FileText className="size-3 text-muted-foreground" aria-hidden="true" />{form.name}<span className="text-muted-foreground">· {form.enabled ? (form.lastLeadAt ? `last lead ${formatLeadDate(form.lastLeadAt)}` : "no leads yet") : "off"}</span>
-              </li>)}</ul>}
+              : <div className="overflow-x-auto rounded-md border"><table className="w-full text-left text-xs" aria-label={`Lead forms of ${page.pageName}`}>
+                <thead className="bg-muted/30 text-muted-foreground"><tr><th className="px-3 py-1.5 font-medium">Form</th><th className="px-3 py-1.5 font-medium">Import</th><th className="px-3 py-1.5 font-medium">Branch</th><th className="px-3 py-1.5 font-medium">Fields filled from questions</th><th className="px-3 py-1.5 font-medium">Last lead</th><th className="px-3 py-1.5"><span className="sr-only">Edit</span></th></tr></thead>
+                <tbody className="divide-y">{page.forms.map(form => <tr key={form.id} data-testid="meta-form-row" className={cn(!form.enabled && "text-muted-foreground")}>
+                  <td className="px-3 py-1.5"><span className="flex items-center gap-1.5 font-medium"><FileText className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />{form.name}</span></td>
+                  <td className="px-3 py-1.5"><span className={cn("inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[11px]", form.enabled ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-muted text-muted-foreground")}>{form.enabled ? "On" : "Off"}</span></td>
+                  <td className="px-3 py-1.5">{data.branches.find(branch => branch.id === form.branchId)?.name ?? "Company default"}</td>
+                  <td className="px-3 py-1.5">{mappingSummary(form)}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5">{form.lastLeadAt ? formatLeadDate(form.lastLeadAt) : "None yet"}</td>
+                  <td className="px-3 py-1 text-right"><Button variant="ghost" size="xs" onClick={() => setEditing(form)} disabled={busy !== null} data-testid="meta-form-edit"><Pencil aria-hidden="true" />Edit</Button></td>
+                </tr>)}</tbody>
+              </table></div>}
           </div>
         </li>)}</ul>}
     </section>
 
     {data && data.failures.length > 0 && <section className="overflow-hidden rounded-lg border bg-card" aria-labelledby="meta-failures-title">
       <header className="border-b px-4 py-3"><h2 id="meta-failures-title" className="text-sm font-semibold">Leads that could not be imported</h2>
-        <p className="text-xs text-muted-foreground">EstateOS retries automatically for about an hour. Retrying by hand comes in the next update.</p></header>
-      <table className="w-full text-left text-xs"><thead className="border-b bg-muted/30 text-muted-foreground"><tr><th className="px-4 py-2 font-medium">Meta lead ID</th><th className="px-4 py-2 font-medium">Status</th><th className="px-4 py-2 font-medium">Reason</th><th className="px-4 py-2 font-medium">Received</th></tr></thead>
-        <tbody className="divide-y">{data.failures.map(row => <tr key={row.id}><td className="px-4 py-2 font-mono">{row.leadgenId}</td><td className="px-4 py-2">{row.status === "DEAD" ? "Gave up" : `Retrying (${row.attempts})`}</td><td className="px-4 py-2 text-muted-foreground">{row.errorCode ?? "—"}</td><td className="px-4 py-2 text-muted-foreground">{formatLeadDate(row.receivedAt, true)}</td></tr>)}</tbody></table>
+        <p className="text-xs text-muted-foreground">EstateOS retries automatically for about an hour. Retry one now, or dismiss it if it should not become a lead.</p></header>
+      <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="border-b bg-muted/30 text-muted-foreground"><tr><th className="px-4 py-2 font-medium">Meta lead ID</th><th className="px-4 py-2 font-medium">Status</th><th className="px-4 py-2 font-medium">Reason</th><th className="px-4 py-2 font-medium">Received</th><th className="px-4 py-2"><span className="sr-only">Actions</span></th></tr></thead>
+        <tbody className="divide-y">{data.failures.map(row => <tr key={row.id} data-testid="meta-failure-row"><td className="px-4 py-2 font-mono">{row.leadgenId}</td><td className="px-4 py-2">{row.status === "DEAD" ? "Gave up" : `Retrying (${row.attempts})`}</td><td className="px-4 py-2 text-muted-foreground">{row.errorCode ?? "—"}</td><td className="px-4 py-2 text-muted-foreground">{formatLeadDate(row.receivedAt, true)}</td>
+          <td className="whitespace-nowrap px-4 py-1.5 text-right"><Button variant="outline" size="xs" disabled={busy !== null} onClick={() => void settleFailure(row.id, "retry")} data-testid="meta-failure-retry">{busy === `retry:${row.id}` ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}Retry</Button>
+            <Button variant="ghost" size="xs" className="ml-1 text-muted-foreground" disabled={busy !== null} onClick={() => void settleFailure(row.id, "dismiss")} data-testid="meta-failure-dismiss"><X aria-hidden="true" />Dismiss</Button></td>
+        </tr>)}</tbody></table></div>
     </section>}
 
     <p className="text-[11px] leading-5 text-muted-foreground">EstateOS also checks each Page&apos;s forms every 15 minutes, so leads arrive even if a notification from Meta is missed. Disconnecting stops new leads; leads already in EstateOS stay.</p>
+
+    <MetaFormPanel key={editing?.id ?? "none"} form={editing} branches={data?.branches ?? []} organizationId={organizationId} onClose={() => setEditing(null)}
+      onSaved={name => { setEditing(null); toast.success(`${name} saved. New leads from it use these settings.`); void load(); }} />
 
     <Dialog open={confirm !== null} onOpenChange={open => { if (!open && !busy) setConfirm(null); }}>
       <DialogContent className="sm:max-w-md">

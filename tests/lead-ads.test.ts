@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  MetaPayloadError, classifyGraphError, leadMetadata, mapMetaLead, metaHandshake, metaSignature, parseBudget, parseFieldMapping,
+  MetaPayloadError, NOT_USED, classifyGraphError, leadMetadata, mapMetaLead, validateFieldMapping, metaHandshake, metaSignature, parseBudget, parseFieldMapping,
   parseLeadgenWebhook, parseQuestions, parseTransactionType, verifyMetaSignature, type MetaLead,
 } from "../src/modules/lead-ads/meta";
 
@@ -164,4 +164,22 @@ test("answers never overflow the lead's columns: Meta's testing tool sends place
   assert.equal(mapMetaLead(lead({full_name: "Local Number", phone_number: "1234 5678"}))?.phone, "1234 5678");
   // Placeholder phone and no email: nothing to reach the person with.
   assert.equal(mapMetaLead(lead({full_name: "Only Placeholder", phone_number: "<test lead: dummy data for phone_number>"})), null);
+});
+
+test("an owner's question mapping only uses the form's own questions, and can turn a field off", () => {
+  const questions = parseQuestions([
+    {key: "full_name", label: "Full name"}, {key: "email", label: "Email"},
+    {key: "what_is_your_budget?", label: "What is your budget?"}, {key: "where_to_live", label: "Where would you like to live?"},
+  ]);
+  const ok = validateFieldMapping({budget: "what_is_your_budget?", preferredLocation: "where_to_live", bedroomPreference: NOT_USED, propertyType: ""}, questions);
+  assert.deepEqual(ok, {ok: true, mapping: {budget: "what_is_your_budget?", preferredLocation: "where_to_live", bedroomPreference: NOT_USED}});
+  assert.deepEqual(validateFieldMapping(null, questions), {ok: true, mapping: {}});
+  for (const bad of [{budget: "not_a_question"}, {budget: "email"}, {fullName: "where_to_live"}, {budget: 5}, ["budget"]]) {
+    assert.equal(validateFieldMapping(bad, questions).ok, false, JSON.stringify(bad));
+  }
+  // NOT_USED stops the automatic guess too.
+  const answers = lead({full_name: "Hamza Qureshi", email: "hamza@example.test", "how_many_bedrooms?": "3", area: "JVC"});
+  assert.equal(mapMetaLead(answers)?.bedroomPreference, "3");
+  assert.equal(mapMetaLead(answers, {mapping: parseFieldMapping({bedroomPreference: NOT_USED, preferredLocation: NOT_USED})})?.bedroomPreference, null);
+  assert.equal(mapMetaLead(answers, {mapping: parseFieldMapping({bedroomPreference: NOT_USED, preferredLocation: NOT_USED})})?.preferredLocation, null);
 });

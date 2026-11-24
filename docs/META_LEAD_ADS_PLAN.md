@@ -1,6 +1,6 @@
 # Phase 7D: Meta Lead Ads (plan)
 
-Status: **7D.1** (data and webhook core) is live on staging. **7D.2** (connecting Pages, the settings screen, the 15-minute check and Import recent leads) is built and tested locally. 7D.3 to 7D.5 are not built. The 15-minute check and **Import recent leads**, planned for 7D.5, moved into 7D.2, because Meta sends no real webhooks while the app is unpublished.
+Status: **7D.1, 7D.2 and 7D.4** are live on staging, and a real Meta test lead has been imported end to end. **7D.3** (form settings, Retry and Dismiss) is built and tested locally. Left for before publishing the Meta app: `pages_manage_metadata` (instant webhooks) and App Review. The 15-minute check and **Import recent leads**, planned for 7D.5, moved into 7D.2, because Meta sends no real webhooks while the app is unpublished.
 
 ## Built in 7D.1
 
@@ -55,6 +55,22 @@ Status: **7D.1** (data and webhook core) is live on staging. **7D.2** (connectin
 - **Tests:**
   - the SQL Connect cases cover roles, reconnecting the same Page only, disconnecting with its forms, and the due list;
   - the inbox end-to-end suite runs the whole flow in a browser against a fake Facebook sign-in and Graph API: connect, a Page another company already uses, import, the worker's check, a cancelled sign-in, a forged return, and disconnect.
+
+## Built in 7D.3
+
+- **Each connected Page lists its forms in a table:** import on or off, branch, the fields filled from questions, last lead, and **Edit**.
+- **Edit opens a side panel:**
+  - **Import leads from this form** on or off. When off, new leads are recorded as ignored, not imported.
+  - **Branch for its leads:** the lead gets that branch, and that branch's round-robin rule applies.
+  - **Which question fills which lead field** (budget, location, bedrooms, property type, buy/rent/invest, property interest): **Detect automatically** (the default), **Not used**, or one of the form's own questions.
+- **Mapping rules:**
+  - name, email and phone questions are never offered;
+  - the server re-checks the mapping against the form's stored questions (`validateFieldMapping`);
+  - the database operation `UpdateMetaLeadForm` re-checks the role and that the branch is this company's.
+- **Leads that could not be imported:**
+  - **Retry** runs the import now, even for one EstateOS gave up on;
+  - **Dismiss** records it as ignored (`DISMISSED`), and it is never retried.
+- **No database schema change**, only operations: `UpdateMetaLeadForm`, `MetaLeadFailure`, and more fields in `MetaLeadOverview`.
 
 ## Built in 7D.4
 

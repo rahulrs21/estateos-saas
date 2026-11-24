@@ -8,8 +8,12 @@ import { asServer, isAdministrator, type Context } from "@/modules/communication
 import { openSecret, sealSecret, vaultConfigured } from "@/modules/inbox/vault";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { WorkspaceError } from "@/modules/organizations/server/errors";
+import { z } from "zod";
+import { executeWorkspaceOperation } from "@/lib/firebase/dataconnect";
+import { parseInput } from "@/modules/communications/server/validation";
+import { parseFieldMapping, parseQuestions, validateFieldMapping } from "../meta";
 import { exchangeLoginCode, listGrantedPages, MetaGraphError, metaGraphVersion, subscribePageToLeads, unsubscribePage } from "./graph";
-import { connectionForPage, connectionToken } from "./process";
+import { connectionForPage, connectionToken, processMetaLeadEvent } from "./process";
 import { pollConnection } from "./poll";
 import { metaAppSecret, metaVerifyToken, pageTokenBinding } from "./secrets";
 
@@ -143,13 +147,21 @@ export async function completeMetaConnect(url: URL): Promise<MetaConnectOutcome>
 /** Settings: the company's connected Pages, their forms and recent failures. OWNER or ADMIN only. */
 export async function listMetaLeadPages(context: Context) {
   if (!isAdministrator(context)) throw notAllowed();
-  const data = await asServer("MetaLeadOverview", dc => sdk.metaLeadOverview(dc, {organizationId: context.organizationId, actorUid: context.request.user.uid}));
+  const [data, branches] = await Promise.all([
+    asServer("MetaLeadOverview", dc => sdk.metaLeadOverview(dc, {organizationId: context.organizationId, actorUid: context.request.user.uid})),
+    executeWorkspaceOperation(() => sdk.listBranches(context.request.dc, {organizationId: context.organizationId}, context.request.options), "ListBranches"),
+  ]);
   return {
     setup: leadAdsSetup(),
+    branches: branches.branches.map(row => ({id: canonicalUuid(row.id), name: row.name})),
     pages: data.connections.map(row => ({
       id: canonicalUuid(row.id), pageId: row.pageId, pageName: row.pageName, status: row.status, lastErrorCode: row.lastErrorCode ?? null,
       lastLeadAt: row.lastLeadAt ?? null, lastCheckedAt: row.lastPolledAt ?? null, connectedAt: row.subscribedAt ?? row.createdAt, connectedBy: row.connectedBy?.displayName ?? null,
-      forms: row.forms.map(form => ({id: canonicalUuid(form.id), metaFormId: form.metaFormId, name: form.name, enabled: form.enabled, lastLeadAt: form.lastLeadAt ?? null})),
+      forms: row.forms.map(form => ({
+        id: canonicalUuid(form.id), metaFormId: form.metaFormId, name: form.name, enabled: form.enabled, lastLeadAt: form.lastLeadAt ?? null,
+        branchId: form.branchId ? canonicalUuid(form.branchId) : null, sourceName: form.source?.name ?? null,
+        questions: parseQuestions(form.questions), fieldMapping: parseFieldMapping(form.fieldMapping),
+      })),
     })),
     failures: data.recentFailures.map(row => ({id: canonicalUuid(row.id), connectionId: canonicalUuid(row.connectionId), leadgenId: row.leadgenId, status: row.status, errorCode: row.errorCode ?? null, attempts: row.attempts, receivedAt: row.receivedAt})),
   };
@@ -177,4 +189,49 @@ export async function disconnectMetaPage(context: Context, id: string) {
   const unsubscribed = token ? await unsubscribePage(row.pageId, token) : false;
   await asServer("DisconnectMetaLeadConnection", dc => sdk.disconnectMetaLeadConnection(dc, {organizationId: context.organizationId, id: connectionId, actorUid: context.request.user.uid}));
   return {disconnected: true, unsubscribed};
+}
+
+const formSettingsSchema = z.strictObject({
+  enabled: z.boolean(),
+  branchId: z.string().uuid().nullable(),
+  fieldMapping: z.record(z.string(), z.string().max(120)).nullable(),
+});
+
+/** Saves a form's settings: on or off, its branch, and which question fills which lead field. OWNER or ADMIN only. */
+export async function updateMetaLeadForm(context: Context, id: string, body: unknown) {
+  if (!isAdministrator(context)) throw notAllowed();
+  const input = parseInput(formSettingsSchema, body);
+  const formId = canonicalUuid(id);
+  const overview = await asServer("MetaLeadOverview", dc => sdk.metaLeadOverview(dc, {organizationId: context.organizationId, actorUid: context.request.user.uid}));
+  const form = overview.connections.flatMap(row => row.forms).find(row => canonicalUuid(row.id) === formId);
+  if (!form) throw new WorkspaceError("NOT_FOUND", 404, "This form is not connected.");
+  const checked = validateFieldMapping(input.fieldMapping, parseQuestions(form.questions));
+  if (!checked.ok) throw new WorkspaceError("VALIDATION_ERROR", 400, checked.message);
+  await asServer("UpdateMetaLeadForm", dc => sdk.updateMetaLeadForm(dc, {organizationId: context.organizationId, id: formId, actorUid: context.request.user.uid,
+    enabled: input.enabled, branchId: input.branchId ? canonicalUuid(input.branchId) : null, fieldMapping: checked.mapping}));
+  return {saved: true};
+}
+
+async function failedEvent(context: Context, id: string) {
+  if (!isAdministrator(context)) throw notAllowed();
+  const eventId = canonicalUuid(id);
+  const event = (await asServer("MetaLeadFailure", dc => sdk.metaLeadFailure(dc, {organizationId: context.organizationId, id: eventId}))).event;
+  if (!event) throw new WorkspaceError("NOT_FOUND", 404, "This lead is no longer waiting: it was imported, dismissed or retried already.");
+  return {eventId, status: event.status};
+}
+
+/** Retries a lead that failed (even one EstateOS gave up on), and says what happened. */
+export async function retryMetaLead(context: Context, id: string) {
+  const {eventId, status} = await failedEvent(context, id);
+  const organizationId = canonicalUuid(context.organizationId);
+  if (status === "DEAD") await asServer("SetMetaLeadEventOutcome", dc => sdk.setMetaLeadEventOutcome(dc, {organizationId, id: eventId, status: sdk.MetaLeadEventStatus.FAILED, errorCode: "RETRIED_BY_MEMBER", nextAttemptAt: null}));
+  const outcome = await processMetaLeadEvent(organizationId, eventId);
+  return outcome.status === "PROCESSED" ? {imported: true, leadId: outcome.leadId} : {imported: false, reason: "errorCode" in outcome ? outcome.errorCode : outcome.reason};
+}
+
+/** Dismisses a lead that could not be imported: it stays recorded and is never retried again. */
+export async function dismissMetaLead(context: Context, id: string) {
+  const {eventId} = await failedEvent(context, id);
+  await asServer("SetMetaLeadEventOutcome", dc => sdk.setMetaLeadEventOutcome(dc, {organizationId: canonicalUuid(context.organizationId), id: eventId, status: sdk.MetaLeadEventStatus.IGNORED, errorCode: "DISMISSED", nextAttemptAt: null}));
+  return {dismissed: true};
 }

@@ -95,6 +95,28 @@ export interface MetaFieldMapping {
   bedroomPreference?: string;
 }
 export const MAPPABLE_FIELDS = ["propertyInterest", "preferredLocation", "propertyType", "transactionType", "budget", "bedroomPreference"] as const;
+/** A field set to this is never filled (not even by a question whose key names it). */
+export const NOT_USED = "__none__";
+/** Name, email and phone always come from Meta's standard questions; they cannot fill another field. */
+const IDENTITY_KEYS = new Set(["full_name", "first_name", "last_name", "email", "work_email", "phone_number", "work_phone_number"]);
+
+/**
+ * A mapping an owner chose in settings, checked against the form's own questions: each field is a question of this
+ * form (not a name, email or phone question) or NOT_USED; a field left out is detected automatically.
+ */
+export function validateFieldMapping(input: unknown, questions: MetaQuestion[]): {ok: true; mapping: MetaFieldMapping} | {ok: false; message: string} {
+  if (input === null || input === undefined) return {ok: true, mapping: {}};
+  if (typeof input !== "object" || Array.isArray(input)) return {ok: false, message: "The question mapping is not valid."};
+  const keys = new Set(questions.map(question => question.key));
+  const mapping: MetaFieldMapping = {};
+  for (const [field, value] of Object.entries(input as Record<string, unknown>)) {
+    if (!(MAPPABLE_FIELDS as readonly string[]).includes(field)) return {ok: false, message: "The question mapping names a field EstateOS does not fill."};
+    if (value === null || value === undefined || value === "") continue;
+    if (typeof value !== "string" || (value !== NOT_USED && (!keys.has(value) || IDENTITY_KEYS.has(value)))) return {ok: false, message: "Choose one of this form's own questions for each field."};
+    mapping[field as keyof MetaFieldMapping] = value;
+  }
+  return {ok: true, mapping};
+}
 
 export function parseFieldMapping(value: unknown): MetaFieldMapping {
   if (!value || typeof value !== "object") return {};
@@ -212,6 +234,7 @@ export function mapMetaLead(lead: MetaLead, options: {questions?: MetaQuestion[]
   const mapping = options.mapping ?? {};
   const pick = (field: keyof MetaFieldMapping) => {
     const key = mapping[field];
+    if (key === NOT_USED) return null;
     if (key) return byKey.get(key) ?? null;
     const guess = GUESSES.find(([name]) => name === field)?.[1];
     const taken = new Set(Object.values(mapping));

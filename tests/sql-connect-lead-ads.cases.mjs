@@ -108,6 +108,29 @@ export function registerLeadAdsCases({ sdk, run, forbidden, dc }) {
       assert.ok(created.lead.id);
     });
 
+    it("form settings are for owners and administrators, with this company's branches only", async () => {
+      const settings = {organizationId: f.orgA, id: formId, enabled: false, branchId: f.branchA, fieldMapping: {budget: "what_is_your_budget?"}};
+      await assert.rejects(() => noAccess(sdk.updateMetaLeadForm, {...settings, actorUid: "agent-a"}), "an agent cannot change a form");
+      await assert.rejects(() => noAccess(sdk.updateMetaLeadForm, {...settings, actorUid: "owner-a", branchId: f.branchB}), "another company's branch");
+      await assert.rejects(() => noAccess(sdk.updateMetaLeadForm, {...settings, organizationId: f.orgB, actorUid: "owner-b"}), "another company's form");
+      await forbidden(sdk.updateMetaLeadForm, "owner-a", {...settings, actorUid: "owner-a"});
+      await noAccess(sdk.updateMetaLeadForm, {...settings, actorUid: "admin-a"});
+      let form = (await noAccess(sdk.findMetaLeadForm, {organizationId: f.orgA, metaFormId})).form;
+      assert.deepEqual({enabled: form.enabled, branch: uuid(form.branchId), mapping: form.fieldMapping}, {enabled: false, branch: uuid(f.branchA), mapping: {budget: "what_is_your_budget?"}});
+      // A form switched off takes no lead.
+      const event = (await record(f.orgA, connectionA, pageA, digits())).event;
+      await assert.rejects(() => capture({eventId: event.id}));
+      await noAccess(sdk.updateMetaLeadForm, {...settings, actorUid: "owner-a", enabled: true, branchId: null, fieldMapping: null});
+      form = (await noAccess(sdk.findMetaLeadForm, {organizationId: f.orgA, metaFormId})).form;
+      assert.deepEqual({enabled: form.enabled, branch: form.branchId ?? null}, {enabled: true, branch: null});
+      // Failed leads are listed for Retry and Dismiss; others are not.
+      await noAccess(sdk.setMetaLeadEventOutcome, {organizationId: f.orgA, id: event.id, status: "DEAD", errorCode: "META_UNREACHABLE", nextAttemptAt: null});
+      assert.ok((await noAccess(sdk.metaLeadFailure, {organizationId: f.orgA, id: event.id})).event);
+      assert.equal((await noAccess(sdk.metaLeadFailure, {organizationId: f.orgB, id: event.id})).event ?? null, null, "never another company's");
+      await noAccess(sdk.setMetaLeadEventOutcome, {organizationId: f.orgA, id: event.id, status: "IGNORED", errorCode: "DISMISSED", nextAttemptAt: null});
+      assert.equal((await noAccess(sdk.metaLeadFailure, {organizationId: f.orgA, id: event.id})).event ?? null, null, "a dismissed lead is no longer waiting");
+    });
+
     it("settings, reconnecting and disconnecting are for owners and administrators of the company only", async () => {
       const overview = await noAccess(sdk.metaLeadOverview, {organizationId: f.orgA, actorUid: "owner-a"});
       assert.ok(overview.actor);

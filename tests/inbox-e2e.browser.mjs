@@ -112,7 +112,7 @@ const META_CONNECT_PAGE = "5" + String(Date.now()).slice(-13) + "7", META_B_PAGE
 const metaLoginCode = "e2e-meta-login-code-" + randomBytes(10).toString("hex"), metaShortToken = "e2e-meta-short-user-token-" + randomBytes(12).toString("hex");
 const metaUserToken = "e2e-meta-long-user-token-" + randomBytes(12).toString("hex"), connectPageToken = "e2e-meta-connect-page-token-" + randomBytes(12).toString("hex");
 const metaConnect = {deny: false, subscribed: [], unsubscribed: [], formLeads: new Map(), failOnce: new Set()};
-metaForms.set(META_CONNECT_FORM, {id: META_CONNECT_FORM, name: "E2E Connected form", status: "ACTIVE", questions: [{key: "full_name", label: "Full name", type: "FULL_NAME"}, {key: "email", label: "Email", type: "EMAIL"}]});
+metaForms.set(META_CONNECT_FORM, {id: META_CONNECT_FORM, name: "E2E Connected form", status: "ACTIVE", questions: [{key: "full_name", label: "Full name", type: "FULL_NAME"}, {key: "email", label: "Email", type: "EMAIL"}, {key: "price_range", label: "Your price range", type: "CUSTOM"}]});
 let graphMessages = 0;
 const graph = createHttpServer((request, response) => {
   let raw = "";
@@ -817,6 +817,81 @@ try {
     const testToolRow = (await sql(`query T($org: UUID!, $email: String!) { leads(where: {organizationId: {eq: $org}, email: {eq: $email}}) { fullName phone } }`, {org: f.orgA, email: testToolEmail})).leads;
     assert.deepEqual(testToolRow, [{fullName: "<test lead: dummy data for full_name>", phone: null}], "the placeholder is not a phone number, so the phone stays empty");
     pass("Phase 7D.2: a Meta testing-tool lead (placeholder phone) imports cleanly, and pressing Import again retries a lead that failed");
+
+    // Phase 7D.3: the form's settings panel. "Your price range" fills the budget, and its leads go to a branch.
+    const importNow = async () => {
+      await waitFor(`!${pageRow("E2E Connect Page")}.querySelector('[data-testid=meta-import]').disabled`, "the import button to be ready");
+      await evaluate(`${pageRow("E2E Connect Page")}.querySelector('[data-testid=meta-import]').click()`);
+    };
+    const formRow = () => (`[...document.querySelectorAll('[data-testid=meta-form-row]')].find(e=>e.innerText.includes('E2E Connected form'))`);
+    const formOf = async () => (await sql(`query F($org: UUID!, $id: String!) { metaLeadForms(where: {organizationId: {eq: $org}, metaFormId: {eq: $id}}) { enabled branchId fieldMapping } }`, {org: f.orgA, id: META_CONNECT_FORM})).metaLeadForms.map(row => ({...row, branchId: row.branchId?.replaceAll("-", "") ?? null}))[0];
+    const leadRow = async email => (await sql(`query R($org: UUID!, $email: String!) { leads(where: {organizationId: {eq: $org}, email: {eq: $email}}) { budgetMin budgetMax branchId } }`, {org: f.orgA, email})).leads.map(row => ({...row, branchId: row.branchId?.replaceAll("-", "") ?? null}));
+    await waitFor(`Boolean(${formRow()})`, "the form row");
+    await waitFor(`!${formRow()}.querySelector('[data-testid=meta-form-edit]').disabled`, "the Edit button to be ready");
+    await evaluate(`${formRow()}.querySelector('[data-testid=meta-form-edit]').click()`);
+    await waitFor("Boolean(document.querySelector('[role=dialog] [name=map-budget]'))", "the form settings panel");
+    await screenshot("meta-form-panel");
+    assert.ok(await evaluate("[...document.querySelectorAll('[role=dialog] [name=map-budget] option')].some(o=>o.textContent==='Your price range') && ![...document.querySelectorAll('[role=dialog] [name=map-budget] option')].some(o=>o.textContent==='Email')"),
+      "the form's own questions are offered, never name, email or phone");
+    await setField("map-budget", "price_range");
+    await setField("map-bedroomPreference", "__none__");
+    await setField("branchId", f.branchA);
+    await evaluate("document.querySelector('[data-testid=meta-form-save]').click()");
+    await waitFor("!document.querySelector('[role=dialog]') && document.body.innerText.includes('E2E Connected form saved')", "the saved form settings");
+    assert.deepEqual(await formOf(), {enabled: true, branchId: f.branchA.replaceAll("-", ""), fieldMapping: {budget: "price_range", bedroomPreference: "__none__"}});
+    await waitFor(`${formRow()}.innerText.includes("Budget")`, "the table showing which fields the form fills");
+    const mappedEmail = `meta.mapped.${randomBytes(3).toString("hex")}@example.test`;
+    const mappedLead = "5" + String(Date.now()).slice(-13) + "8";
+    metaLeads.set(mappedLead, {id: mappedLead, form_id: META_CONNECT_FORM, field_data: [{name: "full_name", values: ["Mapped Lead"]}, {name: "email", values: [mappedEmail]}, {name: "price_range", values: ["AED 900k - 1.2M"]}]});
+    metaConnect.formLeads.set(META_CONNECT_FORM, [firstLead, secondLead, testToolLead, mappedLead]);
+    await importNow();
+    for (let attempt = 0; attempt < 100 && (await leadRow(mappedEmail)).length === 0; attempt++) await pause(200);
+    assert.deepEqual(await leadRow(mappedEmail), [{budgetMin: 900_000, budgetMax: 1_200_000, branchId: f.branchA.replaceAll("-", "")}], "the chosen question filled the budget, and the lead went to the form's branch");
+    pass("Phase 7D.3: a form's settings choose which question fills the budget (only its own questions are offered) and which branch its leads go to");
+
+    // Switched off: new leads from the form are recorded but not imported.
+    await waitFor(`!${formRow()}.querySelector('[data-testid=meta-form-edit]').disabled`, "the Edit button to be ready");
+    await evaluate(`${formRow()}.querySelector('[data-testid=meta-form-edit]').click()`);
+    await waitFor("Boolean(document.querySelector('[role=dialog] [data-testid=meta-form-enabled]'))", "the form settings panel");
+    await evaluate("document.querySelector('[role=dialog] [data-testid=meta-form-enabled]').click()");
+    await evaluate("document.querySelector('[data-testid=meta-form-save]').click()");
+    await waitFor(`!document.querySelector('[role=dialog]') && ${formRow()}.innerText.includes('Off')`, "the form switched off");
+    const offEmail = `meta.off.${randomBytes(3).toString("hex")}@example.test`;
+    const offLead = "6" + String(Date.now()).slice(-13) + "8";
+    metaLeads.set(offLead, {id: offLead, form_id: META_CONNECT_FORM, field_data: [{name: "full_name", values: ["Off Lead"]}, {name: "email", values: [offEmail]}]});
+    metaConnect.formLeads.set(META_CONNECT_FORM, [firstLead, secondLead, testToolLead, mappedLead, offLead]);
+    await importNow();
+    await pause(2500);
+    assert.equal((await leadRow(offEmail)).length, 0, "a form switched off imports nothing");
+    await waitFor(`!${formRow()}.querySelector('[data-testid=meta-form-edit]').disabled`, "the Edit button to be ready");
+    await evaluate(`${formRow()}.querySelector('[data-testid=meta-form-edit]').click()`);
+    await waitFor("Boolean(document.querySelector('[role=dialog] [data-testid=meta-form-enabled]'))", "the form settings panel");
+    await evaluate("document.querySelector('[role=dialog] [data-testid=meta-form-enabled]').click()");
+    await evaluate("document.querySelector('[data-testid=meta-form-save]').click()");
+    await waitFor(`!document.querySelector('[role=dialog]') && ${formRow()}.innerText.includes('On')`, "the form switched on again");
+    pass("Phase 7D.3: switching a form off stops its new leads from being imported");
+
+    // Failed leads: Retry brings one in; Dismiss removes one from the list for good.
+    const failingEmail = `meta.failing.${randomBytes(3).toString("hex")}@example.test`;
+    const failingLead = "7" + String(Date.now()).slice(-13) + "8", dismissedLead = "8" + String(Date.now()).slice(-13) + "8";
+    metaLeads.set(failingLead, {id: failingLead, form_id: META_CONNECT_FORM, field_data: [{name: "full_name", values: ["Failing Lead"]}, {name: "email", values: [failingEmail]}]});
+    metaLeads.set(dismissedLead, {id: dismissedLead, form_id: META_CONNECT_FORM, field_data: [{name: "full_name", values: ["Dismissed Lead"]}, {name: "email", values: ["dismissed@example.test"]}]});
+    metaConnect.formLeads.set(META_CONNECT_FORM, [firstLead, secondLead, testToolLead, mappedLead, offLead, failingLead, dismissedLead]);
+    metaConnect.failOnce.add(failingLead); metaConnect.failOnce.add(dismissedLead);
+    await importNow();
+    await waitFor("document.body.innerText.includes('2 leads from E2E Connect Page could not be imported yet')", "the two failures");
+    const failureRow = leadgenId => `[...document.querySelectorAll('[data-testid=meta-failure-row]')].find(e=>e.innerText.includes(${JSON.stringify(leadgenId)}))`;
+    await waitFor(`Boolean(${failureRow(failingLead)}) && Boolean(${failureRow(dismissedLead)})`, "both leads in the failed list");
+    await evaluate(`${failureRow(failingLead)}.querySelector('[data-testid=meta-failure-retry]').click()`);
+    await waitFor(`document.body.innerText.includes('Lead imported.') && !${failureRow(failingLead)}`, "the retried lead");
+    assert.equal((await leadRow(failingEmail)).length, 1);
+    await evaluate(`${failureRow(dismissedLead)}.querySelector('[data-testid=meta-failure-dismiss]').click()`);
+    await waitFor(`document.body.innerText.includes('Dismissed. It will not be retried again.') && !${failureRow(dismissedLead)}`, "the dismissed lead");
+    const dismissed = (await sql(`query D($id: String!) { metaLeadEvents(where: {leadgenId: {eq: $id}}) { status errorCode } }`, {id: dismissedLead})).metaLeadEvents;
+    assert.deepEqual(dismissed, [{status: "IGNORED", errorCode: "DISMISSED"}]);
+    assert.equal((await leadRow("dismissed@example.test")).length, 0);
+    pass("Phase 7D.3: Retry imports a failed lead now, and Dismiss removes one from the list without importing it");
+
 
     // The worker checks Pages due a check (15 minutes) on its own.
     const thirdEmail = `meta.poll.${randomBytes(3).toString("hex")}@example.test`;
