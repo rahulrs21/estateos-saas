@@ -16,17 +16,17 @@ query MatchInboxIdentity($organizationId: UUID!, $hasPhone: Boolean!, $phone: St
 
 query FindInboxConversation($organizationId: UUID!, $hasConnection: Boolean!, $channelConnectionId: UUID, $externalThreadId: String!) @auth(level: NO_ACCESS) {
   connected: inboxConversations(where: {organizationId: {eq: $organizationId}, channelConnectionId: {eq: $channelConnectionId}, externalThreadId: {eq: $externalThreadId}}, limit: 1) @include(if: $hasConnection) {
-    id status revision leadId contactId assignedMembershipId optedOut
+    id status revision leadId contactId assignedMembershipId optedOut adReferredAt
   }
   internal: inboxConversations(where: {organizationId: {eq: $organizationId}, channelConnectionId: {isNull: true}, externalThreadId: {eq: $externalThreadId}}, limit: 1) @skip(if: $hasConnection) {
-    id status revision leadId contactId assignedMembershipId optedOut
+    id status revision leadId contactId assignedMembershipId optedOut adReferredAt
   }
 }
 
 # A new conversation with its first inbound message, and the workflow events, in one transaction.
 mutation CreateInboxConversationWithMessage($organizationId: UUID!, $conversationId: UUID!, $channelConnectionId: UUID, $channel: InboxChannel!, $externalThreadId: String!,
   $customerIdentity: String!, $customerName: String, $subject: String, $contactId: UUID, $leadId: UUID, $assignedMembershipId: UUID, $messageId: UUID!, $externalMessageId: String!,
-  $messageType: InboxMessageType!, $content: String, $senderIdentity: String, $recipientIdentity: String, $providerTimestamp: Timestamp, $internetMessageId: String, $preview: String, $simulated: Boolean!, $optedOut: Boolean!, $suppressNumber: Boolean! = false, $suppressEmail: Boolean! = false, $optOutId: UUID, $optOutIdentity: String! = "")
+  $messageType: InboxMessageType!, $content: String, $senderIdentity: String, $recipientIdentity: String, $providerTimestamp: Timestamp, $internetMessageId: String, $preview: String, $simulated: Boolean!, $optedOut: Boolean!, $suppressNumber: Boolean! = false, $suppressEmail: Boolean! = false, $optOutId: UUID, $optOutIdentity: String! = "", $setReferral: Boolean! = false, $adSourceId: String, $adSourceType: String, $adHeadline: String, $adBody: String, $adSourceHost: String, $adSourcePath: String, $adCtwaClid: String, $adCampaignKey: String)
   @auth(level: NO_ACCESS) @transaction {
   conversation: inboxConversation_insert(data: {organizationId: $organizationId, id: $conversationId, channelConnectionId: $channelConnectionId, channel: $channel, externalThreadId: $externalThreadId,
     customerIdentity: $customerIdentity, customerName: $customerName, subject: $subject, contactId: $contactId, leadId: $leadId, assignedMembershipId: $assignedMembershipId,
@@ -34,6 +34,10 @@ mutation CreateInboxConversationWithMessage($organizationId: UUID!, $conversatio
   message: inboxMessage_insert(data: {organizationId: $organizationId, id: $messageId, conversationId: $conversationId, channelConnectionId: $channelConnectionId, externalMessageId: $externalMessageId,
     direction: INBOUND, senderIdentity: $senderIdentity, recipientIdentity: $recipientIdentity, messageType: $messageType, content: $content, deliveryStatus: RECEIVED,
     providerTimestamp: $providerTimestamp, internetMessageId: $internetMessageId, simulated: $simulated})
+  # Phase 7E.2: the click-to-WhatsApp ad this message came from (docs/LEAD_ATTRIBUTION_PLAN.md). The server decides
+  # whether it replaces the stored one (none yet, or older than 30 days) and always sends every field.
+  referral: inboxConversation_update(key: {organizationId: $organizationId, id: $conversationId}, data: {adSourceId: $adSourceId, adSourceType: $adSourceType, adHeadline: $adHeadline,
+    adBody: $adBody, adSourceHost: $adSourceHost, adSourcePath: $adSourcePath, adCtwaClid: $adCtwaClid, adCampaignKey: $adCampaignKey, adReferredAt_expr: "request.time"}) @include(if: $setReferral)
   created: automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'inbox.created:' + vars.conversationId", triggerType: "inbox.conversation.created", targetType: "CONVERSATION",
     targetId: $conversationId, origin_expr: "vars.simulated ? 'SIMULATOR' : 'PROVIDER'", payload_expr: "{'leadId': vars.leadId, 'channel': vars.channel}"})
   received: automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'inbox.message:' + vars.messageId", triggerType: "inbox.message.received", targetType: "CONVERSATION",
@@ -47,7 +51,7 @@ mutation CreateInboxConversationWithMessage($organizationId: UUID!, $conversatio
 
 # A further inbound message on an existing conversation: it reopens the conversation and counts as unread.
 mutation AppendInboxMessage($organizationId: UUID!, $conversationId: UUID!, $channelConnectionId: UUID, $messageId: UUID!, $externalMessageId: String!, $messageType: InboxMessageType!,
-  $content: String, $senderIdentity: String, $recipientIdentity: String, $providerTimestamp: Timestamp, $internetMessageId: String, $preview: String, $simulated: Boolean!, $optedOut: Boolean!, $suppressNumber: Boolean! = false, $suppressEmail: Boolean! = false, $optOutId: UUID, $optOutIdentity: String! = "")
+  $content: String, $senderIdentity: String, $recipientIdentity: String, $providerTimestamp: Timestamp, $internetMessageId: String, $preview: String, $simulated: Boolean!, $optedOut: Boolean!, $suppressNumber: Boolean! = false, $suppressEmail: Boolean! = false, $optOutId: UUID, $optOutIdentity: String! = "", $setReferral: Boolean! = false, $adSourceId: String, $adSourceType: String, $adHeadline: String, $adBody: String, $adSourceHost: String, $adSourcePath: String, $adCtwaClid: String, $adCampaignKey: String)
   @auth(level: NO_ACCESS) @transaction {
   before: query @redact {
     conversation: inboxConversation(key: {organizationId: $organizationId, id: $conversationId}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {leadId channel optedOut}
@@ -57,6 +61,10 @@ mutation AppendInboxMessage($organizationId: UUID!, $conversationId: UUID!, $cha
     providerTimestamp: $providerTimestamp, internetMessageId: $internetMessageId, simulated: $simulated})
   conversation: inboxConversation_update(key: {organizationId: $organizationId, id: $conversationId}, data: {status: OPEN, lastMessageAt_expr: "request.time", lastInboundAt_expr: "request.time",
     lastMessagePreview: $preview, unreadCount_update: {inc: 1}, optedOut_expr: "vars.optedOut || response.before.conversation.optedOut", revision_update: {inc: 1}, updatedAt_expr: "request.time"})
+  # Phase 7E.2: the click-to-WhatsApp ad this message came from (docs/LEAD_ATTRIBUTION_PLAN.md). The server decides
+  # whether it replaces the stored one (none yet, or older than 30 days) and always sends every field.
+  referral: inboxConversation_update(key: {organizationId: $organizationId, id: $conversationId}, data: {adSourceId: $adSourceId, adSourceType: $adSourceType, adHeadline: $adHeadline,
+    adBody: $adBody, adSourceHost: $adSourceHost, adSourcePath: $adSourcePath, adCtwaClid: $adCtwaClid, adCampaignKey: $adCampaignKey, adReferredAt_expr: "request.time"}) @include(if: $setReferral)
   received: automationEvent_insert(data: {organizationId: $organizationId, deduplicationKey_expr: "'inbox.message:' + vars.messageId", triggerType: "inbox.message.received", targetType: "CONVERSATION",
     targetId: $conversationId, origin_expr: "vars.simulated ? 'SIMULATOR' : 'PROVIDER'", payload_expr: "{'leadId': response.before.conversation.leadId, 'messageId': vars.messageId, 'channel': response.before.conversation.channel}"})
   # A STOP-style reply on a real (not simulated) conversation adds the customer to the do-not-contact list (7A.6):

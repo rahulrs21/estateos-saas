@@ -984,4 +984,78 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       assert.deepEqual({token: row.account.tokenCiphertext ?? null, state: row.account.syncState, sending: row.sendingEnabled}, {token: null, state: "DISCONNECTED", sending: false});
     });
   });
+
+  // Phase 7E.2 (docs/LEAD_ATTRIBUTION_PLAN.md): the click-to-WhatsApp ad on a conversation, and the source it gives a lead created from it.
+  describe("Phase 7E.2 WhatsApp ad referrals", {concurrency: false}, () => {
+    const key = value => String(value).replaceAll("-", "").toLowerCase();
+    const server = async (operation, variables) => (await operation(dc, variables)).data;
+    const rejectsWith = (promise, token) => assert.rejects(promise, error => String(error?.message ?? error).includes(token), token);
+    const PHONE = "+447700900671";
+    const AD = {setReferral: true, adSourceId: "120200000000000777", adSourceType: "ad", adHeadline: "Marina 2-bed from AED 1.2M", adBody: "Waterfront living", adSourceHost: "fb.me",
+      adSourcePath: "/2AbCdEf", adCtwaClid: "ARAkLkA8rmlFeiCktEJQ-test", adCampaignKey: "marina 2 bed from aed 1.2m"};
+    const NO_AD = {setReferral: false, adSourceId: null, adSourceType: null, adHeadline: null, adBody: null, adSourceHost: null, adSourcePath: null, adCtwaClid: null, adCampaignKey: null};
+    const create = (conversationId, phone, referral) => server(sdk.createInboxConversationWithMessage, {organizationId: f.orgA, conversationId, channelConnectionId: null, channel: sdk.InboxChannel.WHATSAPP,
+      externalThreadId: `thread-${randomUUID()}`, customerIdentity: phone, customerName: "Fictional ad customer", subject: null, contactId: null, leadId: null, assignedMembershipId: null,
+      messageId: randomUUID(), externalMessageId: `wamid.${randomUUID()}`, messageType: sdk.InboxMessageType.TEXT, content: "Hi, is this still available?", senderIdentity: phone,
+      recipientIdentity: null, providerTimestamp: null, preview: "Hi, is this still available?", simulated: false, optedOut: false, ...referral});
+    const append = (conversationId, phone, referral) => server(sdk.appendInboxMessage, {organizationId: f.orgA, conversationId, channelConnectionId: null, messageId: randomUUID(), externalMessageId: `wamid.${randomUUID()}`,
+      messageType: sdk.InboxMessageType.TEXT, content: "And the payment plan?", senderIdentity: phone, recipientIdentity: null, providerTimestamp: null, preview: "And the payment plan?", simulated: false, optedOut: false, ...referral});
+    const read = async id => (await run(sdk.getInboxConversation, "owner-a", {organizationId: f.orgA, id})).conversation;
+    const sourceOf = async leadId => (await dc.executeGraphql(`query S($lead: UUID!) { leadAttributions(where: {leadId: {eq: $lead}}) { channel platform campaignKey metaAdId metaAdName referrerHost ctwaClid utmSource } }`,
+      {variables: {lead: leadId}})).data.leadAttributions;
+    const link = (uid, id, revision, extra) => run(sdk.linkInboxConversation, uid, {organizationId: f.orgA, id, expectedRevision: revision, hasLead: false, leadId: null, hasContact: false, contactId: null, identityMatches: true, ...extra});
+    const newLead = async name => (await run(sdk.createLead, "owner-a", {organizationId: f.orgA, fullName: `${name} ${randomUUID().slice(0, 6)}`, phone: PHONE, normalizedPhone: PHONE, assignedMembershipId: f.memberAgentA})).lead.id;
+    const archived = [];
+
+    it("keeps the ad a conversation came from, and replaces it whole when the server says so", async () => {
+      const id = randomUUID();
+      await create(id, PHONE, AD);
+      const first = await read(id);
+      assert.deepEqual({id: first.adSourceId, type: first.adSourceType, headline: first.adHeadline, body: first.adBody, host: first.adSourceHost, path: first.adSourcePath},
+        {id: AD.adSourceId, type: "ad", headline: AD.adHeadline, body: AD.adBody, host: "fb.me", path: "/2AbCdEf"});
+      assert.ok(first.adReferredAt, "the time the ad was recorded");
+      await append(id, PHONE, NO_AD);
+      assert.equal((await read(id)).adHeadline, AD.adHeadline, "a message without an ad keeps it");
+      await append(id, PHONE, {...NO_AD, setReferral: true, adSourceId: "120200000000000888", adSourceType: "ad", adHeadline: "Newer ad", adCampaignKey: "newer ad"});
+      const replaced = await read(id);
+      assert.deepEqual({id: replaced.adSourceId, headline: replaced.adHeadline, body: replaced.adBody, host: replaced.adSourceHost}, {id: "120200000000000888", headline: "Newer ad", body: null, host: null},
+        "nothing of the older ad is left");
+      const listed = (await run(sdk.listInboxConversations, "owner-a", {organizationId: f.orgA, limit: 25})).conversations.find(row => key(row.id) === key(id));
+      assert.equal(listed.adHeadline, "Newer ad", "the list shows the ad");
+    });
+
+    it("gives a lead created from an ad conversation the ad as its source, checked by the database", async () => {
+      const olderLead = await newLead("Older lead");
+      const id = randomUUID();
+      await create(id, PHONE, AD);
+      const fromAd = await newLead("From the ad");
+      archived.push(olderLead, fromAd);
+      let revision = (await read(id)).revision;
+      await rejectsWith(link("owner-a", id, revision, {hasLead: true, leadId: olderLead, attribute: true}), "INBOX_LEAD_SOURCE_NOT_ALLOWED");
+      await forbidden(sdk.linkInboxConversation, "owner-a", {organizationId: f.orgA, id, expectedRevision: revision, hasLead: false, leadId: null, hasContact: false, contactId: null, identityMatches: false, attribute: true});
+      await link("owner-a", id, revision, {hasLead: true, leadId: fromAd, attribute: true});
+      assert.deepEqual(await sourceOf(fromAd), [{channel: "WHATSAPP_AD", platform: "meta", campaignKey: AD.adCampaignKey, metaAdId: AD.adSourceId, metaAdName: AD.adHeadline,
+        referrerHost: "fb.me", ctwaClid: AD.adCtwaClid, utmSource: null}], "the values come from the stored conversation");
+      const activity = (await dc.executeGraphql(`query A($lead: UUID!) { activities(where: {leadId: {eq: $lead}, kind: {eq: INBOX_LINKED}}) { metadata } }`, {variables: {lead: fromAd}})).data.activities;
+      assert.equal(activity[0].metadata.source, true, "the lead's history says the source was added");
+      // A lead keeps the source it has: linking again cannot add another.
+      revision = (await read(id)).revision;
+      await rejectsWith(link("owner-a", id, revision, {hasLead: true, leadId: fromAd, attribute: true}), "INBOX_LEAD_SOURCE_NOT_ALLOWED");
+      // Linking without the source rule still works, and the older lead gets no source.
+      await link("owner-a", id, revision, {hasLead: true, leadId: olderLead});
+      assert.deepEqual(await sourceOf(olderLead), []);
+    });
+
+    it("gives a lead created from a WhatsApp conversation without an ad the WhatsApp channel", async () => {
+      const phone = "+447700900672";
+      const id = randomUUID();
+      await create(id, phone, NO_AD);
+      const lead = (await run(sdk.createLead, "owner-a", {organizationId: f.orgA, fullName: `Organic ${randomUUID().slice(0, 6)}`, phone, normalizedPhone: phone, assignedMembershipId: f.memberAgentA})).lead.id;
+      archived.push(lead);
+      await link("owner-a", id, (await read(id)).revision, {hasLead: true, leadId: lead, attribute: true});
+      assert.deepEqual(await sourceOf(lead), [{channel: "WHATSAPP", platform: "direct", campaignKey: null, metaAdId: null, metaAdName: null, referrerHost: null, ctwaClid: null, utmSource: null}]);
+      // These synthetic leads are archived so the agent's lead counts in later cases are unchanged.
+      for (const leadId of archived) await run(sdk.archiveLead, "owner-a", {organizationId: f.orgA, leadId});
+    });
+  });
 }

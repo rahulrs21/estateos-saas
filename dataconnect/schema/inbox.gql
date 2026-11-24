@@ -169,6 +169,18 @@ type InboxConversation @table(key: ["organization", "id"])
   revision: Int! @default(value: 1)
   createdAt: Timestamp! @default(expr: "request.time")
   updatedAt: Timestamp! @default(expr: "request.time")
+  # Phase 7E.2: the click-to-WhatsApp ad the customer came from (Meta's message `referral`; untrusted text,
+  # bounded, shown as text). Kept from the first ad message; a newer ad replaces it after 30 days.
+  # A lead created from the conversation takes it as its source (LinkInboxConversation).
+  adSourceId: String @col(dataType: "varchar(40)")
+  adSourceType: String @col(dataType: "varchar(10)")
+  adHeadline: String @col(dataType: "varchar(300)")
+  adBody: String @col(dataType: "varchar(500)")
+  adSourceHost: String @col(dataType: "varchar(253)")
+  adSourcePath: String @col(dataType: "varchar(500)")
+  adCtwaClid: String @col(dataType: "varchar(256)")
+  adCampaignKey: String @col(dataType: "varchar(200)")
+  adReferredAt: Timestamp
 }
 
 type InboxMessage @table(key: ["organization", "id"])

@@ -154,3 +154,45 @@ test("the Connect WhatsApp popup is trusted only from Meta, and only a dedicated
   assert.equal(parseSignupMessage(meta, "not json"), null);
   assert.equal(parseSignupMessage(meta, JSON.stringify({type: "OTHER", event: "FINISH"})), null);
 });
+
+// Phase 7E.2: click-to-WhatsApp ads (docs/LEAD_ATTRIBUTION_PLAN.md).
+test("a message from a click-to-WhatsApp ad carries the ad, bounded and cleaned; other messages carry none", async () => {
+  const {parseAdReferral} = await import("../src/modules/inbox/ad-referral");
+  const adMessage = payload({contacts: [{wa_id: "447700900124", profile: {name: "Omar Example"}}], messages: [{from: "447700900124", id: "wamid.AD1", timestamp: seconds("2026-11-04T09:59:00Z"), type: "text", text: {body: "Hi, is this still available?"},
+    referral: {source_url: "https://fb.me/2AbCdEf?utm=secret", source_id: "120200000000000001", source_type: "ad", headline: "Marina_Launch 2-bed\u0000 from AED 1.2M", body: "Waterfront living", media_type: "image", image_url: "https://scontent.example.test/x.jpg", ctwa_clid: "ARAkLkA8rmlFeiCktEJQ-QTwRiyYHAFDLMNDBH0CD3qpjd0HR4irJ6LEkR7JwFF4XvnO2E4Nx0-eM-GABDLOPaOdRMv-_zfUQ2a"}}]});
+  const [event] = whatsappAdapter.parseWebhook(request(adMessage));
+  assert.equal(event.kind, "MESSAGE");
+  assert.deepEqual(event.kind === "MESSAGE" ? event.referral : null, {sourceId: "120200000000000001", sourceType: "ad", headline: "Marina_Launch 2-bed from AED 1.2M", body: "Waterfront living",
+    sourceHost: "fb.me", sourcePath: "/2AbCdEf", ctwaClid: "ARAkLkA8rmlFeiCktEJQ-QTwRiyYHAFDLMNDBH0CD3qpjd0HR4irJ6LEkR7JwFF4XvnO2E4Nx0-eM-GABDLOPaOdRMv-_zfUQ2a", campaignKey: "marina launch 2 bed from aed 1.2m"},
+    "the link keeps host and path only; control characters are removed");
+  const [plain] = whatsappAdapter.parseWebhook(request(textMessage));
+  assert.equal(plain.kind === "MESSAGE" && "referral" in plain, false, "a message without an ad has no referral");
+
+  assert.equal(parseAdReferral(null), null);
+  assert.equal(parseAdReferral("ad"), null);
+  assert.equal(parseAdReferral({media_type: "image"}), null, "a referral naming no ad is ignored");
+  assert.deepEqual(parseAdReferral({source_id: "12'; DROP", source_type: "<b>ad</b>", source_url: "javascript:alert(1)", headline: "x".repeat(400), ctwa_clid: "bad id with spaces"}),
+    {sourceId: null, sourceType: null, headline: "x".repeat(300), body: null, sourceHost: null, sourcePath: null, ctwaClid: null, campaignKey: "x".repeat(200)}, "untrusted values are refused or bounded");
+  assert.deepEqual(parseAdReferral({source_id: 987654321, source_type: "post"}), {sourceId: "987654321", sourceType: "post", headline: null, body: null, sourceHost: null, sourcePath: null, ctwaClid: null, campaignKey: "meta ad 987654321"},
+    "without a headline the ad is grouped by its ID");
+});
+
+test("a conversation's ad is kept, a newer ad replaces it after 30 days, and a lead takes the conversation's source only when it came from the conversation", async () => {
+  const {conversationLeadChannel, linkGivesSource, replacesReferral} = await import("../src/modules/inbox/ad-referral");
+  const now = Date.parse("2026-11-24T10:00:00Z");
+  assert.equal(replacesReferral(null, now), true, "no ad yet");
+  assert.equal(replacesReferral("2026-11-20T10:00:00Z", now), false, "a recent ad is kept");
+  assert.equal(replacesReferral("2026-10-20T10:00:00Z", now), true, "an ad older than 30 days is replaced");
+
+  assert.equal(conversationLeadChannel({channel: "WHATSAPP", adReferredAt: "2026-11-20T10:00:00Z"}), "WHATSAPP_AD");
+  assert.equal(conversationLeadChannel({channel: "WHATSAPP", adReferredAt: null}), "WHATSAPP");
+  assert.equal(conversationLeadChannel({channel: "EMAIL"}), "EMAIL");
+  assert.equal(conversationLeadChannel({channel: "WEBSITE"}), null, "website enquiries already have their source");
+  assert.equal(conversationLeadChannel({channel: "INTERNAL"}), null);
+
+  const conversation = {channel: "WHATSAPP", createdAt: "2026-11-20T10:00:00.123456Z", adReferredAt: "2026-11-20T10:00:00.123456Z"};
+  assert.equal(linkGivesSource(conversation, {createdAt: "2026-11-20T10:05:00Z", hasSource: false}), true, "a lead created from the conversation takes its source");
+  assert.equal(linkGivesSource(conversation, {createdAt: "2026-11-01T10:00:00Z", hasSource: false}), false, "an older lead was not created from it");
+  assert.equal(linkGivesSource(conversation, {createdAt: "2026-11-20T10:05:00Z", hasSource: true}), false, "a lead keeps the source it was created with");
+  assert.equal(linkGivesSource({...conversation, channel: "WEBSITE"}, {createdAt: "2026-11-20T10:05:00Z", hasSource: false}), false);
+});

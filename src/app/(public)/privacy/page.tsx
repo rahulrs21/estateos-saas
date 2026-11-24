@@ -12,6 +12,7 @@ export default function PrivacyPage() {
       <li>Customer data an agency enters or receives: contact details, enquiries, leads, viewings, notes and property interests.</li>
       <li>Messages an agency connects: WhatsApp messages and media sent to the agency&apos;s business number through the WhatsApp Business Platform (Meta), and emails from mailboxes the agency connects (Google, Microsoft), including attachments.</li>
       <li>Leads from Facebook and Instagram lead ads on Pages the agency connects (Meta Lead Ads): the answers the person gave in the form, and which form, ad and campaign it came from.</li>
+      <li>For WhatsApp messages sent from a Facebook or Instagram ad: which ad it was (its ID, headline and text, and Meta&apos;s click ID), as Meta includes it with the message.</li>
       <li>Where an enquiry came from: the campaign (advertising tags such as UTM tags, and the click identifiers ad platforms add to links), the page, and the referring website, without its search terms or any address details after the page. EstateOS forms and pages remember this in the visitor&apos;s own browser storage for 30 days, so an enquiry sent later keeps its campaign; it is sent only with an enquiry, and to no one else.</li>
       <li>Technical data needed to run the service securely, such as logs and rate-limit records.</li>
     </ul></section>

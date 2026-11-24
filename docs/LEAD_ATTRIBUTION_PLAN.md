@@ -1,6 +1,25 @@
 # Phase 7E: lead source attribution (plan)
 
-Status: **7E.1 built** (capture); its database change is deployed to staging (2026-11-24). Decisions taken: keep click IDs, one touch per lead, and an optional Campaign field on manual leads (7E.3).
+Status: **7E.1 built** (capture); its database change is deployed to staging (2026-11-24). **7E.2 built** (WhatsApp ads); its database change is deployed to staging (2026-11-24).
+
+## Built in 7E.2
+
+- **The ad on the conversation:**
+  - the WhatsApp adapter reads Meta's `referral` (ad or post ID, headline, text, link, `ctwa_clid`) from inbound messages: `src/modules/inbox/ad-referral.ts`, pure and unit-tested;
+  - untrusted values are bounded, control characters removed, IDs must be digits, the link keeps host and path only;
+  - it's stored on `InboxConversation` (`adSourceId`, `adSourceType`, `adHeadline`, `adBody`, `adSourceHost`, `adSourcePath`, `adCtwaClid`, `adCampaignKey`, `adReferredAt`) in the same transaction as the message;
+  - the first ad is kept; a newer ad replaces it whole after 30 days.
+- **Where it shows:** a "From an ad" strip on the conversation (shown as text) and a "From an ad" badge in the conversation list.
+- **Create lead from a conversation:**
+  - **Create lead** in the link dialog and the customer panel opens the new-lead form prefilled with the customer's name and number (or email);
+  - the server checks the member can see the conversation before the lead is created, then links it;
+  - if the link fails, the lead is kept and the member is told to link it from the inbox.
+- **The lead's source:**
+  - linking gives a lead the conversation's source only when the lead has no source yet and was created after the conversation began;
+  - the source is `WHATSAPP_AD` (platform meta, the ad's ID and headline, `ctwa_clid`, grouped by headline until 7F reads the campaign), else `WHATSAPP` or `EMAIL`;
+  - `LinkInboxConversation` checks the same rule in the database and takes the values from the stored conversation, never from the caller;
+  - a lead matched automatically by phone already existed, so it keeps its own source.
+- **7E.3 note:** when manual leads get a `MANUAL` source, a lead created from a conversation must skip it, so linking can add the conversation's source. Decisions taken: keep click IDs, one touch per lead, and an optional Campaign field on manual leads (7E.3).
 
 ## Built in 7E.1
 

@@ -5,6 +5,7 @@ import { asServer, isDuplicate, sdk, serverDataConnect } from "@/modules/communi
 import { mapWorkspaceDataError } from "@/modules/organizations/server/errors";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { stableUuid } from "@/modules/automations/ids";
+import { replacesReferral, type AdReferral } from "../ad-referral";
 import { channelIdentity, matchDecision, type MatchCandidate } from "../identity";
 import type { InboxChannel, MessageType } from "../model";
 import { isOptOutMessage, preview } from "../policy";
@@ -33,6 +34,8 @@ export interface InboundMessage {
   /** Email: the RFC Message-ID (Phase 7C), for In-Reply-To when replying. */
   internetMessageId?: string | null;
   simulated?: boolean;
+  /** WhatsApp (Phase 7E.2): the click-to-WhatsApp ad this message came from. */
+  referral?: AdReferral | null;
   /** A known link (for example the website form's own new lead); otherwise the identity is matched. */
   link?: {contactId: string | null; leadId: string | null; assignedMembershipId: string | null};
 }
@@ -43,6 +46,15 @@ export type IngestResult =
   | {status: "REJECTED"; reason: "NO_IDENTITY"};
 
 const clip = (value: string | null | undefined, max: number) => value ? value.slice(0, max) : null;
+
+/** The ad fields for the ingest mutations: every field is sent, so a replaced ad leaves nothing of the old one. */
+export function referralVariables(referral: AdReferral | null | undefined, set: boolean) {
+  const ad = set && referral ? referral : null;
+  return {
+    setReferral: Boolean(ad), adSourceId: ad?.sourceId ?? null, adSourceType: ad?.sourceType ?? null, adHeadline: ad?.headline ?? null, adBody: ad?.body ?? null,
+    adSourceHost: ad?.sourceHost ?? null, adSourcePath: ad?.sourcePath ?? null, adCtwaClid: ad?.ctwaClid ?? null, adCampaignKey: ad?.campaignKey ?? null,
+  };
+}
 
 export async function findConversation(input: Pick<InboundMessage, "organizationId" | "channelConnectionId" | "externalThreadId">) {
   const data = await asServer("FindInboxConversation", dc => sdk.findInboxConversation(dc, {
@@ -83,7 +95,8 @@ export async function ingestInbound(input: InboundMessage): Promise<IngestResult
     try {
       if (existing) {
         // Called directly (not asServer) so a unique-key conflict is still recognisable as a duplicate.
-        await sdk.appendInboxMessage(serverDataConnect(), {organizationId: input.organizationId, conversationId: canonicalUuid(existing.id), messageId, ...message, ...optOut});
+        await sdk.appendInboxMessage(serverDataConnect(), {organizationId: input.organizationId, conversationId: canonicalUuid(existing.id), messageId, ...message, ...optOut,
+          ...referralVariables(input.referral, Boolean(input.referral) && replacesReferral(existing.adReferredAt, Date.now()))});
         return {status: "APPENDED", conversationId: canonicalUuid(existing.id), messageId, match: "EXISTING"};
       }
       const decision = input.link ? null : await matchIdentity(input.organizationId, identity);
@@ -92,6 +105,7 @@ export async function ingestInbound(input: InboundMessage): Promise<IngestResult
       await sdk.createInboxConversationWithMessage(serverDataConnect(), {
         organizationId: input.organizationId, conversationId, channel: sdk.InboxChannel[input.channel], externalThreadId: input.externalThreadId.slice(0, 200),
         customerIdentity: identity.value, customerName: clip(input.from.name, 160), subject: clip(input.subject, 300), ...link, messageId, ...message, ...optOut,
+          ...referralVariables(input.referral, Boolean(input.referral)),
       });
       return {status: "CREATED", conversationId, messageId, match: input.link ? "LINKED" : decision!.status};
     } catch (error) {

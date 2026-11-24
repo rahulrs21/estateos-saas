@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft, Check, CheckCheck, CircleAlert, Clock3, Link2, Loader2, Maximize2, Minimize2, PanelRight, Paperclip, ShieldCheck, Sparkles, StickyNote, UserPlus, UserRound, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, CircleAlert, Clock3, Link2, Loader2, Maximize2, Megaphone, Minimize2, PanelRight, Paperclip, Plus, ShieldCheck, Sparkles, StickyNote, UserPlus, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -131,9 +131,31 @@ function LinkDialog({conversation, organizationId, onDone}: {conversation: Conve
         <div><h3 className="text-xs font-medium uppercase text-muted-foreground">Leads</h3>{results.leads.length ? <ul className="divide-y">{results.leads.map(item => row("leadId", item))}</ul> : <p className="text-sm text-muted-foreground">No leads you can access.</p>}</div>
         <div><h3 className="text-xs font-medium uppercase text-muted-foreground">Contacts</h3>{results.contacts.length ? <ul className="divide-y">{results.contacts.map(item => row("contactId", item))}</ul> : <p className="text-sm text-muted-foreground">No contacts you can access.</p>}</div>
       </div>}
+      {!conversation.leadId && <CreateLeadLink conversation={conversation} />}
       {conversation.contactId && <Button variant="ghost" size="sm" disabled={busy} onClick={() => void link({})}>Unlink</Button>}
     </DialogContent>
   </Dialog>;
+}
+
+/** Phase 7E.2: a new lead from this conversation, prefilled from it; the conversation is linked to it (and gives it its source). */
+function CreateLeadLink({conversation}: {conversation: ConversationView}) {
+  if (conversation.channel !== "WHATSAPP" && conversation.channel !== "EMAIL") return null;
+  return <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+    <span>Not on the list? Create a lead for this customer.</span>
+    <Link href={`/leads/new?conversation=${conversation.id}`} className={buttonVariants({size: "sm", variant: "outline"})}><Plus aria-hidden />Create lead</Link></div>;
+}
+
+/** Phase 7E.2: the click-to-WhatsApp ad the customer came from (text from Meta, shown as text). */
+function AdStrip({conversation}: {conversation: ConversationView}) {
+  if (!conversation.adReferredAt) return null;
+  const link = conversation.adSourceHost ? `${conversation.adSourceHost}${conversation.adSourcePath && conversation.adSourcePath !== "/" ? conversation.adSourcePath : ""}` : null;
+  return <div className="flex items-start gap-2 border-t bg-sky-500/5 px-3 py-1.5 text-xs sm:px-4" aria-label="The ad the customer came from">
+    <Megaphone aria-hidden className="mt-0.5 size-3.5 shrink-0 text-sky-700 dark:text-sky-300" />
+    <p className="min-w-0 flex-1"><span className="font-medium text-foreground">From {conversation.adSourceType === "post" ? "a post" : "an ad"}</span>
+      {conversation.adHeadline && <span dir="auto" className="text-foreground">: {conversation.adHeadline}</span>}
+      {conversation.adBody && <span dir="auto" className="block truncate text-muted-foreground" title={conversation.adBody}>{conversation.adBody}</span>}</p>
+    <span className="hidden shrink-0 text-muted-foreground sm:inline">{[link, formatLeadDate(conversation.adReferredAt, true)].filter(Boolean).join(" · ")}</span>
+  </div>;
 }
 
 function CustomerPanel({customer, conversation}: {customer: CustomerContextView | null; conversation: ConversationView}) {
@@ -141,6 +163,7 @@ function CustomerPanel({customer, conversation}: {customer: CustomerContextView 
   const {lead, contact} = customer;
   return <div className="space-y-4 text-sm" aria-label="Customer">
     {!conversation.contactId && <p className="rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5 p-3 text-xs text-muted-foreground">Not linked to a customer. Link it to the lead or contact once you have checked who this is.</p>}
+    {!conversation.contactId && <CreateLeadLink conversation={conversation} />}
     {contact && <div className="flex items-start gap-3"><ContactAvatar name={contact.fullName} size="sm" />
       <div className="min-w-0"><p className="font-medium">{contact.fullName}</p><p className="break-all text-xs text-muted-foreground">{[contact.phone, contact.email].filter(Boolean).join(" · ")}</p>
         <Link href={`/contacts/${contact.id}`} className="text-xs font-medium text-primary hover:underline">Open contact</Link></div></div>}
@@ -287,6 +310,7 @@ export function ConversationPane({conversationId, organizationId, refreshKey, ex
           onClick={() => void act("take", `/api/inbox/conversations/${conversation.id}/assign`, {expectedRevision: conversation.revision, toMembershipId: conversation.permissions.me}, "Assigned to you.")}><UserPlus aria-hidden />Assign to me</Button>}
         {busy && <Loader2 aria-label="Saving" className="size-3.5 animate-spin text-muted-foreground" />}
       </div>
+      <AdStrip conversation={conversation} />
     </header>
 
     <div className="relative flex min-h-0 flex-1">

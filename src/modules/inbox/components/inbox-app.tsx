@@ -228,6 +228,7 @@ function ConversationRow({row, selected}: {row: Row; selected: boolean}) {
       <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px]">
         <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">{row.assignedMembership?.userProfile?.displayName ?? "Unassigned"}</span>
         {!row.contactId && <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">Needs matching</span>}
+        {row.adReferredAt && <span className="max-w-40 truncate rounded bg-sky-500/10 px-1.5 py-0.5 text-sky-700 dark:text-sky-300" title={row.adHeadline ? `From an ad: ${row.adHeadline}` : "From an ad"}>From an ad</span>}
         {urgent && <span className="rounded bg-destructive/10 px-1.5 py-0.5 font-medium text-destructive">{PRIORITY_LABELS[row.priority as "HIGH" | "URGENT"]}</span>}
         {row.optedOut && <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-destructive">Opted out</span>}
         {row.simulated && <span className="rounded bg-destructive px-1.5 py-0.5 font-semibold text-white">SIMULATED</span>}

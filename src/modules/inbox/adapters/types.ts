@@ -1,3 +1,4 @@
+import type { AdReferral } from "../ad-referral";
 import type { ChannelProvider, DeliveryStatus, InboxChannel, MessageType } from "../model";
 
 /*
@@ -26,6 +27,8 @@ export type NormalizedEvent =
       to: string | null; subject: string | null; messageType: MessageType; text: string | null; timestamp: string | null; attachments: NormalizedAttachment[];
       /** Email (Phase 7C): the RFC Message-ID, for threading replies. */
       internetMessageId?: string | null;
+      /** WhatsApp (Phase 7E.2): the click-to-WhatsApp ad the customer came from. */
+      referral?: AdReferral | null;
       /** A link decided before recording (a personal mailbox: the matched contact, assigned to the mailbox owner). */
       link?: {contactId: string | null; leadId: string | null; assignedMembershipId: string | null} | null}
   | {kind: "STATUS"; accountId: string; externalMessageId: string; status: DeliveryStatus; raw: string; timestamp: string | null; errorCode: string | null};

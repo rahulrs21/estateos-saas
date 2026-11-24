@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft, Check, LoaderCircle, LockKeyhole, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, Check, LoaderCircle, LockKeyhole, Megaphone, MessagesSquare, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -20,6 +20,8 @@ function LeadEditor({ data, onCancel, onSaved, onPendingChange }: {
   data: LeadFormData; onCancel?: () => void; onSaved?: () => void; onPendingChange?: (pending: boolean) => void;
 }) {
   const { lead, organization, membership, branches, assignees, canManageAssignments, sources } = data;
+  // Phase 7E.2: a new lead created from an inbox conversation is prefilled from it and linked to it.
+  const fromConversation = lead ? null : data.fromConversation ?? null;
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const prefix = useId();
@@ -27,7 +29,7 @@ function LeadEditor({ data, onCancel, onSaved, onPendingChange }: {
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const fieldId = (name: string) => `${prefix}-${name}`;
-  const cancelHref = lead ? `/leads/${lead.id}` : "/leads";
+  const cancelHref = lead ? `/leads/${lead.id}` : fromConversation ? `/inbox/${fromConversation.id}` : "/leads";
   const defaultSource = lead?.sourceId ?? (lead?.source ? "legacy" : sources.find(source => source.sourceType === "MANUAL")?.id ?? "");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -48,6 +50,7 @@ function LeadEditor({ data, onCancel, onSaved, onPendingChange }: {
       transactionType: form.get("transactionType"), budgetMin: budget("budgetMin"), budgetMax: budget("budgetMax"),
       currency: String(form.get("currency") ?? "AED"), bedroomPreference: optional("bedroomPreference"), priority: form.get("priority"),
       branchId: optional("branchId"), assignedMembershipId: canManageAssignments ? optional("assignedMembershipId") : membership.id,
+      ...(fromConversation ? { fromConversationId: fromConversation.id } : {}),
       ...(!lead ? { initialNote: optional("initialNote"), initialFollowUpAt: fromDubaiDateTimeInput(String(form.get("initialFollowUpAt") ?? "")), initialFollowUpNote: optional("initialFollowUpNote") } : {}),
     };
     const parsed = lead ? updateLeadSchema.safeParse({ ...input, leadId: lead.id, status: lead.status }) : createLeadSchema.safeParse(input);
@@ -62,8 +65,8 @@ function LeadEditor({ data, onCancel, onSaved, onPendingChange }: {
     try {
       const body = { ...parsed.data };
       if ("leadId" in body) delete (body as { leadId?: string }).leadId;
-      const result = await leadRequest<{ lead: { id: string }; possibleDuplicates?: unknown[]; warnings?: string[] }>(lead ? `/api/leads/${lead.id}` : "/api/leads", lead ? "PATCH" : "POST", body, organization.id);
-      toast.success(lead ? "Lead updated." : "Lead created.");
+      const result = await leadRequest<{ lead: { id: string }; possibleDuplicates?: unknown[]; warnings?: string[]; conversation?: { id: string; sourceAdded: boolean } }>(lead ? `/api/leads/${lead.id}` : "/api/leads", lead ? "PATCH" : "POST", body, organization.id);
+      toast.success(lead ? "Lead updated." : result.conversation ? "Lead created and linked to the conversation." : "Lead created.");
       if (result.possibleDuplicates?.length) toast.warning("Possible duplicate contact", { description: "A matching contact already exists. Review the separate records before adding another lead for this person." });
       for (const warning of result.warnings ?? []) toast.warning(warning);
       onSaved?.(); router.push(`/leads/${encodeURIComponent(result.lead.id)}`); router.refresh();
@@ -76,13 +79,19 @@ function LeadEditor({ data, onCancel, onSaved, onPendingChange }: {
   if (lead?.archivedAt) return <LeadFormMessage message="This lead is archived. Its history is available, but the record cannot be edited." />;
   return <form ref={formRef} onSubmit={submit} noValidate aria-busy={pending} className="space-y-6">
     <LeadFormMessage message={error} />
+    {fromConversation && <div className="flex gap-3 rounded-lg border bg-muted/30 p-3 text-xs leading-5" role="note">
+      <MessagesSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <div className="min-w-0"><p className="font-medium text-foreground">From the {fromConversation.channel === "EMAIL" ? "email" : "WhatsApp"} conversation with {fromConversation.customerIdentity}</p>
+        <p className="text-muted-foreground">The conversation is linked to the new lead{fromConversation.adHeadline ? ", and the lead's source is the ad the customer came from" : ""}.</p>
+        {fromConversation.adHeadline && <p className="mt-1 flex items-center gap-1.5 text-muted-foreground"><Megaphone className="size-3.5 shrink-0" aria-hidden="true" /><span className="truncate">From an ad: {fromConversation.adHeadline}</span></p>}</div>
+    </div>}
     <fieldset disabled={pending} className="min-w-0 space-y-6"><legend className="sr-only">Lead details</legend>
       <section className="space-y-4" aria-labelledby={`${prefix}-contact-heading`}>
         <div><h2 id={`${prefix}-contact-heading`} className="text-sm font-semibold">Customer information</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Contact details stay within {organization.name}. Fields marked * are required.</p></div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">{field("fullName", "Full name *", <Input {...inputProps("fullName")} defaultValue={lead?.fullName ?? ""} autoComplete="name" maxLength={160} required />)}</div>
-          {field("phone", "Phone number", <Input {...inputProps("phone")} type="tel" autoComplete="tel" defaultValue={lead?.phone ?? ""} maxLength={32} placeholder="+971 50 123 4567" />, "Include the country code when known.")}
-          {field("email", "Email address", <Input {...inputProps("email")} type="email" autoComplete="email" defaultValue={lead?.email ?? ""} maxLength={254} placeholder="name@example.com" />)}
+          <div className="sm:col-span-2">{field("fullName", "Full name *", <Input {...inputProps("fullName")} defaultValue={lead?.fullName ?? fromConversation?.customerName ?? ""} autoComplete="name" maxLength={160} required />)}</div>
+          {field("phone", "Phone number", <Input {...inputProps("phone")} type="tel" autoComplete="tel" defaultValue={lead?.phone ?? (fromConversation?.channel === "WHATSAPP" ? fromConversation.customerIdentity : "")} maxLength={32} placeholder="+971 50 123 4567" />, "Include the country code when known.")}
+          {field("email", "Email address", <Input {...inputProps("email")} type="email" autoComplete="email" defaultValue={lead?.email ?? (fromConversation?.channel === "EMAIL" ? fromConversation.customerIdentity : "")} maxLength={254} placeholder="name@example.com" />)}
           {field("alternatePhone", "Alternate phone", <Input {...inputProps("alternatePhone")} type="tel" autoComplete="tel-national" defaultValue={lead?.contact?.alternatePhone ?? ""} maxLength={32} placeholder="+971 50 123 4567" />, "Optional secondary contact number.")}
           {field("nationality", "Nationality", <Input {...inputProps("nationality")} autoComplete="country-name" defaultValue={lead?.contact?.nationality ?? ""} maxLength={80} placeholder="For example, Emirati" />)}
         </div>
@@ -131,5 +140,5 @@ export function LeadEditorDialog({ data, children }: { data: LeadFormData; child
 }
 
 export function LeadForm({ data }: { data: LeadFormData }) {
-  return <div className="mx-auto max-w-3xl space-y-6"><Link href={data.lead ? `/leads/${data.lead.id}` : "/leads"} className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" aria-hidden="true" />Back to {data.lead ? "lead" : "leads"}</Link><PageHeader title={data.lead ? "Edit lead" : "Create a lead"} eyebrow={data.organization.name} description="Customer information, requirements and responsibility." /><Card className="py-5 shadow-xs ring-border"><CardContent className="px-5 sm:px-6"><LeadEditor key={data.lead?.updatedAt ?? "new"} data={data} /></CardContent></Card></div>;
+  return <div className="mx-auto max-w-3xl space-y-6"><Link href={data.lead ? `/leads/${data.lead.id}` : data.fromConversation ? `/inbox/${data.fromConversation.id}` : "/leads"} className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" aria-hidden="true" />Back to {data.lead ? "lead" : data.fromConversation ? "conversation" : "leads"}</Link><PageHeader title={data.lead ? "Edit lead" : "Create a lead"} eyebrow={data.organization.name} description="Customer information, requirements and responsibility." /><Card className="py-5 shadow-xs ring-border"><CardContent className="px-5 sm:px-6"><LeadEditor key={data.lead?.updatedAt ?? "new"} data={data} /></CardContent></Card></div>;
 }

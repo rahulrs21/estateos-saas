@@ -1206,6 +1206,43 @@ try {
   await screenshot("inbox-webhook-conversation");
   pass("Signed WhatsApp webhooks: handshake, unsigned, wrong, tampered, wrong-account and unknown-connection requests refused; a verified message is matched, stored once and assigned; media stays a reference");
 
+  // Phase 7E.2: a customer taps a click-to-WhatsApp ad. The inbox shows the ad; Create lead makes a lead from the conversation, links it, and the lead's source is the ad.
+  const adFrom = "447700900755";
+  const adMessage = waBody({contacts: [{wa_id: adFrom, profile: {name: "Fictional Ad Customer"}}], messages: [{from: adFrom, id: "wamid.E2E-AD-1", timestamp: nowSeconds(), type: "text", text: {body: "Hi, I saw your Marina ad"},
+    referral: {source_url: "https://fb.me/E2eAdLink?secret=1", source_id: "120200000000000999", source_type: "ad", headline: "E2E Marina 2-bed <b>offer</b>", body: "Waterfront living", media_type: "image", ctwa_clid: "ARAkLkA8rmlFe2e-ctwa"}}]});
+  assert.equal((await deliver(adMessage)).status, 200);
+  const [adRow] = (await sql(`query C($org: UUID!, $c: UUID!, $who: String!) { inboxConversations(where: {organizationId: {eq: $org}, channelConnectionId: {eq: $c}, customerIdentity: {eq: $who}}) { id leadId adHeadline adSourceHost adSourcePath adCtwaClid } }`,
+    {org: f.orgA, c: waConnection.id, who: `+${adFrom}`})).inboxConversations;
+  assert.deepEqual({lead: adRow.leadId, headline: adRow.adHeadline, host: adRow.adSourceHost, path: adRow.adSourcePath, clid: adRow.adCtwaClid},
+    {lead: null, headline: "E2E Marina 2-bed <b>offer</b>", host: "fb.me", path: "/E2eAdLink", clid: "ARAkLkA8rmlFe2e-ctwa"}, "the ad is stored with the conversation; the link keeps host and path only");
+  const adConversationId = adRow.id.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+  await signIn("owner-a");
+  const adStrip = "document.querySelector('[aria-label=\"The ad the customer came from\"]')";
+  await load("/inbox/" + adConversationId, `Boolean(${adStrip})`);
+  assert.match(await evaluate(`${adStrip}.innerText`), /From an ad: E2E Marina 2-bed <b>offer<\/b>/, "the ad's headline is shown as text");
+  assert.equal(await evaluate(`Boolean(${adStrip}.querySelector('b'))`), false, "markup in the ad is never rendered");
+  await screenshot("inbox-whatsapp-ad");
+  await clickText("Link to customer", "button");
+  await waitFor("Boolean(document.querySelector('[role=dialog] a[href*=\"/leads/new?conversation=\"]'))", "Create lead in the link dialog");
+  await evaluate("document.querySelector('[role=dialog] a[href*=\"/leads/new?conversation=\"]').click()");
+  await waitFor("location.pathname === '/leads/new' && Boolean(document.querySelector('form [name=fullName]'))", "the new lead form");
+  assert.deepEqual(await evaluate("({name: document.querySelector('form [name=fullName]').value, phone: document.querySelector('form [name=phone]').value, ad: document.body.innerText.includes('From an ad: E2E Marina 2-bed')})"),
+    {name: "Fictional Ad Customer", phone: `+${adFrom}`, ad: true}, "the form is prefilled from the conversation");
+  await clickText("Create lead", "form button[type=submit]");
+  await waitFor("/^[/]leads[/][0-9a-f-]{32,36}$/.test(location.pathname)", "the new lead's page");
+  const adLeadId = await evaluate("location.pathname.split('/').pop()");
+  const [linkedAd] = (await sql(`query C($org: UUID!, $id: UUID!) { inboxConversations(where: {organizationId: {eq: $org}, id: {eq: $id}}) { leadId contactId } }`, {org: f.orgA, id: adConversationId})).inboxConversations;
+  assert.equal(linkedAd.leadId.replaceAll("-", ""), adLeadId.replaceAll("-", ""), "the conversation is linked to the new lead");
+  assert.ok(linkedAd.contactId, "and to its contact");
+  const adSource = (await sql(`query S($lead: UUID!) { leadAttributions(where: {leadId: {eq: $lead}}) { channel platform campaignKey metaAdId metaAdName referrerHost ctwaClid } }`, {lead: adLeadId})).leadAttributions;
+  assert.deepEqual(adSource, [{channel: "WHATSAPP_AD", platform: "meta", campaignKey: "e2e marina 2 bed <b>offer</b>", metaAdId: "120200000000000999", metaAdName: "E2E Marina 2-bed <b>offer</b>",
+    referrerHost: "fb.me", ctwaClid: "ARAkLkA8rmlFe2e-ctwa"}], "the lead's source is the ad");
+  // Another company's member cannot create a lead from (or even load) this conversation.
+  await signIn("owner-b");
+  const foreign = await api("/api/leads", {method: "POST", headers: {"X-EstateOS-Organization": f.orgB}, body: JSON.stringify({fullName: "Not allowed", fromConversationId: adConversationId})});
+  assert.equal(foreign.status, 404, `another company's conversation is not found: ${JSON.stringify(foreign.body)}`);
+  pass("Phase 7E.2: a click-to-WhatsApp ad is shown on its conversation (as text); Create lead makes a prefilled lead from the conversation, links it, and the lead's source is the ad");
+
   // Durable retries: an event recorded but not applied (as after a crash) is applied by the worker tick.
   const retryId = randomUUID();
   const normalized = JSON.stringify({provider: "WHATSAPP_CLOUD", event: {kind: "MESSAGE", accountId: WA_ACCOUNT, channel: "WHATSAPP", externalMessageId: "wamid.E2E-RETRY", threadId: "wa:+447700900799",

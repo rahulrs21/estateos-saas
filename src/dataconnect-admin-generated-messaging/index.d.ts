@@ -434,6 +434,7 @@ export interface AiUsageRecord_Key {
 export interface AppendInboxMessageData {
   message: InboxMessage_Key;
   conversation?: InboxConversation_Key | null;
+  referral?: InboxConversation_Key | null;
   received: AutomationEvent_Key;
   suppression: CommunicationSuppression_Key;
   emailOptOut: InboxEmailOptOut_Key;
@@ -458,6 +459,15 @@ export interface AppendInboxMessageVariables {
   suppressEmail?: boolean;
   optOutId?: UUIDString | null;
   optOutIdentity?: string;
+  setReferral?: boolean;
+  adSourceId?: string | null;
+  adSourceType?: string | null;
+  adHeadline?: string | null;
+  adBody?: string | null;
+  adSourceHost?: string | null;
+  adSourcePath?: string | null;
+  adCtwaClid?: string | null;
+  adCampaignKey?: string | null;
 }
 
 export interface ApplyInboxDeliveryStatusData {
@@ -1279,6 +1289,7 @@ export interface CreateInboxAttachmentVariables {
 export interface CreateInboxConversationWithMessageData {
   conversation: InboxConversation_Key;
   message: InboxMessage_Key;
+  referral?: InboxConversation_Key | null;
   created: AutomationEvent_Key;
   received: AutomationEvent_Key;
   suppression: CommunicationSuppression_Key;
@@ -1312,6 +1323,15 @@ export interface CreateInboxConversationWithMessageVariables {
   suppressEmail?: boolean;
   optOutId?: UUIDString | null;
   optOutIdentity?: string;
+  setReferral?: boolean;
+  adSourceId?: string | null;
+  adSourceType?: string | null;
+  adHeadline?: string | null;
+  adBody?: string | null;
+  adSourceHost?: string | null;
+  adSourcePath?: string | null;
+  adCtwaClid?: string | null;
+  adCampaignKey?: string | null;
 }
 
 export interface CreateInboxReplyDraftData {
@@ -1704,6 +1724,7 @@ export interface FindInboxConversationData {
     contactId?: UUIDString | null;
     assignedMembershipId?: UUIDString | null;
     optedOut: boolean;
+    adReferredAt?: TimestampString | null;
   })[];
   internal: ({
     id: UUIDString;
@@ -1713,6 +1734,7 @@ export interface FindInboxConversationData {
     contactId?: UUIDString | null;
     assignedMembershipId?: UUIDString | null;
     optedOut: boolean;
+    adReferredAt?: TimestampString | null;
   })[];
 }
 
@@ -2030,6 +2052,13 @@ export interface GetInboxConversationData {
     leadId?: UUIDString | null;
     assignedMembershipId?: UUIDString | null;
     channelConnectionId?: UUIDString | null;
+    adSourceId?: string | null;
+    adSourceType?: string | null;
+    adHeadline?: string | null;
+    adBody?: string | null;
+    adSourceHost?: string | null;
+    adSourcePath?: string | null;
+    adReferredAt?: TimestampString | null;
     contact?: {
       id: UUIDString;
       fullName: string;
@@ -2505,6 +2534,10 @@ export interface InboxLinkTargetData {
   lead?: {
     id: UUIDString;
     fullName: string;
+    createdAt: TimestampString;
+    source?: {
+      id: UUIDString;
+    };
     contact?: {
       id: UUIDString;
       fullName: string;
@@ -2846,6 +2879,7 @@ export interface LinkCallFollowUpVariables {
 
 export interface LinkInboxConversationData {
   conversation?: InboxConversation_Key | null;
+  attribution: LeadAttribution_Key;
   auditLog_insert: AuditLog_Key;
   activity: Activity_Key;
 }
@@ -2859,6 +2893,7 @@ export interface LinkInboxConversationVariables {
   hasContact: boolean;
   contactId?: UUIDString | null;
   identityMatches: boolean;
+  attribute?: boolean;
 }
 
 export interface ListCallSummariesData {
@@ -3220,6 +3255,8 @@ export interface ListInboxConversationsData {
     contactId?: UUIDString | null;
     leadId?: UUIDString | null;
     assignedMembershipId?: UUIDString | null;
+    adHeadline?: string | null;
+    adReferredAt?: TimestampString | null;
     contact?: {
       id: UUIDString;
       fullName: string;

@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { parseAdReferral } from "../ad-referral";
 import type { DeliveryStatus, MessageType } from "../model";
 import { WebhookPayloadError, type ChannelAdapter, type NormalizedEvent, type WebhookRequest } from "./types";
 
@@ -85,7 +86,10 @@ export const whatsappAdapter: ChannelAdapter = {
             : rawType === "button" ? str((part as {text?: unknown} | undefined)?.text, 8000)
             : str(part?.caption, 8000) ?? (type === "UNKNOWN" ? `[Unsupported WhatsApp message type: ${rawType}]` : null);
           const mediaId = part && typeof part.id === "string" ? part.id.slice(0, 200) : null;
+          // Phase 7E.2: a message sent from a click-to-WhatsApp ad carries the ad.
+          const referral = parseAdReferral(message.referral);
           events.push({
+            ...(referral ? {referral} : {}),
             kind: "MESSAGE", accountId, channel: "WHATSAPP", externalMessageId: id, threadId: `wa:+${from.replace(/\D/g, "")}`, from: {phone: `+${from.replace(/\D/g, "")}`, name: names.get(from) ?? null},
             to: businessNumber, subject: null, messageType: type, text, timestamp: seconds(message.timestamp, request.now),
             attachments: mediaId ? [{providerMediaId: mediaId, mimeType: str(part?.mime_type, 100) ?? "application/octet-stream", fileName: str(part?.filename, 200), sizeBytes: null}] : [],

@@ -34,6 +34,7 @@ import { crmMutationContext as mutationContext, ensureLeadConfiguration, possibl
 import { planNewLeadAssignment, refreshNewLeadAssignment } from "../distribution/service";
 import { normalizePhone } from "../normalization";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
+import { getConversation, linkCreatedLead } from "@/modules/inbox/server/conversations";
 
 function sqlCrmFields<T extends {priority?: "LOW" | "NORMAL" | "HIGH" | "URGENT"; transactionType?: "BUY" | "RENT" | "INVEST"}>(input: T) {
   const {priority, transactionType, ...rest} = input;
@@ -105,7 +106,10 @@ export async function createLead(input: unknown, expectedOrganizationId: string 
   const variables = validateInput(createLeadInputSchema, input);
   const initial = {hasInitialNote: !!variables.initialNote, hasInitialFollowUp: !!variables.initialFollowUpAt};
   const contactId = variables.contactId;
-  delete variables.contactId; delete variables.propertyId;
+  const fromConversationId = variables.fromConversationId;
+  delete variables.contactId; delete variables.propertyId; delete variables.fromConversationId;
+  // The conversation must be one this member can see before a lead is created from it.
+  if (fromConversationId) await getConversation(context, fromConversationId);
   const requestedMembershipId = variables.assignedMembershipId ?? null;
   if (membership.role === "AGENT") assertCanWriteLead(membership, requestedMembershipId ?? membership.id);
   await ensureLeadConfiguration(context);
@@ -141,12 +145,12 @@ export async function createLead(input: unknown, expectedOrganizationId: string 
           normalizedAlternatePhone: normalizedAlternate.normalizedPhone, ...assignment,
         }, request.options), "CreateLead");
       }
-      return {...data, possibleDuplicates: duplicates, warnings};
+      return {...data, possibleDuplicates: duplicates, warnings, ...await linkFromConversation(context, fromConversationId, data.lead?.id, warnings)};
     } catch (error) {
       // A committed transaction whose response was lost is safe to return by its
       // single request ID; cursor and lead writes always commit together.
       const committed = await executeWorkspaceOperation(() => getLeadOperation(request.dc, {organizationId, leadId}, request.options), "GetLead");
-      if (committed.lead) return {lead: committed.lead, possibleDuplicates: duplicates, warnings};
+      if (committed.lead) return {lead: committed.lead, possibleDuplicates: duplicates, warnings, ...await linkFromConversation(context, fromConversationId, committed.lead.id, warnings)};
       if (!distribution.hasAutoAssignment || attempt === 4) throw error;
 
       const refreshed = await refreshNewLeadAssignment(context, leadScope);
@@ -157,6 +161,21 @@ export async function createLead(input: unknown, expectedOrganizationId: string 
     }
   }
   throw new WorkspaceError("CONFLICT", 409, "Lead distribution is busy. Try again in a moment.");
+}
+
+/**
+ * Phase 7E.2: after Create lead in the inbox, links the conversation to the new lead (which then takes the
+ * conversation's source: docs/LEAD_ATTRIBUTION_PLAN.md). The lead is kept if linking fails; the member is told.
+ */
+async function linkFromConversation(context: Awaited<ReturnType<typeof mutationContext>>, conversationId: string | undefined, leadId: string | undefined, warnings: string[]) {
+  if (!conversationId || !leadId) return {};
+  try {
+    const linked = await linkCreatedLead(context, conversationId, canonicalUuid(leadId));
+    return {conversation: {id: linked.id, sourceAdded: linked.sourceAdded}};
+  } catch {
+    warnings.push("The lead was created, but the conversation could not be linked to it. Link it from the inbox.");
+    return {};
+  }
 }
 
 /** Full-record update; omitted optional contact/reference fields are cleared. */

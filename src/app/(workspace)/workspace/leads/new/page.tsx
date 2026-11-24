@@ -10,11 +10,15 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 
 export const metadata: Metadata = { title: "Create lead" };
 
-async function CreateLeadContent() {
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+async function CreateLeadContent({ searchParams }: { searchParams: SearchParams }) {
   await requireSession();
+  // Phase 7E.2: Create lead from an inbox conversation (?conversation=…).
+  const conversation = (await searchParams).conversation;
   let data: LeadFormData;
   try {
-    data = await getLeadFormData();
+    data = await getLeadFormData(undefined, { fromConversationId: typeof conversation === "string" && conversation ? conversation : undefined });
   } catch (error) {
     if (error instanceof WorkspaceError) return <LeadsAccessState error={error} />;
     throw error;
@@ -22,6 +26,6 @@ async function CreateLeadContent() {
   return <LeadForm key="new" data={data} />;
 }
 
-export default function CreateLeadPage() {
-  return <Suspense fallback={<PageSkeleton />}><CreateLeadContent /></Suspense>;
+export default function CreateLeadPage({ searchParams }: { searchParams: SearchParams }) {
+  return <Suspense fallback={<PageSkeleton />}><CreateLeadContent searchParams={searchParams} /></Suspense>;
 }

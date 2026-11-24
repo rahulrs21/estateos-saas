@@ -134,4 +134,6 @@ export interface LeadDetailData extends LeadWorkspace {
   hasMoreFollowUps: boolean;
   followUpTotal: number;
 }
-export interface LeadFormData extends LeadWorkspace { lead?: LeadRecord | null }
+/** Phase 7E.2: the inbox conversation a new lead is created from (Create lead in the inbox). */
+export interface LeadFormConversation { id: string; channel: string; customerIdentity: string; customerName: string | null; adHeadline: string | null }
+export interface LeadFormData extends LeadWorkspace { lead?: LeadRecord | null; fromConversation?: LeadFormConversation | null }
