@@ -60,3 +60,81 @@ query GetLeadSourceReport($organizationId: UUID!, $from: Timestamp!, $to: Timest
   GROUP BY a.campaign_key ORDER BY leads DESC, key ASC LIMIT 50
  """, params: [$organizationId, {_expr: "auth.uid"}, $from, $to, $sourceId, $pipelineStageId, $assignedMembershipId])
 }
+
+# Phase 7E.5 (docs/LEAD_ATTRIBUTION_PLAN.md): the one-time fill of sources for leads created before sources were
+# recorded, run by an owner or administrator for their own company. Each lead's source is worked out from what was
+# stored when it was created, in this order: its website submission (landing page when it was sent from a published
+# page at /site/...; its UTM tags and landing page), its Meta lead ad (ad, ad set, campaign and form IDs), the WhatsApp or
+# email conversation it was created from (the same rule as linking: the conversation began before the lead), else it
+# was added by hand. Only leads without a source are filled; an existing source is never changed. The preview and the
+# fill use the same rules (kept identical; the SQL Connect tests check that they agree).
+query LeadSourceBackfillPreview($organizationId: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ admin: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) @redact @check(expr: "this != null", message: "LEAD_SOURCE_BACKFILL_FORBIDDEN") {id}
+ channels: _select(sql: """
+  SELECT x.channel, COUNT(*) AS leads FROM (
+   SELECT CASE
+     WHEN w.found IS NOT NULL THEN CASE WHEN w.landing_page_url ~ '^https?://[^/]+/site/' THEN 'LANDING_PAGE' ELSE 'WEBSITE_FORM' END
+     WHEN d.metadata IS NOT NULL THEN 'META_LEAD_AD'
+     WHEN c.channel IS NOT NULL THEN CASE WHEN c.channel = 'EMAIL' THEN 'EMAIL' WHEN c.ad_referred_at IS NOT NULL THEN 'WHATSAPP_AD' ELSE 'WHATSAPP' END
+     ELSE 'MANUAL' END AS channel
+   FROM lead m
+   LEFT JOIN LATERAL (SELECT 1 AS found, s.landing_page_url FROM lead_capture_submission s WHERE s.organization_id = m.organization_id AND s.lead_id = m.id ORDER BY s.submitted_at ASC LIMIT 1) w ON true
+   LEFT JOIN LATERAL (SELECT v.metadata FROM activity v WHERE v.organization_id = m.organization_id AND v.lead_id = m.id AND v.kind = 'AD_LEAD_CAPTURED' ORDER BY v.created_at ASC LIMIT 1) d ON true
+   LEFT JOIN LATERAL (SELECT c.channel::text AS channel, c.ad_referred_at FROM inbox_conversation c WHERE c.organization_id = m.organization_id AND c.lead_id = m.id AND c.channel IN ('WHATSAPP', 'EMAIL') AND c.created_at <= m.created_at ORDER BY c.created_at ASC LIMIT 1) c ON true
+   WHERE m.organization_id = $1 AND NOT EXISTS (SELECT 1 FROM lead_attribution a WHERE a.organization_id = m.organization_id AND a.lead_id = m.id)
+  ) x GROUP BY x.channel ORDER BY leads DESC, x.channel ASC
+ """, params: [$organizationId])
+}
+
+mutation BackfillLeadSources($organizationId: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "LEAD_SOURCE_BACKFILL_FORBIDDEN")
+ filled: _execute(sql: """
+  INSERT INTO lead_attribution (organization_id, lead_id, channel, platform, utm_source, utm_medium, utm_campaign, utm_content, utm_term, campaign_key,
+   meta_campaign_id, meta_adset_id, meta_ad_id, meta_ad_name, meta_form_id, landing_host, landing_path, referrer_host, ctwa_clid, captured_at)
+  SELECT m.organization_id, m.id,
+   (CASE
+     WHEN w.found IS NOT NULL THEN CASE WHEN w.landing_page_url ~ '^https?://[^/]+/site/' THEN 'LANDING_PAGE' ELSE 'WEBSITE_FORM' END
+     WHEN d.metadata IS NOT NULL THEN 'META_LEAD_AD'
+     WHEN c.channel IS NOT NULL THEN CASE WHEN c.channel = 'EMAIL' THEN 'EMAIL' WHEN c.ad_referred_at IS NOT NULL THEN 'WHATSAPP_AD' ELSE 'WHATSAPP' END
+     ELSE 'MANUAL' END)::lead_channel,
+   CASE
+     WHEN w.found IS NOT NULL THEN CASE
+       WHEN lower(coalesce(w.utm_source, '')) ~ '(facebook|instagram|^fb$|^ig$|^meta$|messenger|whatsapp)' THEN 'meta'
+       WHEN lower(coalesce(w.utm_source, '')) ~ '(google|adwords|^gads$|youtube)' THEN 'google'
+       WHEN lower(coalesce(w.utm_source, '')) ~ 'tiktok' THEN 'tiktok'
+       WHEN lower(coalesce(w.utm_source, '')) ~ 'snap' THEN 'snapchat'
+       WHEN lower(coalesce(w.utm_source, '')) ~ 'linkedin' THEN 'linkedin'
+       WHEN coalesce(w.utm_source, '') <> '' THEN 'referral'
+       ELSE 'direct' END
+     WHEN d.metadata IS NOT NULL THEN 'meta'
+     WHEN c.channel = 'WHATSAPP' AND c.ad_referred_at IS NOT NULL THEN 'meta'
+     ELSE 'direct' END,
+   w.utm_source, w.utm_medium, w.utm_campaign, w.utm_content, w.utm_term,
+   CASE
+     WHEN w.found IS NOT NULL THEN left(NULLIF(btrim(regexp_replace(regexp_replace(lower(btrim(coalesce(w.utm_campaign, ''))), '[_+-]+', ' ', 'g'), '[[:space:]]+', ' ', 'g')), ''), 200)
+     WHEN d.metadata IS NOT NULL THEN CASE WHEN (d.metadata->>'campaignId') ~ '^[0-9]{1,40}$' THEN 'meta campaign ' || (d.metadata->>'campaignId') END
+     ELSE c.ad_campaign_key END,
+   CASE WHEN w.found IS NULL AND (d.metadata->>'campaignId') ~ '^[0-9]{1,40}$' THEN d.metadata->>'campaignId' END,
+   CASE WHEN w.found IS NULL AND (d.metadata->>'adsetId') ~ '^[0-9]{1,40}$' THEN d.metadata->>'adsetId' END,
+   CASE WHEN w.found IS NULL AND (d.metadata->>'adId') ~ '^[0-9]{1,40}$' THEN d.metadata->>'adId'
+        WHEN w.found IS NULL AND d.metadata IS NULL AND c.ad_source_type = 'ad' THEN c.ad_source_id END,
+   CASE WHEN w.found IS NULL AND d.metadata IS NULL THEN c.ad_headline END,
+   CASE WHEN w.found IS NULL AND (d.metadata->>'formId') ~ '^[0-9]{1,40}$' THEN d.metadata->>'formId' END,
+   left(lower(substring(w.landing_page_url from '^https?://([^/?#:]+)')), 253),
+   left(CASE WHEN w.landing_page_url ~ '^https?://' THEN coalesce(substring(w.landing_page_url from '^https?://[^/?#]+(/[^?#]*)'), '/') END, 500),
+   CASE WHEN w.found IS NULL AND d.metadata IS NULL THEN c.ad_source_host END,
+   CASE WHEN w.found IS NULL AND d.metadata IS NULL THEN c.ad_ctwa_clid END,
+   m.created_at
+  FROM lead m
+  LEFT JOIN LATERAL (SELECT 1 AS found, s.landing_page_url, s.utm_source, s.utm_medium, s.utm_campaign, s.utm_content, s.utm_term FROM lead_capture_submission s
+   WHERE s.organization_id = m.organization_id AND s.lead_id = m.id ORDER BY s.submitted_at ASC LIMIT 1) w ON true
+  LEFT JOIN LATERAL (SELECT v.metadata FROM activity v WHERE v.organization_id = m.organization_id AND v.lead_id = m.id AND v.kind = 'AD_LEAD_CAPTURED' ORDER BY v.created_at ASC LIMIT 1) d ON true
+  LEFT JOIN LATERAL (SELECT c.channel::text AS channel, c.ad_referred_at, c.ad_source_id, c.ad_source_type, c.ad_headline, c.ad_source_host, c.ad_ctwa_clid, c.ad_campaign_key
+   FROM inbox_conversation c WHERE c.organization_id = m.organization_id AND c.lead_id = m.id AND c.channel IN ('WHATSAPP', 'EMAIL') AND c.created_at <= m.created_at ORDER BY c.created_at ASC LIMIT 1) c ON true
+  WHERE m.organization_id = $1 AND NOT EXISTS (SELECT 1 FROM lead_attribution a WHERE a.organization_id = m.organization_id AND a.lead_id = m.id)
+  ON CONFLICT (organization_id, lead_id) DO NOTHING
+ """, params: [$organizationId])
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: LEAD_SOURCES_FILLED, targetType: ORGANIZATION, targetId: $organizationId, metadata_expr: "{'filled': response.filled}"})
+}

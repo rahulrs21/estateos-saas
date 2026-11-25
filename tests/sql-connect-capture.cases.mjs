@@ -290,4 +290,89 @@ export function registerCaptureCases({ sdk, run, forbidden, dc }) {
       for (const leadId of created) await run(sdk.archiveLead, "owner-a", { organizationId: f.orgA, leadId });
     });
   });
+
+  // Phase 7E.5 (docs/LEAD_ATTRIBUTION_PLAN.md): filling the sources of leads created before sources were recorded.
+  describe("Phase 7E.5 filling older leads' sources", { concurrency: false }, () => {
+    const gql = async (query, variables = {}) => (await dc.executeGraphql(query, { variables })).data;
+    const dropSource = (lead) => gql(`mutation D($lead: UUID!) { leadAttribution_deleteMany(where: {leadId: {eq: $lead}}) }`, { lead });
+    const sourceOf = async (lead) => (await gql(`query S($lead: UUID!) { leadAttributions(where: {leadId: {eq: $lead}}) { channel platform utmSource utmCampaign campaignKey metaCampaignId metaAdsetId metaAdId metaAdName metaFormId landingHost landingPath referrerHost ctwaClid } }`, { lead })).leadAttributions;
+    const preview = async (uid) => Object.fromEntries((await run(sdk.leadSourceBackfillPreview, uid, { organizationId: f.orgA })).channels.map((row) => [row.channel, Number(row.leads)]));
+    const created = [];
+    const older = async (name) => {
+      const id = (await run(sdk.createLead, "owner-a", { organizationId: f.orgA, fullName: `${name} ${randomUUID().slice(0, 6)}`, assignedMembershipId: f.memberAgentA })).lead.id;
+      created.push(id);
+      await dropSource(id);
+      return id;
+    };
+    let ids = {};
+
+    it("previews and fills each older lead's source from its own history, and never changes an existing source", async () => {
+      const before = await preview("owner-a");
+      const form = (await gql(`query F($org: UUID!) { leadCaptureForms(where: {organizationId: {eq: $org}}, limit: 1) { id sourceId } }`, { org: f.orgA })).leadCaptureForms[0];
+      assert.ok(form, "a website form from the earlier cases");
+      const submission = (lead, landingPageUrl, utm) => gql(`mutation S($org: UUID!, $form: UUID!, $source: UUID!, $lead: UUID!, $hash: String!, $url: String, $utmSource: String, $utmMedium: String, $utmCampaign: String) {
+        leadCaptureSubmission_insert(data: {organizationId: $org, formId: $form, sourceId: $source, leadId: $lead, idempotencyKeyHash: $hash, landingPageUrl: $url, utmSource: $utmSource, utmMedium: $utmMedium, utmCampaign: $utmCampaign,
+          consentTextSnapshot: "I agree (synthetic).", privacyPolicyUrlSnapshot: "https://agency.example.test/privacy"}) }`,
+        { org: f.orgA, form: form.id, source: form.sourceId, lead, hash: digest(randomUUID()), url: landingPageUrl, utmSource: utm.source ?? null, utmMedium: utm.medium ?? null, utmCampaign: utm.campaign ?? null });
+
+      ids.web = await older("Older website");
+      await submission(ids.web, "https://agency.example.test/off-plan/?utm_source=x#top", { source: "google", medium: "cpc", campaign: "Creek_Harbour+Launch" });
+      ids.page = await older("Older landing page");
+      await submission(ids.page, "https://crm.example.test/site/local-agency-a/marina-launch", { source: "Instagram", campaign: "Marina Launch" });
+      ids.meta = await older("Older Meta lead");
+      await gql(`mutation A($org: UUID!, $lead: UUID!, $metadata: Any!) { activity_insert(data: {organizationId: $org, actorUid: "owner-a", kind: AD_LEAD_CAPTURED, leadId: $lead, targetId: $lead, metadata: $metadata}) }`,
+        { org: f.orgA, lead: ids.meta, metadata: { source: "META_LEAD_ADS", campaignId: "120200000000000101", adsetId: "120200000000000102", adId: "120200000000000103", formId: "998877665544", leadgenId: "1" } });
+      // A WhatsApp ad conversation that began before its lead was created, then linked to it.
+      const conversation = randomUUID();
+      await sdk.createInboxConversationWithMessage(dc, { organizationId: f.orgA, conversationId: conversation, channelConnectionId: null, channel: sdk.InboxChannel.WHATSAPP, externalThreadId: `thread-${randomUUID()}`,
+        customerIdentity: "+447700900681", customerName: "Older ad customer", subject: null, contactId: null, leadId: null, assignedMembershipId: null, messageId: randomUUID(), externalMessageId: `wamid.${randomUUID()}`,
+        messageType: sdk.InboxMessageType.TEXT, content: "Hi", senderIdentity: "+447700900681", recipientIdentity: null, providerTimestamp: null, preview: "Hi", simulated: false, optedOut: false,
+        setReferral: true, adSourceId: "120200000000000555", adSourceType: "ad", adHeadline: "Older ad headline", adBody: null, adSourceHost: "fb.me", adSourcePath: "/older", adCtwaClid: "ARAolder-ctwa", adCampaignKey: "older ad headline" });
+      ids.chat = await older("Older WhatsApp ad");
+      await gql(`mutation L($org: UUID!, $id: UUID!, $lead: UUID!) { inboxConversation_update(key: {organizationId: $org, id: $id}, data: {leadId: $lead}) }`, { org: f.orgA, id: conversation, lead: ids.chat });
+      ids.manual = await older("Older manual");
+      // A conversation that began after its lead: the lead did not come from it, so it was added by hand.
+      ids.linkedLater = await older("Older linked later");
+      const later = randomUUID();
+      await sdk.createInboxConversationWithMessage(dc, { organizationId: f.orgA, conversationId: later, channelConnectionId: null, channel: sdk.InboxChannel.WHATSAPP, externalThreadId: `thread-${randomUUID()}`,
+        customerIdentity: "+447700900682", customerName: null, subject: null, contactId: null, leadId: ids.linkedLater, assignedMembershipId: null, messageId: randomUUID(), externalMessageId: `wamid.${randomUUID()}`,
+        messageType: sdk.InboxMessageType.TEXT, content: "Hello", senderIdentity: "+447700900682", recipientIdentity: null, providerTimestamp: null, preview: "Hello", simulated: false, optedOut: false });
+      // A lead that already has a source keeps it.
+      ids.kept = (await run(sdk.createLead, "owner-a", { organizationId: f.orgA, fullName: `Kept ${randomUUID().slice(0, 6)}`, assignedMembershipId: f.memberAgentA, campaign: "Kept campaign", campaignKey: "kept campaign" })).lead.id;
+      created.push(ids.kept);
+
+      const after = await preview("owner-a");
+      const delta = (channel) => (after[channel] ?? 0) - (before[channel] ?? 0);
+      assert.deepEqual({ web: delta("WEBSITE_FORM"), page: delta("LANDING_PAGE"), meta: delta("META_LEAD_AD"), ad: delta("WHATSAPP_AD"), manual: delta("MANUAL") },
+        { web: 1, page: 1, meta: 1, ad: 1, manual: 2 }, "the preview shows what the fill will do");
+      await forbidden(sdk.leadSourceBackfillPreview, "agent-a", { organizationId: f.orgA });
+      await forbidden(sdk.leadSourceBackfillPreview, "manager-a", { organizationId: f.orgA });
+      await forbidden(sdk.backfillLeadSources, "agent-a", { organizationId: f.orgA });
+      await forbidden(sdk.backfillLeadSources, "owner-b", { organizationId: f.orgA });
+
+      const total = Object.values(after).reduce((sum, value) => sum + value, 0);
+      const filled = await run(sdk.backfillLeadSources, "admin-a", { organizationId: f.orgA });
+      assert.equal(Number(filled.filled), total, "the fill covers exactly what the preview showed");
+      assert.deepEqual(await preview("owner-a"), {}, "nothing is left without a source");
+      assert.equal(Number((await run(sdk.backfillLeadSources, "owner-a", { organizationId: f.orgA })).filled), 0, "running it again changes nothing");
+
+      const none = { utmSource: null, utmCampaign: null, campaignKey: null, metaCampaignId: null, metaAdsetId: null, metaAdId: null, metaAdName: null, metaFormId: null, landingHost: null, landingPath: null, referrerHost: null, ctwaClid: null };
+      assert.deepEqual(await sourceOf(ids.web), [{ ...none, channel: "WEBSITE_FORM", platform: "google", utmSource: "google", utmCampaign: "Creek_Harbour+Launch", campaignKey: "creek harbour launch",
+        landingHost: "agency.example.test", landingPath: "/off-plan/" }], "the URL keeps host and path only");
+      assert.deepEqual(await sourceOf(ids.page), [{ ...none, channel: "LANDING_PAGE", platform: "meta", utmSource: "Instagram", utmCampaign: "Marina Launch", campaignKey: "marina launch",
+        landingHost: "crm.example.test", landingPath: "/site/local-agency-a/marina-launch" }]);
+      assert.deepEqual(await sourceOf(ids.meta), [{ ...none, channel: "META_LEAD_AD", platform: "meta", campaignKey: "meta campaign 120200000000000101", metaCampaignId: "120200000000000101",
+        metaAdsetId: "120200000000000102", metaAdId: "120200000000000103", metaFormId: "998877665544" }]);
+      assert.deepEqual(await sourceOf(ids.chat), [{ ...none, channel: "WHATSAPP_AD", platform: "meta", campaignKey: "older ad headline", metaAdId: "120200000000000555", metaAdName: "Older ad headline",
+        referrerHost: "fb.me", ctwaClid: "ARAolder-ctwa" }]);
+      assert.deepEqual(await sourceOf(ids.manual), [{ ...none, channel: "MANUAL", platform: "direct" }]);
+      assert.deepEqual(await sourceOf(ids.linkedLater), [{ ...none, channel: "MANUAL", platform: "direct" }]);
+      assert.deepEqual(await sourceOf(ids.kept), [{ ...none, channel: "MANUAL", platform: "direct", utmCampaign: "Kept campaign", campaignKey: "kept campaign" }]);
+      const audit = (await gql(`query A($org: UUID!) { auditLogs(where: {organizationId: {eq: $org}, action: {eq: LEAD_SOURCES_FILLED}}, orderBy: [{createdAt: ASC}]) { actorUid metadata } }`, { org: f.orgA })).auditLogs;
+      assert.deepEqual(audit.map((row) => [row.actorUid, Number(row.metadata.filled)]), [["admin-a", total], ["owner-a", 0]], "each fill is audited");
+      // The synthetic conversations are unlinked and the leads archived, so later inbox and lead counts are unchanged.
+      for (const id of [conversation, later]) await gql(`mutation U($org: UUID!, $id: UUID!) { inboxConversation_update(key: {organizationId: $org, id: $id}, data: {leadId: null}) }`, { org: f.orgA, id });
+      for (const leadId of created) await run(sdk.archiveLead, "owner-a", { organizationId: f.orgA, leadId });
+    });
+  });
 }

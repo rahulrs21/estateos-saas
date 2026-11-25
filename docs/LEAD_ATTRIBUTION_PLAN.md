@@ -1,6 +1,31 @@
 # Phase 7E: lead source attribution (plan)
 
-Status: **7E.1 built** (capture) and **7E.2 built** (WhatsApp ads); their database changes are deployed to staging (2026-11-24). **7E.3 built** (showing it); its operations are deployed to staging (2026-11-24). **7E.4 built** (reports and workflows); its operations are deployed to staging (2026-11-25). Decisions taken: keep click IDs, one touch per lead, and an optional Campaign field on manual leads.
+Status: **7E.1 built** (capture) and **7E.2 built** (WhatsApp ads); their database changes are deployed to staging (2026-11-24). **7E.3 built** (showing it); its operations are deployed to staging (2026-11-24). **7E.4 built** (reports and workflows); its operations are deployed to staging (2026-11-25). **7E.5 built** (filling older leads' sources); its database change is deployed to staging (2026-11-25); the live test follows. Decisions taken: keep click IDs, one touch per lead, and an optional Campaign field on manual leads.
+
+## Built in 7E.5
+
+- **Filling older leads' sources:**
+  - on the reports page, owners and administrators see how many of the company's leads have no source, with **Fill from their history**;
+  - a dialog first shows what the fill will do (how many leads per channel), then fills them on confirmation;
+  - each fill is audited (`LEAD_SOURCES_FILLED`, with the number filled).
+- **The rules** (`LeadSourceBackfillPreview` and `BackfillLeadSources`, one SQL statement each, the same rules in both). Each lead's source comes from what was stored when it was created, in this order:
+  1. its website submission: a landing page when sent from a published page (`/site/…`), else a website form; UTM tags as sent, the campaign grouped by key, the landing page as host and path, and the platform from `utm_source` as in live capture;
+  2. its Meta lead ad record (`AD_LEAD_CAPTURED`): campaign, ad set, ad and form IDs, grouped by campaign ID (names were not read before 7E.1);
+  3. the WhatsApp or email conversation it was created from (the conversation began before the lead): `WHATSAPP_AD` with the ad when there was one;
+  4. otherwise it was added by hand (`MANUAL`).
+- **Safety:**
+  - only leads without a source are filled (`ON CONFLICT DO NOTHING`); an existing source is never changed, and running it again fills nothing;
+  - the company comes from the signed-in member, and the database checks the OWNER or ADMIN role;
+  - it reads only the company's own rows.
+- **Data:** one appended audit action, `LEAD_SOURCES_FILLED` (enum additions need the `--force` deploy flag).
+
+## Live test on staging (7E.5)
+
+1. **Landing page with a campaign link:** open a published page with `?utm_source=facebook&utm_campaign=Live_Test`, browse away and back without the tags, then enquire. Expected Source card: Landing page, Meta, campaign *Live_Test*.
+2. **Embedded form:** paste the new embed code into a test page with `?utm_source=google&utm_campaign=Embed_Live&gclid=test123` in its address, then submit. Expected: Website form, Google, campaign *Embed_Live*, click ID kept.
+3. **Meta test lead:** send one from Meta's Lead Ads Testing Tool to the Page *Estate OS test lead*, then **Import recent leads**. Expected: Meta lead ad with campaign name or ID.
+4. **WhatsApp:** message the staging test number, then use **Create lead** in the inbox. Expected: WhatsApp (or WhatsApp ad from a click-to-WhatsApp ad).
+5. **Reports:** each one appears under its channel and campaign; the CSV has the same rows.
 
 ## Built in 7E.4
 

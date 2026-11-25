@@ -68,3 +68,14 @@ export function sourceReportCsv(report: SourceReport, meta: { from: string; to: 
   // A byte order mark so spreadsheet programs read the UTF-8 names (Arabic, accents) correctly.
   return "﻿" + rows.join("\r\n") + "\r\n";
 }
+
+/** Phase 7E.5: what filling older leads' sources would do: how many leads would get each channel. */
+export interface BackfillPreview { total: number; channels: Array<{ channel: LeadChannel; label: string; leads: number }> }
+export function backfillPreview(raw: unknown): BackfillPreview {
+  const channels = (Array.isArray(raw) ? raw : []).flatMap((row): BackfillPreview["channels"] => {
+    if (typeof row !== "object" || row === null) return [];
+    const channel = text((row as Record<string, unknown>).channel, 20);
+    return isChannel(channel) ? [{ channel, label: LEAD_CHANNEL_LABELS[channel], leads: count((row as Record<string, unknown>).leads) }] : [];
+  }).filter(row => row.leads > 0);
+  return { total: channels.reduce((sum, row) => sum + row.leads, 0), channels };
+}

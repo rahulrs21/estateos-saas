@@ -3,7 +3,8 @@ import { Download, Radio, Target } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { rate, type SourceReport, type SourceReportRow } from "../source-report";
+import { rate, type BackfillPreview, type SourceReport, type SourceReportRow } from "../source-report";
+import { LeadSourceBackfill } from "./lead-source-backfill";
 
 /*
  * Phase 7E.4: "Where leads come from" (docs/LEAD_ATTRIBUTION_PLAN.md#3-where-it-shows). Leads, qualified and won by
@@ -26,7 +27,7 @@ const headers = <>
   <th scope="col" className="px-3 py-2 text-right font-medium">Won</th>
 </>;
 
-export function LeadSourceReport({ report, filters }: { report: SourceReport; filters: Filters }) {
+export function LeadSourceReport({ report, filters, backfill, organizationId }: { report: SourceReport; filters: Filters; backfill?: BackfillPreview | null; organizationId?: string }) {
   const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value) as [string, string][]);
   const leadsHref = (extra: Record<string, string>) => `/leads?${new URLSearchParams({ range: "CUSTOM", createdFrom: filters.from, createdTo: filters.to, ...extra })}`;
   const max = Math.max(1, ...report.channels.map(row => row.leads));
@@ -36,6 +37,8 @@ export function LeadSourceReport({ report, filters }: { report: SourceReport; fi
         <p className="mt-1 text-xs text-muted-foreground">Leads created in this period by the channel and campaign that brought them, and how many are qualified or won so far.</p></div>
       <a href={`/api/lead-capture/reports/sources?${query}`} className={cn(buttonVariants({ variant: "outline", size: "sm" }))} download data-testid="lead-source-csv"><Download aria-hidden="true" />Download CSV</a>
     </div>
+
+    {backfill && backfill.total > 0 && organizationId && <LeadSourceBackfill preview={backfill} organizationId={organizationId} />}
 
     <section aria-labelledby="source-channels-heading" className="space-y-2">
       <h3 id="source-channels-heading" className="flex items-center gap-2 text-sm font-medium"><Radio className="size-4 text-primary" aria-hidden="true" />By channel</h3>

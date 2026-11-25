@@ -133,6 +133,7 @@ export enum ActivityKind {
   META_LEAD_PAGE_CONNECTED = "META_LEAD_PAGE_CONNECTED",
   META_LEAD_PAGE_DISCONNECTED = "META_LEAD_PAGE_DISCONNECTED",
   META_LEAD_FORM_UPDATED = "META_LEAD_FORM_UPDATED",
+  LEAD_SOURCES_FILLED = "LEAD_SOURCES_FILLED",
 }
 export enum AgentAvailabilityStatus {
   AVAILABLE = "AVAILABLE",
@@ -1539,6 +1540,15 @@ export interface AutomationWorkflow_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'AutomationWorkflow_Key';
+}
+
+export interface BackfillLeadSourcesData {
+  filled?: number | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface BackfillLeadSourcesVariables {
+  organizationId: UUIDString;
 }
 
 export interface BeginAutomationJobData {
@@ -5247,6 +5257,14 @@ export interface LeadQualificationDetails_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'LeadQualificationDetails_Key';
+}
+
+export interface LeadSourceBackfillPreviewData {
+  channels?: unknown[] | null;
+}
+
+export interface LeadSourceBackfillPreviewVariables {
+  organizationId: UUIDString;
 }
 
 export interface LeadSource_Key {
@@ -10419,6 +10437,16 @@ export function leadCampaignOptions(vars: LeadCampaignOptionsVariables, options?
 export function getLeadSourceReport(dc: DataConnect, vars: GetLeadSourceReportVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetLeadSourceReportData>>;
 /** Generated Node Admin SDK operation action function for the 'GetLeadSourceReport' Query. Allow users to pass in custom DataConnect instances. */
 export function getLeadSourceReport(vars: GetLeadSourceReportVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetLeadSourceReportData>>;
+
+/** Generated Node Admin SDK operation action function for the 'LeadSourceBackfillPreview' Query. Allow users to execute without passing in DataConnect. */
+export function leadSourceBackfillPreview(dc: DataConnect, vars: LeadSourceBackfillPreviewVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LeadSourceBackfillPreviewData>>;
+/** Generated Node Admin SDK operation action function for the 'LeadSourceBackfillPreview' Query. Allow users to pass in custom DataConnect instances. */
+export function leadSourceBackfillPreview(vars: LeadSourceBackfillPreviewVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LeadSourceBackfillPreviewData>>;
+
+/** Generated Node Admin SDK operation action function for the 'BackfillLeadSources' Mutation. Allow users to execute without passing in DataConnect. */
+export function backfillLeadSources(dc: DataConnect, vars: BackfillLeadSourcesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<BackfillLeadSourcesData>>;
+/** Generated Node Admin SDK operation action function for the 'BackfillLeadSources' Mutation. Allow users to pass in custom DataConnect instances. */
+export function backfillLeadSources(vars: BackfillLeadSourcesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<BackfillLeadSourcesData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListAutomationWorkflows' Query. Allow users to execute without passing in DataConnect. */
 export function listAutomationWorkflows(dc: DataConnect, vars: ListAutomationWorkflowsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationWorkflowsData>>;

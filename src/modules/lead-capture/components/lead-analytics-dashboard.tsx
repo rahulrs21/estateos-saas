@@ -1,7 +1,7 @@
 import { BarChart3, ClockAlert, ContactRound, HandCoins, UsersRound } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import type { SourceReport } from "../source-report";
+import type { BackfillPreview, SourceReport } from "../source-report";
 import { LeadSourceReport } from "./lead-source-report";
 
 type CountRow = { label: string; count: number; bucket?: string };
@@ -12,6 +12,9 @@ type Analytics = {
   sources: CountRow[]; stages: CountRow[]; byAgent: CountRow[]; volume: CountRow[];
   /** Phase 7E.4: leads by channel and campaign. */
   origins: SourceReport;
+  /** Phase 7E.5: what filling older leads' sources would do (owners and administrators only). */
+  backfill?: BackfillPreview | null;
+  organizationId?: string;
   options: { sources: { id: string; label: string }[]; stages: { id: string; label: string }[]; agents: { id: string; label: string }[] };
   denominator: string;
 };
@@ -58,7 +61,7 @@ export function LeadAnalyticsDashboard({ data }: { data: Analytics }) {
       {data.volume.length ? <div className="overflow-x-auto"><div role="img" aria-label={`${data.filters.bucket} lead volume chart`} className="flex min-h-48 min-w-max items-end gap-2 border-b border-l px-2 pt-5">{data.volume.map((entry) => <div key={entry.bucket ?? entry.label} className="flex h-44 w-12 flex-col items-center justify-end gap-2 text-center"><span className="text-[10px] tabular-nums text-muted-foreground">{entry.count}</span><div className="w-6 min-h-1 rounded-t bg-primary" style={{ height: `${Math.max(3, (entry.count / maxVolume) * 75)}%` }} /><span className="max-w-full truncate text-[10px] text-muted-foreground" title={entry.label}>{entry.label}</span></div>)}</div><p className="mt-3 text-xs text-muted-foreground">Use the filters to compare lead volume by source, stage or agent.</p></div> : <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No lead submissions in this period. The chart will populate as your company captures leads.</p>}
     </CardContent></Card>
 
-    <LeadSourceReport report={data.origins} filters={data.filters} />
+    <LeadSourceReport report={data.origins} filters={data.filters} backfill={data.backfill} organizationId={data.organizationId} />
 
     <section className="grid gap-4 lg:grid-cols-3" aria-label="Lead breakdowns">
       <CountPanel title="Leads by source" rows={data.sources} empty="No source-attributed leads in this period." icon={ContactRound} />

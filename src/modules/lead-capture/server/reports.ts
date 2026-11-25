@@ -7,7 +7,8 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { validateInput } from "@/modules/organizations/server/validation";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { localDateStartUtc } from "../reporting-policy";
-import { sourceReport, sourceReportCsv } from "../source-report";
+import { backfillPreview, sourceReport, sourceReportCsv } from "../source-report";
+import { crmMutationContext } from "@/modules/leads/server/crm-service";
 import { z } from "zod";
 
 const dateSchema = z.iso.date();
@@ -102,6 +103,24 @@ export async function getLeadSourceReportCsv(input: unknown = {}) {
   return { csv, fileName: `lead-sources-${scope.from}-to-${scope.to}.csv` };
 }
 
+/**
+ * Phase 7E.5: what filling the sources of older leads would do, for owners and administrators (null for others).
+ * Company-wide, not limited to the report's period, since the fill covers every lead without a source.
+ */
+async function loadBackfillPreview(context: Awaited<ReturnType<typeof reportScope>>["context"]) {
+  if (context.membership.role !== "OWNER" && context.membership.role !== "ADMIN") return null;
+  const data = await executeWorkspaceOperation(() => sdk.leadSourceBackfillPreview(context.request.dc, { organizationId: context.organizationId }, context.request.options), "LeadSourceBackfillPreview");
+  return backfillPreview(data.channels);
+}
+
+/** Phase 7E.5: fills the sources of the company's leads that have none, from their own history (owners and administrators). */
+export async function backfillLeadSources(_input: unknown, expectedOrganizationId: string | null) {
+  const context = await crmMutationContext(expectedOrganizationId);
+  if (context.membership.role !== "OWNER" && context.membership.role !== "ADMIN") throw new WorkspaceError("FORBIDDEN", 403, "Only owners and administrators can fill lead sources.");
+  const data = await executeWorkspaceOperation(() => sdk.backfillLeadSources(context.request.dc, { organizationId: context.organizationId }, context.request.options), "BackfillLeadSources");
+  return { filled: number(data.filled) };
+}
+
 export async function getLeadAnalytics(input: unknown = {}) {
   const scope = await reportScope(input);
   const { parsed, from, to, fromInstant, toInstant, context, canFilterAllAgents, filterIds } = scope;
@@ -120,6 +139,7 @@ export async function getLeadAnalytics(input: unknown = {}) {
       : Promise.resolve(null),
     loadSourceReport(scope),
   ]);
+  const backfill = await loadBackfillPreview(context);
   const summaryValue = analytics.summary;
   const summary = (Array.isArray(summaryValue) ? summaryValue[0] : summaryValue) as Record<string, unknown> | null | undefined;
   const agents = members?.memberships.map((member) => ({
@@ -140,6 +160,8 @@ export async function getLeadAnalytics(input: unknown = {}) {
     sources: rows(analytics.sources), stages: rows(analytics.stages), byAgent: rows(analytics.agents),
     volume: rows(analytics.volume),
     origins: sources,
+    backfill,
+    organizationId: canonicalUuid(context.organizationId),
     options: {
       sources: configuration.leadSources.map((source) => ({ id: canonicalUuid(source.id), label: source.name })),
       stages,

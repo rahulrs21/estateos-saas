@@ -126,6 +126,7 @@ export const ActivityKind = {
   META_LEAD_PAGE_CONNECTED: "META_LEAD_PAGE_CONNECTED",
   META_LEAD_PAGE_DISCONNECTED: "META_LEAD_PAGE_DISCONNECTED",
   META_LEAD_FORM_UPDATED: "META_LEAD_FORM_UPDATED",
+  LEAD_SOURCES_FILLED: "LEAD_SOURCES_FILLED",
 }
 
 export const AgentAvailabilityStatus = {
@@ -1127,6 +1128,18 @@ export function getLeadSourceReport(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeQuery('GetLeadSourceReport', inputVars, inputOpts);
+}
+
+export function leadSourceBackfillPreview(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('LeadSourceBackfillPreview', inputVars, inputOpts);
+}
+
+export function backfillLeadSources(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('BackfillLeadSources', inputVars, inputOpts);
 }
 
 export function listAutomationWorkflows(dcOrVarsOrOptions, varsOrOptions, options) {

@@ -1250,6 +1250,16 @@ try {
   assert.match(reportText, /WhatsApp ad/, "the WhatsApp ad lead is counted under its channel");
   assert.match(reportText, /e2e marina 2 bed <b>offer<\/b>|E2E Marina 2-bed <b>offer<\/b>/, "and its campaign, as text");
   assert.equal(await evaluate("Boolean(document.querySelector('[data-testid=lead-source-report] b'))"), false, "markup in a campaign name is never rendered");
+  // Phase 7E.5: an owner fills the source of a lead that has none (as for leads from before sources were recorded).
+  const [olderLead] = (await sql(`query L($org: UUID!, $ad: UUID!) { leads(where: {organizationId: {eq: $org}, id: {ne: $ad}}, orderBy: [{createdAt: ASC}], limit: 1) { id } }`, {org: f.orgA, ad: adLeadId})).leads;
+  await sql(`mutation D($lead: UUID!) { leadAttribution_deleteMany(where: {leadId: {eq: $lead}}) }`, {lead: olderLead.id});
+  await load("/workspace/reports", "Boolean(document.querySelector('[data-testid=lead-source-backfill]'))");
+  await clickText("Fill from their history", "button");
+  await waitFor("Boolean(document.querySelector('[data-testid=lead-source-backfill-confirm]'))", "the fill dialog with its preview");
+  assert.match(await evaluate("document.querySelector('[role=dialog]').innerText"), /Total/, "the dialog shows what will be filled");
+  await evaluate("document.querySelector('[data-testid=lead-source-backfill-confirm]').click()");
+  await waitFor("!document.querySelector('[data-testid=lead-source-backfill]')", "the notice gone once every lead has a source");
+  assert.equal((await sql(`query S($lead: UUID!) { leadAttributions(where: {leadId: {eq: $lead}}) { id } }`, {lead: olderLead.id})).leadAttributions.length, 1, "the older lead now has its source");
   const csvHref = await evaluate("document.querySelector('[data-testid=lead-source-csv]').getAttribute('href')");
   const csv = await evaluate(`(async()=>{const r=await fetch(${JSON.stringify(csvHref)});return {status:r.status,type:r.headers.get('content-type'),disposition:r.headers.get('content-disposition'),text:await r.text()};})()`);
   assert.equal(csv.status, 200, csv.text.slice(0, 200));
@@ -1259,7 +1269,7 @@ try {
   await command("Network.clearBrowserCookies");
   const anonymous = await fetch(`${origin}${csvHref}`);
   assert.equal(anonymous.status, 401, "the CSV needs a signed-in member");
-  pass("Phase 7E.4: the reports page shows leads by channel and campaign (as text), and the CSV download has the same rows only for a signed-in member");
+  pass("Phase 7E.4 and 7E.5: the reports page shows leads by channel and campaign (as text); an owner fills older leads' sources after a preview; the CSV download has the same rows only for a signed-in member");
 
   // Durable retries: an event recorded but not applied (as after a crash) is applied by the worker tick.
   const retryId = randomUUID();

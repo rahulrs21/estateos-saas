@@ -124,3 +124,11 @@ test("the source report keeps known channels, totals them, and writes a CSV a sp
   assert.match(csv, /\r\nTotal,15,5,2,33\.3,13\.3\r\n/);
   assert.match(csv, /\r\n"'=HYPERLINK\(""http:\/\/x\.test""\)",marina launch,Meta lead ad,7,3,1,42\.9,14\.3\r\n/, "a formula in a campaign name is neutralised");
 });
+
+// Phase 7E.5: what filling older leads' sources would do.
+test("the fill preview keeps known channels with leads, and totals them", async () => {
+  const {backfillPreview} = await import("../src/modules/lead-capture/source-report");
+  assert.deepEqual(backfillPreview([{channel: "MANUAL", leads: "7"}, {channel: "WEBSITE_FORM", leads: 2}, {channel: "UNRECORDED", leads: 4}, {channel: "META_LEAD_AD", leads: 0}, null]),
+    {total: 9, channels: [{channel: "MANUAL", label: "Added by hand", leads: 7}, {channel: "WEBSITE_FORM", label: "Website form", leads: 2}]});
+  assert.deepEqual(backfillPreview(undefined), {total: 0, channels: []});
+});
