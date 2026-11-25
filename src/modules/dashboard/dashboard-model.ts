@@ -1,0 +1,159 @@
+/*
+ * Pure dashboard rules: reporting ranges, chart series, the task agenda and
+ * which sections a role sees. No I/O here, so every rule is unit-tested
+ * (tests/dashboard-model.test.ts). Data access lives in server/dashboard-data.ts.
+ */
+
+export const DASHBOARD_TIME_ZONE = "Asia/Dubai";
+
+export const DASHBOARD_RANGES = {
+  "7d": {days: 7, bucket: "day", label: "7 days"},
+  "30d": {days: 30, bucket: "day", label: "30 days"},
+  "90d": {days: 90, bucket: "week", label: "90 days"},
+} as const;
+
+export type DashboardRange = keyof typeof DASHBOARD_RANGES;
+export type VolumeBucket = (typeof DASHBOARD_RANGES)[DashboardRange]["bucket"];
+export const DEFAULT_DASHBOARD_RANGE: DashboardRange = "30d";
+
+/** The `?range=` value, or the default when it is missing or not one of the offered ranges. */
+export function parseDashboardRange(raw: unknown): DashboardRange {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === "string" && Object.hasOwn(DASHBOARD_RANGES, value) ? value as DashboardRange : DEFAULT_DASHBOARD_RANGE;
+}
+
+/** Calendar date (YYYY-MM-DD) of an instant in a time zone. */
+export function calendarDate(instant: Date, timeZone = DASHBOARD_TIME_ZONE) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {timeZone, year: "numeric", month: "2-digit", day: "2-digit"})
+    .formatToParts(instant).map(part => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+/** Shifts a YYYY-MM-DD date by whole days. */
+export function shiftDate(date: string, days: number) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+/** Inclusive calendar dates the range covers, ending today, and the chart bucket. */
+export function rangeDates(range: DashboardRange, today: string) {
+  const {days, bucket} = DASHBOARD_RANGES[range];
+  return {from: shiftDate(today, -(days - 1)), to: today, bucket};
+}
+
+/** Monday on or before a date, matching PostgreSQL's date_trunc('week'). */
+function weekStart(date: string) {
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return shiftDate(date, -((weekday + 6) % 7));
+}
+
+export type VolumePoint = {date: string; count: number};
+
+/**
+ * One point per day or week from `from` to `to`, with zero where the database
+ * returned no row, so the trend line never skips a quiet period.
+ */
+export function fillVolumeSeries(rows: ReadonlyArray<{label: string; count: number; bucket?: string}>, from: string, to: string, bucket: VolumeBucket): VolumePoint[] {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const key = (row.bucket ?? row.label).slice(0, 10);
+    counts.set(key, (counts.get(key) ?? 0) + row.count);
+  }
+  const step = bucket === "week" ? 7 : 1;
+  const points: VolumePoint[] = [];
+  for (let date = bucket === "week" ? weekStart(from) : from; date <= to; date = shiftDate(date, step)) {
+    points.push({date, count: counts.get(date) ?? 0});
+  }
+  return points;
+}
+
+/** Stage rows in pipeline order (as configured), then any stage not in the configuration by count. */
+export function orderStages(rows: ReadonlyArray<{label: string; count: number}>, configuredOrder: readonly string[]) {
+  const position = new Map<string, number>();
+  configuredOrder.forEach((label, index) => { if (!position.has(label)) position.set(label, index); });
+  return [...rows].sort((a, b) => {
+    const left = position.get(a.label) ?? Number.MAX_SAFE_INTEGER;
+    const right = position.get(b.label) ?? Number.MAX_SAFE_INTEGER;
+    return left - right || b.count - a.count || a.label.localeCompare(b.label);
+  });
+}
+
+export const UNASSIGNED_LABEL = "Unassigned";
+
+/** The agents with the most leads (ties by name), with unassigned leads reported separately. */
+export function topAgents(rows: ReadonlyArray<{label: string; count: number}>, limit = 5) {
+  const assigned = rows.filter(row => row.label !== UNASSIGNED_LABEL)
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  return {
+    agents: assigned.slice(0, limit),
+    others: assigned.length - Math.min(assigned.length, limit),
+    unassigned: rows.find(row => row.label === UNASSIGNED_LABEL)?.count ?? 0,
+  };
+}
+
+export type AgendaDue = "OVERDUE" | "TODAY" | "THIS_WEEK" | "LATER";
+export type AgendaItem = {id: string; kind: "FOLLOW_UP" | "WORK_TASK"; title: string; context: string; dueAt: string; due: AgendaDue; href: string | null};
+
+type FollowUpRow = {id: string; title: string; dueAt: string; leadId: string; lead?: {fullName: string} | null};
+type WorkTaskRow = {id: string; title: string; dueAt: string; leadId?: string | null; listingId?: string | null; listing?: {title: string; listingReference: string} | null};
+
+/** Overdue before now; otherwise by the calendar day of the due time in the reporting time zone. */
+export function classifyDue(dueAt: string, now: Date, timeZone = DASHBOARD_TIME_ZONE): AgendaDue {
+  const due = new Date(dueAt);
+  if (Number.isNaN(due.getTime()) || due < now) return "OVERDUE";
+  const today = calendarDate(now, timeZone);
+  const day = calendarDate(due, timeZone);
+  if (day === today) return "TODAY";
+  return day <= shiftDate(today, 7) ? "THIS_WEEK" : "LATER";
+}
+
+/**
+ * The caller's open follow-ups and work tasks as one list, soonest first, with
+ * counts for the KPI tile. `truncated` is true when either source returned its
+ * full page, so the counts are a lower bound.
+ */
+export function taskAgenda(followUps: readonly FollowUpRow[], workTasks: readonly WorkTaskRow[], now: Date, pageSize: number, timeZone = DASHBOARD_TIME_ZONE) {
+  const items: AgendaItem[] = [
+    ...followUps.map(row => ({
+      id: `f-${row.id}`, kind: "FOLLOW_UP" as const, title: row.title, context: row.lead?.fullName ?? "Lead",
+      dueAt: row.dueAt, due: classifyDue(row.dueAt, now, timeZone), href: `/leads/${row.leadId}`,
+    })),
+    ...workTasks.map(row => ({
+      id: `w-${row.id}`, kind: "WORK_TASK" as const, title: row.title,
+      context: row.listing ? `${row.listing.listingReference} · ${row.listing.title}` : "Team task",
+      dueAt: row.dueAt, due: classifyDue(row.dueAt, now, timeZone),
+      href: row.leadId ? `/leads/${row.leadId}` : row.listingId ? `/listings/${row.listingId}` : null,
+    })),
+  ].sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt) || a.id.localeCompare(b.id));
+  const count = (due: AgendaDue) => items.filter(item => item.due === due).length;
+  return {
+    items,
+    overdue: count("OVERDUE"),
+    dueToday: count("TODAY"),
+    dueNext7Days: count("TODAY") + count("THIS_WEEK"),
+    truncated: followUps.length >= pageSize || workTasks.length >= pageSize,
+  };
+}
+
+export type DashboardRole = "OWNER" | "ADMIN" | "MANAGER" | "AGENT";
+
+/**
+ * Sections each role is shown. Inventory (and its map) is not available to
+ * managers, who have no verified inventory scope (docs/PERMISSIONS.md); the
+ * agent leaderboard compares colleagues, so only company-wide roles see it.
+ * The stored queries enforce the same rules; this only avoids requests that
+ * would be refused.
+ */
+export function dashboardSections(role: string) {
+  const companyWide = role === "OWNER" || role === "ADMIN";
+  return {inventory: role !== "MANAGER", map: role !== "MANAGER", leaderboard: companyWide, leadScope: companyWide ? "COMPANY" as const : "ASSIGNED_TO_YOU" as const};
+}
+
+export type Section<T> = {status: "ok"; data: T} | {status: "error"; message: string};
+
+/** A settled section load, with a user-safe message on failure. */
+export function toSection<T>(result: PromiseSettledResult<T>, safeMessage: (reason: unknown) => string | null, fallback: string): Section<T> {
+  return result.status === "fulfilled"
+    ? {status: "ok", data: result.value}
+    : {status: "error", message: safeMessage(result.reason) ?? fallback};
+}

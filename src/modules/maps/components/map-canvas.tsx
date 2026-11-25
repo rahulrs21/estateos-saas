@@ -15,18 +15,28 @@ export type MapCanvasMarker = {
   precision: "EXACT" | "APPROXIMATE"; radiusMeters?: number | null; variant?: "primary" | "secondary";
 };
 
-const colors = {primary: "#2563eb", secondary: "#64748b", selected: "#d97706"};
+/**
+ * Marker colours. "brand" is the EstateOS teal (--primary, light theme) used in
+ * the CRM; "neutral" stays brand-free for agency websites, which carry each
+ * agency's own branding. The amber selection colour is shared by both.
+ */
+export const mapPalettes = {
+  neutral: {primary: "#2563eb", secondary: "#64748b", selected: "#d97706"},
+  brand: {primary: "#087563", secondary: "#64748b", selected: "#d97706"},
+} as const;
+export type MapTone = keyof typeof mapPalettes;
+export type MapPalette = (typeof mapPalettes)[MapTone];
 type Drawn = {marker: MapCanvasMarker; pin: AdvancedMarker | null; circle: MapCircle | null; restyle(selected: boolean): void};
 type Clusterer = {addMarkers(markers: AdvancedMarker[]): void; clearMarkers(): void; setMap(map: GoogleMap | null): void};
 
 /** Round dot used for approximate locations when markers are clustered. */
-function areaDot(selected: boolean) {
+function areaDot(selected: boolean, colors: MapPalette) {
   const dot = document.createElement("div");
   dot.style.cssText = `width:18px;height:18px;border-radius:9999px;border:2px solid #fff;box-shadow:0 0 0 2px ${selected ? colors.selected : colors.primary};background:${selected ? colors.selected : colors.primary}66`;
   return dot;
 }
 
-function clusterBadge(count: number) {
+function clusterBadge(count: number, colors: MapPalette) {
   const badge = document.createElement("div");
   const size = count < 10 ? 32 : count < 100 ? 38 : count < 1000 ? 44 : 50;
   badge.style.cssText = `width:${size}px;height:${size}px;border-radius:9999px;display:flex;align-items:center;justify-content:center;background:${colors.primary};color:#fff;font:600 12px/1 system-ui,sans-serif;border:3px solid #fff;box-shadow:0 1px 4px rgba(15,23,42,.35)`;
@@ -44,6 +54,8 @@ export type MapCanvasProps = {
   cluster?: boolean;
   /** "markers" re-fits whenever the set of locations changes; "initial" fits once and then leaves the viewport to the user. */
   fit?: "markers" | "initial";
+  /** Marker colours: "brand" (EstateOS teal) in the CRM, "neutral" (default) on agency websites. */
+  tone?: MapTone;
   label: string; className?: string; unavailable?: ReactNode;
 };
 
@@ -72,7 +84,8 @@ function MapUnavailable({className, failed, unavailable}: {className: string; fa
   </div>;
 }
 
-function GoogleMapCanvas({markers, selectedId, onSelect, onPositionChange, onViewportChange, cluster = false, fit = "markers", label, className = "h-80", onFailure}: MapCanvasProps & {onFailure: () => void}) {
+function GoogleMapCanvas({markers, selectedId, onSelect, onPositionChange, onViewportChange, cluster = false, fit = "markers", tone = "neutral", label, className = "h-80", onFailure}: MapCanvasProps & {onFailure: () => void}) {
+  const colors = mapPalettes[tone];
   const container = useRef<HTMLDivElement>(null);
   const [api, setApi] = useState<GoogleMapsApi | null>(null);
   const [map, setMap] = useState<GoogleMap | null>(null);
@@ -153,7 +166,7 @@ function GoogleMapCanvas({markers, selectedId, onSelect, onPositionChange, onVie
       }
       const draggable = editable && index === 0;
       const content = (selected: boolean) => marker.precision === "APPROXIMATE"
-        ? areaDot(selected)
+        ? areaDot(selected, colors)
         : new api.PinElement({background: selected ? colors.selected : baseColor, borderColor: "#ffffff", glyphColor: "#ffffff", scale: selected ? 1.25 : 1}).element;
       const pin = new api.AdvancedMarkerElement({map: cluster ? null : map, position, title: marker.title, content: content(false), gmpDraggable: draggable, zIndex: index});
       pin.addListener("click", () => callbacks.current.onSelect?.(marker.id));
@@ -183,7 +196,7 @@ function GoogleMapCanvas({markers, selectedId, onSelect, onPositionChange, onVie
         clusterer.current = new MarkerClusterer({
           map: map as never, markers: pins as never,
           renderer: {render: ({count, position}: {count: number; position: unknown}) => new api.AdvancedMarkerElement({
-            position, content: clusterBadge(count), title: `${count} locations. Select to zoom in.`, zIndex: 20_000 + count,
+            position, content: clusterBadge(count, colors), title: `${count} locations. Select to zoom in.`, zIndex: 20_000 + count,
           }) as never},
         }) as unknown as Clusterer;
       }).catch(() => {
@@ -216,7 +229,7 @@ function GoogleMapCanvas({markers, selectedId, onSelect, onPositionChange, onVie
     };
     // markers is represented by markerKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, map, markerKey, cluster, editable, fit]);
+  }, [api, map, markerKey, cluster, editable, fit, tone]);
 
   useEffect(() => {
     const item = selectedId ? drawn.current.get(selectedId) : undefined;
@@ -228,7 +241,7 @@ function GoogleMapCanvas({markers, selectedId, onSelect, onPositionChange, onVie
       if ((map.getZoom() ?? 0) < 15) map.setZoom(15);
     }
     return () => item.restyle(false);
-  }, [selectedId, map, cluster, markerKey]);
+  }, [selectedId, map, cluster, markerKey, tone]);
 
   // Google's own error overlay is replaced by the fallback provider (or the unavailable state).
   useEffect(() => {

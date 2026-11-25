@@ -42,7 +42,7 @@ export function LocationMapCard({title = "Map location", recordLabel, location, 
   return <Card>
     <CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle>{title}</CardTitle>{showMode && <Badge variant="outline">{mapDisplayModeLabels[display.mode].label}</Badge>}</div></CardHeader>
     <CardContent className="space-y-4">
-      {markers.length ? <MapCanvas markers={markers} selectedId={selectedId} onSelect={setSelectedId} label={`Map showing ${recordLabel}`} className="h-72" />
+      {markers.length ? <MapCanvas tone="brand" markers={markers} selectedId={selectedId} onSelect={setSelectedId} label={`Map showing ${recordLabel}`} className="h-72" />
         : <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-muted/20 p-4 text-center" role="status">
           {display.mode === "HIDDEN" ? <EyeOff className="size-5 text-muted-foreground" aria-hidden="true" /> : <MapPin className="size-5 text-muted-foreground" aria-hidden="true" />}
           <p className="text-sm font-medium">{display.mode === "HIDDEN" ? "Location hidden from maps" : "No map location recorded"}</p>

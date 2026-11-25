@@ -32,7 +32,13 @@ Checks occur at each operation boundary. A workspace layout check alone cannot p
 
 Managers and agents have assignment-based lead access. There is no team or branch membership scope to authorize broader access. A branch filter never grants access. They cannot read unrelated or unassigned leads, inspect their notes, or claim a private lead by submitting their own membership ID. Lead assignees must be active, registered members of the same organization.
 
-The dashboard is `/workspace/dashboard`. It requires a verified session and an ACTIVE membership in the selected company, with no platform-administrator requirement. Each company uses the same dashboard interface with its own authorized context. Company settings (`/settings/company`) is a separate page and includes a Dashboard navigation link. KPI cards and charts remain explicit empty states until analytics are connected; this is a feature limitation, not a role restriction.
+The dashboard is `/workspace/dashboard`. It requires a verified session and an ACTIVE membership in the selected company, with no platform-administrator requirement. Each company uses the same dashboard interface with its own authorized context. Company settings (`/settings/company`) is a separate page and includes a Dashboard navigation link. Dashboard figures reuse the stored, role-scoped operations and add no authorization path of their own (`src/modules/dashboard/server/dashboard-data.ts`):
+
+- Lead KPIs, lead volume, sources and pipeline stages come from `GetLeadAnalytics` / `GetLeadSourceReport` (company-wide for OWNER and ADMIN, assigned leads for MANAGER and AGENT). "In negotiation" is `GetLeadMetrics.negotiation`, with the same visibility predicate as its other counts.
+- The agent leaderboard compares colleagues and is shown only to OWNER and ADMIN.
+- Upcoming tasks are `ListMyTasks`: the caller's own follow-ups and work tasks, plus the unassigned team queue for OWNER, ADMIN and MANAGER.
+- Inventory figures and the property map are not shown to MANAGER (no verified inventory scope); AGENT sees assigned records. Map pins use `listInventoryMapPins`, which coarsens approximate locations on the server and never returns hidden ones.
+- Each section loads independently; a failure shows an error in that section only. There is no deal model yet, so no deal value is shown.
 
 ## Membership lifecycle
 

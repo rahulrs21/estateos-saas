@@ -216,7 +216,7 @@ export function LocationFields({organizationId, values, errors, defaultMode = "E
           {hasPoint && <Button type="button" variant="ghost" size="sm" onClick={() => update({latitude: "", longitude: "", googlePlaceId: ""})}><X aria-hidden="true" />Clear pin</Button>}
         </div>
       </div>
-      <MapCanvas markers={markers} onPositionChange={setPoint} label={`Map preview for ${recordLabel}`} className="h-72"
+      <MapCanvas tone="brand" markers={markers} onPositionChange={setPoint} label={`Map preview for ${recordLabel}`} className="h-72"
         unavailable="Set NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY to preview and adjust the pin. Coordinates can still be entered below." />
       <p className="text-xs text-muted-foreground">{hasPoint ? "Drag the pin or click the map to adjust the exact position." : "Search for a place, locate the address, or click the map to place a pin."}</p>
       <div className="grid gap-4 sm:grid-cols-2">

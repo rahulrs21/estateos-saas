@@ -176,7 +176,7 @@ export function registerCrmCases({sdk, run, forbidden, dc}) {
     });
     it("KPI counts exclude archived and unrelated leads for agents and managers",async()=>{
       const ids=[];
-      for(const status of ["NEW","QUALIFIED","WON"]) {
+      for(const status of ["NEW","QUALIFIED","WON","NEGOTIATION"]) {
         const id=await lead({assignedMembershipId:memberAgent});ids.push(id);
         if(status!=="NEW") await run(sdk.changeLeadStatus,owner,{organizationId:org,leadId:id,status});
       }
@@ -184,7 +184,7 @@ export function registerCrmCases({sdk, run, forbidden, dc}) {
       const expected=await run(sdk.listLeads,agent,{organizationId:org});
       const metrics=await run(sdk.getLeadMetrics,agent,{organizationId:org});
       assert.equal(metrics.total[0].count,expected.total[0].count);
-      for(const [alias,statuses] of [["newLeads",["NEW"]],["qualified",["QUALIFIED"]],["won",["WON","CONVERTED"]]]) {
+      for(const [alias,statuses] of [["newLeads",["NEW"]],["qualified",["QUALIFIED"]],["won",["WON","CONVERTED"]],["negotiation",["NEGOTIATION"]]]) {
         assert.equal(metrics[alias][0]?.count??0,expected.leads.filter(row=>statuses.includes(row.status)).length);
       }
       const managerRows=await run(sdk.listLeads,manager,{organizationId:org});

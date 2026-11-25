@@ -427,6 +427,10 @@ query GetLeadMetrics($organizationId: UUID!) @auth(expr: "auth != null && auth.t
  { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
 ] }]}) { count: _count }
+ negotiation: leads(where: {_and: [{organizationId: {eq: $organizationId}, archivedAt: {isNull: true}, status: {eq: NEGOTIATION}}, { _or: [
+ { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+ { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+] }]}) { count: _count }
 }
 
 query ListLeadFollowUps($organizationId: UUID!, $leadId: UUID!, $limit: Int! = 10, $offset: Int! = 0)

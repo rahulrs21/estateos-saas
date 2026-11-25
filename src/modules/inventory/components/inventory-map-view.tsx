@@ -104,7 +104,7 @@ export function InventoryMapView<T extends {id: string}>({resource, noun, data, 
     {error && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error} <button type="button" className="underline" onClick={() => void load(bounds, 0)}>Retry</button></p>}
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(18rem,1fr)]">
       <div className="relative">
-        <MapCanvas markers={markers} selectedId={selectedId} onSelect={select} onViewportChange={area => void load(area, 0)} cluster fit="initial"
+        <MapCanvas tone="brand" markers={markers} selectedId={selectedId} onSelect={select} onViewportChange={area => void load(area, 0)} cluster fit="initial"
           label={`Map of ${noun}`} className="h-[24rem] sm:h-[28rem] lg:h-[36rem]" />
         {loading === "area" && <div className="pointer-events-none absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-background/95 px-3 py-1 text-xs shadow" role="status"><LoaderCircle className="size-3 animate-spin" aria-hidden="true" />Updating results for this area…</div>}
       </div>

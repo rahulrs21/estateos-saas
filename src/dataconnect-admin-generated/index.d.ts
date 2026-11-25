@@ -3985,6 +3985,9 @@ export interface GetLeadMetricsData {
   won: ({
     count: number;
   })[];
+  negotiation: ({
+    count: number;
+  })[];
 }
 
 export interface GetLeadMetricsVariables {

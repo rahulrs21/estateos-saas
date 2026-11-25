@@ -5,9 +5,8 @@ import { LoaderCircle } from "lucide-react";
 import type * as Leaflet from "leaflet";
 import type Supercluster from "supercluster";
 import { UAE_CENTER } from "../geo";
-import type { MapCanvasMarker, MapCanvasProps } from "./map-canvas";
+import { mapPalettes, type MapCanvasMarker, type MapCanvasProps, type MapPalette } from "./map-canvas";
 
-const colors = {primary: "#2563eb", secondary: "#64748b", selected: "#d97706"};
 const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors';
 
@@ -19,7 +18,7 @@ function pinIcon(L: typeof Leaflet, color: string, selected: boolean) {
   });
 }
 
-function areaIcon(L: typeof Leaflet, selected: boolean) {
+function areaIcon(L: typeof Leaflet, selected: boolean, colors: MapPalette) {
   const color = selected ? colors.selected : colors.primary;
   return L.divIcon({
     className: "estateos-map-area", iconSize: [18, 18], iconAnchor: [9, 9],
@@ -27,7 +26,7 @@ function areaIcon(L: typeof Leaflet, selected: boolean) {
   });
 }
 
-function clusterIcon(L: typeof Leaflet, count: number) {
+function clusterIcon(L: typeof Leaflet, count: number, colors: MapPalette) {
   const size = count < 10 ? 32 : count < 100 ? 38 : count < 1000 ? 44 : 50;
   const label = count >= 1000 ? `${(count / 1000).toFixed(count >= 10_000 ? 0 : 1)}k` : String(count);
   return L.divIcon({
@@ -44,7 +43,8 @@ type PointProperties = {id: string};
  * so the display-mode privacy rules are unchanged. Clustering uses
  * supercluster, the algorithm Google's marker clusterer also uses.
  */
-export function LeafletCanvas({markers, selectedId, onSelect, onPositionChange, onViewportChange, cluster = false, fit = "markers", label, className = "h-80"}: MapCanvasProps) {
+export function LeafletCanvas({markers, selectedId, onSelect, onPositionChange, onViewportChange, cluster = false, fit = "markers", tone = "neutral", label, className = "h-80"}: MapCanvasProps) {
+  const colors = mapPalettes[tone];
   const container = useRef<HTMLDivElement>(null);
   const [L, setL] = useState<typeof Leaflet | null>(null);
   const [map, setMap] = useState<Leaflet.Map | null>(null);
@@ -122,7 +122,7 @@ export function LeafletCanvas({markers, selectedId, onSelect, onPositionChange, 
           L.circle(latLng, {radius: marker.radiusMeters ?? 800, color, weight: isSelected ? 3 : 2, fillColor: color, fillOpacity: isSelected ? 0.3 : 0.15})
             .on("click", () => callbacks.current.onSelect?.(marker.id)).addTo(group);
         }
-        if (cluster) L.marker(latLng, {icon: areaIcon(L, isSelected), title: marker.title, keyboard: true, zIndexOffset: isSelected ? 1000 : 0})
+        if (cluster) L.marker(latLng, {icon: areaIcon(L, isSelected, colors), title: marker.title, keyboard: true, zIndexOffset: isSelected ? 1000 : 0})
           .on("click", () => callbacks.current.onSelect?.(marker.id)).addTo(group);
         return;
       }
@@ -144,7 +144,7 @@ export function LeafletCanvas({markers, selectedId, onSelect, onPositionChange, 
         if (properties.cluster && properties.cluster_id != null) {
           const clusterId = properties.cluster_id;
           const count = properties.point_count ?? 0;
-          L.marker([lat, lng], {icon: clusterIcon(L, count), title: `${count} locations. Select to zoom in.`, keyboard: true, zIndexOffset: 2000})
+          L.marker([lat, lng], {icon: clusterIcon(L, count, colors), title: `${count} locations. Select to zoom in.`, keyboard: true, zIndexOffset: 2000})
             .on("click", () => map.flyTo([lat, lng], Math.min(clusterIndex!.getClusterExpansionZoom(clusterId), 18)))
             .addTo(group);
         } else {
@@ -179,7 +179,7 @@ export function LeafletCanvas({markers, selectedId, onSelect, onPositionChange, 
     return () => { active = false; group.clearLayers(); };
     // markers is represented by markerKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [L, map, markerKey, cluster, editable, fit]);
+  }, [L, map, markerKey, cluster, editable, fit, tone]);
 
   useEffect(() => {
     selected.current = selectedId ?? null;
