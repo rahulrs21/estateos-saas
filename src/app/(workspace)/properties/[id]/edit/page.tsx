@@ -15,6 +15,6 @@ async function Content({params}: {params: Params}) {
   try { data = await getPropertyFormData(id); }
   catch (error) { if (error instanceof WorkspaceError) return <InventoryAccessState error={error} backHref="/properties" />; throw error; }
   if (!data.canManage) return <InventoryAccessState error={new WorkspaceError("FORBIDDEN",403,"Only company administrators can change property inventory.")} backHref={`/properties/${id}`} />;
-  return <main className="mx-auto w-full max-w-[1200px] space-y-6 p-4 sm:p-6 lg:p-8"><PageHeader eyebrow={data.company.name} title={`Edit ${data.property?.propertyReference ?? "property"}`} description="Update the company inventory record."/><PropertyForm {...data} property={data.property as PropertyRecord} /></main>;
+  return <main className="mx-auto w-full max-w-[1200px] space-y-6"><PageHeader eyebrow={data.company.name} title={`Edit ${data.property?.propertyReference ?? "property"}`} description="Update the company inventory record."/><PropertyForm {...data} property={data.property as PropertyRecord} /></main>;
 }
 export default function EditPropertyPage({params}: {params: Params}) { return <Suspense fallback={<main className="p-6"><PageSkeleton /></main>}><Content params={params} /></Suspense>; }

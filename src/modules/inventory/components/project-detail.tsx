@@ -37,7 +37,7 @@ export function ProjectDetail({data, selectedTab}: {data: DetailData; selectedTa
     units: data.units.total, "floor-plans": data.floorPlans.total,
     "payment-plans": data.paymentPlans.total, documents: null, activity: data.audit.total,
   };
-  return <div className="mx-auto w-full max-w-[1500px] space-y-6 p-4 sm:p-6 lg:p-8">
+  return <div className="w-full space-y-6">
     <Link href="/projects" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" aria-hidden="true" />Projects</Link>
     <PageHeader eyebrow={`${company.name} · ${project.developer.name}`} title={project.projectName} description={project.description || `${project.projectCode} · ${humanize(project.projectType)} project`}>
       <AiContentLink label="Generate Project Marketing Content" type="PROJECT_MARKETING" purpose="PROJECT_OVERVIEW" record={{kind: "projectId", id: project.id}} />

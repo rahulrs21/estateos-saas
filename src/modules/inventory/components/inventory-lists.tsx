@@ -22,7 +22,7 @@ function dateLabel(value: string) {
 export function DeveloperList({data, search}: {data: DeveloperListData; search: string}) {
   const query = new URLSearchParams();
   if (search) query.set("search", search);
-  return <div className="mx-auto w-full max-w-[1500px] space-y-6 p-4 sm:p-6 lg:p-8">
+  return <div className="w-full space-y-6">
     <PageHeader eyebrow={data.company.name} title="Developers" description="Manage developer relationships and their company information.">
       {data.canManage && <Link href="/developers/new" className={buttonVariants({size: "lg"})}><Plus aria-hidden="true" />Add developer</Link>}
     </PageHeader>
@@ -59,7 +59,7 @@ export function ProjectList({data, search, status, emirate, developerId}: {data:
   if (status) query.set("status", status);
   if (emirate) query.set("emirate", emirate);
   if (developerId) query.set("developerId", developerId);
-  return <div className="mx-auto w-full max-w-[1500px] space-y-6 p-4 sm:p-6 lg:p-8">
+  return <div className="w-full space-y-6">
     <PageHeader eyebrow={data.company.name} title="Projects" description="Explore your company’s real estate projects, construction progress, and recorded inventory.">
       {data.canManage && <Link href="/projects/new" className={buttonVariants({size: "lg"})}><Plus aria-hidden="true" />Add project</Link>}
     </PageHeader>

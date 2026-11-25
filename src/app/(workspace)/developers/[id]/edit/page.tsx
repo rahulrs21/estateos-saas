@@ -22,7 +22,7 @@ async function Content({params}: {params: Params}) {
   if (!data) throw new Error("Developer form data was not loaded.");
   if (!data.developer) return <InventoryAccessState error={new WorkspaceError("NOT_FOUND", 404, "This developer is unavailable.")} backHref="/developers" />;
   if (!data.canManage) return <InventoryAccessState error={new WorkspaceError("FORBIDDEN", 403, "Only company owners and administrators can manage developers.")} backHref={`/developers/${data.developer.id}`} />;
-  return <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-6 lg:p-8"><Link href={`/developers/${data.developer.id}`} className="text-sm text-muted-foreground hover:text-foreground">← Developer details</Link><PageHeader eyebrow={data.company.name} title="Edit developer" description="Update the company information for this developer." /><Card><CardContent className="p-5 sm:p-6"><DeveloperForm company={data.company} developer={data.developer} /></CardContent></Card></div>;
+  return <div className="mx-auto max-w-4xl space-y-6"><Link href={`/developers/${data.developer.id}`} className="text-sm text-muted-foreground hover:text-foreground">← Developer details</Link><PageHeader eyebrow={data.company.name} title="Edit developer" description="Update the company information for this developer." /><Card><CardContent className="p-5 sm:p-6"><DeveloperForm company={data.company} developer={data.developer} /></CardContent></Card></div>;
 }
 
 export default function EditDeveloperPage({params}: {params: Params}) { return <Suspense fallback={<main className="p-6"><PageSkeleton /></main>}><Content params={params} /></Suspense>; }

@@ -14,6 +14,6 @@ async function Content() {
     data = await getPropertyFormData();
   } catch (error) { if (error instanceof WorkspaceError) return <InventoryAccessState error={error} backHref="/properties" />; throw error; }
   if (!data.canManage) return <InventoryAccessState error={new WorkspaceError("FORBIDDEN",403,"Only company administrators can create inventory records.")} backHref="/properties" />;
-  return <main className="mx-auto w-full max-w-[1200px] space-y-6 p-4 sm:p-6 lg:p-8"><PageHeader eyebrow={data.company.name} title="Add property" description="Create a private inventory record in five steps."/><PropertyForm {...data} property={null} /></main>;
+  return <main className="mx-auto w-full max-w-[1200px] space-y-6"><PageHeader eyebrow={data.company.name} title="Add property" description="Create a private inventory record in five steps."/><PropertyForm {...data} property={null} /></main>;
 }
 export default function NewPropertyPage() { return <Suspense fallback={<main className="p-6"><PageSkeleton /></main>}><Content /></Suspense>; }

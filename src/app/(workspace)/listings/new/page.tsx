@@ -15,6 +15,6 @@ async function Content({searchParams}:{searchParams:SearchParams}) {
   try { data=await getListingFormData(); }
   catch(error){if(error instanceof WorkspaceError)return <InventoryAccessState error={error} backHref="/listings"/>;throw error;}
   if(!data.canManage&&data.company.role!=="AGENT")return <InventoryAccessState error={new WorkspaceError("FORBIDDEN",403,"Your role cannot create marketing listings.")} backHref="/listings"/>;
-  return <main className="mx-auto w-full max-w-[1200px] space-y-6 p-4 sm:p-6 lg:p-8"><PageHeader eyebrow={data.company.name} title="Create marketing listing" description="Prepare a separate listing record from company property inventory."/><ListingForm {...data} listing={null} defaultPropertyId={propertyId}/></main>;
+  return <main className="mx-auto w-full max-w-[1200px] space-y-6"><PageHeader eyebrow={data.company.name} title="Create marketing listing" description="Prepare a separate listing record from company property inventory."/><ListingForm {...data} listing={null} defaultPropertyId={propertyId}/></main>;
 }
 export default function NewListingPage({searchParams}:{searchParams:SearchParams}){return <Suspense fallback={<main className="p-6"><PageSkeleton/></main>}><Content searchParams={searchParams}/></Suspense>;}

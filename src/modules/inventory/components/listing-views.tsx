@@ -153,7 +153,7 @@ export function ListingList({company, listings, total, limit, offset, canManage,
   const allCount = Object.values(statusCounts).reduce((sum, count) => sum + count, 0);
   const pageQuery = new URLSearchParams(baseParams().split("?")[1] ?? "");
 
-  return <div className="mx-auto w-full max-w-[1500px] space-y-6 p-4 sm:p-6 lg:p-8">
+  return <div className="w-full space-y-6">
     <PageHeader eyebrow={company.name} title="Marketing listings" description="Prepare, review and track company listings separately from property inventory. External publication is not connected.">
       {(canManage || company.role === "AGENT") && <Link href="/listings/new" className={buttonVariants({size: "lg"})}><Plus aria-hidden="true" />Create listing</Link>}
       <Link href="/properties" className={buttonVariants({variant: "outline"})}>Property inventory<ArrowRight aria-hidden="true" /></Link>
@@ -247,7 +247,7 @@ export function ListingDetail({company, listing, canManage, canEdit, location, h
     [property.propertyType === "PLOT" ? "Plot area" : "Built-up area", sizeLabel(size, property.areaUnit)], ["Availability", property.inventoryStatus ? humanize(property.inventoryStatus) : null],
   ];
 
-  return <div className="mx-auto w-full max-w-[1300px] space-y-6 p-4 sm:p-6 lg:p-8">
+  return <div className="w-full space-y-6">
     <Link href="/listings" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" aria-hidden="true" />Listings</Link>
     <PageHeader eyebrow={company.name} title={listing.title} description={`${listing.listingReference} · ${humanize(listing.listingPurpose)} · ${humanize(listing.marketType)}`}>
       <AiContentLink label="Generate Advertising Copy" type="ADVERTISING" purpose="META" record={{kind: "listingId", id: listing.id}} />

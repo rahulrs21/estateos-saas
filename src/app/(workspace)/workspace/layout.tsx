@@ -15,7 +15,7 @@ async function AuthenticatedWorkspace({ children }: { children: React.ReactNode 
 }
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<main id="main-content" className="mx-auto max-w-7xl p-6"><PageSkeleton /></main>}>
+  return <Suspense fallback={<main id="main-content" className="w-full px-3 py-3 sm:px-4 md:py-5 lg:px-5"><PageSkeleton /></main>}>
     <AuthenticatedWorkspace>{children}</AuthenticatedWorkspace>
   </Suspense>;
 }

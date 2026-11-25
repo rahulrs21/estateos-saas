@@ -22,7 +22,7 @@ function DateValue({value}: {value?: string | null}) {
 
 export function DeveloperDetail({data}: {data: DeveloperDetailData}) {
   const {developer, headOffice, projects, canManage, company} = data;
-  return <div className="mx-auto w-full max-w-[1400px] space-y-6 p-4 sm:p-6 lg:p-8">
+  return <div className="w-full space-y-6">
     <Link href="/developers" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" aria-hidden="true" />Developers</Link>
     <PageHeader eyebrow={company.name} title={developer.name} description={developer.description || "Developer profile and associated project portfolio."}>
       {canManage && <><Link href={`/developers/${developer.id}/edit`} className={buttonVariants({variant: "outline"})}><Pencil aria-hidden="true" />Edit</Link><ArchiveDeveloperButton id={developer.id} organizationId={company.id} hasProjects={projects.total > 0} /></>}

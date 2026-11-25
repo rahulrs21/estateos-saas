@@ -28,7 +28,7 @@ export function WorkspaceHeader({ user, company }: WorkspaceHeaderProps) {
     : (open ? "Collapse sidebar" : "Expand sidebar");
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-2 border-b bg-card/95 px-2 backdrop-blur supports-[backdrop-filter]:bg-card/85 md:static md:h-[76px] md:bg-card md:px-7 md:backdrop-blur-none">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-2 border-b bg-card/95 px-2 backdrop-blur supports-[backdrop-filter]:bg-card/85 md:static md:h-[76px] md:bg-card md:px-4 lg:px-5 md:backdrop-blur-none">
       <div className="flex min-w-0 items-center gap-1.5 md:gap-3">
         <Button variant="ghost" size="icon-lg" data-sidebar-toggle onClick={toggleSidebar} aria-label={toggleLabel} title={toggleLabel} aria-controls={`${sidebarId}-${isMobile ? "mobile" : "desktop"}`} aria-expanded={isMobile ? openMobile : open}>
           <PanelLeft className="size-[18px]" aria-hidden="true" />
