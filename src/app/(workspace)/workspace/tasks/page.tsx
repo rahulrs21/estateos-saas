@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Tasks" };
 async function AuthenticatedTasks() {
   const { activeCompany } = await requireCompanyWorkspace();
   return <div className="space-y-5">
-    <PageHeader eyebrow="Operations" title="My tasks" description="Your open lead follow-ups and work tasks, including those created by approved workflows. Managers also see the team queue." />
+    <PageHeader eyebrow="Operations" title="My tasks" description="Follow-ups and work tasks assigned to you, including those created by workflows. Managers also see the team queue." />
     <MyTasksView organizationId={activeCompany.id} />
   </div>;
 }
