@@ -40,6 +40,21 @@ env:
   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
     value: 1:456904631491:web:1308e224a06058522e2e76
 
+  # Google Maps (docs/MAPS.md). The browser key is restricted to this site's address and to the
+  # Maps JavaScript API in the estateos-staging Cloud console; it is kept in Secret Manager so the
+  # key itself stays out of source control. Next.js inlines NEXT_PUBLIC_ values at build time,
+  # so both are needed at build time too.
+  - variable: NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY
+    secret: NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID
+    value: c0166d5e1f9e17cce646b097
+    availability:
+      - BUILD
+      - RUNTIME
+
   # Legal pages (/privacy, /terms, /data-deletion): who operates EstateOS and its public contact address.
   # The pages are built ahead of time, so both values are needed at build time too.
   # The registered company that owns the Meta business portfolio ("Faza Home") under which EstateOS is set up.
