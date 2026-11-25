@@ -12,6 +12,8 @@ export interface NavigationItem {
   description: string;
   /** A live count shown next to the item (loaded on the client; hidden when the member cannot see it). */
   badge?: "approvals";
+  /** "footer": shown pinned at the bottom of the sidebar instead of in its group. */
+  placement?: "footer";
 }
 
 export interface NavigationGroup {
@@ -64,7 +66,7 @@ export const navigationGroups: NavigationGroup[] = [
     items: [
       { title: "Finance", href: "/workspace/finance", icon: WalletCards, description: "Track deal finances, commission rules, and payment records." },
       { title: "Reports", href: "/workspace/reports", icon: BarChart3, description: "Understand agency performance with authorized, reliable reporting." },
-      { title: "Settings", href: "/settings/company", icon: Settings2, description: "Manage your company profile and active workspace." },
+      { title: "Settings", href: "/settings/company", icon: Settings2, description: "Manage your company profile and active workspace.", placement: "footer" },
     ],
   },
 ];

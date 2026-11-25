@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Bot, CalendarCheck2, ClipboardCopy, Gauge, History, ListChecks, Loader2, RefreshCw, Sparkles, Wand2 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { AlertTriangle, Bot, CalendarCheck2, ChevronRight, ClipboardCopy, Gauge, History, ListChecks, Loader2, RefreshCw, Sparkles, Wand2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +13,7 @@ import { aiContentHref } from "../../content/components/ai-content-link";
 import type { LeadAnalysisOutput, ViewingBriefOutput } from "../analysis";
 import { errorMessage, salesGet, salesSend, type LeadIntelligenceView } from "../client";
 import type { FollowUpSuggestion, SuggestionAction } from "../follow-ups";
-import { LEAD_READINESS, LEAD_TIMELINES, type AiLeadPriority } from "../scoring";
+import { LEAD_READINESS, LEAD_TIMELINES, PRIORITY_LABELS, type AiLeadPriority } from "../scoring";
 
 const dubai = (iso: string | null | undefined) => iso ? new Intl.DateTimeFormat("en-GB", {timeZone: "Asia/Dubai", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"}).format(new Date(iso)) : "";
 const priorityTone: Record<AiLeadPriority, string> = {
@@ -41,6 +42,13 @@ export function LeadSalesPanel({leadId, organizationId}: {leadId: string; organi
   const [busy, setBusy] = useState<null | "evaluate" | "analyze" | "qualification" | "review" | string>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
+  // Collapsed by default; opened by the "AI sales" tab (#ai-sales) or by running Evaluate/Analyze.
+  const [open, setOpen] = useState(() => typeof window !== "undefined" && window.location.hash === "#ai-sales");
+  useEffect(() => {
+    const onHash = () => { if (window.location.hash === "#ai-sales") setOpen(true); };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   const fetchView = useCallback(() => salesGet<LeadIntelligenceView>(`/api/ai/sales/leads/${leadId}`)
     .then(result => { setView(result); setLoadError(null); }, error => setLoadError(errorMessage(error, "Sales intelligence could not be loaded."))), [leadId]);
@@ -49,6 +57,7 @@ export function LeadSalesPanel({leadId, organizationId}: {leadId: string; organi
 
   const run = async (key: string, work: () => Promise<LeadIntelligenceView>) => {
     setBusy(key); setActionError(null);
+    if (key === "evaluate" || key === "analyze") setOpen(true);
     try { setView(await work()); return true; }
     catch (error) { setActionError(errorMessage(error, "The request could not be completed.")); return false; }
     finally { setBusy(null); }
@@ -64,11 +73,28 @@ export function LeadSalesPanel({leadId, organizationId}: {leadId: string; organi
   const outdated = assessment && (assessment.score !== view.currentEstimate.score || assessment.priority !== view.currentEstimate.priority);
   const matchById = new Map(view.matches.items.map(item => [item.propertyId, item]));
 
-  return <Card id="ai-sales" className="scroll-mt-24 gap-5 py-5 shadow-xs ring-border">
+  const summary = assessment
+    ? [assessment.score != null ? `Score ${assessment.score}/100` : null, `evaluated ${dubai(assessment.evaluatedAt)}`].filter(Boolean).join(" · ")
+    : "Not evaluated yet";
+
+  return <Card id="ai-sales" className={`scroll-mt-24 py-4 shadow-xs ring-border transition-[gap] ${open ? "gap-5" : "gap-0"}`}>
     <CardHeader className="px-5 sm:px-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><div className="flex items-center gap-2"><Sparkles className="size-4 text-primary" aria-hidden="true" /><CardTitle role="heading" aria-level={2}>AI sales assistant</CardTitle></div>
-          <CardDescription className="mt-1">Rule-based qualification, matching inventory and suggested next steps from this lead&apos;s recorded CRM data. Suggestions never send messages or change the lead.</CardDescription></div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <CardTitle role="heading" aria-level={2}>
+            <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} aria-controls="ai-sales-body"
+              className="group -ml-1 inline-flex items-center gap-2 rounded-md px-1 py-0.5 text-left hover:text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+              <ChevronRight className={`size-4 text-muted-foreground transition-transform duration-200 group-hover:text-primary motion-reduce:transition-none ${open ? "rotate-90" : ""}`} aria-hidden="true" />
+              <Sparkles className="size-4 text-primary" aria-hidden="true" />AI sales assistant
+            </button>
+          </CardTitle>
+          {open
+            ? <CardDescription className="mt-1 pl-6">Rule-based qualification, matching inventory and suggested next steps from this lead&apos;s recorded CRM data. Suggestions never send messages or change the lead.</CardDescription>
+            : <p className="mt-0.5 flex flex-wrap items-center gap-2 pl-6 text-xs text-muted-foreground">
+              {priority && <span className={`rounded-full border px-2 py-px text-[11px] font-medium ${priorityTone[priority]}`}>{PRIORITY_LABELS[priority]}</span>}
+              <span>{summary}{outdated ? " · out of date" : ""}</span>
+            </p>}
+        </div>
         {view.canEdit && <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void run("evaluate", () => salesSend(`/api/ai/sales/leads/${leadId}/evaluate`, organizationId, "POST"))}>{busy === "evaluate" ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Gauge aria-hidden="true" />}Evaluate score</Button>
           <Button size="sm" disabled={busy !== null || !view.aiAvailable} title={view.aiUnavailableReason ?? undefined} onClick={() => void run("analyze", () => salesSend(`/api/ai/sales/leads/${leadId}/analyze`, organizationId, "POST", {}, "Claude could not analyse this lead."))}>{busy === "analyze" ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Bot aria-hidden="true" />}{busy === "analyze" ? "Analysing..." : "Analyze with Claude"}</Button>
@@ -79,7 +105,10 @@ export function LeadSalesPanel({leadId, organizationId}: {leadId: string; organi
       {busy === "analyze" && <p role="status" className="mt-2 text-xs text-muted-foreground">Claude is reading the verified facts for this lead. This usually takes under a minute.</p>}
     </CardHeader>
 
-    <CardContent className="space-y-6 px-5 sm:px-6">
+    <AnimatePresence initial={false}>
+    {open && <motion.div id="ai-sales-body" key="body" className="overflow-hidden"
+      initial={{height: 0, opacity: 0}} animate={{height: "auto", opacity: 1}} exit={{height: 0, opacity: 0}} transition={{duration: 0.25, ease: [0.2, 0, 0, 1]}}>
+    <CardContent className="space-y-6 px-5 pt-1 pb-1 sm:px-6">
       <section aria-labelledby="lead-score-title" className="rounded-xl border p-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div><h3 id="lead-score-title" className="text-sm font-semibold">Lead qualification</h3>
@@ -179,6 +208,8 @@ export function LeadSalesPanel({leadId, organizationId}: {leadId: string; organi
         {view.reviews.length > 0 && <><p className="mt-3 font-medium">Priority reviews</p><ul className="mt-1 space-y-1">{view.reviews.map(review => <li key={review.id} className="text-muted-foreground">{dubai(review.createdAt)} · {review.createdBy}: {view.labels.priority[review.suggestedPriority as AiLeadPriority]} → {view.labels.priority[review.reviewedPriority as AiLeadPriority]} — {review.reason}</li>)}</ul></>}
       </details>}
     </CardContent>
+    </motion.div>}
+    </AnimatePresence>
   </Card>;
 }
 

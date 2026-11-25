@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MotionConfig, motion } from "motion/react";
-import { ArrowUpRight, Building2, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
-import { isNavigationItemActive, navigationGroups } from "@/config/navigation";
+import { Building2, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { isNavigationItemActive, navigationGroups, type NavigationItem } from "@/config/navigation";
 import { Brand } from "@/components/shared/brand";
 import { Button } from "@/components/ui/button";
 import type { CompanyWorkspace } from "@/modules/organizations/types";
@@ -18,6 +18,28 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupConte
  * list scrolls without a visible scrollbar (soft fades at the edges instead).
  * A teal bar marks the current page and slides between items on navigation.
  */
+
+const footerItems = navigationGroups.flatMap(group => group.items).filter(item => item.placement === "footer");
+
+/** One navigation entry; the teal bar (shared layoutId) slides to whichever entry is active. */
+function NavItem({item, active, pathname, onNavigate}: {item: NavigationItem; active: boolean; pathname: string; onNavigate: () => void}) {
+  return (
+    <SidebarMenuItem>
+      {active && <motion.span layoutId="sidebar-active-indicator" aria-hidden="true"
+        className="absolute inset-y-2 -left-3 w-[3px] rounded-r-full bg-primary group-data-[collapsible=icon]:-left-2"
+        transition={{type: "spring", stiffness: 520, damping: 42}} />}
+      <SidebarMenuButton render={<Link href={item.href} />} isActive={active} aria-current={active ? "page" : undefined} aria-label={item.title} tooltip={item.title} onClick={onNavigate}
+        className={[
+          "h-9 gap-3 rounded-lg text-[13px] text-sidebar-foreground/75 transition-[width,height,padding,background-color,color] duration-200",
+          "hover:text-sidebar-foreground data-active:text-sidebar-foreground [&_svg]:transition-colors data-active:[&_svg]:text-primary",
+          "[&>span]:transition-opacity [&>span]:duration-200",
+          "group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:p-[9px]! group-data-[collapsible=icon]:[&_svg]:size-[18px] group-data-[collapsible=icon]:[&>span]:opacity-0",
+        ].join(" ")}>
+        <item.icon aria-hidden="true" /><span>{item.title}</span>{item.badge === "approvals" && <PendingApprovalsBadge refreshKey={pathname} />}
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
 
 export function WorkspaceSidebar({ workspace }: { workspace: CompanyWorkspace }) {
   const pathname = usePathname();
@@ -48,35 +70,20 @@ export function WorkspaceSidebar({ workspace }: { workspace: CompanyWorkspace })
               <SidebarGroupLabel className={`h-7 text-[10px] font-semibold tracking-[0.12em] uppercase group-data-[collapsible=icon]:-mt-7`}>{group.label}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu className="gap-0.5">
-                  {group.items.map((item) => {
-                    const active = isNavigationItemActive(pathname, item.href);
-                    return (
-                      <SidebarMenuItem key={item.href}>
-                        {active && <motion.span layoutId="sidebar-active-indicator" aria-hidden="true"
-                          className={`absolute inset-y-2 -left-3 w-[3px] rounded-r-full bg-primary group-data-[collapsible=icon]:-left-2`}
-                          transition={{type: "spring", stiffness: 520, damping: 42}} />}
-                        <SidebarMenuButton render={<Link href={item.href} />} isActive={active} aria-current={active ? "page" : undefined} aria-label={item.title} tooltip={item.title} onClick={() => setOpenMobile(false)}
-                          className={[
-                            "h-9 gap-3 rounded-lg text-[13px] text-sidebar-foreground/75 transition-[width,height,padding,background-color,color] duration-200",
-                            "hover:text-sidebar-foreground data-active:text-sidebar-foreground [&_svg]:transition-colors data-active:[&_svg]:text-primary",
-                            "[&>span]:transition-opacity [&>span]:duration-200",
-                            `group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:p-[9px]! group-data-[collapsible=icon]:[&_svg]:size-[18px] group-data-[collapsible=icon]:[&>span]:opacity-0`,
-                          ].join(" ")}>
-                          <item.icon aria-hidden="true" /><span>{item.title}</span>{item.badge === "approvals" && <PendingApprovalsBadge refreshKey={pathname} />}
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
+                  {group.items.filter(item => item.placement !== "footer").map(item =>
+                    <NavItem key={item.href} item={item} active={isNavigationItemActive(pathname, item.href)} pathname={pathname} onNavigate={() => setOpenMobile(false)} />)}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
           ))}
         </nav>
       </SidebarContent>
-      <SidebarFooter className={`border-t px-4 py-3 group-data-[collapsible=icon]:px-2`}>
-        <Link href="/" className={`flex min-h-9 items-center gap-2 rounded-lg text-xs text-muted-foreground hover:text-primary group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:hover:bg-sidebar-accent`} aria-label="Back to EstateOS homepage" title="Back to homepage">
-          <ArrowUpRight className="size-4 shrink-0" aria-hidden="true" /><span className={`group-data-[collapsible=icon]:hidden`}>Back to EstateOS</span>
-        </Link>
+      {/* Settings is pinned here, below the scrolling list, so it is always one click away. */}
+      <SidebarFooter className="border-t px-3 py-2 group-data-[collapsible=icon]:px-2">
+        <SidebarMenu>
+          {footerItems.map(item =>
+            <NavItem key={item.href} item={item} active={pathname.startsWith("/settings")} pathname={pathname} onNavigate={() => setOpenMobile(false)} />)}
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
     </MotionConfig>

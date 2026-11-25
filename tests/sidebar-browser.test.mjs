@@ -57,11 +57,17 @@ async function load(width) {
   await pause(400);
 }
 async function assertOpen(mobile) {
-  const current = await state();
+  // The panel widens over a 300ms transition; measure once it has finished (up to 1.5s).
+  let current = await state();
+  for (let attempt = 0; attempt < 30 && (mobile ? current.mobile : current.desktop)?.width <= 200; attempt++) {
+    await pause(50);
+    current = await state();
+  }
   assert.equal(current.open, true);
   assert.equal(current.targetExists, true, "aria-controls points to visible navigation");
-  // One link per workspace navigation item in src/config/navigation.ts.
-  assert.equal(current.links, 22);
+  // One link per workspace navigation item in src/config/navigation.ts; Settings is pinned in the sidebar footer instead.
+  assert.equal(current.links, 21);
+  assert.equal(await evaluate(`[...document.querySelectorAll('[data-sidebar="footer"] a[href="/settings/company"]')].some(e=>e.getBoundingClientRect().width>0)`), true, "Settings is pinned in the sidebar footer");
   assert.ok((mobile ? current.mobile : current.desktop).width > 200, "Full labelled navigation is visible");
 }
 
@@ -173,7 +179,7 @@ try {
       await command("Input.dispatchMouseEvent", { type: "mouseReleased", x: frame.x, y: frame.y, button: "left", clickCount: 1 });
       await pause(250);
     }
-    assert.equal(await evaluate(`(()=>{const d=document.querySelector('#fractional-test').contentDocument,b=d.querySelector('${header}');return b.getAttribute('aria-expanded')==='true'&&[...d.querySelectorAll('nav[aria-label="Workspace navigation"] a')].filter(e=>e.getBoundingClientRect().width>0).length===22})()`), true);
+    assert.equal(await evaluate(`(()=>{const d=document.querySelector('#fractional-test').contentDocument,b=d.querySelector('${header}');return b.getAttribute('aria-expanded')==='true'&&[...d.querySelectorAll('nav[aria-label="Workspace navigation"] a')].filter(e=>e.getBoundingClientRect().width>0).length===21})()`), true);
     await evaluate("document.querySelector('#fractional-test').remove()");
     cases++;
   }

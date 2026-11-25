@@ -2,13 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronRight, PanelLeft, ShieldCheck } from "lucide-react";
+import { ChevronRight, PanelLeft } from "lucide-react";
 import { isNavigationItemActive, navigationGroups } from "@/config/navigation";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
-import { LogoutButton } from "@/modules/auth/components/logout-button";
 import { AccountMenu } from "@/components/layout/account-menu";
+import { clockDate, clockTime, useLiveClock } from "@/components/layout/use-live-clock";
 import { NotificationBell } from "@/modules/leads/distribution/components/notification-bell";
 import type { CompanyChoice } from "@/modules/organizations/types";
 
@@ -21,7 +20,6 @@ export function WorkspaceHeader({ user, company }: WorkspaceHeaderProps) {
   const pathname = usePathname();
   const { toggleSidebar, sidebarId, open, isMobile, openMobile } = useSidebar();
   const current = navigationGroups.flatMap((group) => group.items).find((item) => isNavigationItemActive(pathname, item.href));
-  const identity = user?.name?.trim() || user?.email;
   const pageTitle = pathname === "/settings/company" ? "Company settings" : pathname === "/settings/team/invitations" ? "Invitations" : pathname === "/settings/team" ? "Team members" : pathname === "/settings/lead-distribution" ? "Lead distribution" : current?.title ?? "Workspace";
   const toggleLabel = isMobile
     ? (openMobile ? "Close navigation" : "Open navigation")
@@ -47,12 +45,20 @@ export function WorkspaceHeader({ user, company }: WorkspaceHeaderProps) {
           </ol>
         </nav>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5 md:gap-4">
+      <div className="flex shrink-0 items-center gap-1 md:gap-3">
+        <LiveClock />
         {company?.id && <NotificationBell organizationId={company.id} />}
-        {user && <div className="md:hidden"><AccountMenu user={user} companyName={company?.name} /></div>}
-        {identity && <span title={`Signed in as ${identity}`} className="hidden max-w-28 items-center gap-1.5 rounded-full md:inline-flex border border-primary/20 bg-secondary px-2.5 py-1 text-[11px] font-medium text-primary sm:max-w-64"><ShieldCheck className="size-3 shrink-0" aria-hidden="true" /><span className="truncate"><span className="sr-only sm:not-sr-only">Signed in as </span>{identity}</span></span>}
-        <div className="hidden items-center gap-4 md:flex"><ThemeToggle /><LogoutButton /></div>
+        {user && <AccountMenu user={user} company={company} />}
       </div>
     </header>
   );
+}
+
+/** Dubai date and time, ticking every second (wide screens; the account menu shows it on smaller ones). */
+function LiveClock() {
+  const now = useLiveClock();
+  return <div className="hidden items-center gap-2 border-r pr-3 text-right leading-tight lg:flex" aria-hidden="true">
+    <span className="min-w-[88px] text-[11px] text-muted-foreground">{now ? clockDate.format(now) : " "}</span>
+    <span className="min-w-[84px] font-mono text-[13px] font-medium tabular-nums">{now ? clockTime.format(now) : " "}<span className="ml-1 font-sans text-[10px] font-normal text-muted-foreground">GST</span></span>
+  </div>;
 }

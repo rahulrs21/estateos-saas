@@ -156,6 +156,11 @@ async function screenshot(label) {
   const result = await command("Page.captureScreenshot", {format: "png"});
   writeFileSync(join(screens, `${label}.png`), Buffer.from(result.data, "base64"));
 }
+// The AI sales assistant starts collapsed on the lead page; open it before reading its content.
+async function openSalesPanel() {
+  await evaluate(`(()=>{const b=document.querySelector('#ai-sales button[aria-controls="ai-sales-body"]');if(b&&b.getAttribute('aria-expanded')==='false')b.click();})()`);
+  await waitFor("document.getElementById('ai-sales')?.innerText.includes('Lead qualification')", "the expanded AI sales assistant");
+}
 async function clickText(label, selector = "button,a") {
   await evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.textContent.trim().startsWith(${JSON.stringify(label)})&&!e.disabled);if(!e)throw Error('Missing control: '+${JSON.stringify(label)});e.scrollIntoView({block:'center'});e.click();})()`);
 }
@@ -289,7 +294,8 @@ try {
     pass(`Provider failure (invalid key): analysis and viewing brief fail safely with ${analysed.body.error.code}, usage is recorded as FAILED and the allowance is released`);
   }
 
-  await load(`/leads/${leads.agent}`, "document.getElementById('ai-sales')?.innerText.includes('Lead qualification')");
+  await load(`/leads/${leads.agent}`, "document.querySelector('#ai-sales button[aria-controls=\"ai-sales-body\"]') !== null");
+  await openSalesPanel();
   const panel = await evaluate("document.getElementById('ai-sales').innerText");
   assert.match(panel, /\d+\/100/);
   assert.match(panel, /Follow-up overdue/);
@@ -297,7 +303,9 @@ try {
   await screenshot("sales-lead-panel");
   await clickText("Evaluate score", "button");
   await waitFor(`document.getElementById('ai-sales')?.innerText.includes('Assessment history (3)')`, "the new assessment in the panel");
-  await load(`/leads/${leads.agent}`, "document.getElementById('ai-sales')?.innerText.includes('Assessment history (3)')");
+  await load(`/leads/${leads.agent}`, "document.querySelector('#ai-sales button[aria-controls=\"ai-sales-body\"]') !== null");
+  await openSalesPanel();
+  await waitFor("document.getElementById('ai-sales')?.innerText.includes('Assessment history (3)')", "the saved assessment after a reload");
   pass("Lead page: the panel shows the score, factors, suggestions and review; Evaluate score works in the browser and the result persists across a reload");
 
   const agentProperty = await api(`/api/ai/sales/properties/${ids.marina2}/leads`);
@@ -347,7 +355,8 @@ try {
 
   if (live) {
     await signIn("agent-a");
-    await load(`/leads/${leads.agent}`, "document.getElementById('ai-sales')?.innerText.includes('Lead qualification')");
+    await load(`/leads/${leads.agent}`, "document.querySelector('#ai-sales button[aria-controls=\"ai-sales-body\"]') !== null");
+    await openSalesPanel();
     await clickText("Analyze with Claude", "button");
     await waitFor("document.getElementById('lead-analysis-title') !== null || document.querySelector('#ai-sales [role=alert]') !== null", "Claude's analysis", 1500);
     assert.ok(!(await evaluate("document.querySelector('#ai-sales [role=alert]') !== null")), await evaluate("document.getElementById('ai-sales').innerText"));
