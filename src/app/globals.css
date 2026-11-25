@@ -149,6 +149,18 @@
   background-size: 18px 18px;
 }
 
+/* Scrollable without a visible scrollbar (used by the sidebar). Pair with
+   scroll-fade so it is still clear that there is more to scroll. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+/* Soft top and bottom edges on a scrolling list. */
+@utility scroll-fade {
+  mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 20px), transparent);
+}
+
 /* Landing pages (src/modules/websites): entrance animations driven by scrolling.
    Pure CSS, so pages need no animation script. Browsers without scroll-driven
    animations, and visitors who prefer reduced motion, see the content at once. */

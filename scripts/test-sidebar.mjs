@@ -28,7 +28,7 @@ function write(name, content) {
   writeFileSync(target, content);
 }
 
-// Isolated loopback UI fixture using the real shell/dashboard. It does not load
+// Isolated loopback UI fixture using the real shell around static page content. It does not load
 // .env.local, verify or fake sessions, call Firebase, or expose production routes.
 write("package.json", '{"name":"estateos-sidebar-ui-test","private":true}');
 write("next.config.mjs", `export default {turbopack:{root:${JSON.stringify(root)},rules:{'*.css':{loaders:['@tailwindcss/turbopack'],as:'*.css'}}}};`);
@@ -54,17 +54,19 @@ if (process.env.ESTATEOS_TEST_APP_URL) {
 }
 write("app/style.css", stylesheet);
 write("app/layout.tsx", `import {Providers} from '@/components/providers';import './style.css';export default function Layout({children}:{children:React.ReactNode}){return <html lang="en" suppressHydrationWarning><body><Providers>{children}</Providers></body></html>}`);
-// The dashboard is a server component, so it renders on the server and is passed in;
-// only the company switch and the shell are client code.
+// Page content renders on the server and is passed in; only the company switch and the
+// shell are client code. The content is static: the real dashboard loads company data
+// for a signed-in member, which this fixture deliberately has no way to provide.
 write("app/workspace/dashboard/fixture.tsx", `'use client';
 import {useEffect,useState,type ReactNode} from 'react';
 import {WorkspaceShell} from '@/components/layout/workspace-shell';
 import type {CompanyChoice} from '@/modules/organizations/types';
 const choices:CompanyChoice[]=[{id:'10000000-0000-4000-8000-000000000001',name:'UI Test Company A',slug:'ui-a',role:'OWNER'},{id:'20000000-0000-4000-8000-000000000001',name:'UI Test Company B',slug:'ui-b',role:'OWNER'}];
 export function Fixture({dashboards}:{dashboards:ReactNode[]}){const [index,setIndex]=useState(0);const [ready,setReady]=useState(false);useEffect(()=>setReady(true),[]);const company=choices[index];return <><button id="fixture-company-switch" data-fixture-ready={ready} style={{position:'fixed',bottom:8,right:8,zIndex:100}} onClick={()=>setIndex(i=>1-i)}>Switch UI fixture</button><WorkspaceShell workspace={{companies:[company],activeCompany:company,hasPendingInvitations:false}} user={{name:'UI Test User',email:'ui@example.test'}}>{dashboards[index]}</WorkspaceShell></>}`);
-write("app/workspace/dashboard/page.tsx", `import {Dashboard} from '@/modules/dashboard/components/dashboard';
+write("app/workspace/dashboard/page.tsx", `import {PageHeader} from '@/components/shared/page-header';
 import {Fixture} from './fixture';
-export default function Page(){return <Fixture dashboards={[<Dashboard key="a" companyName="UI Test Company A"/>,<Dashboard key="b" companyName="UI Test Company B"/>]}/>}`);
+function Content({companyName}:{companyName:string}){return <div className="space-y-6"><PageHeader eyebrow={companyName} title="Dashboard" description="Static sidebar fixture content." /><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[1,2,3,4,5,6,7,8].map(item => <div key={item} className="h-36 rounded-xl border bg-card" />)}</div></div>}
+export default function Page(){return <Fixture dashboards={[<Content key="a" companyName="UI Test Company A"/>,<Content key="b" companyName="UI Test Company B"/>]}/>}`);
 
 const reservation = createServer();
 await new Promise(resolve => reservation.listen(0, "127.0.0.1", resolve));
