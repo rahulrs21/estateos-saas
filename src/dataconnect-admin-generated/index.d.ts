@@ -1308,6 +1308,11 @@ export interface AutomationFactsData {
     archivedAt?: TimestampString | null;
     createdAt: TimestampString;
     updatedAt: TimestampString;
+    origin?: {
+      channel: LeadChannel;
+      platform: string;
+      campaignKey?: string | null;
+    };
   };
   contactActivity: ({
     id: UUIDString;
@@ -4155,6 +4160,20 @@ export interface GetLeadSalesIntelligenceData {
 export interface GetLeadSalesIntelligenceVariables {
   organizationId: UUIDString;
   leadId: UUIDString;
+}
+
+export interface GetLeadSourceReportData {
+  channels?: unknown[] | null;
+  campaigns?: unknown[] | null;
+}
+
+export interface GetLeadSourceReportVariables {
+  organizationId: UUIDString;
+  from: TimestampString;
+  to: TimestampString;
+  sourceId?: UUIDString | null;
+  pipelineStageId?: UUIDString | null;
+  assignedMembershipId?: UUIDString | null;
 }
 
 export interface GetLeadVariables {
@@ -10392,6 +10411,11 @@ export function getLeadAttribution(vars: GetLeadAttributionVariables, options?: 
 export function leadCampaignOptions(dc: DataConnect, vars: LeadCampaignOptionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LeadCampaignOptionsData>>;
 /** Generated Node Admin SDK operation action function for the 'LeadCampaignOptions' Query. Allow users to pass in custom DataConnect instances. */
 export function leadCampaignOptions(vars: LeadCampaignOptionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LeadCampaignOptionsData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetLeadSourceReport' Query. Allow users to execute without passing in DataConnect. */
+export function getLeadSourceReport(dc: DataConnect, vars: GetLeadSourceReportVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetLeadSourceReportData>>;
+/** Generated Node Admin SDK operation action function for the 'GetLeadSourceReport' Query. Allow users to pass in custom DataConnect instances. */
+export function getLeadSourceReport(vars: GetLeadSourceReportVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetLeadSourceReportData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListAutomationWorkflows' Query. Allow users to execute without passing in DataConnect. */
 export function listAutomationWorkflows(dc: DataConnect, vars: ListAutomationWorkflowsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationWorkflowsData>>;

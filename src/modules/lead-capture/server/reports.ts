@@ -7,6 +7,7 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { validateInput } from "@/modules/organizations/server/validation";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { localDateStartUtc } from "../reporting-policy";
+import { sourceReport, sourceReportCsv } from "../source-report";
 import { z } from "zod";
 
 const dateSchema = z.iso.date();
@@ -59,7 +60,8 @@ function rows(value: unknown): { label: string; count: number; bucket?: string }
   });
 }
 
-export async function getLeadAnalytics(input: unknown = {}) {
+/** The period, filters and member a report covers; shared by the page and the CSV download. */
+async function reportScope(input: unknown) {
   const parsed = validateInput(reportFiltersSchema, input);
   validateTimeZone(parsed.timeZone);
   const to = parsed.to ?? calendarToday(parsed.timeZone);
@@ -75,7 +77,36 @@ export async function getLeadAnalytics(input: unknown = {}) {
   if (selectedAgent && !canFilterAllAgents && selectedAgent !== canonicalUuid(context.membership.id)) {
     throw new WorkspaceError("FORBIDDEN", 403, "You can only report on leads assigned to you.");
   }
-  const [analytics, configuration, members] = await Promise.all([
+  const filterIds = {
+    sourceId: parsed.sourceId ? canonicalUuid(parsed.sourceId) : null,
+    pipelineStageId: parsed.pipelineStageId ? canonicalUuid(parsed.pipelineStageId) : null,
+    assignedMembershipId: selectedAgent,
+  };
+  return { parsed, from, to, fromInstant, toInstant, context, canFilterAllAgents, filterIds };
+}
+
+/** Phase 7E.4: leads by channel and campaign for the same period, filters and visibility as the rest of the report. */
+async function loadSourceReport(scope: Awaited<ReturnType<typeof reportScope>>) {
+  const { context, fromInstant, toInstant, filterIds } = scope;
+  const data = await executeWorkspaceOperation(() => sdk.getLeadSourceReport(context.request.dc, {
+    organizationId: context.organizationId, from: fromInstant, to: toInstant, ...filterIds,
+  }, context.request.options), "GetLeadSourceReport");
+  return sourceReport(data.channels, data.campaigns);
+}
+
+/** Phase 7E.4: the "Where leads come from" CSV download. */
+export async function getLeadSourceReportCsv(input: unknown = {}) {
+  const scope = await reportScope(input);
+  const report = await loadSourceReport(scope);
+  const csv = sourceReportCsv(report, { from: scope.from, to: scope.to, timeZone: scope.parsed.timeZone, scope: scope.canFilterAllAgents ? "All company leads" : "Leads assigned to you" });
+  return { csv, fileName: `lead-sources-${scope.from}-to-${scope.to}.csv` };
+}
+
+export async function getLeadAnalytics(input: unknown = {}) {
+  const scope = await reportScope(input);
+  const { parsed, from, to, fromInstant, toInstant, context, canFilterAllAgents, filterIds } = scope;
+  const selectedAgent = filterIds.assignedMembershipId;
+  const [analytics, configuration, members, sources] = await Promise.all([
     executeWorkspaceOperation(() => sdk.getLeadAnalytics(context.request.dc, {
       organizationId: context.organizationId, from: fromInstant, to: toInstant,
       timeZone: parsed.timeZone, bucket: parsed.bucket,
@@ -87,6 +118,7 @@ export async function getLeadAnalytics(input: unknown = {}) {
     canFilterAllAgents
       ? executeWorkspaceOperation(() => sdk.listTeamMembers(context.request.dc, { organizationId: context.organizationId, limit: 100, offset: 0, status: sdk.MembershipStatus.ACTIVE }, context.request.options))
       : Promise.resolve(null),
+    loadSourceReport(scope),
   ]);
   const summaryValue = analytics.summary;
   const summary = (Array.isArray(summaryValue) ? summaryValue[0] : summaryValue) as Record<string, unknown> | null | undefined;
@@ -107,6 +139,7 @@ export async function getLeadAnalytics(input: unknown = {}) {
     },
     sources: rows(analytics.sources), stages: rows(analytics.stages), byAgent: rows(analytics.agents),
     volume: rows(analytics.volume),
+    origins: sources,
     options: {
       sources: configuration.leadSources.map((source) => ({ id: canonicalUuid(source.id), label: source.name })),
       stages,

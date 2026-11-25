@@ -85,6 +85,7 @@ export async function loadRunState(context: Context, event: AutomationEventRow):
     "lead.status": lead.status, "lead.previousStatus": text(payload.previousStatus), "lead.source": lead.source ?? null, "lead.priority": lead.priority,
     "lead.assignedAgentId": id(lead.assignedMembershipId), "lead.projectId": id(lead.projectId), "lead.propertyId": id(lead.propertyId),
     "lead.budgetMax": lead.budgetMax ?? null, "lead.archived": Boolean(lead.archivedAt), "lead.createdAt": lead.createdAt,
+    "lead.channel": lead.origin?.channel ?? null, "lead.platform": lead.origin?.platform ?? null, "lead.campaign": lead.origin?.campaignKey ?? null,
     "lead.contacted": data.contactActivity.length > 0 || (data.answeredCalls?.length ?? 0) > 0, "lead.followupCompleted": data.completedFollowUps.length > 0,
   });
   const followUp = data.followUp ?? null, workTask = data.workTask ?? null;

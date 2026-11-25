@@ -1,6 +1,21 @@
 # Phase 7E: lead source attribution (plan)
 
-Status: **7E.1 built** (capture) and **7E.2 built** (WhatsApp ads); their database changes are deployed to staging (2026-11-24). **7E.3 built** (showing it); its operations are deployed to staging (2026-11-24). Decisions taken: keep click IDs, one touch per lead, and an optional Campaign field on manual leads.
+Status: **7E.1 built** (capture) and **7E.2 built** (WhatsApp ads); their database changes are deployed to staging (2026-11-24). **7E.3 built** (showing it); its operations are deployed to staging (2026-11-24). **7E.4 built** (reports and workflows); its operations are deployed to staging (2026-11-25). Decisions taken: keep click IDs, one touch per lead, and an optional Campaign field on manual leads.
+
+## Built in 7E.4
+
+- **"Where leads come from" on the reports page** (`/workspace/reports`):
+  - leads, qualified and won **by channel** (with a total), and the **top 50 campaigns**, for the report's period, source, stage and agent filters;
+  - each channel and campaign links to the leads list filtered to it for the same dates;
+  - leads created before sources were recorded count as *Not recorded*;
+  - *qualified* is a lead now at Qualified or a later stage (viewings, negotiation) or won; *won* is Won or Converted;
+  - a campaign is named by its newest name (Meta campaign name, UTM or typed campaign, then the ad's name) and shows *Several channels* when its leads came through more than one.
+- **`GetLeadSourceReport`:** SQL over `lead` and `lead_attribution` with the same visibility as the rest of the reports page: owners and admins report on the company, other members on their own leads.
+- **CSV download** (`GET /api/lead-capture/reports/sources`, signed-in members only):
+  - the same function and filters as the page;
+  - UTF-8 with a byte order mark;
+  - a cell a spreadsheet would read as a formula (`=`, `+`, `-`, `@`) is prefixed with an apostrophe, since campaign names come from URLs and ad platforms.
+- **Workflow conditions:** the facts `lead.channel`, `lead.platform` and `lead.campaign` (for example "if the channel is Meta lead ad, assign to the off-plan team"). A campaign condition is saved as the campaign key, so any spelling of the same campaign matches. Facts are read when the workflow runs, so a lead's source given later by linking a WhatsApp conversation is seen by steps that run after it.
 
 ## Built in 7E.3
 

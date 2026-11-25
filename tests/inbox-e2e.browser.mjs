@@ -1243,6 +1243,24 @@ try {
   assert.equal(foreign.status, 404, `another company's conversation is not found: ${JSON.stringify(foreign.body)}`);
   pass("Phase 7E.2: a click-to-WhatsApp ad is shown on its conversation (as text); Create lead makes a prefilled lead from the conversation, links it, and the lead's source is the ad");
 
+  // Phase 7E.4: the reports page shows where leads come from, and its CSV download has the same rows.
+  await signIn("owner-a");
+  await load("/workspace/reports", "Boolean(document.querySelector('[data-testid=lead-source-report]'))");
+  const reportText = await evaluate("document.querySelector('[data-testid=lead-source-report]').innerText");
+  assert.match(reportText, /WhatsApp ad/, "the WhatsApp ad lead is counted under its channel");
+  assert.match(reportText, /e2e marina 2 bed <b>offer<\/b>|E2E Marina 2-bed <b>offer<\/b>/, "and its campaign, as text");
+  assert.equal(await evaluate("Boolean(document.querySelector('[data-testid=lead-source-report] b'))"), false, "markup in a campaign name is never rendered");
+  const csvHref = await evaluate("document.querySelector('[data-testid=lead-source-csv]').getAttribute('href')");
+  const csv = await evaluate(`(async()=>{const r=await fetch(${JSON.stringify(csvHref)});return {status:r.status,type:r.headers.get('content-type'),disposition:r.headers.get('content-disposition'),text:await r.text()};})()`);
+  assert.equal(csv.status, 200, csv.text.slice(0, 200));
+  assert.match(csv.type, /^text\/csv/);
+  assert.match(csv.disposition, /^attachment; filename="lead-sources-\d{4}-\d{2}-\d{2}-to-\d{4}-\d{2}-\d{2}\.csv"$/);
+  assert.match(csv.text, /\r\nWhatsApp ad,\d+,\d+,\d+,/, "the CSV has the channel rows");
+  await command("Network.clearBrowserCookies");
+  const anonymous = await fetch(`${origin}${csvHref}`);
+  assert.equal(anonymous.status, 401, "the CSV needs a signed-in member");
+  pass("Phase 7E.4: the reports page shows leads by channel and campaign (as text), and the CSV download has the same rows only for a signed-in member");
+
   // Durable retries: an event recorded but not applied (as after a crash) is applied by the worker tick.
   const retryId = randomUUID();
   const normalized = JSON.stringify({provider: "WHATSAPP_CLOUD", event: {kind: "MESSAGE", accountId: WA_ACCOUNT, channel: "WHATSAPP", externalMessageId: "wamid.E2E-RETRY", threadId: "wa:+447700900799",

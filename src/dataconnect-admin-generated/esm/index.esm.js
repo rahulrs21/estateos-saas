@@ -1123,6 +1123,12 @@ export function leadCampaignOptions(dcOrVarsOrOptions, varsOrOptions, options) {
   return dcInstance.executeQuery('LeadCampaignOptions', inputVars, inputOpts);
 }
 
+export function getLeadSourceReport(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetLeadSourceReport', inputVars, inputOpts);
+}
+
 export function listAutomationWorkflows(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

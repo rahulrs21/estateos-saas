@@ -101,3 +101,26 @@ test("each campaign is offered once, by its newest name, in name order", async (
   assert.equal(campaignOptions(Array.from({length: 150}, (_, index) => ({campaignKey: `c${index}`})), 100).length, 100, "bounded");
   assert.ok(LEAD_CHANNELS.every(channel => LEAD_CHANNEL_LABELS[channel]), "every channel has a label");
 });
+
+// Phase 7E.4: "Where leads come from" rows, rates and the CSV download.
+test("the source report keeps known channels, totals them, and writes a CSV a spreadsheet cannot run", async () => {
+  const {csvCell, rate, sourceReport, sourceReportCsv} = await import("../src/modules/lead-capture/source-report");
+  const report = sourceReport(
+    [{channel: "META_LEAD_AD", leads: "12", qualified: 5, won: 2}, {channel: "UNRECORDED", leads: 3, qualified: 0, won: 0}, {channel: "DROP TABLE", leads: 9}, {channel: "MANUAL", leads: -4}],
+    [{key: "marina launch", label: "=HYPERLINK(\"http://x.test\")", channel: "META_LEAD_AD", channels: 1, leads: 7, qualified: 3, won: 1}, {key: "", leads: 2}, {key: "mixed", label: null, channel: "WHATSAPP_AD", channels: "2", leads: 2}],
+  );
+  assert.deepEqual(report.channels.map(row => [row.channel, row.label, row.leads]), [["META_LEAD_AD", "Meta lead ad", 12], ["UNRECORDED", "Not recorded", 3], ["MANUAL", "Added by hand", 0]], "unknown channels are dropped, counts never negative");
+  assert.deepEqual(report.total, {leads: 15, qualified: 5, won: 2});
+  assert.deepEqual(report.campaigns.map(row => [row.key, row.label, row.channelLabel]), [["marina launch", "=HYPERLINK(\"http://x.test\")", "Meta lead ad"], ["mixed", "mixed", "Several channels"]]);
+  assert.equal(rate(5, 12), 41.7);
+  assert.equal(rate(1, 0), 0);
+  assert.equal(csvCell("=1+1"), "'=1+1");
+  assert.equal(csvCell("-2"), "'-2");
+  assert.equal(csvCell(-2), "-2", "numbers are written as numbers");
+  assert.equal(csvCell('Marina, "Launch"'), '"Marina, ""Launch"""', "commas and quotes are quoted");
+  const csv = sourceReportCsv(report, {from: "2026-11-01", to: "2026-11-24", timeZone: "Asia/Dubai", scope: "All company leads"});
+  assert.ok(csv.startsWith("﻿Where leads come from\r\n"));
+  assert.match(csv, /\r\nMeta lead ad,12,5,2,41\.7,16\.7\r\n/);
+  assert.match(csv, /\r\nTotal,15,5,2,33\.3,13\.3\r\n/);
+  assert.match(csv, /\r\n"'=HYPERLINK\(""http:\/\/x\.test""\)",marina launch,Meta lead ad,7,3,1,42\.9,14\.3\r\n/, "a formula in a campaign name is neutralised");
+});

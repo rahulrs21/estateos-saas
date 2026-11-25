@@ -237,4 +237,57 @@ export function registerCaptureCases({ sdk, run, forbidden, dc }) {
       for (const leadId of created) await run(sdk.archiveLead, "owner-a", { organizationId: f.orgA, leadId });
     });
   });
+
+  // Phase 7E.4 (docs/LEAD_ATTRIBUTION_PLAN.md): "Where leads come from" on the reports page, and workflow facts.
+  describe("Phase 7E.4 lead source reports", { concurrency: false }, () => {
+    const tag = randomBytes(3).toString("hex");
+    const KEY = `report launch ${tag}`, NAME = `Report_Launch ${tag}`;
+    const created = [];
+    const from = new Date(Date.now() - 60_000).toISOString(), to = new Date(Date.now() + 3_600_000).toISOString();
+    const report = async (uid, extra = {}) => run(sdk.getLeadSourceReport, uid, { organizationId: f.orgA, from, to, ...extra });
+    const channel = (data, name) => data.channels.find((row) => row.channel === name) ?? { leads: 0, qualified: 0, won: 0 };
+    const counts = (row) => ({ leads: Number(row.leads), qualified: Number(row.qualified), won: Number(row.won) });
+    const make = async (assignedMembershipId, extra = {}) => {
+      const id = (await run(sdk.createLead, "owner-a", { organizationId: f.orgA, fullName: `Report ${randomUUID().slice(0, 6)}`, assignedMembershipId, ...extra })).lead.id;
+      created.push(id);
+      return id;
+    };
+
+    it("counts leads, qualified and won by channel and by campaign, with leads without a source as UNRECORDED", async () => {
+      const before = await report("owner-a");
+      const won = await make(f.memberAgentA, { campaign: NAME, campaignKey: KEY });
+      const qualified = await make(f.memberSharedA, { campaign: NAME, campaignKey: KEY });
+      const unrecorded = await make(f.memberAgentA);
+      await dc.executeGraphql(`mutation D($lead: UUID!) { leadAttribution_deleteMany(where: {leadId: {eq: $lead}}) }`, { variables: { lead: unrecorded } });
+      await run(sdk.changeLeadStatus, "owner-a", { organizationId: f.orgA, leadId: won, status: sdk.LeadStatus.WON });
+      await run(sdk.changeLeadStatus, "owner-a", { organizationId: f.orgA, leadId: qualified, status: sdk.LeadStatus.NEGOTIATION });
+
+      const after = await report("owner-a");
+      const delta = (name) => { const a = counts(channel(after, name)), b = counts(channel(before, name)); return { leads: a.leads - b.leads, qualified: a.qualified - b.qualified, won: a.won - b.won }; };
+      assert.deepEqual(delta("MANUAL"), { leads: 2, qualified: 2, won: 1 }, "won counts as qualified too");
+      assert.deepEqual(delta("UNRECORDED"), { leads: 1, qualified: 0, won: 0 });
+      const campaign = after.campaigns.find((row) => row.key === KEY);
+      assert.deepEqual({ label: campaign.label, channel: campaign.channel, channels: Number(campaign.channels), ...counts(campaign) },
+        { label: NAME, channel: "MANUAL", channels: 1, leads: 2, qualified: 2, won: 1 }, "a campaign is named by its newest name");
+
+      // Members other than owners and admins report on their own leads only; filters narrow the same way.
+      const agent = await report("agent-a");
+      assert.deepEqual(counts(agent.campaigns.find((row) => row.key === KEY)), { leads: 1, qualified: 1, won: 1 }, "the agent sees only their lead");
+      assert.equal((await report("shared-agent")).campaigns.find((row) => row.key === KEY)?.leads ?? 0, 1);
+      assert.equal(counts((await report("owner-a", { assignedMembershipId: f.memberAgentA })).campaigns.find((row) => row.key === KEY)).leads, 1);
+      await forbidden(sdk.getLeadSourceReport, "owner-b", { organizationId: f.orgA, from, to });
+      await forbidden(sdk.getLeadSourceReport, "owner-a", { organizationId: f.orgA, from: to, to: from });
+    });
+
+    it("gives workflows the lead's channel, platform and campaign", async () => {
+      const facts = await run(sdk.automationFacts, "owner-a", { organizationId: f.orgA, since: from, leadId: created[0], hasLead: true, hasListing: false, hasViewing: false,
+        hasFollowUp: false, hasWorkTask: false, hasContact: false });
+      assert.deepEqual(facts.lead.origin, { channel: "MANUAL", platform: "direct", campaignKey: KEY });
+      const none = await run(sdk.automationFacts, "owner-a", { organizationId: f.orgA, since: from, leadId: created[2], hasLead: true, hasListing: false, hasViewing: false,
+        hasFollowUp: false, hasWorkTask: false, hasContact: false });
+      assert.equal(none.lead.origin, null, "a lead without a recorded source has none");
+      // These synthetic leads are archived so later lead counts are unchanged.
+      for (const leadId of created) await run(sdk.archiveLead, "owner-a", { organizationId: f.orgA, leadId });
+    });
+  });
 }

@@ -358,6 +358,8 @@ query AutomationFacts($organizationId: UUID!, $leadId: UUID, $hasLead: Boolean!,
   executor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}) @check(expr: "this != null", message: "EXECUTOR_NOT_AUTHORIZED") {id role}
   lead: lead(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $leadId}}}) @include(if: $hasLead) {
     id fullName status source priority assignedMembershipId projectId propertyId branchId budgetMax archivedAt createdAt updatedAt
+    # Phase 7E.4: the lead's recorded source, for workflow conditions on channel, platform and campaign.
+    origin: leadAttribution_on_lead {channel platform campaignKey}
   }
   contactActivity: activities(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, createdAt: {gt: $since}, kind: {in: [LEAD_NOTE_ADDED, LEAD_STATUS_CHANGED, FOLLOW_UP_COMPLETED]}}, limit: 1) @include(if: $hasLead) {id}
   completedFollowUps: leadFollowUps(where: {organizationId: {eq: $organizationId}, leadId: {eq: $leadId}, status: {eq: COMPLETED}, completedAt: {gt: $since}}, limit: 1) @include(if: $hasLead) {id}

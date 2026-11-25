@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LEAD_CHANNELS, campaignKey } from "../lead-capture/attribution";
 
 /*
  * The workflow definition format (docs/AUTOMATION_ENGINE.md#workflow-schema).
@@ -56,6 +57,10 @@ const LEAD_FACTS = {
   "lead.status": {kind: "string", label: "Lead status", options: LEAD_STATUSES},
   "lead.previousStatus": {kind: "string", label: "Previous lead status", options: LEAD_STATUSES},
   "lead.source": {kind: "string", label: "Lead source"},
+  // Phase 7E.4 (docs/LEAD_ATTRIBUTION_PLAN.md): the lead's recorded source.
+  "lead.channel": {kind: "string", label: "Lead channel", options: LEAD_CHANNELS},
+  "lead.platform": {kind: "string", label: "Ad platform", options: ["meta", "google", "tiktok", "snapchat", "linkedin", "organic", "referral", "direct"]},
+  "lead.campaign": {kind: "string", label: "Lead campaign (case, _ and - are ignored)"},
   "lead.priority": {kind: "string", label: "Lead priority", options: LEAD_PRIORITIES},
   "lead.assignedAgentId": {kind: "string", label: "Assigned agent"},
   "lead.projectId": {kind: "string", label: "Project"},
@@ -189,8 +194,11 @@ export const OPERATORS_BY_KIND: Record<FactKind, readonly Operator[]> = {
 export type ConditionValue = string | number | boolean | null;
 export type Condition = {field: string; operator: Operator; value: ConditionValue} | {mode: "AND" | "OR"; conditions: Condition[]};
 const conditionValue = z.union([z.string().trim().max(160), z.number().finite().min(-1e12).max(1e12), z.boolean(), z.null()]);
+/** Phase 7E.4: a campaign is compared by its key, so "Marina_Launch" and "marina launch" are the same campaign. */
+const normalizeCondition = (condition: {field: string; operator: Operator; value: ConditionValue}) =>
+  condition.field === "lead.campaign" && typeof condition.value === "string" && condition.value ? {...condition, value: campaignKey(condition.value) ?? condition.value} : condition;
 export const conditionSchema: z.ZodType<Condition, Condition> = z.lazy(() => z.union([
-  z.strictObject({field: z.string().regex(/^[a-z]+\.[A-Za-z]+$/, "Unknown field."), operator: z.enum(OPERATORS), value: conditionValue}),
+  z.strictObject({field: z.string().regex(/^[a-z]+\.[A-Za-z]+$/, "Unknown field."), operator: z.enum(OPERATORS), value: conditionValue}).transform(normalizeCondition),
   z.strictObject({mode: z.enum(["AND", "OR"]), conditions: z.array(conditionSchema).min(1).max(10)}),
 ]));
 

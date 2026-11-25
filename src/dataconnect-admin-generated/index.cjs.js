@@ -1261,6 +1261,13 @@ function leadCampaignOptions(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.leadCampaignOptions = leadCampaignOptions;
 
+function getLeadSourceReport(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetLeadSourceReport', inputVars, inputOpts);
+}
+exports.getLeadSourceReport = getLeadSourceReport;
+
 function listAutomationWorkflows(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
