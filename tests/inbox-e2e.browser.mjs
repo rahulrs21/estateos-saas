@@ -1271,6 +1271,33 @@ try {
   assert.equal(anonymous.status, 401, "the CSV needs a signed-in member");
   pass("Phase 7E.4 and 7E.5: the reports page shows leads by channel and campaign (as text); an owner fills older leads' sources after a preview; the CSV download has the same rows only for a signed-in member");
 
+  // Phase 7F.1: the WhatsApp ad's campaign is listed in Marketing; an owner adds its spend and sees cost per lead, also in Reports.
+  const dubaiDay = offset => new Intl.DateTimeFormat("en-CA", {timeZone: "Asia/Dubai"}).format(new Date(Date.now() + offset * 86_400_000));
+  await signIn("owner-a");
+  const adCampaignRow = "[...document.querySelectorAll('[data-testid=campaign-row]')].find(row => row.innerText.includes('E2E Marina 2-bed <b>offer</b>'))";
+  await load("/workspace/marketing", `Boolean(${adCampaignRow})`);
+  assert.match(await evaluate(`${adCampaignRow}.innerText`), /Found in leads/, "a campaign found in leads is listed without being added");
+  assert.equal(await evaluate("Boolean(document.querySelector('[data-testid=campaigns-table] b'))"), false, "campaign names are text");
+  await evaluate(`${adCampaignRow}.querySelector('a').click()`);
+  await waitFor("Boolean(document.querySelector('[data-testid=campaign-detail]'))", "the campaign page");
+  await clickText("Add spend", "button");
+  await waitFor("Boolean(document.querySelector('[role=dialog] [name=amount]'))", "the spend dialog");
+  await setField("spentFrom", dubaiDay(-1));
+  await setField("spentTo", dubaiDay(0));
+  await setField("amount", "1000");
+  await evaluate("document.querySelector('[data-testid=spend-save]').click()");
+  await waitFor("!document.querySelector('[role=dialog]') && Boolean(document.querySelector('[data-testid=spend-row]'))", "the spend entry");
+  const detailText = await evaluate("document.querySelector('[data-testid=campaign-detail]').innerText");
+  assert.match(detailText, /Spend\s+AED 1,000/, "the spend for these days");
+  assert.match(detailText, /Cost per lead\s+AED 1,000/, "one lead: cost per lead is the spend");
+  await load("/workspace/reports", "Boolean(document.querySelector('[data-testid=lead-source-report]'))");
+  assert.match(await evaluate("document.querySelector('[data-testid=lead-source-report]').innerText"), /AED 1,000/, "Reports show the campaign's spend to an owner");
+  await signIn("agent-a");
+  await load("/workspace/marketing", "document.body.innerText.includes('Campaigns are not available')");
+  await load("/workspace/reports", "Boolean(document.querySelector('[data-testid=lead-source-report]'))");
+  assert.doesNotMatch(await evaluate("document.querySelector('[data-testid=lead-source-report]').innerText"), /Cost per lead/, "agents never see spend");
+  pass("Phase 7F.1: campaigns found in leads are listed in Marketing; an owner adds spend and sees cost per lead there and in Reports; agents see no campaigns or spend");
+
   // Durable retries: an event recorded but not applied (as after a crash) is applied by the worker tick.
   const retryId = randomUUID();
   const normalized = JSON.stringify({provider: "WHATSAPP_CLOUD", event: {kind: "MESSAGE", accountId: WA_ACCOUNT, channel: "WHATSAPP", externalMessageId: "wamid.E2E-RETRY", threadId: "wa:+447700900799",

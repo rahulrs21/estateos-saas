@@ -7,7 +7,8 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { validateInput } from "@/modules/organizations/server/validation";
 import { canonicalUuid } from "@/modules/organizations/server/identifiers";
 import { localDateStartUtc } from "../reporting-policy";
-import { backfillPreview, sourceReport, sourceReportCsv } from "../source-report";
+import { backfillPreview, sourceReport, sourceReportCsv, withSpend } from "../source-report";
+import { campaignSpendForReport } from "@/modules/campaigns/server/service";
 import { crmMutationContext } from "@/modules/leads/server/crm-service";
 import { z } from "zod";
 
@@ -92,7 +93,12 @@ async function loadSourceReport(scope: Awaited<ReturnType<typeof reportScope>>) 
   const data = await executeWorkspaceOperation(() => sdk.getLeadSourceReport(context.request.dc, {
     organizationId: context.organizationId, from: fromInstant, to: toInstant, ...filterIds,
   }, context.request.options), "GetLeadSourceReport");
-  return sourceReport(data.channels, data.campaigns);
+  const report = sourceReport(data.channels, data.campaigns);
+  // Phase 7F.1: spend and cost per lead for owners and administrators, who report on the whole company. Filtered
+  // reports (by source, stage or agent) leave it out, since spend cannot be split by those.
+  const unfiltered = !filterIds.sourceId && !filterIds.pipelineStageId && !filterIds.assignedMembershipId;
+  const spend = scope.canFilterAllAgents && unfiltered ? await campaignSpendForReport(context, { from: scope.from, to: scope.to, fromInstant, toInstant }) : null;
+  return withSpend(report, spend);
 }
 
 /** Phase 7E.4: the "Where leads come from" CSV download. */

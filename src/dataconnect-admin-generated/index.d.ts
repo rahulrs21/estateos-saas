@@ -134,6 +134,8 @@ export enum ActivityKind {
   META_LEAD_PAGE_DISCONNECTED = "META_LEAD_PAGE_DISCONNECTED",
   META_LEAD_FORM_UPDATED = "META_LEAD_FORM_UPDATED",
   LEAD_SOURCES_FILLED = "LEAD_SOURCES_FILLED",
+  CAMPAIGN_CHANGED = "CAMPAIGN_CHANGED",
+  CAMPAIGN_SPEND_CHANGED = "CAMPAIGN_SPEND_CHANGED",
 }
 export enum AgentAvailabilityStatus {
   AVAILABLE = "AVAILABLE",
@@ -255,6 +257,7 @@ export enum AuditTargetType {
   OUTBOUND_MESSAGE = "OUTBOUND_MESSAGE",
   META_LEAD_CONNECTION = "META_LEAD_CONNECTION",
   META_LEAD_FORM = "META_LEAD_FORM",
+  CAMPAIGN = "CAMPAIGN",
 }
 export enum AutomationApprovalStatus {
   PENDING = "PENDING",
@@ -349,6 +352,11 @@ export enum CallType {
   FOLLOW_UP = "FOLLOW_UP",
   MARKETING = "MARKETING",
   INBOUND_ENQUIRY = "INBOUND_ENQUIRY",
+}
+export enum CampaignStatus {
+  ACTIVE = "ACTIVE",
+  PAUSED = "PAUSED",
+  ENDED = "ENDED",
 }
 export enum CompanySize {
   SOLO = "SOLO",
@@ -793,6 +801,22 @@ export interface AddAiContentAlternativeVariables {
   validation: string;
   model: string;
   generatedAt: TimestampString;
+}
+
+export interface AddCampaignSpendData {
+  campaignSpend_insert: CampaignSpend_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface AddCampaignSpendVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  campaignId: UUIDString;
+  spentFrom: DateString;
+  spentTo: DateString;
+  amountMinor: Int64String;
+  currency: string;
+  note?: string | null;
 }
 
 export interface AddGeneratedPageVersionData {
@@ -1618,6 +1642,47 @@ export interface CallTranscript_Key {
   __typename?: 'CallTranscript_Key';
 }
 
+export interface CampaignOwnersData {
+  members: ({
+    id: UUIDString;
+    email: string;
+    role: MembershipRole;
+    userProfile?: {
+      displayName: string;
+    };
+  })[];
+}
+
+export interface CampaignOwnersVariables {
+  organizationId: UUIDString;
+}
+
+export interface CampaignPerformanceData {
+  campaigns?: unknown[] | null;
+  spend?: unknown[] | null;
+}
+
+export interface CampaignPerformanceVariables {
+  organizationId: UUIDString;
+  fromDate: DateString;
+  toDate: DateString;
+  from: TimestampString;
+  to: TimestampString;
+  campaignKey?: string | null;
+}
+
+export interface CampaignSpend_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'CampaignSpend_Key';
+}
+
+export interface Campaign_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'Campaign_Key';
+}
+
 export interface CaptureMetaLeadAdData {
   advanceCursor?: DistributionCursor_Key | null;
   contact: Contact_Key;
@@ -1981,6 +2046,30 @@ export interface CreateBuildingVariables {
   handoverDate?: DateString | null;
   latitude?: number | null;
   longitude?: number | null;
+}
+
+export interface CreateCampaignData {
+  campaign_insert: Campaign_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface CreateCampaignVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  campaignKey: string;
+  name: string;
+  platform?: string | null;
+  status: CampaignStatus;
+  startsOn?: DateString | null;
+  endsOn?: DateString | null;
+  budgetMinor?: Int64String | null;
+  currency: string;
+  hasOwner: boolean;
+  ownerMembershipId?: UUIDString | null;
+  notes?: string | null;
+  metaCampaignId?: string | null;
+  googleCampaignId?: string | null;
+  tiktokCampaignId?: string | null;
 }
 
 export interface CreateContactData {
@@ -2539,6 +2628,16 @@ export interface DeleteAiContentTemplateData {
 }
 
 export interface DeleteAiContentTemplateVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface DeleteCampaignSpendData {
+  campaignSpend_delete?: CampaignSpend_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface DeleteCampaignSpendVariables {
   organizationId: UUIDString;
   id: UUIDString;
 }
@@ -3466,6 +3565,57 @@ export interface GetBuildingData {
 export interface GetBuildingVariables {
   organizationId: UUIDString;
   id: UUIDString;
+}
+
+export interface GetCampaignData {
+  viewer?: {
+    id: UUIDString;
+    role: MembershipRole;
+  };
+  campaign?: {
+    id: UUIDString;
+    campaignKey: string;
+    name: string;
+    platform?: string | null;
+    status: CampaignStatus;
+    startsOn?: DateString | null;
+    endsOn?: DateString | null;
+    budgetMinor?: Int64String | null;
+    currency: string;
+    ownerMembershipId?: UUIDString | null;
+    notes?: string | null;
+    metaCampaignId?: string | null;
+    googleCampaignId?: string | null;
+    tiktokCampaignId?: string | null;
+    revision: number;
+    createdAt: TimestampString;
+    updatedAt: TimestampString;
+    ownerMembership?: {
+      id: UUIDString;
+      email: string;
+      userProfile?: {
+        displayName: string;
+      };
+    };
+    entries: ({
+      id: UUIDString;
+      source: CampaignSpendSource;
+      spentFrom: DateString;
+      spentTo: DateString;
+      amountMinor: Int64String;
+      currency: string;
+      note?: string | null;
+      impressions?: Int64String | null;
+      clicks?: Int64String | null;
+      createdAt: TimestampString;
+    })[];
+  };
+  channels?: unknown[] | null;
+}
+
+export interface GetCampaignVariables {
+  organizationId: UUIDString;
+  campaignKey: string;
 }
 
 export interface GetContactData {
@@ -9694,6 +9844,45 @@ export interface UpdateBuildingVariables {
   longitude?: number | null;
 }
 
+export interface UpdateCampaignData {
+  campaign_update?: Campaign_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface UpdateCampaignSpendData {
+  campaignSpend_update?: CampaignSpend_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface UpdateCampaignSpendVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  spentFrom: DateString;
+  spentTo: DateString;
+  amountMinor: Int64String;
+  currency: string;
+  note?: string | null;
+}
+
+export interface UpdateCampaignVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  expectedRevision: number;
+  name: string;
+  platform?: string | null;
+  status: CampaignStatus;
+  startsOn?: DateString | null;
+  endsOn?: DateString | null;
+  budgetMinor?: Int64String | null;
+  currency: string;
+  hasOwner: boolean;
+  ownerMembershipId?: UUIDString | null;
+  notes?: string | null;
+  metaCampaignId?: string | null;
+  googleCampaignId?: string | null;
+  tiktokCampaignId?: string | null;
+}
+
 export interface UpdateContactData {
   contact?: Contact_Key | null;
   lead_updateMany: number;
@@ -10667,6 +10856,46 @@ export function automationExecutorProfile(vars: AutomationExecutorProfileVariabl
 export function listAutomationEventsForTarget(dc: DataConnect, vars: ListAutomationEventsForTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationEventsForTargetData>>;
 /** Generated Node Admin SDK operation action function for the 'ListAutomationEventsForTarget' Query. Allow users to pass in custom DataConnect instances. */
 export function listAutomationEventsForTarget(vars: ListAutomationEventsForTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationEventsForTargetData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CampaignPerformance' Query. Allow users to execute without passing in DataConnect. */
+export function campaignPerformance(dc: DataConnect, vars: CampaignPerformanceVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CampaignPerformanceData>>;
+/** Generated Node Admin SDK operation action function for the 'CampaignPerformance' Query. Allow users to pass in custom DataConnect instances. */
+export function campaignPerformance(vars: CampaignPerformanceVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CampaignPerformanceData>>;
+
+/** Generated Node Admin SDK operation action function for the 'GetCampaign' Query. Allow users to execute without passing in DataConnect. */
+export function getCampaign(dc: DataConnect, vars: GetCampaignVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCampaignData>>;
+/** Generated Node Admin SDK operation action function for the 'GetCampaign' Query. Allow users to pass in custom DataConnect instances. */
+export function getCampaign(vars: GetCampaignVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<GetCampaignData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CampaignOwners' Query. Allow users to execute without passing in DataConnect. */
+export function campaignOwners(dc: DataConnect, vars: CampaignOwnersVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CampaignOwnersData>>;
+/** Generated Node Admin SDK operation action function for the 'CampaignOwners' Query. Allow users to pass in custom DataConnect instances. */
+export function campaignOwners(vars: CampaignOwnersVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CampaignOwnersData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateCampaign' Mutation. Allow users to execute without passing in DataConnect. */
+export function createCampaign(dc: DataConnect, vars: CreateCampaignVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateCampaignData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateCampaign' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createCampaign(vars: CreateCampaignVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateCampaignData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateCampaign' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateCampaign(dc: DataConnect, vars: UpdateCampaignVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateCampaignData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateCampaign' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateCampaign(vars: UpdateCampaignVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateCampaignData>>;
+
+/** Generated Node Admin SDK operation action function for the 'AddCampaignSpend' Mutation. Allow users to execute without passing in DataConnect. */
+export function addCampaignSpend(dc: DataConnect, vars: AddCampaignSpendVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AddCampaignSpendData>>;
+/** Generated Node Admin SDK operation action function for the 'AddCampaignSpend' Mutation. Allow users to pass in custom DataConnect instances. */
+export function addCampaignSpend(vars: AddCampaignSpendVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<AddCampaignSpendData>>;
+
+/** Generated Node Admin SDK operation action function for the 'UpdateCampaignSpend' Mutation. Allow users to execute without passing in DataConnect. */
+export function updateCampaignSpend(dc: DataConnect, vars: UpdateCampaignSpendVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateCampaignSpendData>>;
+/** Generated Node Admin SDK operation action function for the 'UpdateCampaignSpend' Mutation. Allow users to pass in custom DataConnect instances. */
+export function updateCampaignSpend(vars: UpdateCampaignSpendVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<UpdateCampaignSpendData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DeleteCampaignSpend' Mutation. Allow users to execute without passing in DataConnect. */
+export function deleteCampaignSpend(dc: DataConnect, vars: DeleteCampaignSpendVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeleteCampaignSpendData>>;
+/** Generated Node Admin SDK operation action function for the 'DeleteCampaignSpend' Mutation. Allow users to pass in custom DataConnect instances. */
+export function deleteCampaignSpend(vars: DeleteCampaignSpendVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DeleteCampaignSpendData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListPropertyMapPins' Query. Allow users to execute without passing in DataConnect. */
 export function listPropertyMapPins(dc: DataConnect, vars: ListPropertyMapPinsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListPropertyMapPinsData>>;

@@ -127,6 +127,8 @@ export const ActivityKind = {
   META_LEAD_PAGE_DISCONNECTED: "META_LEAD_PAGE_DISCONNECTED",
   META_LEAD_FORM_UPDATED: "META_LEAD_FORM_UPDATED",
   LEAD_SOURCES_FILLED: "LEAD_SOURCES_FILLED",
+  CAMPAIGN_CHANGED: "CAMPAIGN_CHANGED",
+  CAMPAIGN_SPEND_CHANGED: "CAMPAIGN_SPEND_CHANGED",
 }
 
 export const AgentAvailabilityStatus = {
@@ -260,6 +262,7 @@ export const AuditTargetType = {
   OUTBOUND_MESSAGE: "OUTBOUND_MESSAGE",
   META_LEAD_CONNECTION: "META_LEAD_CONNECTION",
   META_LEAD_FORM: "META_LEAD_FORM",
+  CAMPAIGN: "CAMPAIGN",
 }
 
 export const AutomationApprovalStatus = {
@@ -366,6 +369,12 @@ export const CallType = {
   FOLLOW_UP: "FOLLOW_UP",
   MARKETING: "MARKETING",
   INBOUND_ENQUIRY: "INBOUND_ENQUIRY",
+}
+
+export const CampaignStatus = {
+  ACTIVE: "ACTIVE",
+  PAUSED: "PAUSED",
+  ENDED: "ENDED",
 }
 
 export const CompanySize = {
@@ -1404,6 +1413,54 @@ export function listAutomationEventsForTarget(dcOrVarsOrOptions, varsOrOptions, 
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);
   return dcInstance.executeQuery('ListAutomationEventsForTarget', inputVars, inputOpts);
+}
+
+export function campaignPerformance(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('CampaignPerformance', inputVars, inputOpts);
+}
+
+export function getCampaign(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetCampaign', inputVars, inputOpts);
+}
+
+export function campaignOwners(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('CampaignOwners', inputVars, inputOpts);
+}
+
+export function createCampaign(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateCampaign', inputVars, inputOpts);
+}
+
+export function updateCampaign(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateCampaign', inputVars, inputOpts);
+}
+
+export function addCampaignSpend(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AddCampaignSpend', inputVars, inputOpts);
+}
+
+export function updateCampaignSpend(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateCampaignSpend', inputVars, inputOpts);
+}
+
+export function deleteCampaignSpend(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DeleteCampaignSpend', inputVars, inputOpts);
 }
 
 export function listPropertyMapPins(dcOrVarsOrOptions, varsOrOptions, options) {

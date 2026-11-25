@@ -67,6 +67,7 @@ export enum AuditTargetType {
   OUTBOUND_MESSAGE = "OUTBOUND_MESSAGE",
   META_LEAD_CONNECTION = "META_LEAD_CONNECTION",
   META_LEAD_FORM = "META_LEAD_FORM",
+  CAMPAIGN = "CAMPAIGN",
 }
 export enum CallConsentStatus {
   NOTICE_GIVEN = "NOTICE_GIVEN",
@@ -751,6 +752,18 @@ export interface CallTranscript_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'CallTranscript_Key';
+}
+
+export interface CampaignSpend_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'CampaignSpend_Key';
+}
+
+export interface Campaign_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'Campaign_Key';
 }
 
 export interface CancelInboxReplyData {

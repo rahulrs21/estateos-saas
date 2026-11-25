@@ -1,0 +1,62 @@
+# Phase 7F: campaigns and cost per lead (docs/CAMPAIGNS_PLAN.md).
+#
+# A campaign is identified by its campaign key, the same key leads are grouped by (LeadAttribution.campaignKey).
+# Campaigns found in leads are listed without a row here; a row is created when a member gives one details or
+# spend, or adds a campaign before any lead arrives. Renaming never changes the key, so grouping never moves.
+
+enum CampaignStatus { ACTIVE PAUSED ENDED }
+# Where a spend row came from. Only MANUAL rows are entered and edited by members; the others are synced (7F.2+).
+enum CampaignSpendSource { MANUAL META GOOGLE TIKTOK }
+
+type Campaign @table(key: ["organization", "id"])
+  @unique(fields: ["organizationId", "campaignKey"])
+  @index(fields: ["organizationId", "updatedAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  campaignKey: String! @col(dataType: "varchar(200)")
+  name: String! @col(dataType: "varchar(200)")
+  # meta, google, tiktok, snapchat, linkedin, portal or other.
+  platform: String @col(dataType: "varchar(20)")
+  status: CampaignStatus! @default(value: ACTIVE)
+  startsOn: Date
+  endsOn: Date
+  budgetMinor: Int64 @col(dataType: "numeric(18,0)")
+  currency: String! @default(value: "AED") @col(dataType: "varchar(3)")
+  ownerMembershipId: UUID
+  ownerMembership: Membership @ref(fields: ["organizationId", "ownerMembershipId"], references: ["organizationId", "id"], constraintName: "campaign_owner_fkey")
+  notes: String @col(dataType: "varchar(2000)")
+  metaCampaignId: String @col(dataType: "varchar(40)")
+  googleCampaignId: String @col(dataType: "varchar(40)")
+  tiktokCampaignId: String @col(dataType: "varchar(40)")
+  revision: Int! @default(value: 1)
+  createdByUid: String!
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}
+
+# Spend for a period (both days included, in the ad account's or the company's calendar). Reports count the share of
+# each period inside the chosen dates. Synced rows are one day each; a member's entry may cover any period up to a
+# year, and a campaign's MANUAL entries never overlap. Amounts are in minor units of their own currency, never converted.
+type CampaignSpend @table(key: ["organization", "id"])
+  @index(fields: ["organizationId", "campaignId", "spentFrom"])
+  @index(fields: ["organizationId", "spentFrom"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  campaignId: UUID!
+  campaign: Campaign! @ref(fields: ["organizationId", "campaignId"], references: ["organizationId", "id"], constraintName: "campaign_spend_campaign_fkey")
+  source: CampaignSpendSource!
+  spentFrom: Date!
+  spentTo: Date!
+  amountMinor: Int64! @col(dataType: "numeric(18,0)")
+  currency: String! @col(dataType: "varchar(3)")
+  impressions: Int64 @col(dataType: "numeric(18,0)")
+  clicks: Int64 @col(dataType: "numeric(18,0)")
+  # Synced rows: the ad account they came from (7F.2+).
+  externalAccountId: String @col(dataType: "varchar(40)")
+  note: String @col(dataType: "varchar(300)")
+  enteredByUid: String
+  createdAt: Timestamp! @default(expr: "request.time")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}

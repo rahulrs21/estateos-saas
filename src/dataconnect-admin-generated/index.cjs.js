@@ -127,6 +127,8 @@ const ActivityKind = {
   META_LEAD_PAGE_DISCONNECTED: "META_LEAD_PAGE_DISCONNECTED",
   META_LEAD_FORM_UPDATED: "META_LEAD_FORM_UPDATED",
   LEAD_SOURCES_FILLED: "LEAD_SOURCES_FILLED",
+  CAMPAIGN_CHANGED: "CAMPAIGN_CHANGED",
+  CAMPAIGN_SPEND_CHANGED: "CAMPAIGN_SPEND_CHANGED",
 }
 exports.ActivityKind = ActivityKind;
 
@@ -272,6 +274,7 @@ const AuditTargetType = {
   OUTBOUND_MESSAGE: "OUTBOUND_MESSAGE",
   META_LEAD_CONNECTION: "META_LEAD_CONNECTION",
   META_LEAD_FORM: "META_LEAD_FORM",
+  CAMPAIGN: "CAMPAIGN",
 }
 exports.AuditTargetType = AuditTargetType;
 
@@ -392,6 +395,13 @@ const CallType = {
   INBOUND_ENQUIRY: "INBOUND_ENQUIRY",
 }
 exports.CallType = CallType;
+
+const CampaignStatus = {
+  ACTIVE: "ACTIVE",
+  PAUSED: "PAUSED",
+  ENDED: "ENDED",
+}
+exports.CampaignStatus = CampaignStatus;
 
 const CompanySize = {
   SOLO: "SOLO",
@@ -1590,6 +1600,62 @@ function listAutomationEventsForTarget(dcOrVarsOrOptions, varsOrOptions, options
   return dcInstance.executeQuery('ListAutomationEventsForTarget', inputVars, inputOpts);
 }
 exports.listAutomationEventsForTarget = listAutomationEventsForTarget;
+
+function campaignPerformance(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('CampaignPerformance', inputVars, inputOpts);
+}
+exports.campaignPerformance = campaignPerformance;
+
+function getCampaign(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('GetCampaign', inputVars, inputOpts);
+}
+exports.getCampaign = getCampaign;
+
+function campaignOwners(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('CampaignOwners', inputVars, inputOpts);
+}
+exports.campaignOwners = campaignOwners;
+
+function createCampaign(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateCampaign', inputVars, inputOpts);
+}
+exports.createCampaign = createCampaign;
+
+function updateCampaign(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateCampaign', inputVars, inputOpts);
+}
+exports.updateCampaign = updateCampaign;
+
+function addCampaignSpend(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('AddCampaignSpend', inputVars, inputOpts);
+}
+exports.addCampaignSpend = addCampaignSpend;
+
+function updateCampaignSpend(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('UpdateCampaignSpend', inputVars, inputOpts);
+}
+exports.updateCampaignSpend = updateCampaignSpend;
+
+function deleteCampaignSpend(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DeleteCampaignSpend', inputVars, inputOpts);
+}
+exports.deleteCampaignSpend = deleteCampaignSpend;
 
 function listPropertyMapPins(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);

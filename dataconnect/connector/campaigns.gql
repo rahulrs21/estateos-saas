@@ -1,0 +1,121 @@
+# Phase 7F.1: campaigns and cost per lead (docs/CAMPAIGNS_PLAN.md). Owners and administrators manage campaigns and
+# spend; owners, administrators and managers read them (decision 1). Agents never read spend: every operation here
+# checks the role in the database. Lead counts are company-wide aggregates (no lead details).
+
+# Campaigns for a period: every campaign with a record or found in leads (newest name), with leads, qualified and won
+# created in the period, and spend by currency (each period's share inside the chosen days). One campaign when
+# $campaignKey is given. "Qualified" and "won" are counted as in the 7E report.
+query CampaignPerformance($organizationId: UUID!, $fromDate: Date!, $toDate: Date!, $from: Timestamp!, $to: Timestamp!, $campaignKey: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.from < vars.to && (!has(vars.campaignKey) || vars.campaignKey == null || vars.campaignKey.size() <= 200)") {
+ viewer: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}) @redact @check(expr: "this != null", message: "CAMPAIGNS_FORBIDDEN") {id role}
+ campaigns: _select(sql: """
+  SELECT k.key, c.id::text AS id, c.name, c.platform, c.status::text AS status, c.starts_on::text AS starts_on, c.ends_on::text AS ends_on,
+   c.budget_minor::text AS budget_minor, c.currency, n.label, n.platform AS lead_platform, n.channel,
+   COALESCE(s.leads, 0) AS leads, COALESCE(s.qualified, 0) AS qualified, COALESCE(s.won, 0) AS won
+  FROM (
+   SELECT campaign_key AS key FROM campaign WHERE organization_id = $1
+   UNION
+   SELECT a.campaign_key FROM lead_attribution a WHERE a.organization_id = $1 AND a.campaign_key IS NOT NULL
+  ) k
+  LEFT JOIN campaign c ON c.organization_id = $1 AND c.campaign_key = k.key
+  LEFT JOIN LATERAL (SELECT COALESCE(a.meta_campaign_name, a.utm_campaign, a.meta_ad_name, a.campaign_key) AS label, a.platform, a.channel::text AS channel
+   FROM lead_attribution a WHERE a.organization_id = $1 AND a.campaign_key = k.key ORDER BY a.captured_at DESC LIMIT 1) n ON true
+  LEFT JOIN LATERAL (SELECT COUNT(*) AS leads,
+    COUNT(*) FILTER (WHERE l.status IN ('QUALIFIED', 'VIEWING_SCHEDULED', 'VIEWING_COMPLETED', 'NEGOTIATION', 'WON', 'CONVERTED')) AS qualified,
+    COUNT(*) FILTER (WHERE l.status IN ('WON', 'CONVERTED')) AS won
+   FROM lead_attribution a JOIN lead l ON l.organization_id = a.organization_id AND l.id = a.lead_id
+   WHERE a.organization_id = $1 AND a.campaign_key = k.key AND l.archived_at IS NULL AND l.created_at >= $2 AND l.created_at < $3) s ON true
+  WHERE ($4::text IS NULL OR k.key = $4)
+  ORDER BY COALESCE(s.leads, 0) DESC, k.key ASC LIMIT 500
+ """, params: [$organizationId, $from, $to, $campaignKey])
+ spend: _select(sql: """
+  SELECT c.campaign_key AS key, s.currency,
+   ROUND(SUM(s.amount_minor * (LEAST(s.spent_to, $3::date) - GREATEST(s.spent_from, $2::date) + 1)::numeric / (s.spent_to - s.spent_from + 1)))::text AS amount_minor
+  FROM campaign_spend s JOIN campaign c ON c.organization_id = s.organization_id AND c.id = s.campaign_id
+  WHERE s.organization_id = $1 AND s.spent_to >= $2::date AND s.spent_from <= $3::date AND ($4::text IS NULL OR c.campaign_key = $4)
+  GROUP BY c.campaign_key, s.currency ORDER BY c.campaign_key, s.currency
+ """, params: [$organizationId, $fromDate, $toDate, $campaignKey])
+}
+
+# One campaign's record, its spend entries and its leads by channel (all time).
+query GetCampaign($organizationId: UUID!, $campaignKey: String!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.campaignKey.size() >= 1 && vars.campaignKey.size() <= 200") {
+ viewer: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}) @check(expr: "this != null", message: "CAMPAIGNS_FORBIDDEN") {id role}
+ campaign(first: {where: {organizationId: {eq: $organizationId}, campaignKey: {eq: $campaignKey}}}) {
+  id campaignKey name platform status startsOn endsOn budgetMinor currency ownerMembershipId notes metaCampaignId googleCampaignId tiktokCampaignId revision createdAt updatedAt
+  ownerMembership {id email userProfile {displayName}}
+  entries: campaignSpends_on_campaign(orderBy: [{spentFrom: DESC}], limit: 200) {id source spentFrom spentTo amountMinor currency note impressions clicks createdAt}
+ }
+ channels: _select(sql: """
+  SELECT a.channel::text AS channel, COUNT(*) AS leads FROM lead_attribution a JOIN lead l ON l.organization_id = a.organization_id AND l.id = a.lead_id
+  WHERE a.organization_id = $1 AND a.campaign_key = $2 AND l.archived_at IS NULL GROUP BY 1 ORDER BY leads DESC, channel ASC
+ """, params: [$organizationId, $campaignKey])
+}
+
+# Members a campaign can belong to (names only), for owners and administrators.
+query CampaignOwners($organizationId: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") {
+ viewer: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN, MANAGER]}}}) @redact @check(expr: "this != null", message: "CAMPAIGNS_FORBIDDEN") {id}
+ members: memberships(where: {organizationId: {eq: $organizationId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}, orderBy: [{createdAt: ASC}], limit: 200) {id email role userProfile {displayName}}
+}
+
+mutation CreateCampaign($organizationId: UUID!, $id: UUID!, $campaignKey: String!, $name: String!, $platform: String, $status: CampaignStatus!, $startsOn: Date, $endsOn: Date,
+  $budgetMinor: Int64, $currency: String!, $hasOwner: Boolean!, $ownerMembershipId: UUID, $notes: String, $metaCampaignId: String, $googleCampaignId: String, $tiktokCampaignId: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.campaignKey.size() >= 1 && vars.campaignKey.size() <= 200 && vars.name.size() >= 1 && vars.name.size() <= 200 && vars.currency.matches('^[A-Z]{3}$') && (!has(vars.notes) || vars.notes == null || vars.notes.size() <= 2000) && (!has(vars.platform) || vars.platform == null || vars.platform in ['meta', 'google', 'tiktok', 'snapchat', 'linkedin', 'portal', 'other']) && vars.hasOwner == (has(vars.ownerMembershipId) && vars.ownerMembershipId != null)") @transaction {
+ admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "CAMPAIGNS_ADMIN_REQUIRED")
+ target: query @redact @check(expr: "!vars.hasOwner || (has(this.owner) && this.owner != null)", message: "CAMPAIGN_OWNER_INVALID") {
+  owner: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $ownerMembershipId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}}) @include(if: $hasOwner) {id}
+ }
+ campaign_insert(data: {organizationId: $organizationId, id: $id, campaignKey: $campaignKey, name: $name, platform: $platform, status: $status, startsOn: $startsOn, endsOn: $endsOn, budgetMinor: $budgetMinor,
+  currency: $currency, ownerMembershipId: $ownerMembershipId, notes: $notes, metaCampaignId: $metaCampaignId, googleCampaignId: $googleCampaignId, tiktokCampaignId: $tiktokCampaignId, createdByUid_expr: "auth.uid"})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CAMPAIGN_CHANGED, targetType: CAMPAIGN, targetId: $id, metadata_expr: "{'created': true, 'campaignKey': vars.campaignKey}"})
+}
+
+mutation UpdateCampaign($organizationId: UUID!, $id: UUID!, $expectedRevision: Int!, $name: String!, $platform: String, $status: CampaignStatus!, $startsOn: Date, $endsOn: Date,
+  $budgetMinor: Int64, $currency: String!, $hasOwner: Boolean!, $ownerMembershipId: UUID, $notes: String, $metaCampaignId: String, $googleCampaignId: String, $tiktokCampaignId: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.name.size() >= 1 && vars.name.size() <= 200 && vars.currency.matches('^[A-Z]{3}$') && (!has(vars.notes) || vars.notes == null || vars.notes.size() <= 2000) && (!has(vars.platform) || vars.platform == null || vars.platform in ['meta', 'google', 'tiktok', 'snapchat', 'linkedin', 'portal', 'other']) && vars.hasOwner == (has(vars.ownerMembershipId) && vars.ownerMembershipId != null)") @transaction {
+ admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "CAMPAIGNS_ADMIN_REQUIRED")
+ target: query @redact @check(expr: "!vars.hasOwner || (has(this.owner) && this.owner != null)", message: "CAMPAIGN_OWNER_INVALID") {
+  owner: membership(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $ownerMembershipId}, status: {eq: ACTIVE}, userProfileUid: {isNull: false}}}) @include(if: $hasOwner) {id}
+ }
+ campaign_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, revision: {eq: $expectedRevision}}}, data: {name: $name, platform: $platform, status: $status, startsOn: $startsOn, endsOn: $endsOn,
+  budgetMinor: $budgetMinor, currency: $currency, ownerMembershipId: $ownerMembershipId, notes: $notes, metaCampaignId: $metaCampaignId, googleCampaignId: $googleCampaignId, tiktokCampaignId: $tiktokCampaignId,
+  revision_update: {inc: 1}, updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "CAMPAIGN_CHANGED")
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CAMPAIGN_CHANGED, targetType: CAMPAIGN, targetId: $id, metadata_expr: "{'revision': vars.expectedRevision + 1, 'status': vars.status}"})
+}
+
+# A member's spend for a period. A campaign's MANUAL entries never overlap, so a period is never counted twice.
+mutation AddCampaignSpend($organizationId: UUID!, $id: UUID!, $campaignId: UUID!, $spentFrom: Date!, $spentTo: Date!, $amountMinor: Int64!, $currency: String!, $note: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.currency.matches('^[A-Z]{3}$') && (!has(vars.note) || vars.note == null || vars.note.size() <= 300)") @transaction {
+ admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "CAMPAIGNS_ADMIN_REQUIRED")
+ before: query @redact @check(expr: "this.campaign != null && this.overlap.size() == 0", message: "CAMPAIGN_SPEND_OVERLAP") {
+  campaign: campaign(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $campaignId}}}) @check(expr: "this != null", message: "CAMPAIGN_NOT_FOUND") {id}
+  overlap: campaignSpends(where: {organizationId: {eq: $organizationId}, campaignId: {eq: $campaignId}, source: {eq: MANUAL}, spentFrom: {le: $spentTo}, spentTo: {ge: $spentFrom}}, limit: 1) {id}
+ }
+ campaignSpend_insert(data: {organizationId: $organizationId, id: $id, campaignId: $campaignId, source: MANUAL, spentFrom: $spentFrom, spentTo: $spentTo, amountMinor: $amountMinor, currency: $currency, note: $note, enteredByUid_expr: "auth.uid"})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CAMPAIGN_SPEND_CHANGED, targetType: CAMPAIGN, targetId: $campaignId, metadata_expr: "{'spendId': vars.id, 'added': true}"})
+}
+
+mutation UpdateCampaignSpend($organizationId: UUID!, $id: UUID!, $spentFrom: Date!, $spentTo: Date!, $amountMinor: Int64!, $currency: String!, $note: String)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.currency.matches('^[A-Z]{3}$') && (!has(vars.note) || vars.note == null || vars.note.size() <= 300)") @transaction {
+ admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "CAMPAIGNS_ADMIN_REQUIRED")
+ entry: query @redact {
+  spend: campaignSpend(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, source: {eq: MANUAL}}}) @check(expr: "this != null", message: "CAMPAIGN_SPEND_NOT_FOUND") {campaignId}
+ }
+ before: query @redact @check(expr: "this.overlap.size() == 0", message: "CAMPAIGN_SPEND_OVERLAP") {
+  overlap: campaignSpends(where: {organizationId: {eq: $organizationId}, campaignId: {eq_expr: "response.entry.spend.campaignId"}, id: {ne: $id}, source: {eq: MANUAL}, spentFrom: {le: $spentTo}, spentTo: {ge: $spentFrom}}, limit: 1) {id}
+ }
+ campaignSpend_update(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, source: {eq: MANUAL}}}, data: {spentFrom: $spentFrom, spentTo: $spentTo, amountMinor: $amountMinor, currency: $currency, note: $note, updatedAt_expr: "request.time"})
+  @check(expr: "this != null", message: "CAMPAIGN_SPEND_NOT_FOUND")
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CAMPAIGN_SPEND_CHANGED, targetType: CAMPAIGN, targetId_expr: "response.entry.spend.campaignId", metadata_expr: "{'spendId': vars.id, 'updated': true}"})
+}
+
+mutation DeleteCampaignSpend($organizationId: UUID!, $id: UUID!)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password'") @transaction {
+ admin: membership_update(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq_expr: "auth.uid"}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}, data: {status: ACTIVE}) @redact @check(expr: "this != null", message: "CAMPAIGNS_ADMIN_REQUIRED")
+ entry: query @redact {
+  spend: campaignSpend(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, source: {eq: MANUAL}}}) @check(expr: "this != null", message: "CAMPAIGN_SPEND_NOT_FOUND") {campaignId}
+ }
+ campaignSpend_delete(first: {where: {organizationId: {eq: $organizationId}, id: {eq: $id}, source: {eq: MANUAL}}})
+ auditLog_insert(data: {organizationId: $organizationId, actorUid_expr: "auth.uid", action: CAMPAIGN_SPEND_CHANGED, targetType: CAMPAIGN, targetId_expr: "response.entry.spend.campaignId", metadata_expr: "{'spendId': vars.id, 'deleted': true}"})
+}

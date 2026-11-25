@@ -375,4 +375,79 @@ export function registerCaptureCases({ sdk, run, forbidden, dc }) {
       for (const leadId of created) await run(sdk.archiveLead, "owner-a", { organizationId: f.orgA, leadId });
     });
   });
+
+  // Phase 7F.1 (docs/CAMPAIGNS_PLAN.md): campaigns, spend and cost per lead.
+  describe("Phase 7F.1 campaigns and spend", { concurrency: false }, () => {
+    const gql = async (query, variables = {}) => (await dc.executeGraphql(query, { variables })).data;
+    const tag = randomBytes(3).toString("hex");
+    const FOUND = `found in leads ${tag}`, ADDED = `spring open day ${tag}`;
+    const period = { fromDate: "2026-11-01", toDate: "2026-11-10", from: "2026-10-31T20:00:00.000Z", to: "2026-11-10T20:00:00.000Z" };
+    const perf = async (uid, extra = {}) => run(sdk.campaignPerformance, uid, { organizationId: f.orgA, ...period, campaignKey: null, ...extra });
+    const spendOf = (data, key) => data.spend.filter((row) => row.key === key).map((row) => [row.currency, Number(row.amount_minor)]);
+    const leads = [];
+    let found, added;
+
+    it("lists campaigns found in leads and added by hand, for owners, administrators and managers only", async () => {
+      // A lead created inside the period, with a campaign typed by hand.
+      const lead = (await run(sdk.createLead, "owner-a", { organizationId: f.orgA, fullName: `Campaign ${tag}`, assignedMembershipId: f.memberAgentA, campaign: "Found In Leads", campaignKey: FOUND })).lead.id;
+      leads.push(lead);
+      await gql(`mutation T($org: UUID!, $lead: UUID!) { lead_update(key: {organizationId: $org, id: $lead}, data: {createdAt: "2026-11-05T08:00:00.000Z"}) }`, { org: f.orgA, lead });
+      const list = await perf("owner-a");
+      found = list.campaigns.find((row) => row.key === FOUND);
+      assert.deepEqual({ id: found.id, name: found.name, label: found.label, leads: Number(found.leads) }, { id: null, name: null, label: "Found In Leads", leads: 1 }, "found in leads, with no record yet");
+      assert.ok((await perf("manager-a")).campaigns.some((row) => row.key === FOUND), "managers see campaigns");
+      await forbidden(sdk.campaignPerformance, "agent-a", { organizationId: f.orgA, ...period, campaignKey: null });
+      await forbidden(sdk.campaignPerformance, "owner-b", { organizationId: f.orgA, ...period, campaignKey: null });
+      await forbidden(sdk.getCampaign, "agent-a", { organizationId: f.orgA, campaignKey: FOUND });
+
+      added = randomUUID();
+      await run(sdk.createCampaign, "owner-a", { organizationId: f.orgA, id: added, campaignKey: ADDED, name: "Spring Open Day", platform: "meta", status: sdk.CampaignStatus.ACTIVE, startsOn: "2026-11-01", endsOn: null,
+        budgetMinor: "2500000", currency: "AED", hasOwner: true, ownerMembershipId: f.memberManagerA, notes: "Synthetic.", metaCampaignId: "120200000000000900", googleCampaignId: null, tiktokCampaignId: null });
+      const row = (await perf("owner-a", { campaignKey: ADDED })).campaigns;
+      assert.deepEqual(row.map((item) => [item.key, item.name, item.status, item.budget_minor, Number(item.leads)]), [[ADDED, "Spring Open Day", "ACTIVE", "2500000", 0]], "a campaign added before any lead");
+      await assert.rejects(run(sdk.createCampaign, "admin-a", { organizationId: f.orgA, id: randomUUID(), campaignKey: ADDED, name: "Again", status: sdk.CampaignStatus.ACTIVE, currency: "AED", hasOwner: false }), "one campaign per key");
+      await forbidden(sdk.createCampaign, "manager-a", { organizationId: f.orgA, id: randomUUID(), campaignKey: `m ${tag}`, name: "M", status: sdk.CampaignStatus.ACTIVE, currency: "AED", hasOwner: false });
+      await assert.rejects(run(sdk.createCampaign, "owner-a", { organizationId: f.orgA, id: randomUUID(), campaignKey: `o ${tag}`, name: "O", status: sdk.CampaignStatus.ACTIVE, currency: "AED", hasOwner: true, ownerMembershipId: randomUUID() }),
+        (error) => /CAMPAIGN_OWNER_INVALID|campaign_owner_fkey/.test(String(error?.message ?? error)), "the owner must be a member of the company");
+      await forbidden(sdk.createCampaign, "owner-a", { organizationId: f.orgA, id: randomUUID(), campaignKey: `c ${tag}`, name: "C", status: sdk.CampaignStatus.ACTIVE, currency: "dirham", hasOwner: false });
+    });
+
+    it("counts each spend entry by its share of days in the period, never overlaps entries, and keeps currencies apart", async () => {
+      const add = (uid, extra) => run(sdk.addCampaignSpend, uid, { organizationId: f.orgA, id: randomUUID(), campaignId: added, currency: "AED", note: null, ...extra });
+      const month = randomUUID();
+      await run(sdk.addCampaignSpend, "owner-a", { organizationId: f.orgA, id: month, campaignId: added, spentFrom: "2026-11-01", spentTo: "2026-11-30", amountMinor: "300000", currency: "AED", note: "November" });
+      assert.deepEqual(spendOf(await perf("owner-a"), ADDED), [["AED", 100000]], "10 of November's 30 days");
+      await assert.rejects(add("admin-a", { spentFrom: "2026-11-30", spentTo: "2026-12-05", amountMinor: "1000" }), (error) => String(error?.message ?? error).includes("CAMPAIGN_SPEND_OVERLAP"), "entries never overlap");
+      await add("admin-a", { spentFrom: "2026-12-01", spentTo: "2026-12-31", amountMinor: "310000" });
+      await assert.rejects(add("admin-a", { spentFrom: "2026-11-05", spentTo: "2026-11-05", amountMinor: "5000", currency: "USD" }), (error) => String(error?.message ?? error).includes("CAMPAIGN_SPEND_OVERLAP"), "another currency does not make an overlap allowed");
+      await forbidden(sdk.addCampaignSpend, "manager-a", { organizationId: f.orgA, id: randomUUID(), campaignId: added, spentFrom: "2027-01-01", spentTo: "2027-01-02", amountMinor: "1", currency: "AED" });
+      await forbidden(sdk.addCampaignSpend, "agent-a", { organizationId: f.orgA, id: randomUUID(), campaignId: added, spentFrom: "2027-01-01", spentTo: "2027-01-02", amountMinor: "1", currency: "AED" });
+      const wide = await perf("manager-a", { fromDate: "2026-11-25", toDate: "2026-12-01", from: "2026-11-24T20:00:00.000Z", to: "2026-12-01T20:00:00.000Z" });
+      assert.deepEqual(spendOf(wide, ADDED), [["AED", 70000]], "6 days of November and 1 of December");
+
+      // Changing and removing entries: only MANUAL entries, only by owners and administrators, still never overlapping.
+      await assert.rejects(run(sdk.updateCampaignSpend, "owner-a", { organizationId: f.orgA, id: month, spentFrom: "2026-11-01", spentTo: "2026-12-02", amountMinor: "300000", currency: "AED" }),
+        (error) => String(error?.message ?? error).includes("CAMPAIGN_SPEND_OVERLAP"));
+      await run(sdk.updateCampaignSpend, "owner-a", { organizationId: f.orgA, id: month, spentFrom: "2026-11-01", spentTo: "2026-11-10", amountMinor: "200000", currency: "AED", note: "Corrected" });
+      assert.deepEqual(spendOf(await perf("owner-a"), ADDED), [["AED", 200000]]);
+      await forbidden(sdk.deleteCampaignSpend, "manager-a", { organizationId: f.orgA, id: month });
+      const detail = (await run(sdk.getCampaign, "manager-a", { organizationId: f.orgA, campaignKey: ADDED })).campaign;
+      assert.deepEqual(detail.entries.map((entry) => [entry.spentFrom, entry.amountMinor, entry.source]), [["2026-12-01", "310000", "MANUAL"], ["2026-11-01", "200000", "MANUAL"]]);
+      await run(sdk.deleteCampaignSpend, "owner-a", { organizationId: f.orgA, id: month });
+      assert.deepEqual(spendOf(await perf("owner-a"), ADDED), [], "removed");
+      await assert.rejects(run(sdk.deleteCampaignSpend, "owner-a", { organizationId: f.orgA, id: month }), (error) => String(error?.message ?? error).includes("CAMPAIGN_SPEND_NOT_FOUND"));
+    });
+
+    it("updates a campaign only at the revision it was read, and audits every change", async () => {
+      await run(sdk.updateCampaign, "admin-a", { organizationId: f.orgA, id: added, expectedRevision: 1, name: "Spring Open Day (renamed)", platform: "meta", status: sdk.CampaignStatus.PAUSED, startsOn: "2026-11-01", endsOn: "2026-12-31",
+        budgetMinor: null, currency: "AED", hasOwner: false, ownerMembershipId: null, notes: null, metaCampaignId: null, googleCampaignId: null, tiktokCampaignId: null });
+      await assert.rejects(run(sdk.updateCampaign, "owner-a", { organizationId: f.orgA, id: added, expectedRevision: 1, name: "Stale", status: sdk.CampaignStatus.ACTIVE, currency: "AED", hasOwner: false }),
+        (error) => String(error?.message ?? error).includes("CAMPAIGN_CHANGED"), "a stale edit is refused");
+      const row = (await perf("owner-a", { campaignKey: ADDED })).campaigns[0];
+      assert.deepEqual([row.key, row.name, row.status], [ADDED, "Spring Open Day (renamed)", "PAUSED"], "renaming keeps the key");
+      const audit = (await gql(`query A($org: UUID!, $id: UUID!) { auditLogs(where: {organizationId: {eq: $org}, targetId: {eq: $id}, action: {in: [CAMPAIGN_CHANGED, CAMPAIGN_SPEND_CHANGED]}}) { action } }`, { org: f.orgA, id: added })).auditLogs;
+      assert.ok(audit.filter((entry) => entry.action === "CAMPAIGN_CHANGED").length === 2 && audit.filter((entry) => entry.action === "CAMPAIGN_SPEND_CHANGED").length >= 4, "created, edited, and spend added, changed and removed");
+      for (const leadId of leads) await run(sdk.archiveLead, "owner-a", { organizationId: f.orgA, leadId });
+    });
+  });
 }

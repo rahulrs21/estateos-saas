@@ -168,6 +168,25 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (/\b(?:CALL_AI_SUMMARY_CHANGED|CALL_AI_SUGGESTION_DECIDED)\b/.test(message)) {
       return new WorkspaceError("CONFLICT", 409, "This summary or suggestion was already handled, or you cannot change it. Reload the call.");
     }
+    // Phase 7E and 7F (docs/LEAD_ATTRIBUTION_PLAN.md, docs/CAMPAIGNS_PLAN.md).
+    if (/\b(?:CAMPAIGNS_FORBIDDEN|CAMPAIGNS_ADMIN_REQUIRED|LEAD_SOURCE_BACKFILL_FORBIDDEN)\b/.test(message)) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, message.includes("CAMPAIGNS_FORBIDDEN") ? "Campaigns and spend are for owners, administrators and managers." : "Only owners and administrators can change this.");
+    }
+    if (message.includes("CAMPAIGN_SPEND_OVERLAP")) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "This campaign already has spend entered for some of these days. Edit that entry, or choose days it does not cover.");
+    }
+    if (/\b(?:CAMPAIGN_NOT_FOUND|CAMPAIGN_SPEND_NOT_FOUND)\b/.test(message)) {
+      return new WorkspaceError("NOT_FOUND", 404, "This campaign or spend entry was not found. Reload and try again.");
+    }
+    if (message.includes("CAMPAIGN_CHANGED")) {
+      return new WorkspaceError("CONFLICT", 409, "This campaign changed since you opened it. Reload and try again.");
+    }
+    if (message.includes("CAMPAIGN_OWNER_INVALID") || message.includes("campaign_owner_fkey")) {
+      return new WorkspaceError("VALIDATION_ERROR", 400, "Choose an active member of your company as the campaign's owner.");
+    }
+    if (message.includes("INBOX_LEAD_SOURCE_NOT_ALLOWED")) {
+      return new WorkspaceError("CONFLICT", 409, "This lead's source cannot be changed by linking. Reload the conversation and try again.");
+    }
     if (/\b(?:INBOX_CONVERSATION_NOT_FOUND|INBOX_LINK_TARGET_NOT_FOUND)\b/.test(message)) {
       return new WorkspaceError("NOT_FOUND", 404, "This conversation, lead or contact was not found, or you cannot use it.");
     }
