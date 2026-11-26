@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Dashboard } from "@/modules/dashboard/components/dashboard";
-import { parseDashboardRange } from "@/modules/dashboard/dashboard-model";
+import { firstName, parseDashboardRange } from "@/modules/dashboard/dashboard-model";
+import { requireSession } from "@/lib/auth/session";
 import { requireCompanyWorkspace } from "@/modules/organizations/server/workspace";
 import { PageSkeleton } from "@/components/shared/page-skeleton";
 
@@ -10,8 +11,8 @@ export const metadata: Metadata = { title: "Dashboard" };
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 async function AuthenticatedDashboard({ searchParams }: { searchParams: SearchParams }) {
-  const [{ activeCompany }, params] = await Promise.all([requireCompanyWorkspace(), searchParams]);
-  return <Dashboard companyName={activeCompany.name} range={parseDashboardRange(params.range)} />;
+  const [user, , params] = await Promise.all([requireSession(), requireCompanyWorkspace(), searchParams]);
+  return <Dashboard firstName={firstName(user.name)} range={parseDashboardRange(params.range)} />;
 }
 
 export default function DashboardPage({ searchParams }: { searchParams: SearchParams }) {

@@ -38,7 +38,11 @@ The dashboard is `/workspace/dashboard`. It requires a verified session and an A
 - The agent leaderboard compares colleagues and is shown only to OWNER and ADMIN.
 - Upcoming tasks are `ListMyTasks`: the caller's own follow-ups and work tasks, plus the unassigned team queue for OWNER, ADMIN and MANAGER.
 - Inventory figures and the property map are not shown to MANAGER (no verified inventory scope); AGENT sees assigned records. Map pins use `listInventoryMapPins`, which coarsens approximate locations on the server and never returns hidden ones.
+- "Your activity" is `ListRecentLeadActivity`: the latest activity on non-archived leads, with the same visibility predicate as `ListLeadActivities` (OWNER/ADMIN: every company lead; MANAGER/AGENT: leads assigned to them). Notes are not returned.
+- "vs previous period" figures run `GetLeadAnalytics` a second time for the equally long period before, in the same scope.
 - Each section loads independently; a failure shows an error in that section only. There is no deal model yet, so no deal value is shown.
+
+The header search (`GET /api/search?q=`, `src/modules/search/server/service.ts`) calls the existing list operations: `listLeads`, `searchContacts` and `listInventory` for properties and listings. It inherits their session, company, role and record-scope checks and adds none of its own; a lookup the member may not make (for example inventory for a MANAGER) contributes no results instead of failing the search.
 
 ## Membership lifecycle
 

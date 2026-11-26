@@ -3,6 +3,7 @@ import { getInventoryDashboardMetrics, type GetInventoryDashboardMetricsData } f
 import { executeWorkspaceOperation } from "@/lib/firebase/dataconnect";
 import { requireActiveOrganizationRequest } from "@/modules/organizations/server/context";
 import { WorkspaceError } from "@/modules/organizations/server/errors";
+import { Building2, House, KeyRound, Megaphone } from "lucide-react";
 import { DashboardCard, RankedList, SectionEmpty, SectionError } from "./dashboard-card";
 import { KpiCard } from "./kpi-card";
 import { Reveal } from "./motion";
@@ -11,7 +12,7 @@ const GROUP_LIMIT = 8;
 
 function SectionHeading({scope}: {scope: string}) {
   return <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-    <h2 className="text-base font-semibold">Inventory</h2>
+    <h2 className="text-lg font-semibold">Inventory</h2>
     <p className="text-xs text-muted-foreground">{scope}. Archived records are excluded.</p>
   </div>;
 }
@@ -48,10 +49,10 @@ export async function InventoryMetrics({map}: {map?: ReactNode}) {
   return <section className="space-y-3" aria-label="Inventory">
     <SectionHeading scope={role === "AGENT" ? "Properties and listings assigned to you" : "Company inventory"} />
     <Reveal index={6} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <KpiCard title="Properties" value={total} detail={`${listings.toLocaleString("en-AE")} listings in total`} href="/properties" />
-      <KpiCard title="Available" value={available} detail={share(available)} href="/properties?inventoryStatus=AVAILABLE" />
-      <KpiCard title="Reserved" value={data.reservedProperties[0]?.count ?? 0} detail={share(data.reservedProperties[0]?.count ?? 0)} href="/properties?inventoryStatus=RESERVED" />
-      <KpiCard title="Active listings" value={data.activeListings[0]?.count ?? 0} detail="Listings with status Active" href="/listings?listingStatus=ACTIVE" />
+      <KpiCard title="Properties" value={total} icon={Building2} tone="teal" detail={`${listings.toLocaleString("en-AE")} listings in total`} href="/properties" />
+      <KpiCard title="Available" value={available} icon={House} tone="green" detail={share(available)} href="/properties?inventoryStatus=AVAILABLE" />
+      <KpiCard title="Reserved" value={data.reservedProperties[0]?.count ?? 0} icon={KeyRound} tone="amber" detail={share(data.reservedProperties[0]?.count ?? 0)} href="/properties?inventoryStatus=RESERVED" />
+      <KpiCard title="Active listings" value={data.activeListings[0]?.count ?? 0} icon={Megaphone} tone="blue" detail="Listings with status Active" href="/listings?listingStatus=ACTIVE" />
     </Reveal>
     <Reveal index={7} className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
       {map}

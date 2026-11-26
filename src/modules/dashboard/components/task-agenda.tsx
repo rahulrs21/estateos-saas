@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { ClipboardList, PhoneCall } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DASHBOARD_TIME_ZONE, type AgendaDue, type AgendaItem } from "../dashboard-model";
 import { SectionEmpty } from "./dashboard-card";
+import { IconTile } from "./kpi-card";
 
 const dueTime = new Intl.DateTimeFormat("en-AE", {hour: "numeric", minute: "2-digit", timeZone: DASHBOARD_TIME_ZONE});
 const dueDay = new Intl.DateTimeFormat("en-AE", {weekday: "short", day: "numeric", month: "short", timeZone: DASHBOARD_TIME_ZONE});
@@ -22,9 +24,10 @@ const dueStyle: Record<AgendaDue, string> = {
 /** The next open follow-ups and work tasks, soonest first. Overdue items say so in text, not colour alone. */
 export function TaskAgenda({items, limit = 6}: {items: AgendaItem[]; limit?: number}) {
   if (!items.length) return <SectionEmpty>No open follow-ups or tasks.</SectionEmpty>;
-  return <ul className="-mx-2 divide-y">
+  return <ul className="-mx-2">
     {items.slice(0, limit).map(item => {
       const content = <>
+        <IconTile icon={item.kind === "FOLLOW_UP" ? PhoneCall : ClipboardList} tone={item.due === "OVERDUE" ? "rose" : item.kind === "FOLLOW_UP" ? "violet" : "blue"} size="sm" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{item.title}</span>
           <span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.kind === "FOLLOW_UP" ? "Follow-up" : "Task"} · {item.context}</span>
@@ -36,8 +39,8 @@ export function TaskAgenda({items, limit = 6}: {items: AgendaItem[]; limit?: num
       </>;
       return <li key={item.id}>
         {item.href
-          ? <Link href={item.href} className="flex items-center gap-4 rounded-md px-2 py-2.5 transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">{content}</Link>
-          : <div className="flex items-center gap-4 px-2 py-2.5">{content}</div>}
+          ? <Link href={item.href} className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">{content}</Link>
+          : <div className="flex items-center gap-3 px-2 py-2">{content}</div>}
       </li>;
     })}
   </ul>;

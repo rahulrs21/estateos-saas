@@ -2912,6 +2912,13 @@ function listLeadActivities(dcOrVarsOrOptions, varsOrOptions, options) {
 }
 exports.listLeadActivities = listLeadActivities;
 
+function listRecentLeadActivity(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('ListRecentLeadActivity', inputVars, inputOpts);
+}
+exports.listRecentLeadActivity = listRecentLeadActivity;
+
 function listActivities(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
   dcInstance.useGen(true);

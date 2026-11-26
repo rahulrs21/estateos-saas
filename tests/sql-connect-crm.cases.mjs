@@ -195,6 +195,27 @@ export function registerCrmCases({sdk, run, forbidden, dc}) {
       await forbidden(sdk.getLeadMetrics,null,{organizationId:org});
       await forbidden(sdk.getLeadMetrics,owner,{organizationId:org},{email_verified:false});
     });
+    it("recent lead activity follows lead visibility and leaves out archived leads",async()=>{
+      const agentLead=await lead({assignedMembershipId:memberAgent});
+      const otherLead=await lead({assignedMembershipId:memberManager});
+      const archivedLead=await lead({assignedMembershipId:memberAgent});
+      for(const id of [agentLead,otherLead,archivedLead]) await run(sdk.addLeadNote,owner,{organizationId:org,leadId:id,note:"Dashboard feed check"});
+      await run(sdk.archiveLead,owner,{organizationId:org,leadId:archivedLead});
+      const leadIds=rows=>new Set(rows.activities.map(row=>key(row.leadId)));
+      const ownerFeed=await run(sdk.listRecentLeadActivity,owner,{organizationId:org,limit:20});
+      assert.ok(leadIds(ownerFeed).has(key(agentLead))&&leadIds(ownerFeed).has(key(otherLead)),"owners see activity on every company lead");
+      assert.ok(!leadIds(ownerFeed).has(key(archivedLead)),"archived leads are left out");
+      assert.ok(ownerFeed.activities.every((row,index,all)=>index===0||all[index-1].createdAt>=row.createdAt),"newest first");
+      assert.ok(ownerFeed.activities.every(row=>!("note" in row)),"notes are not returned");
+      const agentFeed=await run(sdk.listRecentLeadActivity,agent,{organizationId:org,limit:20});
+      assert.ok(leadIds(agentFeed).has(key(agentLead)),"agents see their own leads");
+      assert.ok(!leadIds(agentFeed).has(key(otherLead))&&!leadIds(agentFeed).has(key(archivedLead)),"agents never see unrelated or archived leads");
+      const managerFeed=await run(sdk.listRecentLeadActivity,manager,{organizationId:org,limit:20});
+      assert.ok(leadIds(managerFeed).has(key(otherLead))&&!leadIds(managerFeed).has(key(agentLead)),"managers see only leads assigned to them");
+      await forbidden(sdk.listRecentLeadActivity,ownerB,{organizationId:org,limit:8});
+      await forbidden(sdk.listRecentLeadActivity,null,{organizationId:org,limit:8});
+      await forbidden(sdk.listRecentLeadActivity,owner,{organizationId:org,limit:21});
+    });
     it("database sorting, date ranges and count pagination use identical scoped filters",async()=>{
       const prefix="Sort "+randomUUID()+" ";
       const configuration=await run(sdk.getLeadConfiguration,owner,{organizationId:org});

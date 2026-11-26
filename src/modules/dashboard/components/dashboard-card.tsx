@@ -10,7 +10,7 @@ export function DashboardCard({title, description, action, children, className, 
 }) {
   return <Card className={cn("h-full gap-4 shadow-xs", className)}>
     <CardHeader className="px-5">
-      <CardTitle role="heading" aria-level={2} className="text-sm font-semibold">{title}</CardTitle>
+      <CardTitle role="heading" aria-level={2} className="text-[15px] font-semibold">{title}</CardTitle>
       {description && <CardDescription className="text-xs">{description}</CardDescription>}
       {action && <CardAction className="text-xs">{action}</CardAction>}
     </CardHeader>

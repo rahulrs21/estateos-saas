@@ -1,36 +1,20 @@
 import { Suspense } from "react";
-import Link from "next/link";
-import { ArrowRight, LockKeyhole } from "lucide-react";
-import { PageHeader } from "@/components/shared/page-header";
+import { LockKeyhole } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { requireActiveOrganizationRequest } from "@/modules/organizations/server/context";
-import { DASHBOARD_RANGES, DASHBOARD_TIME_ZONE, dashboardSections, type DashboardRange } from "../dashboard-model";
+import { DASHBOARD_TIME_ZONE, dashboardSections, type DashboardRange } from "../dashboard-model";
 import { loadDashboard } from "../server/dashboard-data";
-import { LeadVolumeChart, PipelineChart, Sparkline } from "./charts";
-import { DashboardCard, RankedList, SectionEmpty, SectionError } from "./dashboard-card";
 import { DashboardMap } from "./dashboard-map";
+import { GreetingBanner } from "./greeting-banner";
 import { InventoryMetrics } from "./inventory-metrics";
-import { KpiCard } from "./kpi-card";
 import { DashboardMotion, Reveal } from "./motion";
-import { RangeTabs } from "./range-tabs";
-import { TaskAgenda } from "./task-agenda";
+import { LeadSectionsView } from "./lead-sections";
 
-const integer = new Intl.NumberFormat("en-AE");
-const percent = new Intl.NumberFormat("en-AE", {maximumFractionDigits: 1});
-const period = new Intl.DateTimeFormat("en-AE", {day: "numeric", month: "short", year: "numeric", timeZone: "UTC"});
-const formatPeriod = (from: string, to: string) => `${period.format(new Date(`${from}T00:00:00Z`))} – ${period.format(new Date(`${to}T00:00:00Z`))}`;
 
-const linkClass = "inline-flex items-center gap-1 rounded font-medium text-primary hover:underline";
-
-export function Dashboard({companyName, range}: {companyName: string; range: DashboardRange}) {
+export function Dashboard({firstName, range}: {firstName: string | null; range: DashboardRange}) {
   return <DashboardMotion>
-    <div className="space-y-6">
-      <PageHeader eyebrow={companyName} title="Dashboard" description="Leads, pipeline, tasks and inventory at a glance.">
-        <RangeTabs active={range} />
-        <Link href="/leads" className={cn(buttonVariants({variant: "outline"}), "bg-card")}>View leads<ArrowRight aria-hidden="true" /></Link>
-      </PageHeader>
+    <div className="space-y-5">
+      <Reveal index={0}><GreetingBanner firstName={firstName} range={range} serverNow={new Date().toISOString()} /></Reveal>
       <Suspense key={range} fallback={<LeadSectionsSkeleton />}><LeadSections range={range} /></Suspense>
       <Suspense fallback={<InventorySkeleton />}><InventorySection /></Suspense>
       <p className="flex items-start gap-2 px-1 text-xs leading-5 text-muted-foreground">
@@ -42,70 +26,7 @@ export function Dashboard({companyName, range}: {companyName: string; range: Das
 }
 
 async function LeadSections({range}: {range: DashboardRange}) {
-  const data = await loadDashboard(range);
-  const {leads, pipeline, tasks} = data;
-  const scope = data.sections.leadScope === "COMPANY" ? "All company leads" : "Leads assigned to you";
-  const rangeLabel = DASHBOARD_RANGES[range].label;
-  const summary = leads.status === "ok" ? leads.data.summary : null;
-  const channelTotal = leads.status === "ok" ? leads.data.channels.reduce((sum, row) => sum + row.count, 0) : 0;
-
-  return <>
-    <Reveal index={0}>
-      <p className="-mt-2 text-xs text-muted-foreground">{scope} · {formatPeriod(data.from, data.to)}</p>
-    </Reveal>
-
-    <Reveal index={1} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <KpiCard title="New leads" value={summary?.totalLeads ?? null} href="/leads"
-        detail={summary ? `${integer.format(summary.unassignedLeads)} unassigned · last ${rangeLabel}` : "Could not be loaded"}
-        trailing={leads.status === "ok" && summary?.totalLeads ? <Sparkline data={leads.data.volume} /> : null} />
-      <KpiCard title="Won" value={summary?.wonLeads ?? null} href="/leads?status=WON"
-        detail={summary ? `${percent.format(summary.leadToWonPercent)}% of new leads in the period` : "Could not be loaded"} />
-      <KpiCard title="In negotiation" value={pipeline.status === "ok" ? pipeline.data.negotiation : null} href="/leads?status=NEGOTIATION"
-        detail={pipeline.status === "ok" ? "Open leads at negotiation stage, all dates" : "Could not be loaded"} />
-      <KpiCard title="Tasks due in 7 days" value={tasks.status === "ok" ? tasks.data.dueNext7Days : null} href="/workspace/tasks"
-        detail={tasks.status !== "ok" ? "Could not be loaded"
-          : tasks.data.overdue ? <span className="font-medium text-destructive">{integer.format(tasks.data.overdue)}{tasks.data.truncated ? "+" : ""} overdue</span>
-          : "Nothing overdue"} />
-    </Reveal>
-
-    <Reveal index={2} className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
-      <DashboardCard title="Lead volume"
-        description={leads.status === "ok" ? `${integer.format(summary?.totalLeads ?? 0)} new leads, per ${data.bucket}` : undefined}
-        action={<Link href="/workspace/reports" className={linkClass}>Reports<ArrowRight className="size-3.5" aria-hidden="true" /></Link>}>
-        {leads.status === "error" ? <SectionError message={leads.message} />
-          : summary?.totalLeads ? <LeadVolumeChart data={leads.data.volume} bucket={data.bucket} />
-          : <SectionEmpty>No new leads in the last {rangeLabel}.</SectionEmpty>}
-      </DashboardCard>
-      <DashboardCard title="Lead sources" description="New leads by channel">
-        {leads.status === "error" ? <SectionError message={leads.message} />
-          : leads.data.channels.length ? <RankedList rows={leads.data.channels.slice(0, 6)} total={channelTotal} unit="leads" />
-          : <SectionEmpty>No new leads in the last {rangeLabel}.</SectionEmpty>}
-      </DashboardCard>
-    </Reveal>
-
-    <Reveal index={3} className={cn("grid gap-4", data.sections.leaderboard ? "lg:grid-cols-2 xl:grid-cols-3" : "lg:grid-cols-2")}>
-      <DashboardCard title="Pipeline" description="New leads by current stage">
-        {leads.status === "error" ? <SectionError message={leads.message} />
-          : leads.data.stages.length ? <PipelineChart data={leads.data.stages} />
-          : <SectionEmpty>No new leads in the last {rangeLabel}.</SectionEmpty>}
-      </DashboardCard>
-      {data.sections.leaderboard && <DashboardCard title="Agents" description="New leads assigned, top 5">
-        {leads.status === "error" ? <SectionError message={leads.message} />
-          : leads.data.agents?.agents.length ? <>
-            <RankedList rows={leads.data.agents.agents} total={summary?.totalLeads ?? 0} unit="leads" />
-            {(leads.data.agents.others > 0 || leads.data.agents.unassigned > 0) && <p className="mt-4 text-xs text-muted-foreground">
-              {[leads.data.agents.others > 0 && `${leads.data.agents.others} more agents`, leads.data.agents.unassigned > 0 && `${integer.format(leads.data.agents.unassigned)} unassigned`].filter(Boolean).join(" · ")}
-            </p>}
-          </>
-          : <SectionEmpty>No assigned leads in the last {rangeLabel}.</SectionEmpty>}
-      </DashboardCard>}
-      <DashboardCard title="Upcoming tasks" className={data.sections.leaderboard ? "lg:col-span-2 xl:col-span-1" : undefined}
-        description={tasks.status === "ok" ? `${integer.format(tasks.data.items.length)}${tasks.data.truncated ? "+" : ""} open` : undefined}
-        action={<Link href="/workspace/tasks" className={linkClass}>All tasks<ArrowRight className="size-3.5" aria-hidden="true" /></Link>}>
-        {tasks.status === "error" ? <SectionError message={tasks.message} /> : <TaskAgenda items={tasks.data.items} />}
-      </DashboardCard>
-    </Reveal>
-  </>;
+  return <LeadSectionsView data={await loadDashboard(range)} range={range} />;
 }
 
 async function InventorySection() {
@@ -115,18 +36,20 @@ async function InventorySection() {
 }
 
 function LeadSectionsSkeleton() {
-  return <div className="space-y-6" role="status" aria-label="Loading lead figures">
-    <Skeleton className="-mt-2 h-4 w-56" />
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map(item => <Skeleton key={item} className="h-[118px] rounded-xl" />)}</div>
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]"><Skeleton className="h-[330px] rounded-xl" /><Skeleton className="h-[330px] rounded-xl" /></div>
-    <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map(item => <Skeleton key={item} className="h-72 rounded-xl" />)}</div>
+  return <div className="space-y-5" role="status" aria-label="Loading lead figures">
+    <div className="space-y-3">
+      <Skeleton className="h-4 w-56" />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map(item => <Skeleton key={item} className="h-[132px] rounded-xl" />)}</div>
+    </div>
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]"><Skeleton className="h-[352px] rounded-xl" /><Skeleton className="h-[352px] rounded-xl" /></div>
+    <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map(item => <Skeleton key={item} className="h-80 rounded-xl" />)}</div>
   </div>;
 }
 
 function InventorySkeleton() {
   return <div className="space-y-3" role="status" aria-label="Loading inventory">
     <Skeleton className="h-5 w-32" />
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map(item => <Skeleton key={item} className="h-[118px] rounded-xl" />)}</div>
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map(item => <Skeleton key={item} className="h-[132px] rounded-xl" />)}</div>
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]"><Skeleton className="h-[26rem] rounded-xl" /><Skeleton className="h-[26rem] rounded-xl" /></div>
   </div>;
 }

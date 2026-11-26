@@ -10,6 +10,7 @@ export const DASHBOARD_RANGES = {
   "7d": {days: 7, bucket: "day", label: "7 days"},
   "30d": {days: 30, bucket: "day", label: "30 days"},
   "90d": {days: 90, bucket: "week", label: "90 days"},
+  "1y": {days: 365, bucket: "month", label: "1 year"},
 } as const;
 
 export type DashboardRange = keyof typeof DASHBOARD_RANGES;
@@ -41,6 +42,23 @@ export function rangeDates(range: DashboardRange, today: string) {
   return {from: shiftDate(today, -(days - 1)), to: today, bucket};
 }
 
+/** The equally long period just before a range, for "vs previous period" comparisons. */
+export function previousRange(from: string, range: DashboardRange) {
+  const {days} = DASHBOARD_RANGES[range];
+  return {from: shiftDate(from, -days), to: shiftDate(from, -1)};
+}
+
+/** The first day of the month of a date, matching PostgreSQL's date_trunc('month'). */
+function monthStart(date: string) {
+  return `${date.slice(0, 7)}-01`;
+}
+
+/** The first day of the next month. */
+function nextMonth(date: string) {
+  const [year, month] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+}
+
 /** Monday on or before a date, matching PostgreSQL's date_trunc('week'). */
 function weekStart(date: string) {
   const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
@@ -59,9 +77,10 @@ export function fillVolumeSeries(rows: ReadonlyArray<{label: string; count: numb
     const key = (row.bucket ?? row.label).slice(0, 10);
     counts.set(key, (counts.get(key) ?? 0) + row.count);
   }
-  const step = bucket === "week" ? 7 : 1;
   const points: VolumePoint[] = [];
-  for (let date = bucket === "week" ? weekStart(from) : from; date <= to; date = shiftDate(date, step)) {
+  const first = bucket === "month" ? monthStart(from) : bucket === "week" ? weekStart(from) : from;
+  const next = (date: string) => bucket === "month" ? nextMonth(date) : shiftDate(date, bucket === "week" ? 7 : 1);
+  for (let date = first; date <= to; date = next(date)) {
     points.push({date, count: counts.get(date) ?? 0});
   }
   return points;
@@ -156,4 +175,87 @@ export function toSection<T>(result: PromiseSettledResult<T>, safeMessage: (reas
   return result.status === "fulfilled"
     ? {status: "ok", data: result.value}
     : {status: "error", message: safeMessage(result.reason) ?? fallback};
+}
+
+export type Change = {direction: "up" | "down" | "flat"; percent: number} | {direction: "new"} | null;
+
+/**
+ * Change from the previous period, rounded to a whole percent. "new" when
+ * there was nothing before and something now; null when both are zero (no
+ * comparison worth showing).
+ */
+export function periodChange(current: number, previous: number): Change {
+  if (previous <= 0) return current > 0 ? {direction: "new"} : null;
+  const percent = Math.round((current - previous) / previous * 100);
+  return {direction: percent > 0 ? "up" : percent < 0 ? "down" : "flat", percent: Math.abs(percent)};
+}
+
+/** Hour of the day (0–23) of an instant in the reporting time zone. */
+export function zonedHour(instant: Date, timeZone = DASHBOARD_TIME_ZONE) {
+  return Number(new Intl.DateTimeFormat("en-GB", {timeZone, hour: "2-digit", hourCycle: "h23"}).format(instant));
+}
+
+/** Morning 05:00–11:59, afternoon 12:00–16:59, evening otherwise. */
+export function greetingFor(hour: number) {
+  return hour >= 5 && hour < 12 ? "Good morning" : hour >= 12 && hour < 17 ? "Good afternoon" : "Good evening";
+}
+
+/** First word of a display name, or null for an email-like or empty value. */
+export function firstName(name: string | null | undefined) {
+  const value = name?.trim();
+  if (!value || value.includes("@")) return null;
+  return value.split(/\s+/)[0];
+}
+
+export const OTHER_LABEL = "Other";
+
+/**
+ * Part-to-whole rows for a donut: at most `max` slices, largest first, with
+ * the rest folded into "Other" so colours never run out.
+ */
+export function shareSlices(rows: ReadonlyArray<{label: string; count: number}>, max = 5) {
+  const sorted = rows.filter(row => row.count > 0).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  const kept = sorted.length > max ? sorted.slice(0, max - 1) : sorted;
+  const rest = sorted.slice(kept.length).reduce((sum, row) => sum + row.count, 0);
+  const slices = rest > 0 ? [...kept, {label: OTHER_LABEL, count: rest}] : kept;
+  const total = slices.reduce((sum, row) => sum + row.count, 0);
+  return {total, slices: slices.map(row => ({...row, percent: total ? Math.round(row.count / total * 100) : 0}))};
+}
+
+export type ActivityTone = "lead" | "stage" | "note" | "task" | "property" | "other";
+
+/** What an activity row says and which icon family it uses. */
+export function activityLabel(kind: string, metadata?: unknown): {title: string; tone: ActivityTone} {
+  const status = typeof metadata === "object" && metadata !== null && typeof (metadata as {status?: unknown}).status === "string"
+    ? (metadata as {status: string}).status.replaceAll("_", " ").toLowerCase() : null;
+  switch (kind) {
+    case "LEAD_CREATED": return {title: "New lead added", tone: "lead"};
+    case "WEBSITE_LEAD_CAPTURED": return {title: "New lead from a website form", tone: "lead"};
+    case "LEAD_STATUS_CHANGED": return {title: status ? `Lead moved to ${status}` : "Lead stage changed", tone: "stage"};
+    case "LEAD_ASSIGNED": return {title: "Lead assigned", tone: "lead"};
+    case "LEAD_NOTE_ADDED": return {title: "Note added", tone: "note"};
+    case "LEAD_UPDATED": return {title: "Lead details updated", tone: "note"};
+    case "LEAD_QUALIFICATION_UPDATED": return {title: "Qualification updated", tone: "note"};
+    case "FOLLOW_UP_SCHEDULED": return {title: "Follow-up scheduled", tone: "task"};
+    case "FOLLOW_UP_COMPLETED": return {title: "Follow-up completed", tone: "task"};
+    case "LEAD_PROPERTY_VIEWING_SCHEDULED": return {title: "Viewing scheduled", tone: "property"};
+    case "LEAD_PROPERTY_VIEWING_UPDATED": return {title: "Viewing updated", tone: "property"};
+    case "LEAD_PROPERTY_INTEREST_CHANGED": return {title: "Property shortlist updated", tone: "property"};
+    case "LEAD_PRIMARY_INTEREST_CHANGED": return {title: "Interested property changed", tone: "property"};
+    default: return {title: "Lead activity", tone: "other"};
+  }
+}
+
+/** "just now", "12 min ago", "3 h ago", "2 days ago", then a short date. */
+export function relativeTime(iso: string, now: Date) {
+  const seconds = Math.max(0, Math.floor((now.getTime() - Date.parse(iso)) / 1000));
+  if (!Number.isFinite(seconds)) return "";
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} ${days === 1 ? "day" : "days"} ago`;
+  return new Intl.DateTimeFormat("en-AE", {day: "numeric", month: "short", timeZone: DASHBOARD_TIME_ZONE}).format(new Date(iso));
 }

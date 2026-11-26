@@ -315,6 +315,17 @@ query ListLeadActivities($organizationId: UUID!, $leadId: UUID!, $limit: Int! = 
  ] } }) { count: _count }
 }
 
+# Dashboard "Your activity": the latest activity on non-archived leads the caller may see, with the same visibility as
+# ListLeadActivities (OWNER/ADMIN: every company lead; others: leads assigned to them). Notes are not returned.
+query ListRecentLeadActivity($organizationId: UUID!, $limit: Int! = 8)
+ @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 20") {
+ ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } }) @check(expr: "this != null", message: "ACTIVE_MEMBERSHIP_REQUIRED") @redact { id }
+ activities(where: { organizationId: { eq: $organizationId }, leadId: { isNull: false }, lead: { _and: [{ archivedAt: { isNull: true } }, { _or: [
+  { assignedMembership: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE } } },
+  { organization: { memberships_on_organization: { exist: { userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } } } }
+ ] }] } }, limit: $limit, orderBy: [{ createdAt: DESC }, { id: DESC }]) { id kind leadId lead { fullName } actor { displayName } metadata createdAt }
+}
+
 query ListActivities($organizationId: UUID!, $limit: Int! = 50, $offset: Int! = 0)
  @auth(expr: "auth != null && auth.token.email_verified == true && auth.token.firebase.sign_in_provider == 'password' && vars.limit >= 1 && vars.limit <= 100 && vars.offset >= 0 && vars.offset <= 10000") {
  ownMembership: membership(first: { where: { organizationId: { eq: $organizationId }, userProfileUid: { eq_expr: "auth.uid" }, status: { eq: ACTIVE }, role: { in: [OWNER, ADMIN] } } }) @redact @check(expr: "this != null", message: "ADMINISTRATOR_REQUIRED") { id role }

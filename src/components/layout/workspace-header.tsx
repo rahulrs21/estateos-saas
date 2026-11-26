@@ -7,6 +7,7 @@ import { isNavigationItemActive, navigationGroups } from "@/config/navigation";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
 import { AccountMenu } from "@/components/layout/account-menu";
+import { GlobalSearch } from "@/components/layout/global-search";
 import { clockDate, clockTime, useLiveClock } from "@/components/layout/use-live-clock";
 import { NotificationBell } from "@/modules/leads/distribution/components/notification-bell";
 import type { CompanyChoice } from "@/modules/organizations/types";
@@ -46,6 +47,7 @@ export function WorkspaceHeader({ user, company }: WorkspaceHeaderProps) {
         </nav>
       </div>
       <div className="flex shrink-0 items-center gap-1 md:gap-3">
+        <GlobalSearch />
         <LiveClock />
         {company?.id && <NotificationBell organizationId={company.id} />}
         {user && <AccountMenu user={user} company={company} />}

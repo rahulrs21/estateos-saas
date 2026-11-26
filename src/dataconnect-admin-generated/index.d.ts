@@ -8137,6 +8137,27 @@ export interface ListPublishedPagesForSitemapVariables {
   limit: number;
 }
 
+export interface ListRecentLeadActivityData {
+  activities: ({
+    id: UUIDString;
+    kind: ActivityKind;
+    leadId?: UUIDString | null;
+    lead?: {
+      fullName: string;
+    };
+    actor: {
+      displayName: string;
+    };
+    metadata?: unknown | null;
+    createdAt: TimestampString;
+  })[];
+}
+
+export interface ListRecentLeadActivityVariables {
+  organizationId: UUIDString;
+  limit?: number;
+}
+
 export interface ListTeamMembersData {
   memberships: ({
     id: UUIDString;
@@ -11985,6 +12006,11 @@ export function listInAppNotifications(vars: ListInAppNotificationsVariables, op
 export function listLeadActivities(dc: DataConnect, vars: ListLeadActivitiesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListLeadActivitiesData>>;
 /** Generated Node Admin SDK operation action function for the 'ListLeadActivities' Query. Allow users to pass in custom DataConnect instances. */
 export function listLeadActivities(vars: ListLeadActivitiesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListLeadActivitiesData>>;
+
+/** Generated Node Admin SDK operation action function for the 'ListRecentLeadActivity' Query. Allow users to execute without passing in DataConnect. */
+export function listRecentLeadActivity(dc: DataConnect, vars: ListRecentLeadActivityVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListRecentLeadActivityData>>;
+/** Generated Node Admin SDK operation action function for the 'ListRecentLeadActivity' Query. Allow users to pass in custom DataConnect instances. */
+export function listRecentLeadActivity(vars: ListRecentLeadActivityVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListRecentLeadActivityData>>;
 
 /** Generated Node Admin SDK operation action function for the 'ListActivities' Query. Allow users to execute without passing in DataConnect. */
 export function listActivities(dc: DataConnect, vars: ListActivitiesVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListActivitiesData>>;
