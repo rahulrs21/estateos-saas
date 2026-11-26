@@ -230,3 +230,12 @@
 @media (prefers-reduced-motion: no-preference) {
   .pg-ken-burns { animation: pg-ken-burns 12s ease-out both; }
 }
+
+/* Recharts 3 wraps chart layers in <g tabindex="-1"> groups. A mouse click on a
+   line, area or bar focuses that group and the browser outlined its bounding
+   box. These groups are not in the keyboard tab order, so the outline only ever
+   appeared on click; the chart surface keeps its own keyboard focus handling. */
+[data-slot="chart"] g[tabindex="-1"]:focus,
+[data-slot="chart"] .recharts-surface:focus:not(:focus-visible) {
+  outline: none;
+}

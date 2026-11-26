@@ -35,7 +35,7 @@ export async function DashboardMap() {
   const description = page.total === 0
     ? "No properties in your inventory scope yet."
     : `${integer.format(page.mappedAll)} of ${integer.format(page.total)} properties have a map location${page.mappedAll > pins.length ? `; showing the ${integer.format(pins.length)} most recently updated` : ""}.`;
-  return <DashboardCard title="Property locations" description={description} action={action} contentClassName="space-y-3">
+  return <DashboardCard title="Property locations" description={description} action={action} contentClassName="flex flex-col gap-3">
     <DashboardMapCanvas pins={pins} />
   </DashboardCard>;
 }

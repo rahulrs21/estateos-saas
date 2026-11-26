@@ -21,7 +21,7 @@ export function DashboardMapCanvas({pins}: {pins: DashboardMapPin[]}) {
   })), [pins]);
   const selected = pins.find(pin => pin.id === selectedId) ?? null;
   return <>
-    <MapCanvas tone="brand" markers={markers} selectedId={selectedId} onSelect={setSelectedId} cluster fit="initial" label="Map of property locations" className="h-80"
+    <MapCanvas tone="brand" markers={markers} selectedId={selectedId} onSelect={setSelectedId} cluster fit="initial" label="Map of property locations" className="min-h-80 flex-1"
       unavailable="Maps are turned off for this environment. Property locations remain available in the property list." />
     <div className="flex min-h-9 items-center justify-between gap-3 text-xs" aria-live="polite">
       {selected

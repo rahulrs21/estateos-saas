@@ -63,7 +63,7 @@ export function LeadSectionsView({data, range}: {data: DashboardData; range: Das
       <DashboardCard title="Lead sources" description="New leads by channel"
         action={<Link href="/workspace/reports" className={linkClass}>View report<ArrowRight className="size-3.5" aria-hidden="true" /></Link>}>
         {leads.status === "error" ? <SectionError message={leads.message} />
-          : leads.data.sources.slices.length ? <div className="flex flex-col items-center gap-5 sm:flex-row xl:flex-col 2xl:flex-row">
+          : leads.data.sources.slices.length ? <div className="flex h-full flex-col items-center justify-center gap-6 sm:flex-row xl:flex-col">
             <SourcesDonut slices={leads.data.sources.slices} total={leads.data.sources.total} />
             <ul className="w-full min-w-0 space-y-2.5 text-sm">
               {leads.data.sources.slices.map((slice, index) => <li key={slice.label} className="flex items-center gap-2.5">
@@ -86,7 +86,7 @@ export function LeadSectionsView({data, range}: {data: DashboardData; range: Das
       <DashboardCard title="Upcoming tasks"
         description={taskData ? `${integer.format(taskData.items.length)}${taskData.truncated ? "+" : ""} open` : undefined}
         action={<Link href="/workspace/tasks" className={linkClass}>View all<ArrowRight className="size-3.5" aria-hidden="true" /></Link>}>
-        {tasks.status === "error" ? <SectionError message={tasks.message} /> : <TaskAgenda items={tasks.data.items} limit={5} />}
+        {tasks.status === "error" ? <SectionError message={tasks.message} /> : <TaskAgenda items={tasks.data.items} limit={8} />}
       </DashboardCard>
       <div className="lg:col-span-2 xl:col-span-1"><CopilotCard /></div>
     </Reveal>

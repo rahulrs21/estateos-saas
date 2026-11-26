@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MotionConfig, motion } from "motion/react";
-import { Building2, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { isNavigationItemActive, navigationGroups, type NavigationItem } from "@/config/navigation";
 import { Brand } from "@/components/shared/brand";
 import { Button } from "@/components/ui/button";
 import type { CompanyWorkspace } from "@/modules/organizations/types";
-import { WorkspaceSwitcher } from "@/modules/organizations/components/workspace-switcher";
+import { CompanySwitcherMenu } from "@/modules/organizations/components/company-switcher-menu";
 import { PendingApprovalsBadge } from "@/modules/automations/components/pending-approvals-badge";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 
@@ -30,8 +30,8 @@ function NavItem({item, active, pathname, onNavigate}: {item: NavigationItem; ac
         transition={{type: "spring", stiffness: 520, damping: 42}} />}
       <SidebarMenuButton render={<Link href={item.href} />} isActive={active} aria-current={active ? "page" : undefined} aria-label={item.title} tooltip={item.title} onClick={onNavigate}
         className={[
-          "h-9 gap-3 rounded-lg text-[13px] text-sidebar-foreground/75 transition-[width,height,padding,background-color,color] duration-200",
-          "hover:text-sidebar-foreground data-active:text-sidebar-foreground [&_svg]:transition-colors data-active:[&_svg]:text-primary",
+          "h-9 gap-3 rounded-lg text-[13px] font-medium text-sidebar-foreground/85 transition-[width,height,padding,background-color,color] duration-200",
+          "hover:text-sidebar-foreground data-active:font-semibold data-active:text-sidebar-foreground [&_svg]:transition-colors data-active:[&_svg]:text-primary",
           "[&>span]:transition-opacity [&>span]:duration-200",
           "group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:p-[9px]! group-data-[collapsible=icon]:[&_svg]:size-[18px] group-data-[collapsible=icon]:[&>span]:opacity-0",
         ].join(" ")}>
@@ -57,17 +57,14 @@ export function WorkspaceSidebar({ workspace }: { workspace: CompanyWorkspace })
           </Button>}
         </div>
       </SidebarHeader>
-      <div className={`mx-4 mb-3 flex items-center gap-2.5 rounded-xl border bg-background p-2.5 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-9 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:rounded-lg group-data-[collapsible=icon]:p-0`}>
-        {collapsed && <Link href="/settings/company" aria-label="Company settings" title={workspace.activeCompany?.name} className="flex size-full items-center justify-center rounded-lg text-primary hover:bg-sidebar-accent"><Building2 className="size-[18px] shrink-0" aria-hidden="true" /></Link>}
-        <div className={`min-w-0 group-data-[collapsible=icon]:hidden`}>
-          <WorkspaceSwitcher companies={workspace.companies} activeId={workspace.activeCompany?.id} compact />
-        </div>
+      <div className="mx-3 mb-3 group-data-[collapsible=icon]:mx-auto">
+        <CompanySwitcherMenu companies={workspace.companies} activeId={workspace.activeCompany?.id} />
       </div>
       <SidebarContent className={`no-scrollbar scroll-fade px-2 pt-1 pb-3 group-data-[collapsible=icon]:overflow-y-auto`}>
         <nav aria-label="Workspace navigation">
           {navigationGroups.map((group) => (
             <SidebarGroup key={group.label} className={`px-1 py-1 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:not-first:mt-1 group-data-[collapsible=icon]:not-first:border-t group-data-[collapsible=icon]:not-first:border-sidebar-border group-data-[collapsible=icon]:not-first:pt-2`}>
-              <SidebarGroupLabel className={`h-7 text-[10px] font-semibold tracking-[0.12em] uppercase group-data-[collapsible=icon]:-mt-7`}>{group.label}</SidebarGroupLabel>
+              <SidebarGroupLabel className={`h-7 text-[10px] font-semibold tracking-[0.12em] text-sidebar-foreground/55 uppercase group-data-[collapsible=icon]:-mt-7`}>{group.label}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu className="gap-0.5">
                   {group.items.filter(item => item.placement !== "footer").map(item =>

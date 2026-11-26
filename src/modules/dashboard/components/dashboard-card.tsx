@@ -28,7 +28,7 @@ export function SectionError({message}: {message: string}) {
 
 /** Plain empty state for a panel with no rows in the selected period. */
 export function SectionEmpty({children}: {children: ReactNode}) {
-  return <p className="flex min-h-24 items-center justify-center rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">{children}</p>;
+  return <p className="flex h-full min-h-24 items-center justify-center rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">{children}</p>;
 }
 
 const integer = new Intl.NumberFormat("en-AE", {maximumFractionDigits: 0});

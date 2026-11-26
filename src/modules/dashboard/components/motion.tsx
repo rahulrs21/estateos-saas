@@ -15,9 +15,9 @@ export function DashboardMotion({children}: {children: ReactNode}) {
   return <MotionConfig reducedMotion="user">{children}</MotionConfig>;
 }
 
-/** Fades a section in and lifts it 6px, once, on first render. */
+/** Fades a section in and lifts it 12px, once per page load, one section after another. */
 export function Reveal({children, index = 0, className}: {children: ReactNode; index?: number; className?: string}) {
-  return <motion.div className={className} initial={{opacity: 0, y: 6}} animate={{opacity: 1, y: 0}} transition={{duration: 0.25, delay: index * 0.04, ease: EASE}}>
+  return <motion.div className={className} initial={{opacity: 0, y: 12}} animate={{opacity: 1, y: 0}} transition={{duration: 0.5, delay: index * 0.07, ease: [0.16, 1, 0.3, 1]}}>
     {children}
   </motion.div>;
 }
