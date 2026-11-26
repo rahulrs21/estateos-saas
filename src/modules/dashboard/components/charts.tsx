@@ -34,21 +34,23 @@ export function LeadVolumeChart({data, bucket}: {data: VolumePoint[]; bucket: Vo
   const total = data.reduce((sum, point) => sum + point.count, 0);
   const peak = data.reduce<VolumePoint | null>((best, point) => !best || point.count > best.count ? point : best, null);
   const summary = `New leads per ${bucket}, ${bucketTitle(data[0]?.date ?? "", bucket)} to ${bucketTitle(data.at(-1)?.date ?? "", bucket)}: ${total} in total${peak && peak.count ? `, highest ${peak.count} in ${bucketTitle(peak.date, bucket)}` : ""}.`;
-  return <ChartContainer config={leadsConfig} className="aspect-auto h-[19rem] w-full" role="img" aria-label={summary}>
-    <AreaChart data={data} margin={{top: 16, right: 8, bottom: 0, left: -12}} accessibilityLayer>
+  return <ChartContainer config={leadsConfig} className="aspect-auto h-64 w-full" role="img" aria-label={summary}>
+    <AreaChart data={data} margin={{top: 26, right: 8, bottom: 0, left: -12}} accessibilityLayer>
       <defs>
         <linearGradient id="lead-volume-fill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="var(--color-count)" stopOpacity={0.22} />
           <stop offset="100%" stopColor="var(--color-count)" stopOpacity={0.02} />
         </linearGradient>
       </defs>
-      <CartesianGrid vertical={false} strokeDasharray="3 4" />
+      <CartesianGrid strokeDasharray="3 4" />
       <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={28} tickFormatter={value => bucketLabel(String(value), bucket)} />
       <YAxis tickLine={false} axisLine={false} allowDecimals={false} width={40} tickMargin={4} />
       <ChartTooltip cursor={{strokeWidth: 1, strokeDasharray: "3 3"}} content={<ChartTooltipContent indicator="dot" labelFormatter={value => bucketTitle(String(value), bucket)} />} />
       <Area dataKey="count" type="monotone" stroke="var(--color-count)" strokeWidth={2} fill="url(#lead-volume-fill)"
         activeDot={{r: 5, strokeWidth: 2, stroke: "var(--card)"}} isAnimationActive={!reduce} animationDuration={700} />
-      {peak && peak.count > 0 && <ReferenceDot x={peak.date} y={peak.count} r={5} fill="var(--color-count)" stroke="var(--card)" strokeWidth={2} ifOverflow="extendDomain" />}
+      {peak && peak.count > 0 && <ReferenceDot x={peak.date} y={peak.count} r={11} fill="var(--color-count)" fillOpacity={0.15} stroke="none" ifOverflow="extendDomain" />}
+      {peak && peak.count > 0 && <ReferenceDot x={peak.date} y={peak.count} r={5} fill="var(--color-count)" stroke="var(--card)" strokeWidth={2} ifOverflow="extendDomain"
+        label={{value: `${peak.count}`, position: "top", offset: 14, className: "fill-foreground text-xs font-semibold"}} />}
     </AreaChart>
   </ChartContainer>;
 }
@@ -79,7 +81,7 @@ export function SourcesDonut({slices, total}: {slices: Array<{label: string; cou
     <ChartContainer config={config} className="aspect-square size-40" role="img" aria-label={`Lead sources: ${slices.map(slice => `${slice.label} ${slice.count} (${slice.percent}%)`).join(", ")}.`}>
       <PieChart>
         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="key" />} />
-        <Pie data={data} dataKey="count" nameKey="key" innerRadius={52} outerRadius={76} paddingAngle={slices.length > 1 ? 2 : 0} cornerRadius={3} strokeWidth={0}
+        <Pie data={data} dataKey="count" nameKey="key" innerRadius={50} outerRadius={78} paddingAngle={slices.length > 1 ? 2 : 0} cornerRadius={3} strokeWidth={0}
           startAngle={90} endAngle={-270} isAnimationActive={!reduce} animationDuration={700}>
           {data.map(slice => <Cell key={slice.key} fill={slice.fill} />)}
         </Pie>

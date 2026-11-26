@@ -1,17 +1,19 @@
 import type { ReactNode } from "react";
-import { CircleAlert } from "lucide-react";
+import { CircleAlert, type LucideIcon } from "lucide-react";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { AnimatedBar } from "./motion";
 
 /** The standard dashboard panel: a titled card with an optional action link and a muted description. */
-export function DashboardCard({title, description, action, children, className, contentClassName}: {
-  title: string; description?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; contentClassName?: string;
+export function DashboardCard({title, icon: Icon, description, action, children, className, contentClassName}: {
+  title: string; icon?: LucideIcon; description?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; contentClassName?: string;
 }) {
   return <Card className={cn("h-full gap-4 shadow-xs", className)}>
     <CardHeader className="px-5">
-      <CardTitle role="heading" aria-level={2} className="text-[15px] font-semibold">{title}</CardTitle>
-      {description && <CardDescription className="text-xs">{description}</CardDescription>}
+      <CardTitle role="heading" aria-level={2} className="flex items-center gap-2 text-base font-semibold tracking-tight">
+        {Icon && <Icon className="size-[18px] text-primary" aria-hidden="true" />}{title}
+      </CardTitle>
+      {description && <CardDescription className={cn("text-xs", Icon && "pl-[26px]")}>{description}</CardDescription>}
       {action && <CardAction className="text-xs">{action}</CardAction>}
     </CardHeader>
     <CardContent className={cn("flex-1 px-5", contentClassName)}>{children}</CardContent>
