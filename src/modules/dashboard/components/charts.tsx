@@ -34,7 +34,7 @@ export function LeadVolumeChart({data, bucket}: {data: VolumePoint[]; bucket: Vo
   const total = data.reduce((sum, point) => sum + point.count, 0);
   const peak = data.reduce<VolumePoint | null>((best, point) => !best || point.count > best.count ? point : best, null);
   const summary = `New leads per ${bucket}, ${bucketTitle(data[0]?.date ?? "", bucket)} to ${bucketTitle(data.at(-1)?.date ?? "", bucket)}: ${total} in total${peak && peak.count ? `, highest ${peak.count} in ${bucketTitle(peak.date, bucket)}` : ""}.`;
-  return <ChartContainer config={leadsConfig} className="aspect-auto h-64 w-full" role="img" aria-label={summary}>
+  return <ChartContainer config={leadsConfig} className="aspect-auto h-52 w-full" role="img" aria-label={summary}>
     <AreaChart data={data} margin={{top: 26, right: 8, bottom: 0, left: -12}} accessibilityLayer>
       <defs>
         <linearGradient id="lead-volume-fill" x1="0" y1="0" x2="0" y2="1">

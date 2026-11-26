@@ -48,7 +48,7 @@ export async function InventoryMetrics({map}: {map?: ReactNode}) {
 
   return <section className="space-y-3" aria-label="Inventory">
     <SectionHeading scope={role === "AGENT" ? "Properties and listings assigned to you" : "Company inventory"} />
-    <Reveal index={6} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <Reveal index={6} className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
       <KpiCard title="Properties" value={total} icon={Building2} tone="teal" detail={`${listings.toLocaleString("en-AE")} listings in total`} href="/properties" />
       <KpiCard title="Available" value={available} icon={House} tone="green" detail={share(available)} href="/properties?inventoryStatus=AVAILABLE" />
       <KpiCard title="Reserved" value={data.reservedProperties[0]?.count ?? 0} icon={KeyRound} tone="amber" detail={share(data.reservedProperties[0]?.count ?? 0)} href="/properties?inventoryStatus=RESERVED" />

@@ -20,8 +20,8 @@ export const toneClass: Record<Tone, string> = {
 };
 
 export function IconTile({icon: Icon, tone, size = "md"}: {icon: LucideIcon; tone: Tone; size?: "sm" | "md"}) {
-  return <span className={cn("flex shrink-0 items-center justify-center rounded-xl", size === "md" ? "size-11" : "size-9 rounded-lg", toneClass[tone])} aria-hidden="true">
-    <Icon className={size === "md" ? "size-5" : "size-4"} />
+  return <span className={cn("flex shrink-0 items-center justify-center", size === "md" ? "size-9 rounded-lg sm:size-11 sm:rounded-xl" : "size-9 rounded-lg", toneClass[tone])} aria-hidden="true">
+    <Icon className={size === "md" ? "size-[18px] sm:size-5" : "size-4"} />
   </span>;
 }
 
@@ -51,25 +51,25 @@ export function KpiCard({title, value, icon, tone, detail, trailing, meter, href
   meter?: ReactNode;
   href?: string;
 }) {
-  const body = <CardContent className="flex h-full flex-col gap-3 px-4">
+  const body = <CardContent className="flex h-full flex-col gap-2.5 px-3 sm:gap-3 sm:px-4">
     <div className="flex items-start justify-between gap-3">
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
         <IconTile icon={icon} tone={tone} />
         <div className="min-w-0">
-          <h3 className="truncate text-[13px] font-medium text-muted-foreground">{title}</h3>
+          <h3 className="text-xs leading-4 font-medium text-muted-foreground sm:truncate sm:text-[13px] sm:leading-5">{title}</h3>
           {value === null
-            ? <p className="text-2xl leading-tight font-semibold text-muted-foreground" aria-label={`${title}: unavailable`}><span aria-hidden="true">—</span></p>
-            : <p className="text-2xl leading-tight font-semibold tracking-tight tabular-nums"><AnimatedNumber value={value} /></p>}
+            ? <p className="text-xl leading-tight font-semibold text-muted-foreground sm:text-2xl" aria-label={`${title}: unavailable`}><span aria-hidden="true">—</span></p>
+            : <p className="text-xl leading-tight font-semibold tracking-tight tabular-nums sm:text-2xl"><AnimatedNumber value={value} /></p>}
         </div>
       </div>
-      {trailing && <div className="shrink-0 pt-1">{trailing}</div>}
+      {trailing && <div className="hidden shrink-0 pt-1 sm:block">{trailing}</div>}
     </div>
     <div className="mt-auto space-y-2">
       <div className="text-xs leading-5">{detail}</div>
       {meter}
     </div>
   </CardContent>;
-  return <Card className={cn("h-full py-4 shadow-xs", href && "transition-colors hover:bg-muted/30")}>
+  return <Card className={cn("h-full py-3 shadow-xs sm:py-4", href && "transition-colors hover:bg-muted/30")}>
     {href ? <Link href={href} className="h-full rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">{body}</Link> : body}
   </Card>;
 }
@@ -77,8 +77,8 @@ export function KpiCard({title, value, icon, tone, detail, trailing, meter, href
 /** A labelled proportion, e.g. lead-to-won rate: a thin full-width bar with its value in text beside it. */
 export function RatioBar({percent, label, tone = "teal"}: {percent: number; label: string; tone?: Tone}) {
   const width = `${Math.max(0, Math.min(100, percent))}%`;
-  return <div className="flex items-center gap-2.5">
-    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+  return <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+    <div className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden="true">
       <div className={cn("h-full rounded-full", tone === "amber" ? "bg-(--tile-amber-fg)" : tone === "rose" ? "bg-(--tile-rose-fg)" : "bg-chart-1")} style={{width}} />
     </div>
     <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{label}</span>

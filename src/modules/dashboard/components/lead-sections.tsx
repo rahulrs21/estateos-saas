@@ -32,9 +32,9 @@ export function LeadSectionsView({data, range}: {data: DashboardData; range: Das
   const negotiationShare = pipeline.status === "ok" && pipeline.data.openLeads > 0 ? pipeline.data.negotiation / pipeline.data.openLeads * 100 : 0;
 
   return <>
-    <Reveal index={1} className="space-y-3">
-      <p className="px-1 text-xs text-muted-foreground">{scope} · {formatPeriod(data.from, data.to)}</p>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <Reveal index={1}>
+      <h2 className="sr-only">{scope}, {formatPeriod(data.from, data.to)}</h2>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <KpiCard title="New leads" value={summary?.totalLeads ?? null} icon={UsersRound} tone="teal" href="/leads"
           detail={!summary ? "Could not be loaded" : change ? <ChangeBadge change={change.leads} period={rangeLabel} /> : `${integer.format(summary.unassignedLeads)} unassigned`}
           trailing={leads.status === "ok" && summary?.totalLeads ? <Sparkline data={leads.data.volume} /> : null} />
@@ -56,7 +56,7 @@ export function LeadSectionsView({data, range}: {data: DashboardData; range: Das
 
     <Reveal index={2} className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
       <DashboardCard title="Lead performance" icon={ChartNoAxesCombined} action={<RangeTabs active={range} />}
-        description={leads.status === "ok" ? `New leads per ${data.bucket}, last ${rangeLabel}` : undefined}>
+        description={`New leads per ${data.bucket} · ${formatPeriod(data.from, data.to)}`}>
         {leads.status === "error" ? <SectionError message={leads.message} />
           : summary?.totalLeads ? <div className="space-y-4">
             <PerformanceStats volume={leads.data.volume} bucket={data.bucket} total={summary.totalLeads} change={change?.leads ?? null} rangeLabel={rangeLabel} />

@@ -24,14 +24,14 @@ export function PerformanceStats({volume, bucket, total, change, rangeLabel}: {
     {label: `Best ${unit}`, value: peak && peak.count ? integer.format(peak.count) : "—", note: peak && peak.count ? (bucket === "week" ? `week of ${when}` : when) : null},
   ];
   return <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-4">
-    {items.map(item => <div key={item.label} className="bg-card px-4 py-3">
+    {items.map(item => <div key={item.label} className="bg-card px-4 py-2.5">
       <dt className="text-[11px] font-medium text-muted-foreground">{item.label}</dt>
       <dd className="mt-1 flex items-baseline gap-1.5">
         <span className="text-lg font-semibold tracking-tight tabular-nums">{item.value}</span>
         {item.note && <span className="truncate text-xs text-muted-foreground">{item.note}</span>}
       </dd>
     </div>)}
-    <div className="bg-card px-4 py-3">
+    <div className="bg-card px-4 py-2.5">
       <dt className="text-[11px] font-medium text-muted-foreground">Vs previous {rangeLabel}</dt>
       <dd className="mt-1.5 text-xs leading-5"><ChangeBadge change={change} period={rangeLabel} compact /></dd>
     </div>

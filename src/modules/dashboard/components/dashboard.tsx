@@ -11,10 +11,10 @@ import { DashboardMotion, Reveal } from "./motion";
 import { LeadSectionsView } from "./lead-sections";
 
 
-export function Dashboard({firstName, range}: {firstName: string | null; range: DashboardRange}) {
+export function Dashboard({firstName, range, scopeLabel}: {firstName: string | null; range: DashboardRange; scopeLabel: string}) {
   return <DashboardMotion>
-    <div className="space-y-5">
-      <Reveal index={0}><GreetingBanner firstName={firstName} range={range} serverNow={new Date().toISOString()} /></Reveal>
+    <div className="space-y-4">
+      <Reveal index={0}><GreetingBanner firstName={firstName} range={range} scopeLabel={scopeLabel} serverNow={new Date().toISOString()} /></Reveal>
       <Suspense key={range} fallback={<LeadSectionsSkeleton />}><LeadSections range={range} /></Suspense>
       <Suspense fallback={<InventorySkeleton />}><InventorySection /></Suspense>
       <p className="flex items-start gap-2 px-1 text-xs leading-5 text-muted-foreground">

@@ -4,7 +4,7 @@ import Image, { type StaticImageData } from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { CalendarDays, Check, ChevronDown } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -34,7 +34,7 @@ const longDate = new Intl.DateTimeFormat("en-AE", {timeZone: DASHBOARD_TIME_ZONE
  * gentle zoom. With "reduce motion" the slideshow stays on the first photo
  * (the dots still switch it). The greeting follows the live clock.
  */
-export function GreetingBanner({firstName, range, serverNow}: {firstName: string | null; range: DashboardRange; serverNow: string}) {
+export function GreetingBanner({firstName, range, scopeLabel, serverNow}: {firstName: string | null; range: DashboardRange; scopeLabel: string; serverNow: string}) {
   const now = useLiveClock() ?? new Date(serverNow);
   const greeting = greetingFor(zonedHour(now));
   const reduce = useReducedMotion();
@@ -46,7 +46,7 @@ export function GreetingBanner({firstName, range, serverNow}: {firstName: string
     return () => clearInterval(timer);
   }, [reduce, active]);
 
-  return <section aria-labelledby="dashboard-greeting" className="relative isolate -mx-3 -mt-3 min-h-[244px] overflow-hidden rounded-b-3xl bg-background sm:-mx-4 md:mx-0 md:mt-0 md:min-h-[232px] md:rounded-2xl">
+  return <section aria-labelledby="dashboard-greeting" className="relative isolate -mx-3 -mt-3 min-h-[244px] overflow-hidden rounded-b-3xl bg-background sm:-mx-4 md:mx-0 md:mt-0 md:min-h-[200px] md:rounded-2xl">
     {/* Slideshow. */}
     <div aria-hidden="true" className="banner-photo-mask absolute inset-y-0 right-0 -z-30 w-full md:w-[66%]">
       {SLIDES.map((slide, index) => <motion.div key={slide.label} className="absolute inset-0" initial={false}
@@ -82,8 +82,8 @@ export function GreetingBanner({firstName, range, serverNow}: {firstName: string
       height={0.64} reach={0.5} intensity={0.75} rays={0.6} fade="right" quality={0.75} opacity={0.6} />
     <div aria-hidden="true" className="absolute inset-0 -z-20 md:hidden" style={{background: "linear-gradient(180deg, rgba(3, 38, 30, 0.72) 0%, rgba(3, 38, 30, 0.5) 55%, rgba(3, 38, 30, 0.68) 100%)"}} />
 
-    <div className="relative max-w-xl px-5 py-8 sm:px-8 sm:py-10">
-      <motion.h1 id="dashboard-greeting" className="flex items-center gap-2 text-[26px] font-semibold tracking-tight text-white sm:text-[32px] md:text-foreground"
+    <div className="relative max-w-xl px-5 py-8 sm:px-8 md:py-7">
+      <motion.h1 id="dashboard-greeting" className="flex items-center gap-2 text-[26px] font-semibold tracking-tight text-white sm:text-[30px] md:text-foreground"
         initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} transition={{duration: 0.55, delay: 0.1, ease: EASE_OUT}}>
         <span>{greeting}{firstName ? `, ${firstName}` : ""}!</span>
         <motion.span aria-hidden="true" className="inline-block origin-[70%_80%]"
@@ -92,9 +92,12 @@ export function GreetingBanner({firstName, range, serverNow}: {firstName: string
       <motion.p className="mt-2 text-[15px] text-white/85 md:text-muted-foreground" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} transition={{duration: 0.55, delay: 0.2, ease: EASE_OUT}}>
         Here&apos;s what&apos;s happening with your real estate business today.
       </motion.p>
-      <motion.div className="mt-6 flex flex-wrap items-center gap-2" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} transition={{duration: 0.55, delay: 0.3, ease: EASE_OUT}}>
+      <motion.div className="mt-5 flex flex-wrap items-center gap-2" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} transition={{duration: 0.55, delay: 0.3, ease: EASE_OUT}}>
         <span className="inline-flex h-9 items-center gap-2 rounded-full border bg-card px-3.5 text-xs font-medium shadow-xs">
           <CalendarDays className="size-3.5 text-muted-foreground" aria-hidden="true" />{longDate.format(now)}
+        </span>
+        <span className="hidden h-9 items-center gap-2 rounded-full border bg-card px-3.5 text-xs font-medium shadow-xs sm:inline-flex">
+          <UsersRound className="size-3.5 text-muted-foreground" aria-hidden="true" />{scopeLabel}
         </span>
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="h-9 gap-1.5 rounded-full bg-card px-3.5 text-xs shadow-xs" aria-label={`Reporting period: last ${DASHBOARD_RANGES[range].label}`} />}>

@@ -11,8 +11,9 @@ export const metadata: Metadata = { title: "Dashboard" };
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 async function AuthenticatedDashboard({ searchParams }: { searchParams: SearchParams }) {
-  const [user, , params] = await Promise.all([requireSession(), requireCompanyWorkspace(), searchParams]);
-  return <Dashboard firstName={firstName(user.name)} range={parseDashboardRange(params.range)} />;
+  const [user, workspace, params] = await Promise.all([requireSession(), requireCompanyWorkspace(), searchParams]);
+  const companyWide = workspace.activeCompany.role === "OWNER" || workspace.activeCompany.role === "ADMIN";
+  return <Dashboard firstName={firstName(user.name)} range={parseDashboardRange(params.range)} scopeLabel={companyWide ? "All company leads" : "Leads assigned to you"} />;
 }
 
 export default function DashboardPage({ searchParams }: { searchParams: SearchParams }) {
