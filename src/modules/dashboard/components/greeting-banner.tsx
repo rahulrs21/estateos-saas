@@ -46,7 +46,7 @@ export function GreetingBanner({firstName, range, serverNow}: {firstName: string
     return () => clearInterval(timer);
   }, [reduce, active]);
 
-  return <section aria-labelledby="dashboard-greeting" className="relative isolate -mx-3 -mt-3 min-h-[232px] overflow-hidden bg-background sm:-mx-4 md:mx-0 md:mt-0 md:rounded-2xl">
+  return <section aria-labelledby="dashboard-greeting" className="relative isolate -mx-3 -mt-3 min-h-[244px] overflow-hidden rounded-b-3xl bg-background sm:-mx-4 md:mx-0 md:mt-0 md:min-h-[232px] md:rounded-2xl">
     {/* Slideshow. */}
     <div aria-hidden="true" className="banner-photo-mask absolute inset-y-0 right-0 -z-30 w-full md:w-[66%]">
       {SLIDES.map((slide, index) => <motion.div key={slide.label} className="absolute inset-0" initial={false}
@@ -109,8 +109,11 @@ export function GreetingBanner({firstName, range, serverNow}: {firstName: string
       </motion.div>
     </div>
 
+    {/* Phones: the full-bleed banner fades into the page at the bottom. */}
+    <div aria-hidden="true" className="absolute inset-x-0 bottom-0 -z-[5] h-14 md:hidden" style={{background: "linear-gradient(to top, var(--background) 0%, color-mix(in oklab, var(--background) 55%, transparent) 45%, transparent 100%)"}} />
+
     {/* Slide picker. */}
-    <div className="absolute right-4 bottom-4 flex gap-1.5" role="group" aria-label="Banner photos">
+    <div className="absolute right-4 bottom-8 flex gap-1.5 md:bottom-4" role="group" aria-label="Banner photos">
       {SLIDES.map((slide, index) => <button key={slide.label} type="button" onClick={() => setActive(index)} aria-label={`Show photo: ${slide.label}`} aria-pressed={index === active}
         className={cn("h-1.5 rounded-full bg-white/60 shadow-sm transition-all duration-300 hover:bg-white focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none", index === active ? "w-6 bg-white" : "w-1.5")} />)}
     </div>

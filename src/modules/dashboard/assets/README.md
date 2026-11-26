@@ -13,5 +13,6 @@ request. Photos were chosen to show finished UAE homes and waterfront living, ne
 | `villa-modern-pool.jpg` | `1706808849780-7a04fbac83ef`, contemporary villa with pool and loungers | Salman Saqib |
 | `villa-palms.jpg` | `1745761320791-5ae142edee8c`, luxury villa among palm trees | Tim Schmidbauer |
 
-`copilot-robot.png`: the waving robot on the "Let AI work for you" card, cut from the dashboard design mockup
-supplied by the product owner (2026-11-26) and upscaled 3× (Lanczos with sharpening; the source is about 160 px wide). Its green background matches the card gradient.
+`copilot-robot.jpg`: the EstateOS robot (with the EstateOS mark on its chest) on the "Let AI work for you" card,
+supplied by the product owner (2026-11-26). Cropped to the head and chest and resized to 900 px wide; its near-black
+studio background (#040406) matches the card's dark base.
