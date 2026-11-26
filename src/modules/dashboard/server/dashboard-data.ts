@@ -7,9 +7,9 @@ import { WorkspaceError } from "@/modules/organizations/server/errors";
 import { getLeadAnalytics } from "@/modules/lead-capture/server/reports";
 import { listMyTasks } from "@/modules/automations/server/tasks";
 import {
-  DASHBOARD_TIME_ZONE, activityLabel, calendarDate, dashboardSections, fillVolumeSeries, orderStages, periodChange, previousRange, rangeDates,
+  DASHBOARD_TIME_ZONE, activityLabel, dashboardSections, fillVolumeSeries, orderStages, periodChange, previousPeriod,
   shareSlices, taskAgenda, toSection, topAgents,
-  type DashboardRange,
+  type DashboardPeriod,
 } from "../dashboard-model";
 
 /** Page size of ListMyTasks; a full page means the task counts are a lower bound. */
@@ -26,12 +26,12 @@ const safeMessage = (reason: unknown) => reason instanceof WorkspaceError ? reas
  * shows an error in that card only. Lead figures are company-wide for OWNER and
  * ADMIN and the member's assigned leads otherwise (enforced in SQL).
  */
-export async function loadDashboard(range: DashboardRange) {
+export async function loadDashboard(period: DashboardPeriod) {
   const context = await requireActiveOrganizationRequest();
   const sections = dashboardSections(context.membership.role);
   const now = new Date();
-  const {from, to, bucket} = rangeDates(range, calendarDate(now, DASHBOARD_TIME_ZONE));
-  const previous = previousRange(from, range);
+  const {from, to, bucket} = period;
+  const previous = previousPeriod(period);
   const {dc, options} = context.request;
 
   const [analytics, priorAnalytics, metrics, tasks, activity] = await Promise.allSettled([
@@ -51,7 +51,7 @@ export async function loadDashboard(range: DashboardRange) {
   const prior = priorAnalytics.status === "fulfilled" ? priorAnalytics.value.summary : null;
 
   return {
-    range, from, to, bucket, sections, now: now.toISOString(),
+    from, to, bucket, sections, now: now.toISOString(),
     canManageInventory: context.membership.role === "OWNER" || context.membership.role === "ADMIN",
     leads: leads.status === "ok" ? {status: "ok" as const, data: {
       summary: leads.data.summary,

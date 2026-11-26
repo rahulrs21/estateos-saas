@@ -1,16 +1,14 @@
 "use client";
 
 import Image, { type StaticImageData } from "next/image";
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { CalendarDays, Check, ChevronDown, UsersRound } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Aurora } from "@/components/ui/aurora";
 import { useLiveClock } from "@/components/layout/use-live-clock";
-import { DASHBOARD_RANGES, DASHBOARD_TIME_ZONE, greetingFor, zonedHour, type DashboardRange } from "../dashboard-model";
+import { DASHBOARD_TIME_ZONE, greetingFor, zonedHour, type DashboardPeriod } from "../dashboard-model";
+import { PeriodMenu } from "./period-picker";
 import palmVillas from "../assets/banner/palm-villas-skyline.jpg";
 import villaWhitePool from "../assets/banner/villa-white-pool.jpg";
 import villaModernPool from "../assets/banner/villa-modern-pool.jpg";
@@ -34,7 +32,7 @@ const longDate = new Intl.DateTimeFormat("en-AE", {timeZone: DASHBOARD_TIME_ZONE
  * gentle zoom. With "reduce motion" the slideshow stays on the first photo
  * (the dots still switch it). The greeting follows the live clock.
  */
-export function GreetingBanner({firstName, range, scopeLabel, serverNow}: {firstName: string | null; range: DashboardRange; scopeLabel: string; serverNow: string}) {
+export function GreetingBanner({firstName, period, today, serverNow}: {firstName: string | null; period: DashboardPeriod; today: string; serverNow: string}) {
   const now = useLiveClock() ?? new Date(serverNow);
   const greeting = greetingFor(zonedHour(now));
   const reduce = useReducedMotion();
@@ -96,19 +94,7 @@ export function GreetingBanner({firstName, range, scopeLabel, serverNow}: {first
         <span className="inline-flex h-9 items-center gap-2 rounded-full border bg-card px-3.5 text-xs font-medium shadow-xs">
           <CalendarDays className="size-3.5 text-muted-foreground" aria-hidden="true" />{longDate.format(now)}
         </span>
-        <span className="hidden h-9 items-center gap-2 rounded-full border bg-card px-3.5 text-xs font-medium shadow-xs sm:inline-flex">
-          <UsersRound className="size-3.5 text-muted-foreground" aria-hidden="true" />{scopeLabel}
-        </span>
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="h-9 gap-1.5 rounded-full bg-card px-3.5 text-xs shadow-xs" aria-label={`Reporting period: last ${DASHBOARD_RANGES[range].label}`} />}>
-            Last {DASHBOARD_RANGES[range].label}<ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-40">
-            {(Object.keys(DASHBOARD_RANGES) as DashboardRange[]).map(key => <DropdownMenuItem key={key} render={<Link href={`/workspace/dashboard?range=${key}`} scroll={false} />}>
-              <span className="flex-1">Last {DASHBOARD_RANGES[key].label}</span>{key === range && <Check className="size-3.5 text-primary" aria-hidden="true" />}
-            </DropdownMenuItem>)}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <PeriodMenu period={period} today={today} />
       </motion.div>
     </div>
 

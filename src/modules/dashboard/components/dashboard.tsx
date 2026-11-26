@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { LockKeyhole } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { requireActiveOrganizationRequest } from "@/modules/organizations/server/context";
-import { DASHBOARD_TIME_ZONE, dashboardSections, type DashboardRange } from "../dashboard-model";
+import { DASHBOARD_TIME_ZONE, dashboardSections, type DashboardPeriod } from "../dashboard-model";
 import { loadDashboard } from "../server/dashboard-data";
 import { DashboardMap } from "./dashboard-map";
 import { GreetingBanner } from "./greeting-banner";
@@ -11,11 +11,11 @@ import { DashboardMotion, Reveal } from "./motion";
 import { LeadSectionsView } from "./lead-sections";
 
 
-export function Dashboard({firstName, range, scopeLabel}: {firstName: string | null; range: DashboardRange; scopeLabel: string}) {
+export function Dashboard({firstName, period, today}: {firstName: string | null; period: DashboardPeriod; today: string}) {
   return <DashboardMotion>
     <div className="space-y-4">
-      <Reveal index={0}><GreetingBanner firstName={firstName} range={range} scopeLabel={scopeLabel} serverNow={new Date().toISOString()} /></Reveal>
-      <Suspense key={range} fallback={<LeadSectionsSkeleton />}><LeadSections range={range} /></Suspense>
+      <Reveal index={0}><GreetingBanner firstName={firstName} period={period} today={today} serverNow={new Date().toISOString()} /></Reveal>
+      <Suspense key={`${period.key}:${period.from}:${period.to}`} fallback={<LeadSectionsSkeleton />}><LeadSections period={period} today={today} /></Suspense>
       <Suspense fallback={<InventorySkeleton />}><InventorySection /></Suspense>
       <p className="flex items-start gap-2 px-1 text-xs leading-5 text-muted-foreground">
         <LockKeyhole className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -25,8 +25,8 @@ export function Dashboard({firstName, range, scopeLabel}: {firstName: string | n
   </DashboardMotion>;
 }
 
-async function LeadSections({range}: {range: DashboardRange}) {
-  return <LeadSectionsView data={await loadDashboard(range)} range={range} />;
+async function LeadSections({period, today}: {period: DashboardPeriod; today: string}) {
+  return <LeadSectionsView data={await loadDashboard(period)} period={period} today={today} />;
 }
 
 async function InventorySection() {

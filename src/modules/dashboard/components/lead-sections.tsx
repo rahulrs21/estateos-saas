@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, CalendarCheck2, ChartColumnBig, ChartNoAxesCombined, ChartPie, Handshake, ListChecks, TrendingUp, UsersRound, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DASHBOARD_RANGES, type DashboardRange } from "../dashboard-model";
+import type { DashboardPeriod } from "../dashboard-model";
 import type { DashboardData } from "../server/dashboard-data";
 import { ActivityFeed } from "./activity-feed";
 import { LeadVolumeChart, PipelineColumns, SourcesDonut, Sparkline } from "./charts";
@@ -12,20 +12,20 @@ import { ChangeBadge, KpiCard, RatioBar } from "./kpi-card";
 import { PerformanceStats } from "./performance-stats";
 import { Reveal } from "./motion";
 import { QuickShortcuts } from "./quick-shortcuts";
-import { RangeTabs } from "./range-tabs";
+import { PeriodPills } from "./period-picker";
 import { TaskAgenda } from "./task-agenda";
 
 const integer = new Intl.NumberFormat("en-AE");
 const percent = new Intl.NumberFormat("en-AE", {maximumFractionDigits: 1});
-const period = new Intl.DateTimeFormat("en-AE", {day: "numeric", month: "short", year: "numeric", timeZone: "UTC"});
-const formatPeriod = (from: string, to: string) => `${period.format(new Date(`${from}T00:00:00Z`))} – ${period.format(new Date(`${to}T00:00:00Z`))}`;
+const periodDate = new Intl.DateTimeFormat("en-AE", {day: "numeric", month: "short", year: "numeric", timeZone: "UTC"});
+const formatPeriod = (from: string, to: string) => `${periodDate.format(new Date(`${from}T00:00:00Z`))} – ${periodDate.format(new Date(`${to}T00:00:00Z`))}`;
 const linkClass = "inline-flex items-center gap-1 rounded font-medium text-primary hover:underline";
 
 /** The lead, task and activity rows of the dashboard, from already-loaded data (see server/dashboard-data.ts). */
-export function LeadSectionsView({data, range}: {data: DashboardData; range: DashboardRange}) {
+export function LeadSectionsView({data, period, today}: {data: DashboardData; period: DashboardPeriod; today: string}) {
   const {leads, pipeline, tasks, activity} = data;
   const scope = data.sections.leadScope === "COMPANY" ? "All company leads" : "Leads assigned to you";
-  const rangeLabel = DASHBOARD_RANGES[range].label;
+  const singleDay = data.from === data.to;
   const summary = leads.status === "ok" ? leads.data.summary : null;
   const change = leads.status === "ok" ? leads.data.change : null;
   const taskData = tasks.status === "ok" ? tasks.data : null;
@@ -36,10 +36,10 @@ export function LeadSectionsView({data, range}: {data: DashboardData; range: Das
       <h2 className="sr-only">{scope}, {formatPeriod(data.from, data.to)}</h2>
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <KpiCard title="New leads" value={summary?.totalLeads ?? null} icon={UsersRound} tone="teal" href="/leads"
-          detail={!summary ? "Could not be loaded" : change ? <ChangeBadge change={change.leads} period={rangeLabel} /> : `${integer.format(summary.unassignedLeads)} unassigned`}
-          trailing={leads.status === "ok" && summary?.totalLeads ? <Sparkline data={leads.data.volume} /> : null} />
+          detail={!summary ? "Could not be loaded" : change ? <ChangeBadge change={change.leads} versus={period.versus} /> : `${integer.format(summary.unassignedLeads)} unassigned`}
+          trailing={leads.status === "ok" && summary?.totalLeads && !singleDay ? <Sparkline data={leads.data.volume} /> : null} />
         <KpiCard title="Won" value={summary?.wonLeads ?? null} icon={Handshake} tone="green" href="/leads?status=WON"
-          detail={!summary ? "Could not be loaded" : change ? <ChangeBadge change={change.won} period={rangeLabel} /> : `${percent.format(summary.leadToWonPercent)}% of new leads`}
+          detail={!summary ? "Could not be loaded" : change ? <ChangeBadge change={change.won} versus={period.versus} /> : `${percent.format(summary.leadToWonPercent)}% of new leads`}
           meter={summary && summary.totalLeads > 0 ? <RatioBar percent={summary.leadToWonPercent} label={`${percent.format(summary.leadToWonPercent)}% won`} /> : null} />
         <KpiCard title="Tasks due in 7 days" value={taskData?.dueNext7Days ?? null} icon={CalendarCheck2} tone="blue" href="/workspace/tasks"
           detail={!taskData ? "Could not be loaded" : taskData.overdue
@@ -55,14 +55,16 @@ export function LeadSectionsView({data, range}: {data: DashboardData; range: Das
     </Reveal>
 
     <Reveal index={2} className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
-      <DashboardCard title="Lead performance" icon={ChartNoAxesCombined} action={<RangeTabs active={range} />}
-        description={`New leads per ${data.bucket} · ${formatPeriod(data.from, data.to)}`}>
+      <DashboardCard title="Lead performance" icon={ChartNoAxesCombined} action={<PeriodPills period={period} today={today} />}
+        description={singleDay ? (period.key === "today" ? "New leads today" : `New leads on ${period.label}`) : `New leads per ${data.bucket} · ${formatPeriod(data.from, data.to)}`}>
         {leads.status === "error" ? <SectionError message={leads.message} />
           : summary?.totalLeads ? <div className="space-y-4">
-            <PerformanceStats volume={leads.data.volume} bucket={data.bucket} total={summary.totalLeads} change={change?.leads ?? null} rangeLabel={rangeLabel} />
-            <LeadVolumeChart data={leads.data.volume} bucket={data.bucket} />
+            <PerformanceStats volume={leads.data.volume} bucket={data.bucket} total={summary.totalLeads} change={change?.leads ?? null} versus={period.versus} />
+            {singleDay
+              ? <p className="flex min-h-40 items-center justify-center rounded-lg border border-dashed px-4 text-center text-sm text-muted-foreground">A trend line needs more than one day. Pick 7 days or longer to see how lead volume changes.</p>
+              : <LeadVolumeChart data={leads.data.volume} bucket={data.bucket} />}
           </div>
-          : <SectionEmpty>No new leads in the last {rangeLabel}.</SectionEmpty>}
+          : <SectionEmpty>No new leads {period.within}.</SectionEmpty>}
       </DashboardCard>
       <DashboardCard title="Lead sources" icon={ChartPie} description="New leads by channel"
         action={<Link href="/workspace/reports" className={linkClass}>View report<ArrowRight className="size-3.5" aria-hidden="true" /></Link>}>
@@ -85,10 +87,10 @@ export function LeadSectionsView({data, range}: {data: DashboardData; range: Das
               </ul>
             </div>
             <p className="rounded-lg bg-muted/50 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
-              <span className="font-medium text-foreground">{leads.data.sources.slices[0].label}</span> brought {leads.data.sources.slices[0].percent}% of new leads in the last {rangeLabel}.
+              <span className="font-medium text-foreground">{leads.data.sources.slices[0].label}</span> brought {leads.data.sources.slices[0].percent}% of new leads {period.within}.
             </p>
           </div>
-          : <SectionEmpty>No new leads in the last {rangeLabel}.</SectionEmpty>}
+          : <SectionEmpty>No new leads {period.within}.</SectionEmpty>}
       </DashboardCard>
     </Reveal>
 
@@ -109,7 +111,7 @@ export function LeadSectionsView({data, range}: {data: DashboardData; range: Das
       <DashboardCard title="Pipeline" icon={ChartColumnBig} description="New leads by current stage">
         {leads.status === "error" ? <SectionError message={leads.message} />
           : leads.data.stages.length ? <PipelineColumns data={leads.data.stages} />
-          : <SectionEmpty>No new leads in the last {rangeLabel}.</SectionEmpty>}
+          : <SectionEmpty>No new leads {period.within}.</SectionEmpty>}
       </DashboardCard>
       {data.sections.leaderboard && <DashboardCard title="Agents" icon={UsersRound} description="New leads assigned, top 5">
         {leads.status === "error" ? <SectionError message={leads.message} />
@@ -119,7 +121,7 @@ export function LeadSectionsView({data, range}: {data: DashboardData; range: Das
               {[leads.data.agents.others > 0 && `${leads.data.agents.others} more agents`, leads.data.agents.unassigned > 0 && `${integer.format(leads.data.agents.unassigned)} unassigned`].filter(Boolean).join(" · ")}
             </p>}
           </>
-          : <SectionEmpty>No assigned leads in the last {rangeLabel}.</SectionEmpty>}
+          : <SectionEmpty>No assigned leads {period.within}.</SectionEmpty>}
       </DashboardCard>}
       <DashboardCard title="Quick shortcuts" icon={Zap} className={data.sections.leaderboard ? "lg:col-span-2 xl:col-span-1" : undefined}>
         <QuickShortcuts canManageInventory={data.canManageInventory} />

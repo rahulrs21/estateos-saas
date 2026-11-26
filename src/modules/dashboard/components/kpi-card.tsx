@@ -26,15 +26,15 @@ export function IconTile({icon: Icon, tone, size = "md"}: {icon: LucideIcon; ton
 }
 
 /** "↑ 12% vs previous 30 days", in text so the direction never depends on colour alone. */
-export function ChangeBadge({change, period, compact = false}: {change: Change; period: string; compact?: boolean}) {
-  if (!change) return <span className="text-muted-foreground">{compact ? "No change" : `No change vs previous ${period}`}</span>;
+export function ChangeBadge({change, versus, compact = false}: {change: Change; versus: string; compact?: boolean}) {
+  if (!change) return <span className="text-muted-foreground">{compact ? "No change" : `No change vs ${versus}`}</span>;
   if (change.direction === "new") return <span className="font-medium text-(--tile-green-fg)">{compact ? "New" : "New this period"}</span>;
   const Icon = change.direction === "up" ? ArrowUpRight : change.direction === "down" ? ArrowDownRight : ArrowRight;
   return <span className="inline-flex items-center gap-1">
     <span className={cn("inline-flex items-center gap-0.5 font-medium", change.direction === "up" ? "text-(--tile-green-fg)" : change.direction === "down" ? "text-(--tile-rose-fg)" : "text-muted-foreground")}>
       <Icon className="size-3.5" aria-hidden="true" />{change.percent}%<span className="sr-only">{change.direction === "up" ? " up" : change.direction === "down" ? " down" : " unchanged"}</span>
     </span>
-    {!compact && <span className="text-muted-foreground">vs previous {period}</span>}
+    {!compact && <span className="text-muted-foreground">vs {versus}</span>}
   </span>;
 }
 

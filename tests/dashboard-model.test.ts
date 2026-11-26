@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   activityLabel, calendarDate, classifyDue, dashboardSections, fillVolumeSeries, firstName, greetingFor, orderStages, parseDashboardRange, periodChange,
-  previousRange, rangeDates, relativeTime, shareSlices, taskAgenda, toSection, topAgents, zonedHour,
+  isCalendarDate, parseDashboardPeriod, previousPeriod, previousRange, rangeDates, relativeTime, shareSlices, taskAgenda, toSection, topAgents, zonedHour,
 } from "../src/modules/dashboard/dashboard-model";
 
 // Dashboard rules (src/modules/dashboard/dashboard-model.ts). Fictional names and IDs only.
@@ -159,4 +159,31 @@ test("activity rows get a plain label and an icon family", () => {
   assert.equal(relativeTime("2026-11-26T09:00:00Z", now), "3 h ago");
   assert.equal(relativeTime("2026-11-24T12:00:00Z", now), "2 days ago");
   assert.equal(relativeTime("2026-11-01T12:00:00Z", now), "1 Nov");
+});
+
+test("the reporting period: Today, presets and validated custom ranges", () => {
+  const today = "2026-11-26";
+  assert.deepEqual(parseDashboardPeriod({range: "today"}, today), {key: "today", from: today, to: today, bucket: "day", days: 1, label: "Today", versus: "yesterday", within: "today"});
+  const week = parseDashboardPeriod({range: "7d"}, today);
+  assert.equal(week.label, "Last 7 days");
+  assert.equal(week.versus, "previous 7 days");
+  assert.deepEqual(previousPeriod(week), {from: "2026-11-13", to: "2026-11-19"});
+  const custom = parseDashboardPeriod({range: "custom", from: "2026-11-01", to: "2026-11-26"}, today);
+  assert.deepEqual([custom.key, custom.days, custom.bucket, custom.label, custom.versus], ["custom", 26, "day", "1 Nov – 26 Nov 2026", "previous period"]);
+  assert.deepEqual(previousPeriod(custom), {from: "2026-10-06", to: "2026-10-31"});
+  assert.equal(parseDashboardPeriod({range: "custom", from: "2025-12-28", to: "2026-01-03"}, today).label, "28 Dec 2025 – 3 Jan 2026");
+  assert.equal(parseDashboardPeriod({range: "custom", from: "2026-01-01", to: "2026-06-30"}, today).bucket, "week");
+  assert.equal(parseDashboardPeriod({range: "custom", from: "2026-01-01", to: "2026-11-26"}, today).bucket, "month");
+  // Invalid custom ranges fall back to the default.
+  for (const params of [
+    {range: "custom", from: "2026-11-20", to: "2026-11-10"},
+    {range: "custom", from: "2026-11-20", to: "2026-11-27"},
+    {range: "custom", from: "2026-02-30", to: "2026-03-01"},
+    {range: "custom", from: "2025-11-25", to: "2026-11-26"},
+    {range: "custom", from: "nope", to: today},
+    {range: "custom"},
+  ]) assert.equal(parseDashboardPeriod(params, today).key, "30d", JSON.stringify(params));
+  assert.equal(parseDashboardPeriod({range: "custom", from: "2025-11-26", to: "2026-11-26"}, today).days, 366);
+  assert.equal(isCalendarDate("2026-02-29"), false);
+  assert.equal(isCalendarDate("2028-02-29"), true);
 });

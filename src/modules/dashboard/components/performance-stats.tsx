@@ -11,8 +11,8 @@ const monthFormat = new Intl.DateTimeFormat("en-AE", {month: "short", year: "num
  * the chart draws: total, average per bucket, the busiest bucket and the
  * change vs the previous period.
  */
-export function PerformanceStats({volume, bucket, total, change, rangeLabel}: {
-  volume: VolumePoint[]; bucket: VolumeBucket; total: number; change: Change; rangeLabel: string;
+export function PerformanceStats({volume, bucket, total, change, versus}: {
+  volume: VolumePoint[]; bucket: VolumeBucket; total: number; change: Change; versus: string;
 }) {
   const peak = volume.reduce<VolumePoint | null>((best, point) => !best || point.count > best.count ? point : best, null);
   const average = volume.length ? total / volume.length : 0;
@@ -32,8 +32,8 @@ export function PerformanceStats({volume, bucket, total, change, rangeLabel}: {
       </dd>
     </div>)}
     <div className="bg-card px-4 py-2.5">
-      <dt className="text-[11px] font-medium text-muted-foreground">Vs previous {rangeLabel}</dt>
-      <dd className="mt-1.5 text-xs leading-5"><ChangeBadge change={change} period={rangeLabel} compact /></dd>
+      <dt className="text-[11px] font-medium text-muted-foreground first-letter:uppercase">vs {versus}</dt>
+      <dd className="mt-1.5 text-xs leading-5"><ChangeBadge change={change} versus={versus} compact /></dd>
     </div>
   </dl>;
 }

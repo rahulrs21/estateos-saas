@@ -7,6 +7,7 @@
 export const DASHBOARD_TIME_ZONE = "Asia/Dubai";
 
 export const DASHBOARD_RANGES = {
+  "today": {days: 1, bucket: "day", label: "Today"},
   "7d": {days: 7, bucket: "day", label: "7 days"},
   "30d": {days: 30, bucket: "day", label: "30 days"},
   "90d": {days: 90, bucket: "week", label: "90 days"},
@@ -40,6 +41,72 @@ export function shiftDate(date: string, days: number) {
 export function rangeDates(range: DashboardRange, today: string) {
   const {days, bucket} = DASHBOARD_RANGES[range];
   return {from: shiftDate(today, -(days - 1)), to: today, bucket};
+}
+
+/** A YYYY-MM-DD string that is a real calendar date. */
+export function isCalendarDate(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+}
+
+/** Days from `from` to `to`, both included. */
+export function inclusiveDays(from: string, to: string) {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+}
+
+/** The lead report covers at most 366 days. */
+export const MAX_CUSTOM_DAYS = 366;
+
+/** Daily points up to a month, weekly up to six months, monthly beyond. */
+export function bucketForDays(days: number): VolumeBucket {
+  return days <= 31 ? "day" : days <= 183 ? "week" : "month";
+}
+
+export type DashboardPeriod = {
+  key: DashboardRange | "custom";
+  from: string; to: string; days: number; bucket: VolumeBucket;
+  /** "Last 7 days", "Today" or "1 Nov – 26 Nov 2026". */
+  label: string;
+  /** What a change is measured against: "previous 7 days", "yesterday", "previous period". */
+  versus: string;
+  /** "in the last 7 days", "today", "in this period". */
+  within: string;
+};
+
+const shortDay = new Intl.DateTimeFormat("en-AE", {day: "numeric", month: "short", timeZone: "UTC"});
+const fullDay = new Intl.DateTimeFormat("en-AE", {day: "numeric", month: "short", year: "numeric", timeZone: "UTC"});
+const asUtc = (date: string) => new Date(`${date}T00:00:00Z`);
+
+/** "1 Nov – 26 Nov 2026", "28 Dec 2025 – 3 Jan 2026" or "26 Nov 2026" for a single day. */
+export function periodLabel(from: string, to: string) {
+  if (from === to) return fullDay.format(asUtc(to));
+  return `${(from.slice(0, 4) === to.slice(0, 4) ? shortDay : fullDay).format(asUtc(from))} – ${fullDay.format(asUtc(to))}`;
+}
+
+/**
+ * The reporting period from the URL (?range=… or ?range=custom&from=…&to=…).
+ * A custom period must be real dates, from on or before to, not after today
+ * and at most 366 days; anything else falls back to the default range.
+ */
+export function parseDashboardPeriod(params: {range?: unknown; from?: unknown; to?: unknown}, today: string): DashboardPeriod {
+  const first = (value: unknown) => Array.isArray(value) ? value[0] : value;
+  const range = first(params.range), from = first(params.from), to = first(params.to);
+  if (range === "custom" && isCalendarDate(from) && isCalendarDate(to) && from <= to && to <= today) {
+    const days = inclusiveDays(from, to);
+    if (days <= MAX_CUSTOM_DAYS) {
+      return {key: "custom", from, to, days, bucket: bucketForDays(days), label: periodLabel(from, to), versus: "previous period", within: "in this period"};
+    }
+  }
+  const key = parseDashboardRange(range);
+  const preset = DASHBOARD_RANGES[key];
+  const dates = rangeDates(key, today);
+  return key === "today"
+    ? {key, ...dates, days: 1, label: "Today", versus: "yesterday", within: "today"}
+    : {key, ...dates, days: preset.days, label: `Last ${preset.label}`, versus: `previous ${preset.label}`, within: `in the last ${preset.label}`};
+}
+
+/** The equally long period just before, for "vs previous period" comparisons. */
+export function previousPeriod(period: Pick<DashboardPeriod, "from" | "days">) {
+  return {from: shiftDate(period.from, -period.days), to: shiftDate(period.from, -1)};
 }
 
 /** The equally long period just before a range, for "vs previous period" comparisons. */
