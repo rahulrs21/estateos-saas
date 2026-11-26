@@ -8,6 +8,7 @@ import { CalendarDays, Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { Aurora } from "@/components/shared/aurora";
 import { useLiveClock } from "@/components/layout/use-live-clock";
 import { DASHBOARD_RANGES, DASHBOARD_TIME_ZONE, greetingFor, zonedHour, type DashboardRange } from "../dashboard-model";
 import palmVillas from "../assets/banner/palm-villas-skyline.jpg";
@@ -65,13 +66,16 @@ export function GreetingBanner({firstName, range, serverNow}: {firstName: string
       </motion.div>)}
     </div>
 
+    {/* Aurora light behind the welcome panel, drifting slowly (still under reduced motion). */}
+    <Aurora className="right-[40%] -z-[25]" opacity={0.85} />
+
     {/* Curved welcome panel (wide screens) and a soft tint over the photos (phones). */}
     <svg aria-hidden="true" className="absolute inset-0 -z-20 hidden size-full md:block" viewBox="0 0 100 100" preserveAspectRatio="none">
       <defs>
         <linearGradient id="greeting-panel" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="var(--card)" stopOpacity="0.97" />
-          <stop offset="70%" stopColor="var(--banner-from)" stopOpacity="0.94" />
-          <stop offset="100%" stopColor="var(--banner-from)" stopOpacity="0.82" />
+          <stop offset="0%" stopColor="var(--card)" stopOpacity="0.8" />
+          <stop offset="70%" stopColor="var(--banner-from)" stopOpacity="0.74" />
+          <stop offset="100%" stopColor="var(--banner-from)" stopOpacity="0.58" />
         </linearGradient>
         <filter id="greeting-panel-glow" x="-20%" y="-20%" width="140%" height="140%">
           <feGaussianBlur stdDeviation="1.4" />
@@ -83,7 +87,6 @@ export function GreetingBanner({firstName, range, serverNow}: {firstName: string
       <path d="M52 0 C 45 24, 48 70, 36 100" fill="none" stroke="var(--primary)" strokeOpacity="0.35" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
     </svg>
     <div aria-hidden="true" className="absolute inset-0 -z-20 md:hidden" style={{background: "linear-gradient(90deg, color-mix(in oklab, var(--background) 92%, transparent) 0%, color-mix(in oklab, var(--background) 74%, transparent) 70%, color-mix(in oklab, var(--background) 45%, transparent) 100%)"}} />
-    <div aria-hidden="true" className="absolute -top-24 -left-24 -z-10 size-80 rounded-full bg-[radial-gradient(circle,color-mix(in_oklab,var(--primary)_14%,transparent),transparent_70%)]" />
 
     <div className="relative max-w-xl px-5 py-8 sm:px-8 sm:py-10">
       <motion.h1 id="dashboard-greeting" className="flex items-center gap-2 text-[26px] font-semibold tracking-tight sm:text-[32px]"

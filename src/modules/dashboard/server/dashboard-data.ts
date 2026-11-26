@@ -15,7 +15,7 @@ import {
 /** Page size of ListMyTasks; a full page means the task counts are a lower bound. */
 const TASK_PAGE_SIZE = 100;
 /** Rows in the "Your activity" feed. */
-const ACTIVITY_LIMIT = 8;
+const ACTIVITY_LIMIT = 6;
 
 const safeMessage = (reason: unknown) => reason instanceof WorkspaceError ? reason.message : null;
 

@@ -100,7 +100,7 @@ export function LeadSectionsView({data, range}: {data: DashboardData; range: Das
       <DashboardCard title="Upcoming tasks" icon={ListChecks}
         description={taskData ? `${integer.format(taskData.items.length)}${taskData.truncated ? "+" : ""} open` : undefined}
         action={<Link href="/workspace/tasks" className={linkClass}>View all<ArrowRight className="size-3.5" aria-hidden="true" /></Link>}>
-        {tasks.status === "error" ? <SectionError message={tasks.message} /> : <TaskAgenda items={tasks.data.items} limit={8} />}
+        {tasks.status === "error" ? <SectionError message={tasks.message} /> : <TaskAgenda items={tasks.data.items} limit={6} />}
       </DashboardCard>
       <div className="lg:col-span-2 xl:col-span-1"><CopilotCard /></div>
     </Reveal>
