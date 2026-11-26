@@ -2,7 +2,7 @@
 
 import Image, { type StaticImageData } from "next/image";
 import Link from "next/link";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { CalendarDays, Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,13 +27,6 @@ const SLIDE_MS = 6500;
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
 const longDate = new Intl.DateTimeFormat("en-AE", {timeZone: DASHBOARD_TIME_ZONE, weekday: "short", day: "numeric", month: "short", year: "numeric"});
 
-/* The photos fade into the page on the left and at the bottom, so the banner has no hard edge. */
-const photoMask: CSSProperties = {
-  maskImage: "linear-gradient(to right, transparent 0%, #000 34%), linear-gradient(to top, transparent 0%, #000 26%)",
-  WebkitMaskImage: "linear-gradient(to right, transparent 0%, #000 34%), linear-gradient(to top, transparent 0%, #000 26%)",
-  maskComposite: "intersect",
-  WebkitMaskComposite: "source-in",
-};
 
 /**
  * Greeting, today's date (Dubai) and the reporting period, on a curved panel
@@ -53,9 +46,9 @@ export function GreetingBanner({firstName, range, serverNow}: {firstName: string
     return () => clearInterval(timer);
   }, [reduce, active]);
 
-  return <section aria-labelledby="dashboard-greeting" className="relative isolate min-h-[232px] overflow-hidden rounded-2xl bg-background">
+  return <section aria-labelledby="dashboard-greeting" className="relative isolate -mx-3 -mt-3 min-h-[232px] overflow-hidden bg-background sm:-mx-4 md:mx-0 md:mt-0 md:rounded-2xl">
     {/* Slideshow. */}
-    <div aria-hidden="true" className="absolute inset-y-0 right-0 -z-30 w-full md:w-[66%]" style={photoMask}>
+    <div aria-hidden="true" className="banner-photo-mask absolute inset-y-0 right-0 -z-30 w-full md:w-[66%]">
       {SLIDES.map((slide, index) => <motion.div key={slide.label} className="absolute inset-0" initial={false}
         animate={{opacity: index === active ? 1 : 0}} transition={{duration: 1.4, ease: "easeInOut"}}>
         <motion.div className="absolute inset-0" initial={false}
@@ -86,17 +79,17 @@ export function GreetingBanner({firstName, range, serverNow}: {firstName: string
     </svg>
     {/* Aurora (WebGL) over the welcome side: tints it on light, glows on dark; one still frame under reduced motion. */}
     <Aurora className="absolute inset-y-0 left-0 -z-[15] w-full bg-transparent md:w-[62%]" colors={["#22e584", "#19d3c5", "#4f7dff"]}
-      height={0.64} reach={0.5} intensity={0.75} rays={0.6} fade="right" quality={0.75} />
-    <div aria-hidden="true" className="absolute inset-0 -z-20 md:hidden" style={{background: "linear-gradient(90deg, color-mix(in oklab, var(--background) 92%, transparent) 0%, color-mix(in oklab, var(--background) 74%, transparent) 70%, color-mix(in oklab, var(--background) 45%, transparent) 100%)"}} />
+      height={0.64} reach={0.5} intensity={0.75} rays={0.6} fade="right" quality={0.75} opacity={0.6} />
+    <div aria-hidden="true" className="absolute inset-0 -z-20 md:hidden" style={{background: "linear-gradient(180deg, rgba(3, 38, 30, 0.72) 0%, rgba(3, 38, 30, 0.5) 55%, rgba(3, 38, 30, 0.68) 100%)"}} />
 
     <div className="relative max-w-xl px-5 py-8 sm:px-8 sm:py-10">
-      <motion.h1 id="dashboard-greeting" className="flex items-center gap-2 text-[26px] font-semibold tracking-tight sm:text-[32px]"
+      <motion.h1 id="dashboard-greeting" className="flex items-center gap-2 text-[26px] font-semibold tracking-tight text-white sm:text-[32px] md:text-foreground"
         initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} transition={{duration: 0.55, delay: 0.1, ease: EASE_OUT}}>
         <span>{greeting}{firstName ? `, ${firstName}` : ""}!</span>
         <motion.span aria-hidden="true" className="inline-block origin-[70%_80%]"
           initial={{rotate: 0}} animate={{rotate: [0, 16, -8, 16, -4, 10, 0]}} transition={{duration: 1.6, delay: 0.7, ease: "easeInOut"}}>👋</motion.span>
       </motion.h1>
-      <motion.p className="mt-2 text-[15px] text-muted-foreground" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} transition={{duration: 0.55, delay: 0.2, ease: EASE_OUT}}>
+      <motion.p className="mt-2 text-[15px] text-white/85 md:text-muted-foreground" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} transition={{duration: 0.55, delay: 0.2, ease: EASE_OUT}}>
         Here&apos;s what&apos;s happening with your real estate business today.
       </motion.p>
       <motion.div className="mt-6 flex flex-wrap items-center gap-2" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} transition={{duration: 0.55, delay: 0.3, ease: EASE_OUT}}>

@@ -32,10 +32,10 @@ export function CopilotCard() {
     <Sparkle className="absolute top-[4.25rem] left-12" delay={0.8} size={14} />
 
     {/* Robot: takes the space above the text, centred there however tall the card grows. */}
-    <div aria-hidden="true" className="pointer-events-none -mx-5 -mt-5 flex min-h-40 flex-1 items-center justify-end">
-      <motion.div className="w-[78%] max-w-72" style={robotMaskStyle}
+    <div aria-hidden="true" className="pointer-events-none -mx-5 -mt-3 flex min-h-44 flex-1 items-center justify-center">
+      <motion.div className="w-[94%] max-w-80" style={robotMaskStyle}
         animate={{y: [0, -5, 0]}} transition={{duration: 4, repeat: Infinity, ease: "easeInOut"}}>
-        <Image src={robot} alt="" sizes="288px" className="h-auto w-full" />
+        <Image src={robot} alt="" sizes="320px" quality={95} className="h-auto w-full" />
       </motion.div>
     </div>
 

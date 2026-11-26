@@ -239,3 +239,14 @@
 [data-slot="chart"] .recharts-surface:focus:not(:focus-visible) {
   outline: none;
 }
+
+/* Dashboard banner photos: fade into the page on the left and at the bottom on
+   wide screens; on phones the banner is full-bleed and the photo fills it. */
+@utility banner-photo-mask {
+  @media (min-width: 48rem) {
+    mask-image: linear-gradient(to right, transparent 0%, #000 34%), linear-gradient(to top, transparent 0%, #000 26%);
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 34%), linear-gradient(to top, transparent 0%, #000 26%);
+    mask-composite: intersect;
+    -webkit-mask-composite: source-in;
+  }
+}
