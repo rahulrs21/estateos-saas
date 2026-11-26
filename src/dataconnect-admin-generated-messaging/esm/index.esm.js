@@ -61,6 +61,7 @@ export const AuditTargetType = {
   META_LEAD_CONNECTION: "META_LEAD_CONNECTION",
   META_LEAD_FORM: "META_LEAD_FORM",
   CAMPAIGN: "CAMPAIGN",
+  META_AD_ACCOUNT: "META_AD_ACCOUNT",
 }
 
 export const CallConsentStatus = {

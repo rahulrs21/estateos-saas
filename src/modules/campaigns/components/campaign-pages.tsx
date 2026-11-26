@@ -62,7 +62,7 @@ export function CampaignsList({ data }: { data: CampaignsPageData }) {
   const { period, rows, totals } = data;
   return <div className="space-y-5">
     <PageHeader eyebrow="Marketing" title="Campaigns" description="What each campaign cost, the leads it brought, and how many were qualified or won.">
-      {data.canManage && <CampaignDialog organizationId={data.organization.id} owners={data.owners} />}
+      {data.canManage && <div className="flex flex-wrap gap-2"><Link href="/workspace/marketing/ad-accounts" className={buttonVariants({ variant: "outline" })}>Ad accounts</Link><CampaignDialog organizationId={data.organization.id} owners={data.owners} /></div>}
     </PageHeader>
     <Card><CardContent className="p-4"><PeriodForm period={period} extra />
       <p className="mt-3 text-xs text-muted-foreground">Leads created from {period.from} through {period.to} (Dubai time), and the share of spend in those days.</p></CardContent></Card>

@@ -172,6 +172,15 @@ export function mapWorkspaceDataError(error: unknown): WorkspaceError {
     if (/\b(?:CAMPAIGNS_FORBIDDEN|CAMPAIGNS_ADMIN_REQUIRED|LEAD_SOURCE_BACKFILL_FORBIDDEN)\b/.test(message)) {
       return new WorkspaceError("PERMISSION_DENIED", 403, message.includes("CAMPAIGNS_FORBIDDEN") ? "Campaigns and spend are for owners, administrators and managers." : "Only owners and administrators can change this.");
     }
+    if (message.includes("META_ADS_CONNECT_NOT_ALLOWED")) {
+      return new WorkspaceError("PERMISSION_DENIED", 403, "Only company owners and administrators can connect or change ad accounts.");
+    }
+    if (message.includes("META_AD_ACCOUNT_TAKEN")) {
+      return new WorkspaceError("CONFLICT", 409, "This ad account is already connected to another EstateOS company.");
+    }
+    if (message.includes("META_AD_ACCOUNT_NOT_FOUND")) {
+      return new WorkspaceError("NOT_FOUND", 404, "This ad account is not connected. Reload and try again.");
+    }
     if (message.includes("CAMPAIGN_SPEND_OVERLAP")) {
       return new WorkspaceError("VALIDATION_ERROR", 400, "This campaign already has spend entered for some of these days. Edit that entry, or choose days it does not cover.");
     }

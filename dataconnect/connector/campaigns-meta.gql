@@ -1,0 +1,106 @@
+# Phase 7F.2: Meta ad accounts and their spend (docs/CAMPAIGNS_PLAN.md#2-spend). Server only (NO_ACCESS): the server
+# resolves the member and company first, and each change that a member starts re-checks here that the actor is an
+# active OWNER or ADMIN of the company. The worker's sync names no member; it only touches rows of the account's company.
+
+query MetaAdAccountsOverview($organizationId: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) {
+  actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}) {role}
+  accounts: metaAdAccounts(where: {organizationId: {eq: $organizationId}, organization: {memberships_on_organization: {exist: {userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}, role: {in: [OWNER, ADMIN]}}}}},
+    orderBy: [{connectedAt: ASC}], limit: 50) {
+    id adAccountId name currency timeZone status tokenExpiresAt connectedAt lastSyncedAt lastErrorCode nextSyncAt firstSyncDone connectedByUid
+  }
+}
+
+query MetaAdAccountByExternalId($adAccountId: String!) @auth(level: NO_ACCESS) {
+  account: metaAdAccount(first: {where: {adAccountId: {eq: $adAccountId}}}) {id organizationId}
+}
+
+query MetaAdAccountSecret($organizationId: UUID!, $id: UUID!) @auth(level: NO_ACCESS) {
+  account: metaAdAccount(key: {organizationId: $organizationId, id: $id}) {id adAccountId name currency timeZone status tokenCiphertext tokenKeyId connectedByUid firstSyncDone}
+}
+
+query MetaAdAccountsDue($now: Timestamp!, $limit: Int! = 5) @auth(level: NO_ACCESS) {
+  accounts: metaAdAccounts(where: {status: {eq: CONNECTED}, nextSyncAt: {le: $now}}, orderBy: [{nextSyncAt: ASC}], limit: $limit) {id organizationId}
+}
+
+# Connects (or reconnects) an ad account the person shared in Facebook's sign-in.
+mutation SaveMetaAdAccount($organizationId: UUID!, $id: UUID!, $actorUid: String!, $adAccountId: String!, $name: String!, $currency: String!, $timeZone: String,
+  $tokenCiphertext: String!, $tokenKeyId: String!, $tokenExpiresAt: Timestamp) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}})
+      @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "META_ADS_CONNECT_NOT_ALLOWED") {role}
+    # An ad account belongs to one company at a time.
+    taken: metaAdAccount(first: {where: {adAccountId: {eq: $adAccountId}, organizationId: {ne: $organizationId}}}) @check(expr: "this == null", message: "META_AD_ACCOUNT_TAKEN") {id}
+  }
+  metaAdAccount_upsert(data: {organizationId: $organizationId, id: $id, adAccountId: $adAccountId, name: $name, currency: $currency, timeZone: $timeZone, status: CONNECTED,
+    tokenCiphertext: $tokenCiphertext, tokenKeyId: $tokenKeyId, tokenExpiresAt: $tokenExpiresAt, connectedByUid: $actorUid, connectedAt_expr: "request.time",
+    nextSyncAt_expr: "request.time", lastErrorCode: null, updatedAt_expr: "request.time"})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: META_AD_ACCOUNT_CONNECTED, targetType: META_AD_ACCOUNT, targetId: $id, metadata_expr: "{'adAccountId': vars.adAccountId}"})
+}
+
+mutation DisconnectMetaAdAccount($organizationId: UUID!, $id: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}})
+      @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "META_ADS_CONNECT_NOT_ALLOWED") {role}
+    account: metaAdAccount(key: {organizationId: $organizationId, id: $id}) @check(expr: "this != null", message: "META_AD_ACCOUNT_NOT_FOUND") {adAccountId}
+  }
+  metaAdAccount_delete(key: {organizationId: $organizationId, id: $id})
+  auditLog_insert(data: {organizationId: $organizationId, actorUid: $actorUid, action: META_AD_ACCOUNT_DISCONNECTED, targetType: META_AD_ACCOUNT, targetId: $id, metadata_expr: "{'adAccountId': response.before.account.adAccountId}"})
+}
+
+# Lets an owner or administrator ask for a sync now (the worker picks it up on its next minute).
+mutation RequestMetaAdAccountSync($organizationId: UUID!, $id: UUID!, $actorUid: String!) @auth(level: NO_ACCESS) @transaction {
+  before: query @redact {
+    actor: membership(first: {where: {organizationId: {eq: $organizationId}, userProfileUid: {eq: $actorUid}, status: {eq: ACTIVE}}})
+      @check(expr: "this != null && this.role in ['OWNER', 'ADMIN']", message: "META_ADS_CONNECT_NOT_ALLOWED") {role}
+  }
+  metaAdAccount_update(key: {organizationId: $organizationId, id: $id}, data: {nextSyncAt_expr: "request.time", updatedAt_expr: "request.time"}) @check(expr: "this != null", message: "META_AD_ACCOUNT_NOT_FOUND")
+}
+
+mutation MarkMetaAdAccountSynced($organizationId: UUID!, $id: UUID!, $status: MetaAdAccountStatus!, $errorCode: String, $nextSyncAt: Timestamp!, $synced: Boolean!, $firstSyncDone: Boolean!) @auth(level: NO_ACCESS) {
+  metaAdAccount_update(key: {organizationId: $organizationId, id: $id}, data: {status: $status, lastErrorCode: $errorCode, nextSyncAt: $nextSyncAt, firstSyncDone: $firstSyncDone,
+    lastSyncedAt_expr: "vars.synced ? request.time : dyn(null)", updatedAt_expr: "request.time"})
+}
+
+# The company's campaigns a sync may write spend to: by Meta campaign ID, or by key (a campaign added by hand or
+# found in leads under the same name).
+query MetaCampaignsForSync($organizationId: UUID!, $metaCampaignIds: [String!]!, $keys: [String!]!) @auth(level: NO_ACCESS) {
+  byId: campaigns(where: {organizationId: {eq: $organizationId}, metaCampaignId: {in: $metaCampaignIds}}, limit: 500) {id campaignKey metaCampaignId}
+  byKey: campaigns(where: {organizationId: {eq: $organizationId}, campaignKey: {in: $keys}}, limit: 500) {id campaignKey metaCampaignId}
+}
+
+mutation CreateSyncedCampaign($organizationId: UUID!, $id: UUID!, $campaignKey: String!, $name: String!, $metaCampaignId: String!, $currency: String!, $createdByUid: String!) @auth(level: NO_ACCESS) {
+  campaign_insert(data: {organizationId: $organizationId, id: $id, campaignKey: $campaignKey, name: $name, platform: "meta", status: ACTIVE, currency: $currency, metaCampaignId: $metaCampaignId, createdByUid: $createdByUid})
+}
+
+mutation LinkCampaignToMeta($organizationId: UUID!, $id: UUID!, $metaCampaignId: String!) @auth(level: NO_ACCESS) {
+  campaign_update(key: {organizationId: $organizationId, id: $id}, data: {metaCampaignId: $metaCampaignId, updatedAt_expr: "request.time"})
+}
+
+# One day's spend per campaign and ad account, written in one statement. Row IDs are derived from the company, ad
+# account, Meta campaign and day, so a later sync replaces a day instead of adding to it. Rows for campaigns of
+# another company are ignored.
+mutation SaveMetaSpend($organizationId: UUID!, $adAccountId: String!, $rows: Any!) @auth(level: NO_ACCESS) {
+  saved: _execute(sql: """
+   INSERT INTO campaign_spend (organization_id, id, campaign_id, source, spent_from, spent_to, amount_minor, currency, impressions, clicks, external_account_id, created_at, updated_at)
+   SELECT $1, r.id::uuid, r.campaign_id::uuid, 'META'::campaign_spend_source, r.day::date, r.day::date, r.amount_minor::numeric, r.currency, r.impressions::numeric, r.clicks::numeric, $2, now(), now()
+   FROM jsonb_to_recordset($3::jsonb) AS r(id text, campaign_id text, day text, amount_minor text, currency text, impressions text, clicks text)
+   WHERE EXISTS (SELECT 1 FROM campaign c WHERE c.organization_id = $1 AND c.id = r.campaign_id::uuid)
+   ON CONFLICT (organization_id, id) DO UPDATE SET amount_minor = EXCLUDED.amount_minor, currency = EXCLUDED.currency, impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks, updated_at = now()
+  """, params: [$organizationId, $adAccountId, $rows])
+}
+
+# Names and groups leads by their real Meta campaign: Meta lead ads that were grouped by campaign ID (their names
+# were not read) take the campaign's name; WhatsApp ad leads, grouped by the ad's headline, take the campaign their
+# ad belongs to. Only rows of this company that have not been given a campaign yet are changed.
+mutation RenameMetaAttributions($organizationId: UUID!, $campaigns: Any!, $ads: Any!) @auth(level: NO_ACCESS) {
+  campaigns: _execute(sql: """
+   UPDATE lead_attribution a SET meta_campaign_name = COALESCE(a.meta_campaign_name, r.name), campaign_key = r.key
+   FROM jsonb_to_recordset($2::jsonb) AS r(campaign_id text, name text, key text)
+   WHERE a.organization_id = $1 AND a.meta_campaign_id = r.campaign_id AND a.campaign_key = 'meta campaign ' || r.campaign_id
+  """, params: [$organizationId, $campaigns])
+  ads: _execute(sql: """
+   UPDATE lead_attribution a SET meta_campaign_id = r.campaign_id, meta_campaign_name = r.name, meta_adset_id = COALESCE(a.meta_adset_id, r.adset_id), campaign_key = r.key
+   FROM jsonb_to_recordset($2::jsonb) AS r(ad_id text, adset_id text, campaign_id text, name text, key text)
+   WHERE a.organization_id = $1 AND a.channel = 'WHATSAPP_AD' AND a.meta_ad_id = r.ad_id AND a.meta_campaign_id IS NULL
+  """, params: [$organizationId, $ads])
+}

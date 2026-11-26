@@ -129,6 +129,8 @@ const ActivityKind = {
   LEAD_SOURCES_FILLED: "LEAD_SOURCES_FILLED",
   CAMPAIGN_CHANGED: "CAMPAIGN_CHANGED",
   CAMPAIGN_SPEND_CHANGED: "CAMPAIGN_SPEND_CHANGED",
+  META_AD_ACCOUNT_CONNECTED: "META_AD_ACCOUNT_CONNECTED",
+  META_AD_ACCOUNT_DISCONNECTED: "META_AD_ACCOUNT_DISCONNECTED",
 }
 exports.ActivityKind = ActivityKind;
 
@@ -275,6 +277,7 @@ const AuditTargetType = {
   META_LEAD_CONNECTION: "META_LEAD_CONNECTION",
   META_LEAD_FORM: "META_LEAD_FORM",
   CAMPAIGN: "CAMPAIGN",
+  META_AD_ACCOUNT: "META_AD_ACCOUNT",
 }
 exports.AuditTargetType = AuditTargetType;
 
@@ -760,6 +763,12 @@ const MembershipStatus = {
   REMOVED: "REMOVED",
 }
 exports.MembershipStatus = MembershipStatus;
+
+const MetaAdAccountStatus = {
+  CONNECTED: "CONNECTED",
+  NEEDS_RECONNECT: "NEEDS_RECONNECT",
+}
+exports.MetaAdAccountStatus = MetaAdAccountStatus;
 
 const MetaLeadConnectionStatus = {
   ACTIVE: "ACTIVE",
@@ -1600,6 +1609,97 @@ function listAutomationEventsForTarget(dcOrVarsOrOptions, varsOrOptions, options
   return dcInstance.executeQuery('ListAutomationEventsForTarget', inputVars, inputOpts);
 }
 exports.listAutomationEventsForTarget = listAutomationEventsForTarget;
+
+function metaAdAccountsOverview(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaAdAccountsOverview', inputVars, inputOpts);
+}
+exports.metaAdAccountsOverview = metaAdAccountsOverview;
+
+function metaAdAccountByExternalId(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaAdAccountByExternalId', inputVars, inputOpts);
+}
+exports.metaAdAccountByExternalId = metaAdAccountByExternalId;
+
+function metaAdAccountSecret(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaAdAccountSecret', inputVars, inputOpts);
+}
+exports.metaAdAccountSecret = metaAdAccountSecret;
+
+function metaAdAccountsDue(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaAdAccountsDue', inputVars, inputOpts);
+}
+exports.metaAdAccountsDue = metaAdAccountsDue;
+
+function saveMetaAdAccount(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SaveMetaAdAccount', inputVars, inputOpts);
+}
+exports.saveMetaAdAccount = saveMetaAdAccount;
+
+function disconnectMetaAdAccount(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('DisconnectMetaAdAccount', inputVars, inputOpts);
+}
+exports.disconnectMetaAdAccount = disconnectMetaAdAccount;
+
+function requestMetaAdAccountSync(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RequestMetaAdAccountSync', inputVars, inputOpts);
+}
+exports.requestMetaAdAccountSync = requestMetaAdAccountSync;
+
+function markMetaAdAccountSynced(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('MarkMetaAdAccountSynced', inputVars, inputOpts);
+}
+exports.markMetaAdAccountSynced = markMetaAdAccountSynced;
+
+function metaCampaignsForSync(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeQuery('MetaCampaignsForSync', inputVars, inputOpts);
+}
+exports.metaCampaignsForSync = metaCampaignsForSync;
+
+function createSyncedCampaign(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('CreateSyncedCampaign', inputVars, inputOpts);
+}
+exports.createSyncedCampaign = createSyncedCampaign;
+
+function linkCampaignToMeta(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('LinkCampaignToMeta', inputVars, inputOpts);
+}
+exports.linkCampaignToMeta = linkCampaignToMeta;
+
+function saveMetaSpend(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('SaveMetaSpend', inputVars, inputOpts);
+}
+exports.saveMetaSpend = saveMetaSpend;
+
+function renameMetaAttributions(dcOrVarsOrOptions, varsOrOptions, options) {
+  const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);
+  dcInstance.useGen(true);
+  return dcInstance.executeMutation('RenameMetaAttributions', inputVars, inputOpts);
+}
+exports.renameMetaAttributions = renameMetaAttributions;
 
 function campaignPerformance(dcOrVarsOrOptions, varsOrOptions, options) {
   const { dc: dcInstance, vars: inputVars, options: inputOpts} = validateAdminArgs(connectorConfig, dcOrVarsOrOptions, varsOrOptions, options, true, true);

@@ -60,3 +60,34 @@ type CampaignSpend @table(key: ["organization", "id"])
   createdAt: Timestamp! @default(expr: "request.time")
   updatedAt: Timestamp! @default(expr: "request.time")
 }
+
+# Phase 7F.2: a Meta ad account an owner or administrator connected (read-only, the ads_read permission), so its
+# campaigns' spend is read every few hours. An ad account belongs to one company at a time. The token is the
+# connecting person's, encrypted for this row (vault purpose "meta-ads-token"); disconnecting deletes the row and
+# the token, and keeps the spend already read.
+enum MetaAdAccountStatus { CONNECTED NEEDS_RECONNECT }
+
+type MetaAdAccount @table(key: ["organization", "id"])
+  @unique(fields: ["adAccountId"])
+  @index(fields: ["status", "nextSyncAt"]) {
+  organizationId: UUID!
+  organization: Organization!
+  id: UUID! @default(expr: "uuidV4()")
+  # Digits only, without Meta's "act_" prefix.
+  adAccountId: String! @col(dataType: "varchar(40)")
+  name: String! @col(dataType: "varchar(200)")
+  currency: String! @col(dataType: "varchar(3)")
+  timeZone: String @col(dataType: "varchar(64)")
+  status: MetaAdAccountStatus! @default(value: CONNECTED)
+  tokenCiphertext: String @col(dataType: "varchar(4096)")
+  tokenKeyId: String @col(dataType: "varchar(16)")
+  tokenExpiresAt: Timestamp
+  connectedByUid: String!
+  connectedAt: Timestamp! @default(expr: "request.time")
+  # The first sync reads the last 90 days; later syncs the last 3 (Meta revises recent days).
+  firstSyncDone: Boolean! @default(value: false)
+  nextSyncAt: Timestamp! @default(expr: "request.time")
+  lastSyncedAt: Timestamp
+  lastErrorCode: String @col(dataType: "varchar(64)")
+  updatedAt: Timestamp! @default(expr: "request.time")
+}

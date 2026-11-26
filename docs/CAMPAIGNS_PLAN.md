@@ -33,6 +33,30 @@ It builds on 7E (lead source attribution, [LEAD_ATTRIBUTION_PLAN.md](LEAD_ATTRIB
 - **Reports:** for owners and admins reporting on the whole company (no source, stage or agent filter), Top campaigns and the CSV gain **Spend** and **Cost per lead**.
 - **Money:** amounts are integers in minor units, never converted. Cost per lead is shown only when a campaign's spend is in one currency.
 
+## Built in 7F.2 (deployed to staging 2026-11-26)
+
+- **Connecting** (Marketing → **Ad accounts**, owners and admins):
+  - Facebook Login for Business asks only for `ads_read`: the configuration `META_ADS_LOGIN_CONFIG_ID`, or `scope=ads_read` without one;
+  - the return (`/api/campaigns/meta/callback`) is trusted only through a sealed, single-use, 10-minute state cookie bound to the member and company, and the membership is checked again in the database;
+  - every ad account the person shared is connected, except one already connected to another company (an ad account belongs to one company at a time);
+  - the token is encrypted per ad account (vault purpose `meta-ads-token`) with its expiry, and is never returned or logged.
+- **Data:** `MetaAdAccount` (`dataconnect/schema/campaigns.gql`) and server-only operations (`dataconnect/connector/campaigns-meta.gql`); the audit actions `META_AD_ACCOUNT_CONNECTED` and `META_AD_ACCOUNT_DISCONNECTED` and the target `META_AD_ACCOUNT`, appended.
+- **Sync** (`src/modules/campaigns/server/meta-ads.ts`, pure rules in `src/modules/campaigns/meta-insights.ts`):
+  - reads the account's **ad-level daily insights** (campaign, ad set, ad, spend, impressions, clicks): the last 90 days on the first sync, then the last 3 days every 6 hours from the worker, or now with **Sync now**; up to 20 pages of 500 rows;
+  - adds up each campaign's day and writes all days in **one statement** (`SaveMetaSpend`), with IDs derived from the company, account, campaign and day, so a re-read replaces a day;
+  - finds each campaign by Meta ID, else by key (then links it), else creates it, named by Meta;
+  - **names leads by their Meta campaign:** lead-ad leads grouped by campaign ID take its name, and **WhatsApp ad leads** (grouped by headline since 7E.2) join the campaign their ad belongs to;
+  - a revoked or expired token marks the account **Connect again**; Meta's rate limits retry within the hour.
+- **Read-only:** EstateOS only ever sends GET requests to Meta for ad accounts.
+- **Disconnect** deletes the account and its token; spend already read stays.
+
+### Meta console steps for staging (7F.2)
+1. In the Meta app (EstateOS RE), open **Facebook Login for Business → Configurations → Create configuration**. Name it *EstateOS ad accounts*, choose *User access token*, the permission **ads_read** only, and the asset type **Ad accounts**.
+2. Add `https://estateos-staging--estateos-staging.us-east4.hosted.app/api/campaigns/meta/callback` to **Valid OAuth Redirect URIs**.
+3. Put the configuration ID in `apphosting.staging.yaml` as `META_ADS_LOGIN_CONFIG_ID`. It's a public value, not a secret.
+
+Until App Review grants Advanced Access, only ad accounts of people with a role on the Meta app can be read.
+
 ## Goal
 
 For each campaign an agency runs, EstateOS shows:

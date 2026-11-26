@@ -20,6 +20,7 @@ import { syncMailboxes } from "@/modules/inbox/server/mail-sync";
 import { fetchPendingWhatsAppMedia } from "@/modules/inbox/server/whatsapp-media";
 import { retryMetaLeadEvents } from "@/modules/lead-ads/server/process";
 import { pollDueConnections } from "@/modules/lead-ads/server/poll";
+import { syncDueMetaAdAccounts } from "@/modules/campaigns/server/meta-ads";
 import { generateWorkflowDraft } from "./generate";
 import { completeWorkTask, listMyTasks } from "./tasks";
 import {
@@ -187,7 +188,12 @@ export async function tickResponse(request: Request) {
       console.error(JSON.stringify({event: "inbox.retention_failed", name: error instanceof Error ? error.name : typeof error}));
       return null;
     });
-    return Response.json({data: {...result, errors: result.errors.length, communications, inbox, inboxRetention, mailboxes, media, metaLeads, metaPolls}}, {headers: {"Cache-Control": "no-store"}});
+    // Phase 7F.2: connected Meta ad accounts' spend, every 6 hours each (docs/CAMPAIGNS_PLAN.md); its failure never fails the tick.
+    const metaSpend = await syncDueMetaAdAccounts().catch(error => {
+      console.error(JSON.stringify({event: "campaigns.meta.sync_due_failed", name: error instanceof Error ? error.name : typeof error}));
+      return null;
+    });
+    return Response.json({data: {...result, errors: result.errors.length, communications, inbox, inboxRetention, mailboxes, media, metaLeads, metaPolls, metaSpend}}, {headers: {"Cache-Control": "no-store"}});
   } catch (error) {
     console.error(JSON.stringify({event: "automations.tick_failed", name: error instanceof Error ? error.name : typeof error, detail: error instanceof Error ? error.message.slice(0, 200) : undefined}));
     return Response.json({error: {code: "TICK_FAILED", message: "The automation tick failed; it will be retried."}}, {status: 503});

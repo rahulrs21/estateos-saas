@@ -450,4 +450,84 @@ export function registerCaptureCases({ sdk, run, forbidden, dc }) {
       for (const leadId of leads) await run(sdk.archiveLead, "owner-a", { organizationId: f.orgA, leadId });
     });
   });
+
+  // Phase 7F.2 (docs/CAMPAIGNS_PLAN.md): Meta ad accounts, synced spend and campaign names for leads.
+  describe("Phase 7F.2 Meta ad accounts and synced spend", { concurrency: false }, () => {
+    const gql = async (query, variables = {}) => (await dc.executeGraphql(query, { variables })).data;
+    const server = async (operation, variables) => (await operation(dc, variables)).data;
+    const rejectsWith = (promise, token) => assert.rejects(promise, (error) => String(error?.message ?? error).includes(token), token);
+    const tag = String(Date.now()).slice(-9);
+    const AD_ACCOUNT = `9${tag}`, META_CAMPAIGN = `12020${tag}1`, WHATSAPP_CAMPAIGN = `12020${tag}2`, WHATSAPP_AD = `12020${tag}3`, ID_ONLY_CAMPAIGN = `12020${tag}4`;
+    const account = randomUUID();
+    const save = (extra = {}) => server(sdk.saveMetaAdAccount, { organizationId: f.orgA, id: account, actorUid: "owner-a", adAccountId: AD_ACCOUNT, name: "E2E Ad Account", currency: "AED",
+      timeZone: "Asia/Dubai", tokenCiphertext: "v1:sealed-test-value", tokenKeyId: "k1", tokenExpiresAt: null, ...extra });
+    const sourceOf = async (lead) => (await gql(`query S($lead: UUID!) { leadAttributions(where: {leadId: {eq: $lead}}) { campaignKey metaCampaignId metaCampaignName metaAdsetId } }`, { lead })).leadAttributions[0];
+    const leads = [];
+
+    it("connects an ad account for owners and administrators of one company only, and lists it without its token", async () => {
+      await rejectsWith(save({ actorUid: "agent-a" }), "META_ADS_CONNECT_NOT_ALLOWED");
+      await rejectsWith(save({ actorUid: "manager-a" }), "META_ADS_CONNECT_NOT_ALLOWED");
+      await save();
+      await rejectsWith(server(sdk.saveMetaAdAccount, { organizationId: f.orgB, id: randomUUID(), actorUid: "owner-b", adAccountId: AD_ACCOUNT, name: "Taken", currency: "AED", tokenCiphertext: "v1:x", tokenKeyId: "k1" }),
+        "META_AD_ACCOUNT_TAKEN");
+      const overview = await server(sdk.metaAdAccountsOverview, { organizationId: f.orgA, actorUid: "admin-a" });
+      assert.deepEqual(overview.accounts.map((row) => [row.adAccountId, row.status, row.firstSyncDone]), [[AD_ACCOUNT, "CONNECTED", false]]);
+      assert.ok(!("tokenCiphertext" in overview.accounts[0]), "the overview never carries the token");
+      assert.deepEqual((await server(sdk.metaAdAccountsOverview, { organizationId: f.orgA, actorUid: "agent-a" })).accounts, [], "agents see no ad accounts");
+      assert.ok((await server(sdk.metaAdAccountsDue, { now: new Date(Date.now() + 1000).toISOString(), limit: 50 })).accounts.some((row) => uuid(row.id) === uuid(account)), "due for its first sync");
+      for (const op of [sdk.metaAdAccountsOverview, sdk.saveMetaSpend, sdk.renameMetaAttributions, sdk.disconnectMetaAdAccount]) {
+        await forbidden(op, "owner-a", { organizationId: f.orgA, actorUid: "owner-a", id: account, adAccountId: AD_ACCOUNT, rows: [], campaigns: [], ads: [] });
+      }
+    });
+
+    it("writes a day's spend once per campaign and account, replaces it on the next sync, and never writes to another company's campaign", async () => {
+      const campaign = randomUUID();
+      await server(sdk.createSyncedCampaign, { organizationId: f.orgA, id: campaign, campaignKey: `meta sync ${tag}`, name: "Meta Sync", metaCampaignId: META_CAMPAIGN, currency: "AED", createdByUid: "owner-a" });
+      const foreign = randomUUID();
+      await server(sdk.createSyncedCampaign, { organizationId: f.orgB, id: foreign, campaignKey: `meta sync ${tag}`, name: "Company B", metaCampaignId: `9${META_CAMPAIGN}`, currency: "AED", createdByUid: "owner-b" });
+      const day = (id, date, amount) => ({ id, campaign_id: campaign, day: date, amount_minor: String(amount), currency: "AED", impressions: "100", clicks: "4" });
+      const [d1, d2] = [randomUUID(), randomUUID()];
+      assert.equal(Number((await server(sdk.saveMetaSpend, { organizationId: f.orgA, adAccountId: AD_ACCOUNT, rows: [day(d1, "2026-11-01", 15050), day(d2, "2026-11-02", 1000),
+        { ...day(randomUUID(), "2026-11-02", 999), campaign_id: foreign }] })).saved), 2, "the other company's campaign is ignored");
+      await server(sdk.saveMetaSpend, { organizationId: f.orgA, adAccountId: AD_ACCOUNT, rows: [day(d2, "2026-11-02", 2500)] });
+      const rows = (await gql(`query R($org: UUID!, $c: UUID!) { campaignSpends(where: {organizationId: {eq: $org}, campaignId: {eq: $c}}, orderBy: [{spentFrom: ASC}]) { source spentFrom spentTo amountMinor externalAccountId clicks } }`, { org: f.orgA, c: campaign })).campaignSpends;
+      assert.deepEqual(rows.map((row) => [row.source, row.spentFrom, row.spentTo, row.amountMinor, row.externalAccountId, row.clicks]),
+        [["META", "2026-11-01", "2026-11-01", "15050", AD_ACCOUNT, "4"], ["META", "2026-11-02", "2026-11-02", "2500", AD_ACCOUNT, "4"]], "a re-read day replaces the earlier amount");
+      const performance = await run(sdk.campaignPerformance, "owner-a", { organizationId: f.orgA, fromDate: "2026-11-01", toDate: "2026-11-30", from: "2026-10-31T20:00:00.000Z", to: "2026-11-30T20:00:00.000Z", campaignKey: `meta sync ${tag}` });
+      assert.deepEqual(performance.spend.map((row) => [row.currency, Number(row.amount_minor)]), [["AED", 17550]], "synced spend counts like any other");
+      await rejectsWith(run(sdk.deleteCampaignSpend, "owner-a", { organizationId: f.orgA, id: d1 }), "CAMPAIGN_SPEND_NOT_FOUND");
+    });
+
+    it("names leads by their Meta campaign: lead ads grouped by ID, and WhatsApp ads grouped by headline", async () => {
+      const idOnly = (await run(sdk.createLead, "owner-a", { organizationId: f.orgA, fullName: `ID only ${tag}`, assignedMembershipId: f.memberAgentA })).lead.id;
+      const whatsapp = (await run(sdk.createLead, "owner-a", { organizationId: f.orgA, fullName: `WhatsApp ad ${tag}`, assignedMembershipId: f.memberAgentA })).lead.id;
+      leads.push(idOnly, whatsapp);
+      await gql(`mutation U($org: UUID!, $a: UUID!, $b: UUID!, $cid: String!, $ad: String!) {
+        a: leadAttribution_updateMany(where: {organizationId: {eq: $org}, leadId: {eq: $a}}, data: {channel: META_LEAD_AD, campaignKey_expr: "'meta campaign ' + vars.cid", metaCampaignId: $cid})
+        b: leadAttribution_updateMany(where: {organizationId: {eq: $org}, leadId: {eq: $b}}, data: {channel: WHATSAPP_AD, campaignKey: "marina 2 bed headline", metaAdId: $ad})
+      }`, { org: f.orgA, a: idOnly, b: whatsapp, cid: ID_ONLY_CAMPAIGN, ad: WHATSAPP_AD });
+      const result = await server(sdk.renameMetaAttributions, { organizationId: f.orgA,
+        campaigns: [{ campaign_id: ID_ONLY_CAMPAIGN, name: "Creek Harbour Launch", key: "creek harbour launch" }],
+        ads: [{ ad_id: WHATSAPP_AD, adset_id: `22${tag}`, campaign_id: WHATSAPP_CAMPAIGN, name: "Marina Campaign", key: "marina campaign" }] });
+      assert.deepEqual([Number(result.campaigns), Number(result.ads)], [1, 1]);
+      assert.deepEqual(await sourceOf(idOnly), { campaignKey: "creek harbour launch", metaCampaignId: ID_ONLY_CAMPAIGN, metaCampaignName: "Creek Harbour Launch", metaAdsetId: null });
+      assert.deepEqual(await sourceOf(whatsapp), { campaignKey: "marina campaign", metaCampaignId: WHATSAPP_CAMPAIGN, metaCampaignName: "Marina Campaign", metaAdsetId: `22${tag}` });
+      const again = await server(sdk.renameMetaAttributions, { organizationId: f.orgA, campaigns: [{ campaign_id: ID_ONLY_CAMPAIGN, name: "Renamed", key: "renamed" }],
+        ads: [{ ad_id: WHATSAPP_AD, adset_id: null, campaign_id: "1", name: "Other", key: "other" }] });
+      assert.deepEqual([Number(again.campaigns), Number(again.ads)], [0, 0], "leads already given a campaign are not moved again");
+      assert.deepEqual(Number((await server(sdk.renameMetaAttributions, { organizationId: f.orgB, campaigns: [{ campaign_id: ID_ONLY_CAMPAIGN, name: "B", key: "b" }], ads: [] })).campaigns), 0, "only the company's own leads");
+    });
+
+    it("disconnects for owners and administrators: the token is deleted, the spend stays", async () => {
+      await rejectsWith(server(sdk.disconnectMetaAdAccount, { organizationId: f.orgA, id: account, actorUid: "agent-a" }), "META_ADS_CONNECT_NOT_ALLOWED");
+      await server(sdk.markMetaAdAccountSynced, { organizationId: f.orgA, id: account, status: sdk.MetaAdAccountStatus.CONNECTED, errorCode: null, nextSyncAt: new Date(Date.now() + 3_600_000).toISOString(), synced: true, firstSyncDone: true });
+      assert.equal((await server(sdk.metaAdAccountSecret, { organizationId: f.orgA, id: account })).account.firstSyncDone, true);
+      await server(sdk.disconnectMetaAdAccount, { organizationId: f.orgA, id: account, actorUid: "admin-a" });
+      assert.equal((await server(sdk.metaAdAccountSecret, { organizationId: f.orgA, id: account })).account, null);
+      assert.ok((await gql(`query R($org: UUID!, $a: String!) { campaignSpends(where: {organizationId: {eq: $org}, externalAccountId: {eq: $a}}) { id } }`, { org: f.orgA, a: AD_ACCOUNT })).campaignSpends.length >= 2, "spend already read stays");
+      const audit = (await gql(`query A($org: UUID!, $id: UUID!) { auditLogs(where: {organizationId: {eq: $org}, targetId: {eq: $id}}) { action actorUid } }`, { org: f.orgA, id: account })).auditLogs;
+      assert.deepEqual(audit.map((row) => row.action).sort(), ["META_AD_ACCOUNT_CONNECTED", "META_AD_ACCOUNT_DISCONNECTED"]);
+      for (const leadId of leads) await run(sdk.archiveLead, "owner-a", { organizationId: f.orgA, leadId });
+    });
+  });
 }

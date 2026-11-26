@@ -28,6 +28,9 @@ export class MetaGraphError extends Error {
   constructor(readonly failure: GraphFailure, readonly code: string) { super(code); }
 }
 
+/** Phase 7F.2: the same read for ad accounts and their insights (src/modules/campaigns/server/meta-ads.ts). */
+export const metaGraphGet = <T>(path: string, fields: string, token: string, extra: Record<string, string> = {}) => graphGet<T>(path, fields, token, extra);
+
 async function graphGet<T>(path: string, fields: string, token: string, extra: Record<string, string> = {}): Promise<T> {
   const url = `${metaGraphBase()}/${metaGraphVersion()}/${path}?${new URLSearchParams({fields, ...extra})}`;
   let response: Response;
@@ -101,18 +104,25 @@ async function accessToken(query: Record<string, string>) {
   } catch {
     throw new MetaGraphError("RETRY", "META_UNREACHABLE");
   }
-  const body = await response.json().catch(() => null) as {access_token?: unknown; error?: {code?: unknown}} | null;
+  const body = await response.json().catch(() => null) as {access_token?: unknown; expires_in?: unknown; error?: {code?: unknown}} | null;
   const token = typeof body?.access_token === "string" ? body.access_token : "";
   if (!response.ok || !TOKEN.test(token)) {
     throw new MetaGraphError("GIVE_UP", typeof body?.error?.code === "number" ? `META_${body.error.code}` : `META_HTTP_${response.status}`);
   }
-  return token;
+  const expiresIn = typeof body?.expires_in === "number" && body.expires_in > 0 ? body.expires_in : null;
+  return {token, expiresIn};
 }
 
 /** The person's long-lived user token (about 60 days) from the sign-in code. Page tokens read with it do not expire. */
 export async function exchangeLoginCode(input: {appId: string; appSecret: string; code: string; redirectUri: string}) {
+  return (await exchangeLoginCodeWithExpiry(input)).token;
+}
+
+/** Phase 7F.2: the same, with when the token expires (null when Meta gives no expiry, as for a system user's token). */
+export async function exchangeLoginCodeWithExpiry(input: {appId: string; appSecret: string; code: string; redirectUri: string}) {
   const shortLived = await accessToken({client_id: input.appId, client_secret: input.appSecret, redirect_uri: input.redirectUri, code: input.code});
-  return accessToken({grant_type: "fb_exchange_token", client_id: input.appId, client_secret: input.appSecret, fb_exchange_token: shortLived});
+  const longLived = await accessToken({grant_type: "fb_exchange_token", client_id: input.appId, client_secret: input.appSecret, fb_exchange_token: shortLived.token});
+  return {token: longLived.token, expiresAt: longLived.expiresIn ? new Date(Date.now() + longLived.expiresIn * 1000) : null};
 }
 
 export interface MetaPage { id: string; name: string; accessToken: string; tasks: string[] }

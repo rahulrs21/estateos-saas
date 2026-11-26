@@ -112,6 +112,11 @@ const META_CONNECT_PAGE = "5" + String(Date.now()).slice(-13) + "7", META_B_PAGE
 const metaLoginCode = "e2e-meta-login-code-" + randomBytes(10).toString("hex"), metaShortToken = "e2e-meta-short-user-token-" + randomBytes(12).toString("hex");
 const metaUserToken = "e2e-meta-long-user-token-" + randomBytes(12).toString("hex"), connectPageToken = "e2e-meta-connect-page-token-" + randomBytes(12).toString("hex");
 const metaConnect = {deny: false, subscribed: [], unsubscribed: [], formLeads: new Map(), failOnce: new Map(), refuseNames: false};
+// Phase 7F.2: a second Facebook sign-in, for ad accounts (ads_read only), and the account's daily ad insights in two pages.
+const META_AD_ACCOUNT = "8" + String(Date.now()).slice(-12) + "1", META_AD_CAMPAIGN = "12021" + String(Date.now()).slice(-9) + "1", META_WA_CAMPAIGN = "12021" + String(Date.now()).slice(-9) + "2";
+const metaAdsLoginCode = "e2e-meta-ads-login-code-" + randomBytes(10).toString("hex"), metaAdsShortToken = "e2e-meta-ads-short-token-" + randomBytes(12).toString("hex");
+const metaAdsUserToken = "e2e-meta-ads-long-token-" + randomBytes(12).toString("hex");
+const dubaiDate = offset => new Intl.DateTimeFormat("en-CA", {timeZone: "Asia/Dubai"}).format(new Date(Date.now() + offset * 86_400_000));
 metaForms.set(META_CONNECT_FORM, {id: META_CONNECT_FORM, name: "E2E Connected form", status: "ACTIVE", questions: [{key: "full_name", label: "Full name", type: "FULL_NAME"}, {key: "email", label: "Email", type: "EMAIL"}, {key: "price_range", label: "Your price range", type: "CUSTOM"}]});
 let graphMessages = 0;
 const graph = createHttpServer((request, response) => {
@@ -126,14 +131,23 @@ const graph = createHttpServer((request, response) => {
     if (request.method === "GET" && request.url.startsWith("/v27.0/dialog/oauth?")) {
       const query = new URL(request.url, "http://localhost").searchParams;
       const target = new URL(query.get("redirect_uri"));
-      if (query.get("client_id") !== META_APP_ID || !String(query.get("scope") ?? "").split(",").includes("leads_retrieval") || query.get("response_type") !== "code") return reply(400, {error: {code: 100, message: "Invalid dialog request."}});
+      const scopes = String(query.get("scope") ?? "").split(",");
+      const forAds = scopes.length === 1 && scopes[0] === "ads_read";
+      if (query.get("client_id") !== META_APP_ID || !(scopes.includes("leads_retrieval") || forAds) || query.get("response_type") !== "code") return reply(400, {error: {code: 100, message: "Invalid dialog request."}});
       target.searchParams.set("state", query.get("state") ?? "");
-      if (metaConnect.deny) target.searchParams.set("error", "access_denied"); else target.searchParams.set("code", metaLoginCode);
+      if (metaConnect.deny) target.searchParams.set("error", "access_denied"); else target.searchParams.set("code", forAds ? metaAdsLoginCode : metaLoginCode);
       response.writeHead(302, {Location: target.toString()});
       return response.end();
     }
     if (request.method === "GET" && request.url.startsWith("/v27.0/oauth/access_token?")) {
       const query = new URL(request.url, "http://graph").searchParams;
+      if (query.get("code") === metaAdsLoginCode) {
+        return query.get("client_id") === META_APP_ID && query.get("client_secret") === platformSecret && query.get("redirect_uri") === `${origin}/api/campaigns/meta/callback`
+          ? reply(200, {access_token: metaAdsShortToken, token_type: "bearer"}) : reply(400, {error: {code: 100, message: "Invalid code exchange."}});
+      }
+      if (query.get("grant_type") === "fb_exchange_token" && query.get("fb_exchange_token") === metaAdsShortToken) {
+        return query.get("client_secret") === platformSecret ? reply(200, {access_token: metaAdsUserToken, token_type: "bearer", expires_in: 5_184_000}) : reply(400, {error: {code: 190, message: "Invalid token."}});
+      }
       if (query.get("code") === metaLoginCode) {
         return query.get("client_id") === META_APP_ID && query.get("client_secret") === platformSecret && query.get("redirect_uri") === `${origin}/api/lead-ads/meta/callback`
           ? reply(200, {access_token: metaShortToken, token_type: "bearer"}) : reply(400, {error: {code: 100, message: "Invalid code exchange."}});
@@ -142,6 +156,22 @@ const graph = createHttpServer((request, response) => {
         return query.get("fb_exchange_token") === metaShortToken && query.get("client_secret") === platformSecret
           ? reply(200, {access_token: metaUserToken, token_type: "bearer", expires_in: 5_184_000}) : reply(400, {error: {code: 190, message: "Invalid token."}});
       }
+    }
+    if (request.headers.authorization === `Bearer ${metaAdsUserToken}`) {
+      if (request.method === "GET" && request.url.startsWith("/v27.0/me/adaccounts?")) return reply(200, {data: [{account_id: META_AD_ACCOUNT, name: "E2E Ads Account", currency: "AED", timezone_name: "Asia/Dubai", account_status: 1}]});
+      if (request.method === "GET" && request.url.startsWith(`/v27.0/act_${META_AD_ACCOUNT}/insights?`)) {
+        const query = new URL(request.url, "http://graph").searchParams;
+        if (query.get("level") !== "ad" || query.get("time_increment") !== "1" || !query.get("time_range")) return reply(400, {error: {code: 100, message: "Invalid insights request."}});
+        // Like Meta, one ad's spend per day, over two pages.
+        if (query.get("after") === "page-two") return reply(200, {data: [
+          {campaign_id: META_WA_CAMPAIGN, campaign_name: "E2E WhatsApp Campaign", adset_id: "33" + META_WA_CAMPAIGN.slice(2), ad_id: "120200000000000999", spend: "30", impressions: "200", clicks: "9", date_start: dubaiDate(0), date_stop: dubaiDate(0)},
+        ], paging: {cursors: {before: "x", after: "end"}}});
+        return reply(200, {data: [
+          {campaign_id: META_AD_CAMPAIGN, campaign_name: "E2E Spring Launch", adset_id: "44" + META_AD_CAMPAIGN.slice(2), ad_id: "55" + META_AD_CAMPAIGN.slice(2), spend: "100.50", impressions: "1500", clicks: "30", date_start: dubaiDate(-1), date_stop: dubaiDate(-1)},
+          {campaign_id: META_AD_CAMPAIGN, campaign_name: "E2E Spring Launch", adset_id: "44" + META_AD_CAMPAIGN.slice(2), ad_id: "55" + META_AD_CAMPAIGN.slice(2), spend: "50", impressions: "700", clicks: "12", date_start: dubaiDate(0), date_stop: dubaiDate(0)},
+        ], paging: {cursors: {before: "x", after: "page-two"}, next: "https://graph.facebook.com/next"}});
+      }
+      return reply(400, {error: {code: 100, message: "Unknown path"}});
     }
     if (request.headers.authorization === `Bearer ${metaUserToken}`) {
       if (request.method === "GET" && request.url.startsWith("/v27.0/me/accounts?")) return reply(200, {data: [
@@ -1297,6 +1327,47 @@ try {
   await load("/workspace/reports", "Boolean(document.querySelector('[data-testid=lead-source-report]'))");
   assert.doesNotMatch(await evaluate("document.querySelector('[data-testid=lead-source-report]').innerText"), /Cost per lead/, "agents never see spend");
   pass("Phase 7F.1: campaigns found in leads are listed in Marketing; an owner adds spend and sees cost per lead there and in Reports; agents see no campaigns or spend");
+
+  // Phase 7F.2: an owner connects a Meta ad account (ads_read only); its daily spend is read into campaigns, and a WhatsApp ad lead joins its real campaign.
+  await signIn("agent-a");
+  assert.equal((await api("/api/campaigns/meta/accounts")).status, 403, "agents cannot see ad accounts");
+  assert.equal((await post("/api/campaigns/meta/connect", {})).status, 403, "or connect them");
+  await signIn("owner-a");
+  await load("/workspace/marketing/ad-accounts", "document.body.innerText.includes('No ad accounts connected')");
+  await clickText("Connect Meta ad accounts", "button");
+  await waitFor("Boolean(document.querySelector('[data-testid=meta-ads-connect-result]'))", "the Facebook callback page for ad accounts");
+  assert.match(await evaluate("document.querySelector('[data-testid=meta-ads-connect-result]').innerText"), /Connected: E2E Ads Account/);
+  await waitFor("location.pathname === '/workspace/marketing/ad-accounts' && document.body.innerText.includes('E2E Ads Account')", "the return to ad accounts", 900);
+  const adAccountOf = async () => (await sql(`query A($id: String!) { metaAdAccounts(where: {adAccountId: {eq: $id}}) { id organizationId status firstSyncDone tokenCiphertext tokenExpiresAt lastSyncedAt currency } }`, {id: META_AD_ACCOUNT})).metaAdAccounts;
+  const [adAccount] = await adAccountOf();
+  assert.deepEqual({org: adAccount.organizationId.replaceAll("-", ""), status: adAccount.status, first: adAccount.firstSyncDone, currency: adAccount.currency}, {org: f.orgA.replaceAll("-", ""), status: "CONNECTED", first: true, currency: "AED"});
+  assert.ok(adAccount.tokenCiphertext.startsWith("v1:") && !adAccount.tokenCiphertext.includes(metaAdsUserToken), "the token is stored encrypted");
+  assert.ok(adAccount.tokenExpiresAt && adAccount.lastSyncedAt, "with its expiry, and read right after connecting");
+  const spendOf = async () => (await sql(`query S($a: String!) { campaignSpends(where: {externalAccountId: {eq: $a}}, orderBy: [{spentFrom: ASC}]) { source spentFrom amountMinor currency campaign { name platform campaignKey metaCampaignId } } }`, {a: META_AD_ACCOUNT})).campaignSpends;
+  const spend = await spendOf();
+  assert.deepEqual(spend.map(row => [row.source, row.spentFrom, row.amountMinor, row.campaign.name, row.campaign.platform]).sort(),
+    [["META", dubaiDate(-1), "10050", "E2E Spring Launch", "meta"], ["META", dubaiDate(0), "3000", "E2E WhatsApp Campaign", "meta"], ["META", dubaiDate(0), "5000", "E2E Spring Launch", "meta"]].sort(),
+    "one row per campaign and day, across both pages of insights");
+  const [waSource] = (await sql(`query S($lead: UUID!) { leadAttributions(where: {leadId: {eq: $lead}}) { campaignKey metaCampaignId metaCampaignName } }`, {lead: adLeadId})).leadAttributions;
+  assert.deepEqual(waSource, {campaignKey: "e2e whatsapp campaign", metaCampaignId: META_WA_CAMPAIGN, metaCampaignName: "E2E WhatsApp Campaign"}, "the WhatsApp ad lead joins the campaign its ad belongs to");
+  const insightCalls = graphRequests.filter(item => item.url.startsWith(`/v27.0/act_${META_AD_ACCOUNT}/insights?`));
+  assert.ok(insightCalls.length >= 2 && insightCalls.every(item => item.authorization === `Bearer ${metaAdsUserToken}` && !item.url.includes(metaAdsUserToken)), "the token is sent in the header, never in a URL");
+  assert.ok(!graphRequests.some(item => item.method !== "GET" && item.authorization === `Bearer ${metaAdsUserToken}`), "nothing is ever changed in Meta");
+  const springRow = "[...document.querySelectorAll('[data-testid=campaign-row]')].find(row => row.innerText.includes('E2E Spring Launch'))";
+  await load("/workspace/marketing", `Boolean(${springRow})`);
+  assert.match(await evaluate(`${springRow}.innerText`), /AED 150\.50/, "the campaign's synced spend in Marketing");
+  // Sync now reads the same days again: nothing is added twice.
+  await load("/workspace/marketing/ad-accounts", "Boolean(document.querySelector('[data-testid=ad-account]'))");
+  await clickText("Sync now", "button");
+  await waitFor("document.body.innerText.includes('Synced:')", "the sync's result");
+  assert.equal((await spendOf()).length, 3, "a re-read replaces each day");
+  await clickText("Disconnect", "[data-testid=ad-account] button");
+  await waitFor("Boolean(document.querySelector('[role=dialog]'))", "the disconnect dialog");
+  await clickText("Disconnect", "[role=dialog] button");
+  await waitFor("document.body.innerText.includes('No ad accounts connected')", "the account removed");
+  assert.equal((await adAccountOf()).length, 0, "the account and its token are deleted");
+  assert.equal((await spendOf()).length, 3, "spend already read stays");
+  pass("Phase 7F.2: an owner connects a Meta ad account (ads_read, encrypted token); daily spend is read into campaigns across pages and never doubled; a WhatsApp ad lead joins its real campaign; disconnecting keeps the spend; agents cannot connect");
 
   // Durable retries: an event recorded but not applied (as after a crash) is applied by the worker tick.
   const retryId = randomUUID();

@@ -76,3 +76,41 @@ test("the source report shows spend and cost per lead only when given spend, in 
   assert.match(csv, /\r\nMarina Launch,marina launch,Added by hand,4,2,1,50,25,"AED 1,000",AED 250\r\n/);
   assert.doesNotMatch(sourceReportCsv(base, { from: "2026-11-01", to: "2026-11-30", timeZone: "Asia/Dubai", scope: "Leads assigned to you" }), /Spend/, "no spend columns without spend");
 });
+
+// Phase 7F.2: Meta ad insights to campaign spend.
+test("Meta's ad insights become validated rows, added up per campaign and day", async () => {
+  const { adCampaigns, campaignDays, metaCampaigns, nextCursor, parseInsights, spendToMinor } = await import("../src/modules/campaigns/meta-insights");
+  assert.equal(spendToMinor("123.45"), 12345);
+  assert.equal(spendToMinor("0"), 0);
+  assert.equal(spendToMinor("12.345678"), 1235, "Meta can send more decimals; rounded to fils");
+  for (const bad of ["-1", "1e3", "abc", null]) assert.equal(spendToMinor(bad), null);
+  const rows = parseInsights({ data: [
+    { campaign_id: "111", campaign_name: "Marina_Launch Q4", adset_id: "211", ad_id: "311", spend: "100.50", impressions: "1000", clicks: "20", date_start: "2026-11-24" },
+    { campaign_id: "111", campaign_name: "Marina_Launch Q4", adset_id: "212", ad_id: "312", spend: "50", impressions: "400", clicks: "5", date_start: "2026-11-24" },
+    { campaign_id: "111", campaign_name: "Marina_Launch Q4", adset_id: "211", ad_id: "311", spend: "10", date_start: "2026-11-25" },
+    { campaign_id: "222", campaign_name: null, ad_id: "321", spend: "7.5", date_start: "2026-11-25" },
+    { campaign_id: "act_1", spend: "1", date_start: "2026-11-25" }, { campaign_id: "333", spend: "-1", date_start: "2026-11-25" }, { campaign_id: "333", spend: "1", date_start: "yesterday" },
+  ] });
+  assert.equal(rows.length, 4, "rows with an invalid ID, amount or day are left out");
+  assert.deepEqual(campaignDays(rows), [
+    { campaignId: "111", day: "2026-11-24", spendMinor: 15050, impressions: 1400, clicks: 25 },
+    { campaignId: "111", day: "2026-11-25", spendMinor: 1000, impressions: null, clicks: null },
+    { campaignId: "222", day: "2026-11-25", spendMinor: 750, impressions: null, clicks: null },
+  ]);
+  assert.deepEqual(metaCampaigns(rows), [{ campaignId: "111", name: "Marina_Launch Q4", key: "marina launch q4" }, { campaignId: "222", name: null, key: "meta campaign 222" }],
+    "grouped like lead capture: by name, or by ID when Meta gives no name");
+  assert.deepEqual(adCampaigns(rows).map(ad => [ad.adId, ad.campaignId, ad.key]), [["311", "111", "marina launch q4"], ["312", "111", "marina launch q4"], ["321", "222", "meta campaign 222"]]);
+  assert.equal(nextCursor({ paging: { cursors: { after: "QVFIUk" }, next: "https://graph.facebook.com/..." } }), "QVFIUk");
+  assert.equal(nextCursor({ paging: { cursors: { after: "QVFIUk" } } }), null, "no next page");
+  assert.equal(nextCursor({ paging: { cursors: { after: "bad cursor!" }, next: "x" } }), null);
+});
+
+test("a first sync reads 90 days, later syncs the last 3, in the ad account's own days", async () => {
+  const { accountToday, syncWindow } = await import("../src/modules/campaigns/meta-insights");
+  assert.deepEqual(syncWindow("2026-11-25", false), { since: "2026-08-28", until: "2026-11-25" });
+  assert.deepEqual(syncWindow("2026-11-25", true), { since: "2026-11-23", until: "2026-11-25" });
+  const instant = new Date("2026-11-25T22:30:00Z");
+  assert.equal(accountToday("Asia/Dubai", instant), "2026-11-26");
+  assert.equal(accountToday("America/Los_Angeles", instant), "2026-11-25");
+  assert.equal(accountToday("Not/AZone", instant), "2026-11-26", "an unknown time zone falls back to Dubai");
+});

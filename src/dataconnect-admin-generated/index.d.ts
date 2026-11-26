@@ -136,6 +136,8 @@ export enum ActivityKind {
   LEAD_SOURCES_FILLED = "LEAD_SOURCES_FILLED",
   CAMPAIGN_CHANGED = "CAMPAIGN_CHANGED",
   CAMPAIGN_SPEND_CHANGED = "CAMPAIGN_SPEND_CHANGED",
+  META_AD_ACCOUNT_CONNECTED = "META_AD_ACCOUNT_CONNECTED",
+  META_AD_ACCOUNT_DISCONNECTED = "META_AD_ACCOUNT_DISCONNECTED",
 }
 export enum AgentAvailabilityStatus {
   AVAILABLE = "AVAILABLE",
@@ -258,6 +260,7 @@ export enum AuditTargetType {
   META_LEAD_CONNECTION = "META_LEAD_CONNECTION",
   META_LEAD_FORM = "META_LEAD_FORM",
   CAMPAIGN = "CAMPAIGN",
+  META_AD_ACCOUNT = "META_AD_ACCOUNT",
 }
 export enum AutomationApprovalStatus {
   PENDING = "PENDING",
@@ -631,6 +634,10 @@ export enum MembershipStatus {
   SUSPENDED = "SUSPENDED",
   REVOKED = "REVOKED",
   REMOVED = "REMOVED",
+}
+export enum MetaAdAccountStatus {
+  CONNECTED = "CONNECTED",
+  NEEDS_RECONNECT = "NEEDS_RECONNECT",
 }
 export enum MetaLeadConnectionStatus {
   ACTIVE = "ACTIVE",
@@ -2539,6 +2546,20 @@ export interface CreatePropertyVariables {
   inventoryStatus: InventoryStatus;
 }
 
+export interface CreateSyncedCampaignData {
+  campaign_insert: Campaign_Key;
+}
+
+export interface CreateSyncedCampaignVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  campaignKey: string;
+  name: string;
+  metaCampaignId: string;
+  currency: string;
+  createdByUid: string;
+}
+
 export interface CreateWebsiteMediaData {
   media: WebsiteMedia_Key;
 }
@@ -2697,6 +2718,17 @@ export interface Developer_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'Developer_Key';
+}
+
+export interface DisconnectMetaAdAccountData {
+  metaAdAccount_delete?: MetaAdAccount_Key | null;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface DisconnectMetaAdAccountVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
 }
 
 export interface DisconnectMetaLeadConnectionData {
@@ -5427,6 +5459,16 @@ export interface Lead_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'Lead_Key';
+}
+
+export interface LinkCampaignToMetaData {
+  campaign_update?: Campaign_Key | null;
+}
+
+export interface LinkCampaignToMetaVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  metaCampaignId: string;
 }
 
 export interface ListActiveInventoryAgentsData {
@@ -8300,6 +8342,20 @@ export interface MarkInAppNotificationReadVariables {
   notificationId: UUIDString;
 }
 
+export interface MarkMetaAdAccountSyncedData {
+  metaAdAccount_update?: MetaAdAccount_Key | null;
+}
+
+export interface MarkMetaAdAccountSyncedVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  status: MetaAdAccountStatus;
+  errorCode?: string | null;
+  nextSyncAt: TimestampString;
+  synced: boolean;
+  firstSyncDone: boolean;
+}
+
 export interface MarkMetaLeadConnectionPolledData {
   metaLeadConnection_update?: MetaLeadConnection_Key | null;
 }
@@ -8325,6 +8381,100 @@ export interface Membership_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'Membership_Key';
+}
+
+export interface MetaAdAccountByExternalIdData {
+  account?: {
+    id: UUIDString;
+    organizationId: UUIDString;
+  } & MetaAdAccount_Key;
+}
+
+export interface MetaAdAccountByExternalIdVariables {
+  adAccountId: string;
+}
+
+export interface MetaAdAccountSecretData {
+  account?: {
+    id: UUIDString;
+    adAccountId: string;
+    name: string;
+    currency: string;
+    timeZone?: string | null;
+    status: MetaAdAccountStatus;
+    tokenCiphertext?: string | null;
+    tokenKeyId?: string | null;
+    connectedByUid: string;
+    firstSyncDone: boolean;
+  };
+}
+
+export interface MetaAdAccountSecretVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+}
+
+export interface MetaAdAccount_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'MetaAdAccount_Key';
+}
+
+export interface MetaAdAccountsDueData {
+  accounts: ({
+    id: UUIDString;
+    organizationId: UUIDString;
+  } & MetaAdAccount_Key)[];
+}
+
+export interface MetaAdAccountsDueVariables {
+  now: TimestampString;
+  limit?: number;
+}
+
+export interface MetaAdAccountsOverviewData {
+  actor?: {
+    role: MembershipRole;
+  };
+  accounts: ({
+    id: UUIDString;
+    adAccountId: string;
+    name: string;
+    currency: string;
+    timeZone?: string | null;
+    status: MetaAdAccountStatus;
+    tokenExpiresAt?: TimestampString | null;
+    connectedAt: TimestampString;
+    lastSyncedAt?: TimestampString | null;
+    lastErrorCode?: string | null;
+    nextSyncAt: TimestampString;
+    firstSyncDone: boolean;
+    connectedByUid: string;
+  })[];
+}
+
+export interface MetaAdAccountsOverviewVariables {
+  organizationId: UUIDString;
+  actorUid: string;
+}
+
+export interface MetaCampaignsForSyncData {
+  byId: ({
+    id: UUIDString;
+    campaignKey: string;
+    metaCampaignId?: string | null;
+  })[];
+  byKey: ({
+    id: UUIDString;
+    campaignKey: string;
+    metaCampaignId?: string | null;
+  })[];
+}
+
+export interface MetaCampaignsForSyncVariables {
+  organizationId: UUIDString;
+  metaCampaignIds: string[];
+  keys: string[];
 }
 
 export interface MetaLeadConnectionForPageData {
@@ -9066,6 +9216,17 @@ export interface RemovePortalFieldMappingVariables {
   id: UUIDString;
 }
 
+export interface RenameMetaAttributionsData {
+  campaigns?: number | null;
+  ads?: number | null;
+}
+
+export interface RenameMetaAttributionsVariables {
+  organizationId: UUIDString;
+  campaigns: unknown;
+  ads: unknown;
+}
+
 export interface RequestAutomationApprovalData {
   approval: AutomationApproval_Key;
   step?: AutomationExecutionStep_Key | null;
@@ -9099,6 +9260,16 @@ export interface RequestAutomationApprovalVariables {
   expiresAt: TimestampString;
   title: string;
   body: string;
+}
+
+export interface RequestMetaAdAccountSyncData {
+  metaAdAccount_update?: MetaAdAccount_Key | null;
+}
+
+export interface RequestMetaAdAccountSyncVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
 }
 
 export interface ReserveAiRequestData {
@@ -9293,6 +9464,34 @@ export interface SaveLeadPropertyInterestVariables {
   status: LeadPropertyInterestStatus;
   notes?: string | null;
   expectedUpdatedAt?: TimestampString | null;
+}
+
+export interface SaveMetaAdAccountData {
+  metaAdAccount_upsert: MetaAdAccount_Key;
+  auditLog_insert: AuditLog_Key;
+}
+
+export interface SaveMetaAdAccountVariables {
+  organizationId: UUIDString;
+  id: UUIDString;
+  actorUid: string;
+  adAccountId: string;
+  name: string;
+  currency: string;
+  timeZone?: string | null;
+  tokenCiphertext: string;
+  tokenKeyId: string;
+  tokenExpiresAt?: TimestampString | null;
+}
+
+export interface SaveMetaSpendData {
+  saved?: number | null;
+}
+
+export interface SaveMetaSpendVariables {
+  organizationId: UUIDString;
+  adAccountId: string;
+  rows: unknown;
 }
 
 export interface SavePortalConnectionData {
@@ -10856,6 +11055,71 @@ export function automationExecutorProfile(vars: AutomationExecutorProfileVariabl
 export function listAutomationEventsForTarget(dc: DataConnect, vars: ListAutomationEventsForTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationEventsForTargetData>>;
 /** Generated Node Admin SDK operation action function for the 'ListAutomationEventsForTarget' Query. Allow users to pass in custom DataConnect instances. */
 export function listAutomationEventsForTarget(vars: ListAutomationEventsForTargetVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<ListAutomationEventsForTargetData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MetaAdAccountsOverview' Query. Allow users to execute without passing in DataConnect. */
+export function metaAdAccountsOverview(dc: DataConnect, vars: MetaAdAccountsOverviewVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaAdAccountsOverviewData>>;
+/** Generated Node Admin SDK operation action function for the 'MetaAdAccountsOverview' Query. Allow users to pass in custom DataConnect instances. */
+export function metaAdAccountsOverview(vars: MetaAdAccountsOverviewVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaAdAccountsOverviewData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MetaAdAccountByExternalId' Query. Allow users to execute without passing in DataConnect. */
+export function metaAdAccountByExternalId(dc: DataConnect, vars: MetaAdAccountByExternalIdVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaAdAccountByExternalIdData>>;
+/** Generated Node Admin SDK operation action function for the 'MetaAdAccountByExternalId' Query. Allow users to pass in custom DataConnect instances. */
+export function metaAdAccountByExternalId(vars: MetaAdAccountByExternalIdVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaAdAccountByExternalIdData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MetaAdAccountSecret' Query. Allow users to execute without passing in DataConnect. */
+export function metaAdAccountSecret(dc: DataConnect, vars: MetaAdAccountSecretVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaAdAccountSecretData>>;
+/** Generated Node Admin SDK operation action function for the 'MetaAdAccountSecret' Query. Allow users to pass in custom DataConnect instances. */
+export function metaAdAccountSecret(vars: MetaAdAccountSecretVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaAdAccountSecretData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MetaAdAccountsDue' Query. Allow users to execute without passing in DataConnect. */
+export function metaAdAccountsDue(dc: DataConnect, vars: MetaAdAccountsDueVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaAdAccountsDueData>>;
+/** Generated Node Admin SDK operation action function for the 'MetaAdAccountsDue' Query. Allow users to pass in custom DataConnect instances. */
+export function metaAdAccountsDue(vars: MetaAdAccountsDueVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaAdAccountsDueData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SaveMetaAdAccount' Mutation. Allow users to execute without passing in DataConnect. */
+export function saveMetaAdAccount(dc: DataConnect, vars: SaveMetaAdAccountVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveMetaAdAccountData>>;
+/** Generated Node Admin SDK operation action function for the 'SaveMetaAdAccount' Mutation. Allow users to pass in custom DataConnect instances. */
+export function saveMetaAdAccount(vars: SaveMetaAdAccountVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveMetaAdAccountData>>;
+
+/** Generated Node Admin SDK operation action function for the 'DisconnectMetaAdAccount' Mutation. Allow users to execute without passing in DataConnect. */
+export function disconnectMetaAdAccount(dc: DataConnect, vars: DisconnectMetaAdAccountVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DisconnectMetaAdAccountData>>;
+/** Generated Node Admin SDK operation action function for the 'DisconnectMetaAdAccount' Mutation. Allow users to pass in custom DataConnect instances. */
+export function disconnectMetaAdAccount(vars: DisconnectMetaAdAccountVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<DisconnectMetaAdAccountData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RequestMetaAdAccountSync' Mutation. Allow users to execute without passing in DataConnect. */
+export function requestMetaAdAccountSync(dc: DataConnect, vars: RequestMetaAdAccountSyncVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RequestMetaAdAccountSyncData>>;
+/** Generated Node Admin SDK operation action function for the 'RequestMetaAdAccountSync' Mutation. Allow users to pass in custom DataConnect instances. */
+export function requestMetaAdAccountSync(vars: RequestMetaAdAccountSyncVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RequestMetaAdAccountSyncData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MarkMetaAdAccountSynced' Mutation. Allow users to execute without passing in DataConnect. */
+export function markMetaAdAccountSynced(dc: DataConnect, vars: MarkMetaAdAccountSyncedVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkMetaAdAccountSyncedData>>;
+/** Generated Node Admin SDK operation action function for the 'MarkMetaAdAccountSynced' Mutation. Allow users to pass in custom DataConnect instances. */
+export function markMetaAdAccountSynced(vars: MarkMetaAdAccountSyncedVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MarkMetaAdAccountSyncedData>>;
+
+/** Generated Node Admin SDK operation action function for the 'MetaCampaignsForSync' Query. Allow users to execute without passing in DataConnect. */
+export function metaCampaignsForSync(dc: DataConnect, vars: MetaCampaignsForSyncVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaCampaignsForSyncData>>;
+/** Generated Node Admin SDK operation action function for the 'MetaCampaignsForSync' Query. Allow users to pass in custom DataConnect instances. */
+export function metaCampaignsForSync(vars: MetaCampaignsForSyncVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<MetaCampaignsForSyncData>>;
+
+/** Generated Node Admin SDK operation action function for the 'CreateSyncedCampaign' Mutation. Allow users to execute without passing in DataConnect. */
+export function createSyncedCampaign(dc: DataConnect, vars: CreateSyncedCampaignVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateSyncedCampaignData>>;
+/** Generated Node Admin SDK operation action function for the 'CreateSyncedCampaign' Mutation. Allow users to pass in custom DataConnect instances. */
+export function createSyncedCampaign(vars: CreateSyncedCampaignVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CreateSyncedCampaignData>>;
+
+/** Generated Node Admin SDK operation action function for the 'LinkCampaignToMeta' Mutation. Allow users to execute without passing in DataConnect. */
+export function linkCampaignToMeta(dc: DataConnect, vars: LinkCampaignToMetaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LinkCampaignToMetaData>>;
+/** Generated Node Admin SDK operation action function for the 'LinkCampaignToMeta' Mutation. Allow users to pass in custom DataConnect instances. */
+export function linkCampaignToMeta(vars: LinkCampaignToMetaVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<LinkCampaignToMetaData>>;
+
+/** Generated Node Admin SDK operation action function for the 'SaveMetaSpend' Mutation. Allow users to execute without passing in DataConnect. */
+export function saveMetaSpend(dc: DataConnect, vars: SaveMetaSpendVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveMetaSpendData>>;
+/** Generated Node Admin SDK operation action function for the 'SaveMetaSpend' Mutation. Allow users to pass in custom DataConnect instances. */
+export function saveMetaSpend(vars: SaveMetaSpendVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<SaveMetaSpendData>>;
+
+/** Generated Node Admin SDK operation action function for the 'RenameMetaAttributions' Mutation. Allow users to execute without passing in DataConnect. */
+export function renameMetaAttributions(dc: DataConnect, vars: RenameMetaAttributionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RenameMetaAttributionsData>>;
+/** Generated Node Admin SDK operation action function for the 'RenameMetaAttributions' Mutation. Allow users to pass in custom DataConnect instances. */
+export function renameMetaAttributions(vars: RenameMetaAttributionsVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<RenameMetaAttributionsData>>;
 
 /** Generated Node Admin SDK operation action function for the 'CampaignPerformance' Query. Allow users to execute without passing in DataConnect. */
 export function campaignPerformance(dc: DataConnect, vars: CampaignPerformanceVariables, options?: OperationOptions): Promise<ExecuteOperationResponse<CampaignPerformanceData>>;

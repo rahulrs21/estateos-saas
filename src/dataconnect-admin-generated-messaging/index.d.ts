@@ -68,6 +68,7 @@ export enum AuditTargetType {
   META_LEAD_CONNECTION = "META_LEAD_CONNECTION",
   META_LEAD_FORM = "META_LEAD_FORM",
   CAMPAIGN = "CAMPAIGN",
+  META_AD_ACCOUNT = "META_AD_ACCOUNT",
 }
 export enum CallConsentStatus {
   NOTICE_GIVEN = "NOTICE_GIVEN",
@@ -3855,6 +3856,12 @@ export interface Membership_Key {
   organizationId: UUIDString;
   id: UUIDString;
   __typename?: 'Membership_Key';
+}
+
+export interface MetaAdAccount_Key {
+  organizationId: UUIDString;
+  id: UUIDString;
+  __typename?: 'MetaAdAccount_Key';
 }
 
 export interface MetaLeadConnection_Key {
