@@ -239,19 +239,3 @@
 [data-slot="chart"] .recharts-surface:focus:not(:focus-visible) {
   outline: none;
 }
-
-/* Aurora: soft northern-light curtains for decorative backgrounds
-   (src/components/shared/aurora.tsx). Pure CSS, no WebGL; the curtains drift
-   sideways slowly and stand still for visitors who prefer reduced motion. */
-@keyframes aurora-drift {
-  from { background-position: 50% 50%; }
-  to { background-position: 350% 50%; }
-}
-@utility aurora-curtains {
-  background-image: repeating-linear-gradient(100deg, var(--aurora-1) 10%, var(--aurora-2) 15%, var(--aurora-3) 20%, var(--aurora-4) 25%, var(--aurora-1) 30%);
-  background-size: 300% 200%;
-  background-position: 50% 50%;
-  filter: blur(24px) saturate(1.25);
-  animation: aurora-drift 48s linear infinite;
-  @media (prefers-reduced-motion: reduce) { animation: none; }
-}

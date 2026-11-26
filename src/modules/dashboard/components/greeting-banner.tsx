@@ -8,7 +8,7 @@ import { CalendarDays, Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { Aurora } from "@/components/shared/aurora";
+import { Aurora } from "@/components/ui/aurora";
 import { useLiveClock } from "@/components/layout/use-live-clock";
 import { DASHBOARD_RANGES, DASHBOARD_TIME_ZONE, greetingFor, zonedHour, type DashboardRange } from "../dashboard-model";
 import palmVillas from "../assets/banner/palm-villas-skyline.jpg";
@@ -66,8 +66,6 @@ export function GreetingBanner({firstName, range, serverNow}: {firstName: string
       </motion.div>)}
     </div>
 
-    {/* Aurora light behind the welcome panel, drifting slowly (still under reduced motion). */}
-    <Aurora className="right-[40%] -z-[25]" opacity={0.85} />
 
     {/* Curved welcome panel (wide screens) and a soft tint over the photos (phones). */}
     <svg aria-hidden="true" className="absolute inset-0 -z-20 hidden size-full md:block" viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -86,6 +84,9 @@ export function GreetingBanner({firstName, range, serverNow}: {firstName: string
       <path d="M0 0 H52 C 45 24, 48 70, 36 100 H0 Z" fill="url(#greeting-panel)" />
       <path d="M52 0 C 45 24, 48 70, 36 100" fill="none" stroke="var(--primary)" strokeOpacity="0.35" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
     </svg>
+    {/* Aurora (WebGL) over the welcome side: tints it on light, glows on dark; one still frame under reduced motion. */}
+    <Aurora className="absolute inset-y-0 left-0 -z-[15] w-full bg-transparent md:w-[62%]" colors={["#22e584", "#19d3c5", "#4f7dff"]}
+      height={0.64} reach={0.5} intensity={0.75} rays={0.6} fade="right" quality={0.75} />
     <div aria-hidden="true" className="absolute inset-0 -z-20 md:hidden" style={{background: "linear-gradient(90deg, color-mix(in oklab, var(--background) 92%, transparent) 0%, color-mix(in oklab, var(--background) 74%, transparent) 70%, color-mix(in oklab, var(--background) 45%, transparent) 100%)"}} />
 
     <div className="relative max-w-xl px-5 py-8 sm:px-8 sm:py-10">
