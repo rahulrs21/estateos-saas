@@ -5,16 +5,19 @@ import { cn } from "@/lib/utils";
 import { AnimatedBar } from "./motion";
 
 /** The standard dashboard panel: a titled card with an optional action link and a muted description. */
-export function DashboardCard({title, icon: Icon, description, action, children, className, contentClassName}: {
-  title: string; icon?: LucideIcon; description?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; contentClassName?: string;
+export function DashboardCard({title, icon: Icon, description, action, stackActionOnMobile = false, children, className, contentClassName}: {
+  title: string; icon?: LucideIcon; description?: ReactNode; action?: ReactNode;
+  /** On phones, put the action on its own row under the title instead of squeezing the title beside it. */
+  stackActionOnMobile?: boolean;
+  children: ReactNode; className?: string; contentClassName?: string;
 }) {
   return <Card className={cn("h-full gap-4 shadow-xs", className)}>
-    <CardHeader className="px-5">
+    <CardHeader className={cn("px-5", stackActionOnMobile && "max-sm:has-data-[slot=card-action]:grid-cols-1")}>
       <CardTitle role="heading" aria-level={2} className="flex items-center gap-2 text-base font-semibold tracking-tight">
         {Icon && <Icon className="size-[18px] text-primary" aria-hidden="true" />}{title}
       </CardTitle>
       {description && <CardDescription className={cn("text-xs", Icon && "pl-[26px]")}>{description}</CardDescription>}
-      {action && <CardAction className="text-xs">{action}</CardAction>}
+      {action && <CardAction className={cn("text-xs", stackActionOnMobile && "max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-auto max-sm:mt-2 max-sm:w-full max-sm:justify-self-stretch")}>{action}</CardAction>}
     </CardHeader>
     <CardContent className={cn("flex-1 px-5", contentClassName)}>{children}</CardContent>
   </Card>;

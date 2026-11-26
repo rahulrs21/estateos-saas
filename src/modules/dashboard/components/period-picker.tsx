@@ -88,11 +88,11 @@ export function PeriodPills({period, today}: {period: DashboardPeriod; today: st
   const pill = (active: boolean) => cn("rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
     active && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground");
   return <>
-    <nav aria-label="Reporting period" className="flex flex-wrap items-center justify-end gap-1">
+    <nav aria-label="Reporting period" className="no-scrollbar flex items-center gap-1 max-sm:-mx-1 max-sm:overflow-x-auto max-sm:px-1 sm:flex-wrap sm:justify-end">
       {PRESETS.map(key => <Link key={key} href={presetHref(key)} scroll={false} aria-current={period.key === key ? "page" : undefined} aria-label={presetLabel(key)} className={pill(period.key === key)}>
         {SHORT[key]}
       </Link>)}
-      <button type="button" onClick={custom.show} aria-pressed={period.key === "custom"} className={cn(pill(period.key === "custom"), "inline-flex items-center gap-1")}>
+      <button type="button" onClick={custom.show} aria-pressed={period.key === "custom"} className={cn(pill(period.key === "custom"), "inline-flex shrink-0 items-center gap-1")}>
         <CalendarDays className="size-3.5" aria-hidden="true" />{period.key === "custom" ? period.label : "Custom"}
       </button>
     </nav>

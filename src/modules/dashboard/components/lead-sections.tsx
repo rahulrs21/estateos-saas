@@ -55,7 +55,7 @@ export function LeadSectionsView({data, period, today}: {data: DashboardData; pe
     </Reveal>
 
     <Reveal index={2} className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
-      <DashboardCard title="Lead performance" icon={ChartNoAxesCombined} action={<PeriodPills period={period} today={today} />}
+      <DashboardCard title="Lead performance" icon={ChartNoAxesCombined} stackActionOnMobile action={<PeriodPills period={period} today={today} />}
         description={singleDay ? (period.key === "today" ? "New leads today" : `New leads on ${period.label}`) : `New leads per ${data.bucket} · ${formatPeriod(data.from, data.to)}`}>
         {leads.status === "error" ? <SectionError message={leads.message} />
           : summary?.totalLeads ? <div className="space-y-4">
