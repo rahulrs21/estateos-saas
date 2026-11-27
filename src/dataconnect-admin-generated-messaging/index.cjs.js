@@ -257,6 +257,8 @@ const InboxMessageType = {
   TEMPLATE: "TEMPLATE",
   SYSTEM: "SYSTEM",
   UNKNOWN: "UNKNOWN",
+  LOCATION: "LOCATION",
+  CONTACTS: "CONTACTS",
 }
 exports.InboxMessageType = InboxMessageType;
 

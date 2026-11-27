@@ -15,7 +15,7 @@ export const PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
 export type Priority = (typeof PRIORITIES)[number];
 export const PRIORITY_LABELS: Record<Priority, string> = {LOW: "Low", NORMAL: "Normal", HIGH: "High", URGENT: "Urgent"};
 
-export const MESSAGE_TYPES = ["TEXT", "IMAGE", "DOCUMENT", "AUDIO", "VIDEO", "TEMPLATE", "SYSTEM", "UNKNOWN"] as const;
+export const MESSAGE_TYPES = ["TEXT", "IMAGE", "DOCUMENT", "AUDIO", "VIDEO", "TEMPLATE", "SYSTEM", "UNKNOWN", "LOCATION", "CONTACTS"] as const;
 export type MessageType = (typeof MESSAGE_TYPES)[number];
 
 export const DELIVERY_STATUSES = ["DRAFT", "QUEUED", "SENT", "DELIVERED", "READ", "FAILED", "RECEIVED", "UNKNOWN"] as const;

@@ -234,6 +234,8 @@ export const InboxMessageType = {
   TEMPLATE: "TEMPLATE",
   SYSTEM: "SYSTEM",
   UNKNOWN: "UNKNOWN",
+  LOCATION: "LOCATION",
+  CONTACTS: "CONTACTS",
 }
 
 export const InboxPriority = {

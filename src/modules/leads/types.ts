@@ -156,4 +156,6 @@ export interface LeadDetailData extends LeadWorkspace {
 }
 /** Phase 7E.2: the inbox conversation a new lead is created from (Create lead in the inbox). */
 export interface LeadFormConversation { id: string; channel: string; customerIdentity: string; customerName: string | null; adHeadline: string | null }
-export interface LeadFormData extends LeadWorkspace { lead?: LeadRecord | null; fromConversation?: LeadFormConversation | null }
+/** Phase 7G.1: a name and number to start a new lead with (a contact a customer shared on WhatsApp). */
+export interface LeadFormPrefill { fullName: string | null; phone: string | null }
+export interface LeadFormData extends LeadWorkspace { lead?: LeadRecord | null; fromConversation?: LeadFormConversation | null; prefill?: LeadFormPrefill | null }

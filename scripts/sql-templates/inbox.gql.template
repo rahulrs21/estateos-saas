@@ -56,7 +56,7 @@ query ListInboxMessages($organizationId: UUID!, $conversationId: UUID!, $limit: 
   conversation: inboxConversation(first: {where: {_and: [{organizationId: {eq: $organizationId}, id: {eq: $conversationId}}, {{V}}]}}) @check(expr: "this != null", message: "INBOX_CONVERSATION_NOT_FOUND") {id}
   messages: inboxMessages(where: {_and: [{organizationId: {eq: $organizationId}, conversationId: {eq: $conversationId}},
     {_or: [{createdAt: {lt: $cursorAt}}, {createdAt: {eq: $cursorAt}, id: {nin: $seenIds}}]}]}, orderBy: [{createdAt: DESC}, {id: ASC}], limit: $limit) {
-    id direction senderIdentity recipientIdentity messageType content contentRedactedAt contentHtmlBytes deliveryStatus providerStatusRaw providerTimestamp simulated createdAt author {displayName}
+    id direction senderIdentity recipientIdentity messageType content detailsJson contentRedactedAt contentHtmlBytes deliveryStatus providerStatusRaw providerTimestamp simulated createdAt author {displayName}
     attachments: inboxAttachments_on_message(where: {deletedAt: {isNull: true}}, orderBy: [{createdAt: ASC}], limit: 10) {id fileName mimeType sizeBytes scanStatus storagePath providerMediaId mediaFetchAttempts mediaError}
   }
 }

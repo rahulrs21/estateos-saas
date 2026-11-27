@@ -200,3 +200,34 @@ test("a conversation's ad is kept, a newer ad replaces it after 30 days, and a l
   assert.equal(linkSourceAction(conversation, {createdAt: "2026-11-01T10:00:00Z", source: {channel: "MANUAL", campaignKey: null}}), null);
   assert.equal(linkSourceAction({...conversation, channel: "WEBSITE"}, {createdAt: after, source: null}), null);
 });
+
+// Phase 7G.1: what a WhatsApp customer shares besides text and files.
+test("shared locations, contacts and reactions become bounded messages with checked details", async () => {
+  const {mapsUrl, parseContacts, parseLocation, readDetails, serializeDetails} = await import("../src/modules/inbox/message-details");
+  const shared = payload({contacts: [{wa_id: "447700900125", profile: {name: "Sara Example"}}], messages: [
+    {from: "447700900125", id: "wamid.LOC1", timestamp: seconds("2026-11-04T09:59:00Z"), type: "location", location: {latitude: 25.0805, longitude: 55.1403, name: "Marina Gate\u0000 Tower 1", address: "Dubai Marina, Dubai"}},
+    {from: "447700900125", id: "wamid.CON1", timestamp: seconds("2026-11-04T09:59:00Z"), type: "contacts", contacts: [{name: {formatted_name: "Omar Buyer", first_name: "Omar"}, phones: [{phone: "+971 50 123 4567", wa_id: "971501234567", type: "CELL"}], emails: [{email: "Omar@Example.test"}]}]},
+    {from: "447700900125", id: "wamid.REA1", timestamp: seconds("2026-11-04T09:59:00Z"), type: "reaction", reaction: {message_id: "wamid.X", emoji: "👍"}},
+  ]});
+  const [location, contact, reaction] = whatsappAdapter.parseWebhook(request(shared));
+  assert.ok(location.kind === "MESSAGE" && contact.kind === "MESSAGE" && reaction.kind === "MESSAGE");
+  assert.equal(location.messageType, "LOCATION");
+  assert.equal(location.text, "Location: Marina Gate Tower 1, Dubai Marina, Dubai", "control characters removed");
+  assert.deepEqual(readDetails(location.details), {kind: "location", latitude: 25.0805, longitude: 55.1403, name: "Marina Gate Tower 1", address: "Dubai Marina, Dubai"});
+  assert.equal(location.attachments.length, 0, "a location is not a file");
+  assert.equal(contact.messageType, "CONTACTS");
+  assert.equal(contact.text, "Contact: Omar Buyer (+971501234567)");
+  assert.deepEqual(readDetails(contact.details), {kind: "contacts", contacts: [{name: "Omar Buyer", phones: [{phone: "+971501234567", waId: "971501234567"}], emails: ["omar@example.test"]}]});
+  assert.equal(reaction.messageType, "TEXT");
+  assert.equal(reaction.text, "Reacted 👍 to a message");
+
+  assert.equal(parseLocation({latitude: 91, longitude: 55}), null, "coordinates must be in range");
+  assert.equal(parseLocation({latitude: "25.1", longitude: "abc"}), null);
+  assert.equal(parseContacts([{name: {}, phones: [{phone: "call me"}]}]), null, "a contact with neither a name nor a number is ignored");
+  assert.equal(parseContacts(Array.from({length: 9}, (_, index) => ({name: {formatted_name: `P${index}`}})))!.details.kind === "contacts" && (parseContacts(Array.from({length: 9}, (_, index) => ({name: {formatted_name: `P${index}`}})))!.details as {contacts: unknown[]}).contacts.length, 5, "at most 5 contacts");
+  assert.equal(readDetails('{"kind":"location","latitude":200,"longitude":1}'), null, "stored details are checked again");
+  assert.equal(readDetails('{"kind":"script","src":"x"}'), null);
+  assert.equal(readDetails("not json"), null);
+  assert.equal(serializeDetails({kind: "contacts", contacts: Array.from({length: 5}, () => ({name: "x".repeat(160), phones: [], emails: Array.from({length: 3}, () => `${"a".repeat(64)}@${"b".repeat(190)}`)}))}), null, "too large to store");
+  assert.equal(mapsUrl(25.0805, 55.1403), "https://www.google.com/maps/search/?api=1&query=25.0805%2C55.1403");
+});

@@ -130,7 +130,7 @@ query InboxRetentionCandidates($organizationId: UUID, $excluded: [UUID!], $befor
 # Removes message text and attachment references past retention, keeping a record that each message existed;
 # clears old previews, the text of finished replies and old Claude analyses. Files are deleted by the server first.
 mutation ApplyInboxRetention($organizationId: UUID!, $ids: [UUID!]!, $before: Timestamp!) @auth(level: NO_ACCESS) @transaction {
-  messages: inboxMessage_updateMany(where: {organizationId: {eq: $organizationId}, id: {in: $ids}, createdAt: {lt: $before}, contentRedactedAt: {isNull: true}}, data: {content: null, contentHtml: null, contentHtmlBytes: null, contentRedactedAt_expr: "request.time"})
+  messages: inboxMessage_updateMany(where: {organizationId: {eq: $organizationId}, id: {in: $ids}, createdAt: {lt: $before}, contentRedactedAt: {isNull: true}}, data: {content: null, contentHtml: null, contentHtmlBytes: null, detailsJson: null, contentRedactedAt_expr: "request.time"})
   attachments: inboxAttachment_updateMany(where: {organizationId: {eq: $organizationId}, messageId: {in: $ids}, deletedAt: {isNull: true}}, data: {storagePath: null, deletedAt_expr: "request.time"})
   previews: inboxConversation_updateMany(where: {organizationId: {eq: $organizationId}, lastMessageAt: {lt: $before}, lastMessagePreview: {isNull: false}}, data: {lastMessagePreview: null})
   replies: outboundMessageJob_updateMany(where: {organizationId: {eq: $organizationId}, updatedAt: {lt: $before}, stage: {in: [SENT, FAILED, CANCELLED]}, content: {ne: ""}}, data: {content: "", versionsJson: "[]", validationJson: null})

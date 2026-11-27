@@ -171,7 +171,7 @@ export async function getLeadDetailData(id: string, rawActivityPage: unknown = u
   };
 }
 
-export async function getLeadFormData(id?: string, options: {fromConversationId?: string} = {}): Promise<LeadFormData> {
+export async function getLeadFormData(id?: string, options: {fromConversationId?: string; prefill?: {fullName?: string; phone?: string}} = {}): Promise<LeadFormData> {
   const context = await requireActiveOrganizationRequest();
   // Authorize the record before fetching editor choices; no global lead lookup.
   const lead = id ? await accessibleLead(context, id) : null;
@@ -182,5 +182,9 @@ export async function getLeadFormData(id?: string, options: {fromConversationId?
   const formChoices = lead && context.membership.role === "MANAGER"
     ? { ...choices, canManageAssignments: false }
     : choices;
-  return { ...(lead ? retainCurrentAssignee(formChoices, lead) : formChoices), lead, fromConversation };
+  // Phase 7G.1: a shared contact's name and number (untrusted query values: bounded, the number kept only if phone-like).
+  const prefillName = options.prefill?.fullName?.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 160) || null;
+  const prefillPhone = options.prefill?.phone && /^\+?\d{4,20}$/.test(options.prefill.phone) ? options.prefill.phone : null;
+  const prefill = !id && (prefillName || prefillPhone) ? { fullName: prefillName, phone: prefillPhone } : null;
+  return { ...(lead ? retainCurrentAssignee(formChoices, lead) : formChoices), lead, fromConversation, prefill };
 }

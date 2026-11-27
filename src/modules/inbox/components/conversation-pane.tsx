@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft, Check, CheckCheck, CircleAlert, Clock3, Link2, Loader2, Maximize2, Megaphone, Minimize2, PanelRight, Paperclip, Plus, ShieldCheck, Sparkles, StickyNote, UserPlus, UserRound, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, CircleAlert, Clock3, ContactRound, Link2, Loader2, MapPin, Maximize2, Megaphone, Minimize2, PanelRight, Paperclip, Plus, ShieldCheck, Sparkles, StickyNote, UserPlus, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -19,9 +19,11 @@ import { AssistantPanel, Composer, ReplyTray, useReplies } from "./reply-panel";
 import { EmailMessage } from "./email-message";
 import { CHANNEL_TEXT_TONES, ContactAvatar, clockTime, dayLabel, inPlace, messageDay, openConversation, usePreference } from "./inbox-ui";
 import { MEDIA_ERROR_LABELS } from "../whatsapp-media";
+import { INLINE_TYPES } from "../attachments";
+import { mapsUrl, readDetails, type MessageDetails } from "../message-details";
 import { whatsappFailureReason } from "../whatsapp-errors";
 
-const PREVIEW_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const isType = (group: readonly string[], mimeType: string) => group.includes(mimeType);
 type Attachment = Message["attachments"][number];
 /** Why a file is not stored (yet): still downloading, the recorded reason, or not fetched at all. */
 function attachmentState(item: Attachment) {
@@ -48,19 +50,45 @@ function DeliveryMark({status, inverted}: {status: string; inverted: boolean}) {
   return <span className="inline-flex items-center gap-0.5" title={label}>{mark}<span className={mark ? "sr-only" : undefined}>{label}</span></span>;
 }
 
+/** Phase 7G.1: a shared location or contacts, as a card (text only; the map link carries the coordinates only). */
+function DetailsCard({details, inbound}: {details: MessageDetails; inbound: boolean}) {
+  const box = cn("space-y-1 rounded-lg px-2.5 py-2 text-xs", inbound ? "bg-muted" : "bg-black/10");
+  if (details.kind === "location") return <div className={box} data-testid="message-location">
+    <p className="flex items-center gap-1.5 font-medium"><MapPin aria-hidden className="size-3.5 shrink-0" />{details.name ?? "Shared location"}</p>
+    {details.address && <p dir="auto" className="opacity-80">{details.address}</p>}
+    <p className="tabular-nums opacity-70">{details.latitude}, {details.longitude}</p>
+    <a href={mapsUrl(details.latitude, details.longitude)} target="_blank" rel="noopener noreferrer" className="inline-block font-medium underline underline-offset-2">Open in Maps</a>
+  </div>;
+  return <ul className="space-y-1.5" data-testid="message-contacts">{details.contacts.map((contact, index) => <li key={index} className={box}>
+    <p className="flex items-center gap-1.5 font-medium"><ContactRound aria-hidden className="size-3.5 shrink-0" /><span dir="auto">{contact.name}</span></p>
+    {contact.phones.map(entry => <p key={entry.phone} className="tabular-nums opacity-80">{entry.phone}</p>)}
+    {contact.emails.map(address => <p key={address} className="opacity-80">{address}</p>)}
+    {contact.phones[0] && <Link href={`/leads/new?name=${encodeURIComponent(contact.name)}&phone=${encodeURIComponent(contact.phones[0].phone)}`} className="inline-block font-medium underline underline-offset-2">Create lead</Link>}
+  </li>)}</ul>;
+}
+
 /** A chat message (WhatsApp, website, simulator) as a bubble. Text only: messages are never rendered as HTML, so markup or scripts in them are inert. */
 function MessageBubble({message, conversationId}: {message: Message; conversationId: string}) {
   const inbound = message.direction === "INBOUND";
+  const details = message.contentRedactedAt ? null : readDetails(message.detailsJson);
   return <li className={cn("flex", inbound ? "justify-start" : "justify-end")} data-direction={message.direction}>
     <div className={cn("relative max-w-[min(85%,36rem)] space-y-1 px-3 py-2 text-sm shadow-xs",
       inbound ? "rounded-2xl rounded-tl-sm border bg-card text-card-foreground" : "rounded-2xl rounded-tr-sm bg-primary text-primary-foreground")}>
       {!inbound && message.author?.displayName && <p className="text-[11px] font-medium opacity-80">{message.author.displayName}</p>}
       {message.contentRedactedAt ? <p className="italic opacity-80">Removed under the company&apos;s retention period.</p>
+        : details ? <DetailsCard details={details} inbound={inbound} />
         : <p dir="auto" className="whitespace-pre-wrap wrap-break-word leading-relaxed">{message.content ?? `[${message.messageType.toLowerCase()} message]`}</p>}
       {message.attachments.length > 0 && <ul className={cn("space-y-1 text-xs", inbound ? "text-foreground" : "opacity-95")} aria-label="Attachments">{message.attachments.map(item => {
         const href = `/api/inbox/conversations/${conversationId}/attachments/${item.id}`;
         const state = attachmentState(item);
-        const preview = item.available && PREVIEW_TYPES.includes(item.mimeType);
+        const preview = item.available && isType(INLINE_TYPES.image, item.mimeType);
+        // Phase 7G.1: voice notes, audio and video play in the chat, through the same authorized, audited route.
+        const player = item.available ? isType(INLINE_TYPES.audio, item.mimeType) ? "audio" : isType(INLINE_TYPES.video, item.mimeType) ? "video" : null : null;
+        if (player) return <li key={item.id} className={cn("space-y-1 rounded-lg px-2 py-1.5", inbound ? "bg-muted" : "bg-black/10")} data-testid="inbox-attachment">
+          {player === "audio" ? <audio controls preload="none" src={`${href}?inline=1`} className="h-9 w-64 max-w-full" data-testid="attachment-audio" aria-label={item.fileName} />
+            : <video controls preload="none" src={`${href}?inline=1`} className="max-h-64 w-full max-w-xs rounded-md bg-black" data-testid="attachment-video" aria-label={item.fileName} />}
+          <a className="flex items-center gap-1 opacity-80 underline-offset-2 hover:underline" href={href} download><Paperclip aria-hidden className="size-3" />{item.fileName}{item.sizeBytes > 0 && <span className="opacity-75">({Math.max(1, Math.ceil(item.sizeBytes / 1024))} KB)</span>}</a>
+        </li>;
         return <li key={item.id} className={cn("rounded-lg", preview ? "overflow-hidden" : cn("flex flex-wrap items-center gap-1 px-2 py-1.5", inbound ? "bg-muted" : "bg-black/10"))} data-testid="inbox-attachment">
           {/* A checked photo is previewed through the same authorized, audited route; other files only download. */}
           {preview ? <a href={`${href}?inline=1`} target="_blank" rel="noopener noreferrer" className="block" aria-label={`Open ${item.fileName}`}>

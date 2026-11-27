@@ -18,7 +18,9 @@ async function CreateLeadContent({ searchParams }: { searchParams: SearchParams 
   const conversation = (await searchParams).conversation;
   let data: LeadFormData;
   try {
-    data = await getLeadFormData(undefined, { fromConversationId: typeof conversation === "string" && conversation ? conversation : undefined });
+    const query = await searchParams;
+    const text = (value: string | string[] | undefined) => typeof value === "string" && value ? value : undefined;
+    data = await getLeadFormData(undefined, { fromConversationId: typeof conversation === "string" && conversation ? conversation : undefined, prefill: { fullName: text(query.name), phone: text(query.phone) } });
   } catch (error) {
     if (error instanceof WorkspaceError) return <LeadsAccessState error={error} />;
     throw error;

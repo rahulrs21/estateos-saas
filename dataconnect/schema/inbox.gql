@@ -13,7 +13,7 @@ enum InboxConversationStatus { OPEN PENDING RESOLVED CLOSED }
 enum InboxPriority { LOW NORMAL HIGH URGENT }
 enum InboxDirection { INBOUND OUTBOUND }
 # UNKNOWN keeps a provider message type EstateOS does not handle yet, shown safely as text.
-enum InboxMessageType { TEXT IMAGE DOCUMENT AUDIO VIDEO TEMPLATE SYSTEM UNKNOWN }
+enum InboxMessageType { TEXT IMAGE DOCUMENT AUDIO VIDEO TEMPLATE SYSTEM UNKNOWN LOCATION CONTACTS }
 # SENT, DELIVERED and READ come only from provider acknowledgements and receipts, never from queueing.
 enum InboxDeliveryStatus { DRAFT QUEUED SENT DELIVERED READ FAILED RECEIVED UNKNOWN }
 enum InboxEventStatus { RECEIVED PROCESSED DUPLICATE FAILED DEAD }
@@ -214,6 +214,9 @@ type InboxMessage @table(key: ["organization", "id"])
   # Cleared by retention with the text.
   contentHtml: String @col(dataType: "varchar(400000)")
   contentHtmlBytes: Int
+  # Phase 7G.1 (docs/WHATSAPP_MEDIA_PLAN.md): a shared location or contacts, as bounded JSON validated on the server
+  # ({kind: "location" | "contacts", ...}); untrusted values, shown as text. Cleared by retention with the text.
+  detailsJson: String @col(dataType: "varchar(4000)")
   author: UserProfile
   simulated: Boolean! @default(value: false)
   createdAt: Timestamp! @default(expr: "request.time")

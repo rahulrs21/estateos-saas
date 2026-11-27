@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { parseAdReferral } from "../ad-referral";
+import { parseContacts, parseLocation, reactionText, serializeDetails } from "../message-details";
 import type { DeliveryStatus, MessageType } from "../model";
 import { WebhookPayloadError, type ChannelAdapter, type NormalizedEvent, type WebhookRequest } from "./types";
 
@@ -17,7 +18,9 @@ const MAX_EVENTS = 100;
 const FUTURE_SKEW_MS = 5 * 60_000;
 
 const STATUS: Record<string, DeliveryStatus> = {sent: "SENT", delivered: "DELIVERED", read: "READ", failed: "FAILED"};
-const TYPES: Record<string, MessageType> = {text: "TEXT", image: "IMAGE", document: "DOCUMENT", audio: "AUDIO", video: "VIDEO", sticker: "IMAGE", template: "TEMPLATE", button: "TEXT", interactive: "TEXT"};
+const TYPES: Record<string, MessageType> = {text: "TEXT", image: "IMAGE", document: "DOCUMENT", audio: "AUDIO", video: "VIDEO", sticker: "IMAGE", template: "TEMPLATE", button: "TEXT", interactive: "TEXT",
+  // Phase 7G.1: shared locations and contacts keep their details; a reaction is shown as text.
+  location: "LOCATION", contacts: "CONTACTS", reaction: "TEXT"};
 
 export function whatsappSignature(rawBody: string, appSecret: string) {
   return "sha256=" + createHmac("sha256", appSecret).update(rawBody, "utf8").digest("hex");
@@ -82,14 +85,21 @@ export const whatsappAdapter: ChannelAdapter = {
           const rawType = str(message.type, 30) ?? "unknown";
           const type = TYPES[rawType] ?? "UNKNOWN";
           const part = message[rawType] as Record<string, unknown> | undefined;
-          const text = rawType === "text" ? str((part as {body?: unknown} | undefined)?.body, 8000)
+          let details: string | null = null;
+          let text = rawType === "text" ? str((part as {body?: unknown} | undefined)?.body, 8000)
             : rawType === "button" ? str((part as {text?: unknown} | undefined)?.text, 8000)
             : str(part?.caption, 8000) ?? (type === "UNKNOWN" ? `[Unsupported WhatsApp message type: ${rawType}]` : null);
-          const mediaId = part && typeof part.id === "string" ? part.id.slice(0, 200) : null;
+          if (rawType === "location" || rawType === "contacts") {
+            const shared = rawType === "location" ? parseLocation(message.location) : parseContacts(message.contacts);
+            text = shared?.text ?? (rawType === "location" ? "[Location]" : "[Contact]");
+            details = serializeDetails(shared?.details);
+          } else if (rawType === "reaction") text = reactionText(message.reaction);
+          const mediaId = rawType !== "contacts" && part && typeof part.id === "string" ? part.id.slice(0, 200) : null;
           // Phase 7E.2: a message sent from a click-to-WhatsApp ad carries the ad.
           const referral = parseAdReferral(message.referral);
           events.push({
             ...(referral ? {referral} : {}),
+            ...(details ? {details} : {}),
             kind: "MESSAGE", accountId, channel: "WHATSAPP", externalMessageId: id, threadId: `wa:+${from.replace(/\D/g, "")}`, from: {phone: `+${from.replace(/\D/g, "")}`, name: names.get(from) ?? null},
             to: businessNumber, subject: null, messageType: type, text, timestamp: seconds(message.timestamp, request.now),
             attachments: mediaId ? [{providerMediaId: mediaId, mimeType: str(part?.mime_type, 100) ?? "application/octet-stream", fileName: str(part?.filename, 200), sizeBytes: null}] : [],

@@ -34,6 +34,8 @@ export interface InboundMessage {
   /** Email: the RFC Message-ID (Phase 7C), for In-Reply-To when replying. */
   internetMessageId?: string | null;
   simulated?: boolean;
+  /** WhatsApp (Phase 7G.1): a shared location or contacts, as bounded JSON. */
+  details?: string | null;
   /** WhatsApp (Phase 7E.2): the click-to-WhatsApp ad this message came from. */
   referral?: AdReferral | null;
   /** A known link (for example the website form's own new lead); otherwise the identity is matched. */
@@ -78,7 +80,7 @@ export async function ingestInbound(input: InboundMessage): Promise<IngestResult
   const content = clip(input.content, 8000);
   const message = {
     channelConnectionId: input.channelConnectionId, externalMessageId: input.externalMessageId.slice(0, 200), messageType: sdk.InboxMessageType[input.messageType], content,
-    senderIdentity: identity.value, recipientIdentity: clip(input.to, 254), providerTimestamp: input.providerTimestamp ?? null, internetMessageId: clip(input.internetMessageId, 300), preview: clip(preview(content || `[${input.messageType.toLowerCase()}]`), 200),
+    senderIdentity: identity.value, recipientIdentity: clip(input.to, 254), providerTimestamp: input.providerTimestamp ?? null, internetMessageId: clip(input.internetMessageId, 300), detailsJson: input.details && input.details.length <= 4000 ? input.details : null, preview: clip(preview(content || `[${input.messageType.toLowerCase()}]`), 200),
     simulated: Boolean(input.simulated), optedOut: isOptOutMessage(content),
   };
   // A real customer's opt-out also goes on the do-not-contact list (docs/INBOX_SECURITY.md#opt-out); simulated senders only flag their conversation.

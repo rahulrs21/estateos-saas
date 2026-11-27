@@ -8,6 +8,14 @@
 
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
+/** Types shown in the chat, not only downloaded (as EstateOS's content check found them, never the sender's claim). Phase 7G.1 adds players for voice notes, audio and video. */
+export const INLINE_TYPES = {
+  image: ["image/jpeg", "image/png", "image/webp"],
+  audio: ["audio/ogg", "audio/mpeg", "audio/mp4", "audio/wav"],
+  video: ["video/mp4"],
+} as const;
+export const isInlineType = (mimeType: string) => Object.values(INLINE_TYPES).some(types => (types as readonly string[]).includes(mimeType));
+
 export interface AttachmentType { mimeType: string; extension: string; label: string }
 
 const ZIP_OFFICE: Record<string, AttachmentType> = {

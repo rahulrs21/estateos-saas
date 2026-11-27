@@ -43,6 +43,8 @@ const WA_WABA = "2" + String(Date.now()).slice(-14);
 const graphMedia = new Map([
   ["MEDIA-PHOTO-1", {mime: "image/png", bytes: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64")}],
   ["MEDIA-DISGUISED-1", {mime: "application/pdf", bytes: Buffer.from("MZ\u0090\u0000\u0003 This program cannot be run in DOS mode")}],
+  // Phase 7G.1: a voice note (an Ogg container, as WhatsApp sends them).
+  ["MEDIA-VOICE-1", {mime: "audio/ogg; codecs=opus", bytes: Buffer.concat([Buffer.from("OggS"), Buffer.alloc(124, 1)])}],
 ]);
 const graphTemplates = [
   {id: "9001", name: "hello_world", language: "en_US", status: "APPROVED", category: "UTILITY", components: [{type: "BODY", text: "Hello World"}]},
@@ -1988,6 +1990,31 @@ try {
   assert.deepEqual({type: inlineHead.type, inline: inlineHead.disposition.startsWith("inline"), csp: inlineHead.csp, sniff: inlineHead.sniff}, {type: "image/png", inline: true, csp: "default-src 'none'; sandbox", sniff: "nosniff"});
   await screenshot("whatsapp-photo-preview");
   pass("Phase 7B.2b: photos and documents a customer sends on WhatsApp are downloaded after the webhook with the channel's token, checked by content and stored privately; a photo is previewed; a disguised program and expired media are never stored");
+
+  // Phase 7G.1: a voice note plays in the chat; a shared location and a contact show as cards (text only); Create lead starts from the contact.
+  const sharedWebhook = waBody({contacts: [{wa_id: "447700900703", profile: {name: "Fictional test recipient"}}], messages: [
+    {from: "447700900703", id: "wamid.E2E-VOICE-1", timestamp: nowSeconds(), type: "audio", audio: {id: "MEDIA-VOICE-1", mime_type: "audio/ogg; codecs=opus", voice: true}},
+    {from: "447700900703", id: "wamid.E2E-LOC-1", timestamp: nowSeconds(), type: "location", location: {latitude: 25.0805, longitude: 55.1403, name: "Marina Gate <b>Tower</b>", address: "Dubai Marina, Dubai"}},
+    {from: "447700900703", id: "wamid.E2E-CON-1", timestamp: nowSeconds(), type: "contacts", contacts: [{name: {formatted_name: "Omar Buyer"}, phones: [{phone: "+971 50 000 0001", wa_id: "971500000001"}]}]}]});
+  assert.equal((await deliver(sharedWebhook)).status, 200);
+  for (let attempt = 0; attempt < 60; attempt++) {
+    if ((await mediaRows()).some(row => row.mimeType === "audio/ogg" && row.storagePath)) break;
+    await pause(500);
+  }
+  assert.ok((await mediaRows()).some(row => row.mimeType === "audio/ogg" && row.storagePath), "the voice note is downloaded and stored like any file");
+  await load(`/inbox/${liveConversation}`, "Boolean(document.querySelector('[data-testid=attachment-audio]')) && Boolean(document.querySelector('[data-testid=message-location]')) && Boolean(document.querySelector('[data-testid=message-contacts]'))");
+  const audioUrl = await evaluate("document.querySelector('[data-testid=attachment-audio]').getAttribute('src')");
+  const audioHead = await evaluate(`fetch(${JSON.stringify(audioUrl)}).then(r=>({status: r.status, type: r.headers.get('content-type'), disposition: r.headers.get('content-disposition'), sniff: r.headers.get('x-content-type-options')}))`);
+  assert.deepEqual({status: audioHead.status, type: audioHead.type, inline: audioHead.disposition.startsWith("inline"), sniff: audioHead.sniff}, {status: 200, type: "audio/ogg", inline: true, sniff: "nosniff"}, "the voice note plays through the authorized route");
+  const locationCard = await evaluate("document.querySelector('[data-testid=message-location]').innerText");
+  assert.match(locationCard, /Marina Gate <b>Tower<\/b>[\s\S]*Dubai Marina, Dubai[\s\S]*25\.0805, 55\.1403/, "the place, its address and coordinates, as text");
+  assert.equal(await evaluate("Boolean(document.querySelector('[data-testid=message-location] b'))"), false, "markup from the sender is never rendered");
+  assert.equal(await evaluate("document.querySelector('[data-testid=message-location] a').href"), "https://www.google.com/maps/search/?api=1&query=25.0805%2C55.1403");
+  assert.match(await evaluate("document.querySelector('[data-testid=message-contacts]').innerText"), /Omar Buyer[\s\S]*\+971500000001/);
+  await evaluate("[...document.querySelectorAll('[data-testid=message-contacts] a')].find(a=>a.textContent.includes('Create lead')).click()");
+  await waitFor("location.pathname === '/leads/new' && Boolean(document.querySelector('form [name=fullName]'))", "the new lead form from a shared contact");
+  assert.deepEqual(await evaluate("({name: document.querySelector('form [name=fullName]').value, phone: document.querySelector('form [name=phone]').value})"), {name: "Omar Buyer", phone: "+971500000001"});
+  pass("Phase 7G.1: a voice note plays in the chat through the authorized route; a shared location (with Open in Maps) and a contact show as text cards; Create lead starts a lead from the contact");
 
   // ------------------------------------------------------------ 7B.1: refusals and the test-recipient rule
   const refusedStart = await post("/api/inbox/whatsapp/start", {connectionId: liveChannel.id, phone: "+44 7700 900704", template});

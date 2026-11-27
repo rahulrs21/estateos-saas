@@ -5,6 +5,7 @@ import { enforceRateLimit } from "@/lib/rate-limit/server";
 import type { Context } from "@/modules/communications/server/data";
 import { errorResponse, read, readContext, write as baseWrite } from "@/modules/communications/server/http";
 import { attachmentFile } from "./attachments";
+import { isInlineType } from "../attachments";
 import { checkConnection, createConnection, listConnections, setConnectionEnabled, setConnectionLiveSending, setConnectionSending, updateConnection } from "./connections";
 import { completeSignup, signupSetup } from "./embedded-signup";
 import { inboxWebhookHandshake, inboxWebhookResponse } from "./webhooks";
@@ -125,8 +126,8 @@ export async function attachmentResponse(request: Request, conversationId: strin
     const body = new Uint8Array(file.bytes.byteLength);
     body.set(file.bytes);
     const ascii = file.fileName.replace(/[^A-Za-z0-9._ -]/g, "_");
-    // Phase 7B.2: a photo may be shown inline as a preview. Its type is the one EstateOS's content check gave it, never the sender's.
-    const inline = new URL(request.url).searchParams.get("inline") === "1" && ["image/jpeg", "image/png", "image/webp"].includes(file.mimeType);
+    // A photo (7B.2), voice note, audio or video (7G.1) may be shown or played inline. Its type is the one EstateOS's content check gave it, never the sender's.
+    const inline = new URL(request.url).searchParams.get("inline") === "1" && isInlineType(file.mimeType);
     return new Response(body, {headers: {
       "Content-Type": file.mimeType, "Content-Length": String(body.byteLength), "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,

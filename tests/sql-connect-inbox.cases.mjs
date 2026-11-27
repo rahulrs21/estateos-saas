@@ -1069,4 +1069,23 @@ export function registerInboxCases({sdk, run, forbidden, dc}) {
       for (const leadId of archived) await run(sdk.archiveLead, "owner-a", {organizationId: f.orgA, leadId});
     });
   });
+
+  // Phase 7G.1 (docs/WHATSAPP_MEDIA_PLAN.md): a shared location or contacts keeps its details, shown with the conversation's visibility and cleared by retention.
+  describe("Phase 7G.1 shared locations and contacts", {concurrency: false}, () => {
+    const server = async (operation, variables) => (await operation(dc, variables)).data;
+    it("stores the details with the message, shows them to members who may see it, and retention clears them with the text", async () => {
+      const conversationId = randomUUID(), messageId = randomUUID();
+      const details = JSON.stringify({kind: "location", latitude: 25.0805, longitude: 55.1403, name: "Marina Gate Tower 1", address: "Dubai Marina"});
+      await server(sdk.createInboxConversationWithMessage, {organizationId: f.orgA, conversationId, channelConnectionId: null, channel: sdk.InboxChannel.WHATSAPP, externalThreadId: `thread-${randomUUID()}`,
+        customerIdentity: "+447700900691", customerName: "Shared location", subject: null, contactId: null, leadId: null, assignedMembershipId: null, messageId, externalMessageId: `wamid.${randomUUID()}`,
+        messageType: sdk.InboxMessageType.LOCATION, content: "Location: Marina Gate Tower 1, Dubai Marina", detailsJson: details, senderIdentity: "+447700900691", recipientIdentity: null,
+        providerTimestamp: null, preview: "Location: Marina Gate Tower 1", simulated: false, optedOut: false});
+      const shown = (await run(sdk.listInboxMessages, "owner-a", {organizationId: f.orgA, conversationId, limit: 30})).messages;
+      assert.deepEqual(shown.map((row) => [row.messageType, row.detailsJson]), [["LOCATION", details]]);
+      await assert.rejects(run(sdk.listInboxMessages, "agent-a", {organizationId: f.orgA, conversationId, limit: 30}), "agents never see the unassigned queue");
+      await server(sdk.applyInboxRetention, {organizationId: f.orgA, ids: [messageId], before: new Date(Date.now() + 60_000).toISOString()});
+      const [after] = (await run(sdk.listInboxMessages, "owner-a", {organizationId: f.orgA, conversationId, limit: 30})).messages;
+      assert.deepEqual({content: after.content, details: after.detailsJson, redacted: Boolean(after.contentRedactedAt)}, {content: null, details: null, redacted: true}, "retention removes the location too");
+    });
+  });
 }

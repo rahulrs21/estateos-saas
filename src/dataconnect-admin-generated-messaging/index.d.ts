@@ -218,6 +218,8 @@ export enum InboxMessageType {
   TEMPLATE = "TEMPLATE",
   SYSTEM = "SYSTEM",
   UNKNOWN = "UNKNOWN",
+  LOCATION = "LOCATION",
+  CONTACTS = "CONTACTS",
 }
 export enum InboxPriority {
   LOW = "LOW",
@@ -454,6 +456,7 @@ export interface AppendInboxMessageVariables {
   recipientIdentity?: string | null;
   providerTimestamp?: TimestampString | null;
   internetMessageId?: string | null;
+  detailsJson?: string | null;
   preview?: string | null;
   simulated: boolean;
   optedOut: boolean;
@@ -1330,6 +1333,7 @@ export interface CreateInboxConversationWithMessageVariables {
   recipientIdentity?: string | null;
   providerTimestamp?: TimestampString | null;
   internetMessageId?: string | null;
+  detailsJson?: string | null;
   preview?: string | null;
   simulated: boolean;
   optedOut: boolean;
@@ -3324,6 +3328,7 @@ export interface ListInboxMessagesData {
     recipientIdentity?: string | null;
     messageType: InboxMessageType;
     content?: string | null;
+    detailsJson?: string | null;
     contentRedactedAt?: TimestampString | null;
     contentHtmlBytes?: number | null;
     deliveryStatus: InboxDeliveryStatus;

@@ -27,6 +27,8 @@ export type NormalizedEvent =
       to: string | null; subject: string | null; messageType: MessageType; text: string | null; timestamp: string | null; attachments: NormalizedAttachment[];
       /** Email (Phase 7C): the RFC Message-ID, for threading replies. */
       internetMessageId?: string | null;
+      /** WhatsApp (Phase 7G.1): a shared location or contacts, as bounded JSON (message-details.ts). */
+      details?: string | null;
       /** WhatsApp (Phase 7E.2): the click-to-WhatsApp ad the customer came from. */
       referral?: AdReferral | null;
       /** A link decided before recording (a personal mailbox: the matched contact, assigned to the mailbox owner). */
