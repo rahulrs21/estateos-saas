@@ -172,7 +172,7 @@ Spend is checked in the database, like every other read.
    - ad → campaign names, which also fix WhatsApp ad campaigns.
 
    Until App Review, Meta lets the app read only the ad accounts of people with a role on the Meta app, so it can be built and tested on staging with your own ad account.
-3. **7F.3 App Review for `ads_read` Advanced Access:** the package (use case, screencast, reviewer steps), like [META_LEAD_ADS_APP_REVIEW.md](META_LEAD_ADS_APP_REVIEW.md). Then other agencies can connect their own ad accounts.
+3. **7F.3 App Review for `ads_read` Advanced Access** (package written: [META_ADS_READ_APP_REVIEW.md](META_ADS_READ_APP_REVIEW.md), to submit with the Lead Ads permissions): the package (use case, screencast, reviewer steps), like [META_LEAD_ADS_APP_REVIEW.md](META_LEAD_ADS_APP_REVIEW.md). Then other agencies can connect their own ad accounts.
 4. **7F.4 Google Ads and TikTok spend (optional, decision 2):** read-only API syncs, once their access is approved. Until then, their spend is entered by hand.
 5. **7F.5 Staging:** the deploy and a live test with manual spend and your Meta ad account.
 

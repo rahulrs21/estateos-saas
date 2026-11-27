@@ -14,6 +14,7 @@ export default function PrivacyPage() {
       <li>Leads from Facebook and Instagram lead ads on Pages the agency connects (Meta Lead Ads): the answers the person gave in the form, and which form, ad and campaign it came from.</li>
       <li>For WhatsApp messages sent from a Facebook or Instagram ad: which ad it was (its ID, headline and text, and Meta&apos;s click ID), as Meta includes it with the message.</li>
       <li>Where an enquiry came from: the campaign (advertising tags such as UTM tags, and the click identifiers ad platforms add to links), the page, and the referring website, without its search terms or any address details after the page. EstateOS forms and pages remember this in the visitor&apos;s own browser storage for 30 days, so an enquiry sent later keeps its campaign; it is sent only with an enquiry, and to no one else.</li>
+      <li>For Meta ad accounts an agency connects (read-only): the account&apos;s name, currency and time zone, and its campaigns&apos; daily spend, impressions and clicks, with campaign, ad set and ad names. These are business figures, not data about the people who saw the ads. The access Facebook gives is stored encrypted until the agency disconnects the account.</li>
       <li>Technical data needed to run the service securely, such as logs and rate-limit records.</li>
     </ul></section>
     <section><h2>How we use it</h2><ul>
